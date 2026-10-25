@@ -331,7 +331,7 @@ async function refresh(e) {
   try { await fetch("/refresh", { method: "POST", credentials: "same-origin", redirect: "manual" }); } catch {}
 }
 
-// ── Live: the server says when something changed (GET /events, Server-Sent Events); the page then
+// ── Live: the server says when something changed (GET /events, Server-Sent Events; hosted, the /live socket); the page then
 // fetches itself and swaps its data-live regions in place. Nothing reloads, nothing is lost:
 // open rows stay open, and a region with unsent typing or an open confirm is left alone until it's done.
 // A page that moved (an agent run that became its session) or was still gathering swaps whole.
@@ -634,27 +634,65 @@ if (document.querySelector("img[data-av]") && !framed) setTimeout(() => avatarCh
 
 let lastEvent = Date.now();
 let es = null;
-function reconnect() { es?.close(); connect(); }
+function onChange(c) {
+  lastEvent = Date.now();
+  const s = $("synced");
+  if (c.synced && s) { s.textContent = "Synced " + clock(c.synced); $("live-dot")?.classList.remove("sync"); }
+  if (c.notes && c.notes.length) notify(c.notes);
+  const topics = c.topics || [];
+  dockChange(topics);
+  avatarChange(c);
+  if (topics.some((t) => wanted.includes(t)) || document.querySelector("[data-pending]")) later(topics.some((t) => t.startsWith("run:")) ? 120 : 300);
+}
+// Hosted (H5): the hub's socket, which lets the hub sleep while the tab is idle. Its keep-alive
+// "ping" is answered "pong" without waking it. A socket that never opens three times running: /events.
+const WS = document.querySelector('meta[name="u-live"]')?.content === "ws" && "WebSocket" in window;
+let ws = null, wsFails = 0, wsOff = false, wsEver = false;
+function socket() {
+  let opened = false, ping = 0;
+  const s = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/live");
+  ws = s;
+  s.addEventListener("open", () => {
+    opened = true;
+    wsFails = 0;
+    $("live-dot")?.classList.add("on");
+    lastEvent = Date.now();
+    // Back after a drop: what changed meanwhile.
+    if (wsEver) later(50);
+    wsEver = true;
+    ping = setInterval(() => { try { s.send("ping"); } catch {} }, 30000);
+  });
+  s.addEventListener("message", (e) => {
+    lastEvent = Date.now();
+    if (e.data === "pong") return;
+    let c = {};
+    try { c = JSON.parse(e.data); } catch {}
+    onChange(c);
+  });
+  s.addEventListener("close", () => {
+    clearInterval(ping);
+    $("live-dot")?.classList.remove("on");
+    if (ws === s) ws = null;
+    if (!opened && ++wsFails >= 3) { wsOff = true; connect(); return; }
+    setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(wsFails, 5)) + Math.random() * 500);
+  });
+}
+// The socket carries no notes, so a change of notifying keeps it; a stream reopens with ?notify=1.
+function reconnect() { if (WS && !wsOff) return; es?.close(); connect(); }
 function connect() {
+  if (WS && !wsOff) { if (!ws) socket(); return; }
   es = new EventSource(canNotify() ? "/events?notify=1" : "/events");
   es.addEventListener("open", () => { $("live-dot")?.classList.add("on"); lastEvent = Date.now(); });
   es.addEventListener("error", () => $("live-dot")?.classList.remove("on"));
   es.addEventListener("ping", () => { lastEvent = Date.now(); });
   es.addEventListener("change", (e) => {
-    lastEvent = Date.now();
     let c = {};
     try { c = JSON.parse(e.data); } catch {}
-    const s = $("synced");
-    if (c.synced && s) { s.textContent = "Synced " + clock(c.synced); $("live-dot")?.classList.remove("sync"); }
-    if (c.notes && c.notes.length) notify(c.notes);
-    const topics = c.topics || [];
-    dockChange(topics);
-    avatarChange(c);
-    if (topics.some((t) => wanted.includes(t)) || document.querySelector("[data-pending]")) later(topics.some((t) => t.startsWith("run:")) ? 120 : 300);
+    onChange(c);
   });
 }
 // A dock's frame has none of its own: its page passes changes on (dockChange, below).
-if ("EventSource" in window && !framed) {
+if ((WS || "EventSource" in window) && !framed) {
   // After the page has loaded, so a held-open stream never keeps it "loading".
   if (document.readyState === "complete") setTimeout(connect, 200);
   else addEventListener("load", () => setTimeout(connect, 200));

@@ -2,9 +2,11 @@
  * Dovre hosted's Durable Object (PLAN D16, WP-N2, WP-H9), one per instance (named "hub"), for
  * what must outlive a request and be one thing across the Worker's isolates:
  *
- * - The hub: open pages' event streams (GET /events, the same "change"/"ping" events as the local
- *   server's /events, src/app.ts) and publish (POST /publish), so packs' publish() and Bino's
- *   replies swap pages hosted as they do locally.
+ * - The hub: open pages' live sockets (GET /live, H5) and event streams (GET /events, the same
+ *   "change"/"ping" events as the local server's /events, src/app.ts), and publish (POST /publish),
+ *   so packs' publish() and Bino's replies swap pages hosted as they do locally. A page's socket is
+ *   taken with the hibernation API and its keep-alive answered by the runtime, so an idle open tab
+ *   lets the object sleep; a stream keeps it awake, so it's only the fallback.
  * - Bino: its conversations in this object's SQLite (the last few, as data/bino.json holds them
  *   locally) and its answers, through Cloudflare AI Gateway (src/packs/core/assistant/bino/gateway.ts). A Worker gives
  *   up background work 30 s after it answers; an answer here takes as long as the model does.
@@ -57,6 +59,10 @@ export type MacView = { online: boolean; seen?: number; watching: boolean; state
 export type MacAnswer = { ok: true; value: unknown } | { ok: false; error: string; offline?: boolean };
 
 const MAC = "mac";
+/** Pages' live sockets (H5). */
+const PAGE = "page";
+/** The most pages that may watch at once (tabs and phones): past it, the newest is turned away and falls back to /events. */
+const MAX_PAGES = 64;
 /** How long a call waits for the Mac (start a turn, read a session). */
 const CALL_MS = 10_000;
 /** The most a state may weigh here (sessions' and runs' metadata). */
@@ -169,6 +175,7 @@ export class DovreHub {
   async fetch(req: Request): Promise<Response> {
     const path = new URL(req.url).pathname;
     if (path === "/bridge") return this.upgrade(req);
+    if (path === "/live") return this.liveUpgrade(req);
     if (req.method === "GET" && path === "/mac") return json(this.mac());
     if (req.method === "POST" && path === "/mac/call") {
       const b = (await req.json().catch(() => ({}))) as { call?: unknown; ms?: unknown };
@@ -182,7 +189,7 @@ export class DovreHub {
       const topics = Array.isArray(b.topics) ? b.topics.filter((t): t is string => typeof t === "string" && t.length <= 120).slice(0, 20) : [];
       const synced = typeof b.synced === "number" && Number.isFinite(b.synced) ? b.synced : undefined;
       if (topics.length || synced) this.publish(topics, synced);
-      return json({ ok: true, listeners: this.subs.size });
+      return json({ ok: true, listeners: this.subs.size + this.pages().length });
     }
     if (req.method === "POST" && path === "/bino") return json(await this.binoOp((await req.json()) as BinoOp));
     return new Response("Not found", { status: 404 });
@@ -196,23 +203,56 @@ export class DovreHub {
 
   /** `synced`: a gather finished then (the sidebar's "Synced", as the local server's events say it). */
   publish(topics: string[], synced?: number): void {
-    const line = enc.encode(`event: change\ndata: ${JSON.stringify({ topics, at: Date.now(), synced })}\n\n`);
+    const data = JSON.stringify({ topics, at: Date.now(), synced });
+    const line = enc.encode(`event: change\ndata: ${data}\n\n`);
     for (const w of this.subs) this.write(w, line);
+    for (const ws of this.pages()) {
+      try {
+        ws.send(data);
+      } catch {}
+    }
+  }
+
+  /** Pages' live sockets, open now. */
+  private pages(): HubSocket[] {
+    return this.state.getWebSockets?.(PAGE) ?? [];
+  }
+  /** Whether a page is watching: a socket or a stream. */
+  private watching(): boolean {
+    return this.subs.size > 0 || this.pages().length > 0;
+  }
+
+  private liveUpgrade(req: Request): Response {
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !this.state.acceptWebSocket) return new Response("Not found", { status: 404 });
+    const Pair = (globalThis as { WebSocketPair?: new () => Record<0 | 1, HubSocket> }).WebSocketPair;
+    if (!Pair || this.pages().length >= MAX_PAGES) return new Response("Not found", { status: 404 });
+    const pair = new Pair();
+    this.acceptPage(pair[1]);
+    return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
+  }
+
+  /** Takes a page's end of a new socket: it only listens (and pings, which the runtime answers). */
+  acceptPage(ws: HubSocket): void {
+    const first = !this.watching();
+    this.state.acceptWebSocket!(ws, [PAGE]);
+    ws.serializeAttachment({ page: true });
+    if (first) void this.tell({ t: "watch", on: true });
   }
 
   private write(w: WritableStreamDefaultWriter<Uint8Array>, chunk: Uint8Array) {
     w.write(chunk).catch(() => {
       const had = this.subs.delete(w);
       w.abort().catch(() => {});
-      if (had && !this.subs.size) void this.tell({ t: "watch", on: false });
+      if (had && !this.watching()) void this.tell({ t: "watch", on: false });
     });
   }
 
   private events(): Response {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const w = writable.getWriter();
+    const first = !this.watching();
     this.subs.add(w);
-    if (this.subs.size === 1) void this.tell({ t: "watch", on: true });
+    if (first) void this.tell({ t: "watch", on: true });
     this.write(w, enc.encode(": open\n\n"));
     const ping = enc.encode("event: ping\ndata: \n\n");
     const t = setInterval(() => {
@@ -303,7 +343,7 @@ export class DovreHub {
       state = v ? (JSON.parse(v) as MacState) : undefined;
     } catch {}
     const seen = Number(this.kept("seen")) || undefined;
-    return { online: !!this.live(), seen, watching: this.subs.size > 0, state };
+    return { online: !!this.live(), seen, watching: this.watching(), state };
   }
 
   private upgrade(req: Request): Response {
@@ -370,7 +410,9 @@ export class DovreHub {
       } catch {}
       return;
     }
-    const a = ws.deserializeAttachment() as Attached | null;
+    const a = ws.deserializeAttachment() as (Attached & { page?: undefined }) | { page: true } | null;
+    // A page says nothing but its keep-alive.
+    if (a?.page) return;
     if (!a || typeof message !== "string") return ws.close(4002, "bad frame");
     if (!a.key) {
       let h: unknown;
@@ -384,7 +426,7 @@ export class DovreHub {
       // One Mac: a new hello takes over from the socket before it.
       for (const other of this.state.getWebSockets?.(MAC) ?? []) if (other !== ws) other.close(4000, "replaced");
       this.keep("seen", String(this.now()));
-      await this.send(ws, { t: "welcome", watching: this.subs.size > 0 });
+      await this.send(ws, { t: "welcome", watching: this.watching() });
       this.publish(["mac", "snapshot"]);
       return;
     }
@@ -409,7 +451,12 @@ export class DovreHub {
     try {
       ws.close(1000, "bye");
     } catch {}
-    const a = ws.deserializeAttachment() as Attached | null;
+    const a = ws.deserializeAttachment() as (Attached & { page?: undefined }) | { page: true } | null;
+    if (a?.page) {
+      // The runtime may still count the closing socket.
+      if (!this.subs.size && !this.pages().some((p) => p !== ws)) void this.tell({ t: "watch", on: false });
+      return;
+    }
     if (!a?.key) return;
     this.keep("seen", String(this.now()));
     // A call waiting on this socket won't be answered now.

@@ -382,3 +382,54 @@ test("bridge: the Mac's desk through the hub: started, watched, answered; what t
     bridge.stop();
   }
 });
+
+test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, and says nothing back", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const m = await mac(hub);
+  await m.got();
+
+  const page = new FakeSocket();
+  hub.acceptPage(page);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(await m.got(), [{ t: "watch", on: true }]);
+  assert.equal(hub.mac().watching, true);
+  assert.deepEqual(state.getWebSockets!("mac").length, 1, "a page isn't taken for the Mac");
+
+  // A second page: the Mac already knew.
+  const other = new FakeSocket();
+  hub.acceptPage(other);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(await m.got(), []);
+
+  await m.say({ t: "topics", topics: ["run:s1"] });
+  hub.publish(["snapshot"], 42);
+  const got = page.out.map((l) => JSON.parse(l) as { topics: string[]; synced?: number });
+  assert.deepEqual(got.map((c) => c.topics), [["run:s1"], ["snapshot"]]);
+  assert.equal(got[1]!.synced, 42);
+  assert.equal(other.out.length, 2);
+
+  // What a page sends is ignored (its keep-alive is the runtime's), and never closes it.
+  await hub.webSocketMessage(page, "hello?");
+  await hub.webSocketMessage(page, "ping");
+  assert.equal(page.closed, undefined);
+  assert.deepEqual(page.out.slice(2), ["pong"]);
+
+  // The last page goes: the Mac stops streaming.
+  other.close();
+  await hub.webSocketClose(other);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(await m.got(), []);
+  page.close();
+  await hub.webSocketClose(page);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(await m.got(), [{ t: "watch", on: false }]);
+  assert.equal(hub.mac().watching, false);
+  assert.equal(hub.mac().online, true, "a page closing isn't the Mac going offline");
+});
+
+test("hub: /live without an upgrade is a 404", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never });
+  assert.equal((await hub.fetch(new Request("https://hub.internal/live"))).status, 404);
+});
