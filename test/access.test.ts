@@ -147,6 +147,60 @@ test("hosted config needs both team and audience; the operator comes from the ve
   assert.equal(operatorOf({ service: "abc.access" }, "default-user"), "default-user");
 });
 
+test("another issuer (AUTH_ISSUER): it wins over Access, must be https, and a half-set one lets nobody in", () => {
+  const iss = "https://login.example.dev";
+  assert.deepEqual(accessConfigOf({ AUTH_ISSUER: iss, AUTH_AUD: "t-alice" }), { issuer: iss, jwksUrl: `${iss}/.well-known/jwks.json`, aud: "t-alice", allowedEmails: [] });
+  assert.equal(accessConfigOf({ AUTH_ISSUER: `${iss}/`, AUTH_AUD: "a" })?.jwksUrl, `${iss}/.well-known/jwks.json`);
+  assert.equal(accessConfigOf({ AUTH_ISSUER: iss, AUTH_AUD: "a", AUTH_JWKS_URL: "https://keys.example.dev/k.json" })?.jwksUrl, "https://keys.example.dev/k.json");
+  const access = { CF_ACCESS_TEAM: "t", CF_ACCESS_AUD: "a" };
+  assert.equal(accessConfigOf({ ...access, AUTH_ISSUER: iss, AUTH_AUD: "x" })?.issuer, iss, "wins over Access");
+  for (const [why, env] of [
+    ["no audience", { AUTH_ISSUER: iss }],
+    ["http issuer", { AUTH_ISSUER: "http://login.example.dev", AUTH_AUD: "a" }],
+    ["not a URL", { AUTH_ISSUER: "login.example.dev", AUTH_AUD: "a" }],
+    ["http keys", { AUTH_ISSUER: iss, AUTH_AUD: "a", AUTH_JWKS_URL: "http://keys.example.dev/k.json" }],
+    ["credentials in the URL", { AUTH_ISSUER: "https://u:p@login.example.dev", AUTH_AUD: "a" }],
+  ] as const) assert.equal(accessConfigOf({ ...access, ...env }), undefined, `${why}: shut, never Access instead`);
+});
+
+test("another issuer: its keys from its JWKS URL, and only its own iss and aud", async () => {
+  const iss = "https://login.example.dev";
+  const k = await keyPair("d1");
+  const { fetchFn, calls } = certsServer(() => [k.jwk]);
+  const verify = createAccessVerifier({ issuer: iss, jwksUrl: `${iss}/.well-known/jwks.json`, aud: "t-alice", allowedEmails: ["me@example.dev"], fetchFn, now });
+  const mine = { iss, aud: "t-alice", email: "me@example.dev", exp: NOW + 60 };
+  assert.deepEqual(await verify(req(await k.sign(mine))), { email: "me@example.dev" });
+  assert.equal(calls[0], `${iss}/.well-known/jwks.json`);
+  assert.equal(await verify(req(await k.sign({ ...mine, aud: "t-bob" }))), undefined, "another tenant's token");
+  assert.equal(await verify(req(await k.sign({ ...mine, iss: ISS }))), undefined, "Access's issuer");
+  assert.equal(await verify(req(await k.sign({ ...mine, iss: `${iss}/` }))), undefined, "iss must match exactly");
+  assert.equal(await verify(req(await k.sign({ ...mine, email: "else@example.dev" }))), undefined, "not on the list");
+  assert.equal(await createAccessVerifier({ aud: "a", fetchFn })(req(await k.sign(mine))), undefined, "neither team nor issuer: nobody");
+});
+
+test("worker: with AUTH_ISSUER set, the setup gate opens and its tokens get in", async () => {
+  resetHostedApp();
+  const iss = "https://login.example.dev";
+  const k = await keyPair("d1");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${iss}/.well-known/jwks.json` ? new Response(JSON.stringify({ keys: [k.jwk] })) : realFetch(url)) as typeof fetch;
+  try {
+    const bindings = { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", AUTH_ISSUER: iss, AUTH_AUD: "t-alice", ALLOWED_EMAILS: "me@example.dev" };
+    const jwt = await k.sign({ iss, aud: "t-alice", email: "me@example.dev", exp: Math.floor(Date.now() / 1000) + 60 });
+    assert.equal((await worker.fetch(new Request("https://alice.example.dev/todo", { headers: { "cf-access-jwt-assertion": jwt } }), bindings)).status, 200);
+    resetHostedApp();
+    const res = await worker.fetch(new Request("https://alice.example.dev/todo"), bindings);
+    assert.notEqual(res.status, 200, "no token: refused");
+    assert.doesNotMatch(await res.text(), /isn't set up yet/, "but it is set up");
+    resetHostedApp();
+    assert.match(await (await worker.fetch(new Request("https://alice.example.dev/todo"), { ...bindings, AUTH_ISSUER: "http://login.example.dev" })).text(), /isn't set up yet/, "an http issuer: the setup page");
+  } finally {
+    globalThis.fetch = realFetch;
+    resetHostedApp();
+  }
+});
+
 function mockD1(): D1 {
   return {
     prepare: () => ({
