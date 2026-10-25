@@ -433,3 +433,18 @@ test("hub: /live without an upgrade is a 404", async () => {
   const hub = new DovreHub(state, { DB: undefined as never });
   assert.equal((await hub.fetch(new Request("https://hub.internal/live"))).status, 404);
 });
+
+test("hub: /export dumps every table it keeps, not Cloudflare's or SQLite's own", async () => {
+  const { state, db } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never });
+  db.exec("CREATE TABLE bino_convs (id TEXT PRIMARY KEY, at INTEGER NOT NULL, conv TEXT NOT NULL)");
+  db.exec(`INSERT INTO bino_convs VALUES ('c1', 5, '{"id":"c1"}')`);
+  db.exec("CREATE TABLE mac (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+  db.exec("INSERT INTO mac VALUES ('seen', '7')");
+  db.exec("CREATE TABLE _cf_KV (key TEXT, value BLOB)");
+  db.exec("CREATE TABLE cfish (x)");
+  const res = await hub.fetch(new Request("https://hub.internal/export"));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { tables: { bino_convs: [{ id: "c1", at: 5, conv: '{"id":"c1"}' }], cfish: [], mac: [{ k: "seen", v: "7" }] } });
+  assert.equal((await hub.fetch(new Request("https://hub.internal/export", { method: "POST" }))).status, 404, "GET only");
+});
