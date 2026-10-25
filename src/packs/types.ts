@@ -148,7 +148,6 @@ export type PrSlotArg = { repo: string; number: number; branch: string; title: s
  * (`arg`) and what goes in (`out`). A pack answers from memory, never awaited; one that throws
  * fills nothing. One pack reaching another's page goes through a slot, never an import.
  */
-
 export type SlotMap = {
   /** /agents/new with a checkout picked: a field under "Runs in" (atlas: the component picker). */
   "agents.new": { arg: { repo: string }; out: Html | "" };
