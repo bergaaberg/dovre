@@ -166,7 +166,7 @@ test("Issues (/tracker): hostile issue text and links stay inert; /issues goes t
   });
   await pack.refresh!(testContext({ env: { ISSUES_TRIAGE_REPOS: "ACME/a" } }));
   const { get } = signedIn(snapshot(), {}, { packs: [pack], packEnv: { ISSUES_TRIAGE_REPOS: "ACME/a" } });
-  for (const path of ["/tracker", "/tracker?set=mentioned", "/tracker?set=authored", "/tracker?set=triage", `/tracker?set=${encodeURIComponent(H)}`]) {
+  for (const path of ["/", `/search?q=${encodeURIComponent("<")}`, "/tracker", "/tracker?set=mentioned", "/tracker?set=authored", "/tracker?set=triage", `/tracker?set=${encodeURIComponent(H)}`]) {
     const res = await get(path);
     assert.equal(res.status, 200, path);
     const out = await res.text();

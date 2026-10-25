@@ -125,3 +125,48 @@ test("a failed read says so and keeps what it had", async () => {
   assert.match(out, /Issues didn.t load from github.com: GHE graphql: 502/);
   assert.match(out, /dovre#33/);
 });
+
+test("Today (#39): the first read learns what's there; a new assignment or mention is a need, briefed and rung once", async () => {
+  let t = NOW;
+  let current = sets({ mentioned: [issue({ number: 5 })] });
+  const published: string[][] = [];
+  const pack = issuesPack({
+    forge: { host: "github.com", can: ["issues"], viewer: async () => ({ login: "kari", name: null }), issues: async () => current },
+    owners: () => "bergaaberg",
+    now: () => t,
+  });
+  const ctx = testContext({ publish: (x) => published.push(x) });
+  assert.deepEqual(pack.glance!(ctx), []);
+  await pack.refresh!(ctx);
+  assert.deepEqual(pack.glance!(ctx), [{ label: "Issues", value: 1 }]);
+  assert.deepEqual(pack.needs!(ctx), [], "what was there at start isn't news");
+  assert.deepEqual(pack.brief!(ctx), []);
+
+  t += 60_000;
+  current = sets({ assigned: [issue(), issue({ number: 40, title: "Verified row actions" })], mentioned: [issue({ number: 5 }), issue({ number: 40 })] });
+  await pack.refresh!(ctx);
+  const needs = pack.needs!(ctx);
+  assert.deepEqual(needs.map((n) => [n.key, n.ring]), [["issues:assigned:bergaaberg/dovre#40", "assigned"], ["issues:mentioned:bergaaberg/dovre#40", "mentioned"]]);
+  assert.match(needs[0]!.title, /^Assigned to you: bergaaberg\/dovre#40 Verified row actions/);
+  assert.deepEqual(pack.brief!(ctx), [{ text: "1 new issue for you", href: "/tracker" }]);
+
+  t += 60_000;
+  await pack.refresh!(ctx);
+  assert.equal(pack.needs!(ctx)[0]!.at, NOW + 60_000, "the key and time stay while it's the same");
+
+  t += 25 * 3_600_000;
+  assert.deepEqual(pack.needs!(ctx), [], "new for a day");
+});
+
+test("Today (#39): Bino gets counts and repo#n only; Ctrl K finds each issue once", async () => {
+  const s = setup({ env: { ISSUES_TRIAGE_REPOS: "bergaaberg/dovre" }, issues: async () => sets({ assigned: [issue({ title: "Secret customer words" })], mentioned: [issue({ title: "Secret customer words" })], triage: [issue({ number: 2 })] }) });
+  await s.pack.refresh!(s.ctx);
+  const line = s.pack.bino!(s.ctx);
+  assert.equal(line, "Open issues: 1 assigned to me, 1 mentioning me, 0 opened by me, 1 waiting for triage.");
+  assert.doesNotMatch(line, /Secret/);
+  const finds = s.pack.finds!(s.ctx);
+  assert.equal(finds.length, 1);
+  assert.equal(finds[0]!.sub, "bergaaberg/dovre#33 · assigned");
+  assert.match(s.pack.about!(s.ctx, "/tracker") ?? "", /1 assigned/);
+  assert.equal(s.pack.about!(s.ctx, "/elsewhere"), undefined);
+});
