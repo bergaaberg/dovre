@@ -13,6 +13,7 @@ import { SCRIPT_PATH } from "./ui/app.js.ts";
 import type { AskView } from "./relay/asks.ts";
 import type { DockView } from "./packs/registry.ts";
 import { Confirm, icon } from "./ui/kit.ts";
+import { currentTz } from "./when.ts";
 
 /**
  * Folded or not, before the page draws (no flash): a tiny blocking script, since the page's policy
@@ -36,7 +37,7 @@ export const NAV_GROUPS = ["", "Code", "Agents", "Plan", "Ops"];
 const groupRank = (g: string) => (NAV_GROUPS.includes(g) ? NAV_GROUPS.indexOf(g) : NAV_GROUPS.length);
 
 /** What every page knows: who's signed in, the sections (app.ts), when the data was gathered. */
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Teams is on: the dock at the bottom right, with how many chats have something new. */ teams?: { unread: number; mentions: number }; /** Bino can answer: its pane beside Teams'. */ bino?: boolean; /** The packs' docks after Teams' (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string } };
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Teams is on: the dock at the bottom right, with how many chats have something new. */ teams?: { unread: number; mentions: number }; /** Bino can answer: its pane beside Teams'. */ bino?: boolean; /** The packs' docks after Teams' (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no" };
 
 /**
  * Teams, docked at the bottom right of every page but Teams' own. Without script it's a link to
@@ -93,7 +94,7 @@ function docksOf(frame: Frame, current: string): Html | "" {
   return bino || teams || packs.length ? html`<div class="docks">${bino ? binoDock(frame.face?.({ place: "dock" }) ?? "") : ""}${teams ? teamsDock(frame.teams!) : ""}${packs.map(packDock)}</div>` : "";
 }
 
-const hm = (at: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit" }).format(at);
+const hm = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
 
 /** The mountain mark: a ridge, a summit cairn, the sun (src/ui/splash.ts). */
 export { MARK } from "./ui/splash.ts";
@@ -208,6 +209,7 @@ ${(frame.styles ?? []).map((href) => html`<link rel="stylesheet" href="${href}">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0e1922">
+<meta name="u-tz" content="${frame.tz ?? currentTz()}">
 <script src="${SIDE_PATH}"></script>
 <script type="module" src="${SCRIPT_PATH}"></script>
 ${head}
@@ -221,7 +223,7 @@ ${SPRITE}
 <div class="side-sheet" id="side-sheet">
 <div class="side-nav" id="side-nav"><div data-live id="nav">${groups.map(([g, items]) => html`<div class="${`side-g${items.every((p) => tabs.has(p)) ? " all-tabs" : ""}`}">${g ? html`<p class="side-h">${g}</p>` : ""}${items.map(link)}</div>`)}</div></div>
 <div class="side-foot">
-<form method="post" action="/refresh" id="refresh"><button type="submit" class="side-sync" title="Refresh: gather everything now">${icon("refresh")}<span class="lbl"><span class="live-dot" id="live-dot" aria-hidden="true"></span><span id="synced">${frame.syncing ? "Syncing…" : frame.syncedAt ? `Synced ${hm(frame.syncedAt)}` : "Not synced yet"}</span></span></button></form>
+<form method="post" action="/refresh" id="refresh"><button type="submit" class="side-sync" title="Refresh: gather everything now">${icon("refresh")}<span class="lbl"><span class="live-dot" id="live-dot" aria-hidden="true"></span><span id="synced">${frame.syncing ? "Syncing…" : frame.syncedAt ? `Synced ${hm(frame.syncedAt, frame.tz)}` : "Not synced yet"}</span></span></button></form>
 ${you.map(link)}
 <button type="button" class="side-fold" id="side-fold" aria-pressed="false" title="Fold the menu">${icon("fold")}<span class="lbl">Fold</span></button>
 </div>

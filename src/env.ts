@@ -24,6 +24,10 @@ export type Env = {
   U_DB?: string;
   /** Which forge the code lives on: "github" (the default) or a pack's (src/forge/types.ts). */
   FORGE?: string;
+  /** Timezone name for dates and greetings (e.g. UTC, America/New_York). */
+  TZ_NAME?: string;
+  /** Greeting language: "en" (default) or "no". */
+  GREETING?: string;
   /** The one host (github.com or a GHE): REPO_HOST, or GHE_HOST. */
   GHE_HOST: string;
   /** The first owner (src/owners.ts): short names belong here, and org-only things are asked of it. */
@@ -178,6 +182,8 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     GHE_ORG: owners[0] ?? "",
     OWNERS: owners.join(","),
     GITHUB_USER: v.GITHUB_USER,
+    TZ_NAME: v.TZ_NAME,
+    GREETING: v.GREETING,
     // GHE_TOKEN first; a GITHUB_TOKEN (often in the shell already) is a github.com token, never sent to another host.
     GHE_TOKEN: v.GHE_TOKEN || (/^(api\.)?github\.com$/i.test(host.trim()) ? v.GITHUB_TOKEN : undefined) || ghToken(host),
     GITHUB_TOKEN: v.GITHUB_TOKEN,

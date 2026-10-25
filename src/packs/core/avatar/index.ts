@@ -15,6 +15,7 @@ import { signalsFrom } from "./feed.ts";
 import { type AvatarData, createAvatarData } from "./stats.ts";
 import { AVATAR_CSS, AVATAR_PAGE_CSS } from "./style.ts";
 import { avatarDock, avatarHero, avatarMini, avatarRoutes } from "./view.ts";
+import { currentTz } from "../../../when.ts";
 
 export type AvatarDeps = {
   /** What works for me and waits on me across the packs, and whether anything has it at work (Bino answering). */
@@ -26,7 +27,7 @@ export type AvatarDeps = {
   now?: () => number;
 };
 
-const osloHour = (t: number) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", hour: "2-digit", hourCycle: "h23" }).format(t));
+const hourInZone = (t: number, tz = currentTz()) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(t));
 
 export function avatarPack(o: AvatarDeps): Pack {
   const clock = o.now ?? Date.now;
@@ -43,7 +44,7 @@ export function avatarPack(o: AvatarDeps): Pack {
     signals: () => {
       const s = ctx?.snapshot();
       if (!s) return undefined;
-      return signalsFrom({ snap: s, needs: needsOf(s), feeds: o.feeds(), doing, mergedToday: 0, hour: osloHour(clock()) });
+      return signalsFrom({ snap: s, needs: needsOf(s), feeds: o.feeds(), doing, mergedToday: 0, hour: hourInZone(clock()) });
     },
   });
   return {

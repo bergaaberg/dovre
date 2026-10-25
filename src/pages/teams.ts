@@ -12,6 +12,7 @@ import type { Finding, StoredChat, StoredMessage } from "../teams/store.ts";
 import type { TeamsView } from "../teams/teams.ts";
 import { type Child, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
 import { Ago, Link } from "./parts.ts";
+import { currentTz } from "../when.ts";
 
 const st = (tone: "ok" | "warn" | "bad" | "acc" | "mute", text: unknown) => html`<span class="st ${tone}"><i></i>${text}</span>`;
 
@@ -138,13 +139,13 @@ function withLinks(text: string): Html {
   return html`${parts}`;
 }
 
-const clock = (at: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit" }).format(Date.parse(at));
-const dayOf = (at: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Oslo" }).format(Date.parse(at));
-function dayLabel(at: string, now: number): string {
-  const d = dayOf(at);
-  if (d === dayOf(new Date(now).toISOString())) return "Today";
-  if (d === dayOf(new Date(now - 86_400_000).toISOString())) return "Yesterday";
-  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", weekday: "long", day: "numeric", month: "long", ...(d.slice(0, 4) === dayOf(new Date(now).toISOString()).slice(0, 4) ? {} : { year: "numeric" }) }).format(Date.parse(at));
+const clock = (at: string, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(Date.parse(at));
+const dayOf = (at: string, tz = currentTz()) => new Intl.DateTimeFormat("sv-SE", { timeZone: tz }).format(Date.parse(at));
+function dayLabel(at: string, now: number, tz = currentTz()): string {
+  const d = dayOf(at, tz);
+  if (d === dayOf(new Date(now).toISOString(), tz)) return "Today";
+  if (d === dayOf(new Date(now - 86_400_000).toISOString(), tz)) return "Yesterday";
+  return new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long", ...(d.slice(0, 4) === dayOf(new Date(now).toISOString(), tz).slice(0, 4) ? {} : { year: "numeric" }) }).format(Date.parse(at));
 }
 
 /** Reactions shown small; the picker opens from a ☺ (shown on hover), and a pick is the second click. */

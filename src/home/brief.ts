@@ -1,37 +1,48 @@
 /**
- * The briefing at the top of Today: a greeting by the hour in Oslo, the date line, one or two
+ * The briefing at the top of Today: a greeting by the hour, the date line, one or two
  * sentences on what needs me (the packs add theirs), and two numbers for the last 24 hours (the
  * packs add theirs). Pure: snapshot in, parts out.
  */
 import type { Bit } from "../packs/types.ts";
 import type { Snapshot } from "../gather.ts";
 
+import { currentGreeting, currentTz, type GreetingLang } from "../when.ts";
+
+export type GreetingOpts = { tz?: string; lang?: GreetingLang };
 export type { Bit };
 
-const TZ = "Europe/Oslo";
 const DAY = 86400e3;
 const WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
 export const word = (n: number) => (n < WORDS.length ? WORDS[n]! : String(n));
 export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export function greeting(at: number): string {
-  const h = Number(new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", hourCycle: "h23" }).format(at));
-  if (h < 5) return "God natt";
-  if (h < 10) return "God morgen";
-  if (h < 17) return "God dag";
-  if (h < 23) return "God kveld";
-  return "God natt";
+export function greeting(at: number, opts: GreetingOpts = {}): string {
+  const tz = opts.tz ?? currentTz();
+  const lang = opts.lang ?? currentGreeting();
+  const h = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
+  if (lang === "no") {
+    if (h < 5) return "God natt";
+    if (h < 10) return "God morgen";
+    if (h < 17) return "God dag";
+    if (h < 23) return "God kveld";
+    return "God natt";
+  }
+  if (h < 5) return "Good night";
+  if (h < 10) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 23) return "Good evening";
+  return "Good night";
 }
 
 /** "Thursday 22 October · Week 43 · 09:42" */
-export function eyebrow(at: number): string {
-  const day = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" }).format(at).replace(",", "");
-  const time = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(at);
-  return `${day} · Week ${isoWeek(at)} · ${time}`;
+export function eyebrow(at: number, tz: string = currentTz()): string {
+  const day = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }).format(at).replace(",", "");
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
+  return `${day} · Week ${isoWeek(at, tz)} · ${time}`;
 }
 
-export function isoWeek(at: number): number {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(at).split("-").map(Number);
+export function isoWeek(at: number, tz: string = currentTz()): number {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(at).split("-").map(Number);
   const d = new Date(Date.UTC(parts[0]!, parts[1]! - 1, parts[2]!));
   const dow = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dow);

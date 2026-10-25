@@ -100,6 +100,8 @@ export const GENERAL: Field[] = [
   { key: "FORM_REPOS", label: "Repos with their own issue forms", hint: "comma-separated", kind: "text", pattern: LIST, placeholder: "forms-repo" },
   { key: "AGENT_HARNESSES", label: "Agent CLIs to use", hint: "comma-separated, of claude, omp, copilot, agy, codex; empty: every one found here. Bino and summaries pick their own", kind: "text", pattern: /^(claude|omp|copilot|agy|codex)(\s*,\s*(claude|omp|copilot|agy|codex))*$/i, placeholder: "claude, codex" },
   { key: "SORTING_REPOS", label: "Repos where work is planned", hint: "comma-separated; dev tasks go under their issues", kind: "text", pattern: LIST, placeholder: "intake" },
+  { key: "GREETING", label: "Greeting language", hint: "en (Good morning) or no (God morgen)", kind: "choice", choices: [{ value: "en", label: "English" }, { value: "no", label: "Norsk" }] },
+  { key: "TZ_NAME", label: "Timezone", hint: "An IANA timezone name (e.g. Europe/Oslo); invalid falls back to UTC", kind: "text", pattern: /^[A-Za-z0-9_+\/-]{1,64}$/, placeholder: "UTC" },
 ];
 
 export const paneOf = (id: PaneId) => PANES.find((p) => p.id === id)!;

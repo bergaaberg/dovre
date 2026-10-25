@@ -7,13 +7,14 @@
  * - Each need has a key that stays the same while it's in the same state; a key not seen before
  *   is news. The first look after starting only learns what's there.
  * - Bundling: the first note shows at once; what follows within the window comes as one summary.
- * - Quiet hours (optional): outside Mon–Fri 08–17 in Oslo nothing rings; the pages still show it.
+ * - Quiet hours (optional): outside Mon–Fri 08–17 nothing rings; the pages still show it.
  * - Delivery: open pages show notes (the Edge app window turns them into Windows notifications)
  *   when I'm not looking at Dovre; with no page open, a Windows toast from here.
  */
 import { spawn } from "node:child_process";
 import type { D1 } from "./db.ts";
 import type { Need, RingKind } from "./home/needs.ts";
+import { currentTz } from "./when.ts";
 
 /** `kind`: a RingKind, a pack's ring kind, or "bundle" / "test". */
 export type Note = { title: string; body?: string; url?: string; tag: string; kind?: string };
@@ -100,9 +101,9 @@ export function createNotifier() {
   };
 }
 
-/** Mon–Fri 08:00–17:00 in Oslo. */
-export function workHours(at: number): boolean {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(at);
+/** Mon–Fri 08:00–17:00 in the instance timezone. */
+export function workHours(at: number, tz = currentTz()): boolean {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(at);
   const day = parts.find((p) => p.type === "weekday")!.value;
   const hour = Number(parts.find((p) => p.type === "hour")!.value);
   return !["Sat", "Sun"].includes(day) && hour >= 8 && hour < 17;

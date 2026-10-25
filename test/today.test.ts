@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { eyebrow, greeting, isoWeek, lede, glance } from "../src/home/brief.ts";
+import { resetWhen, setWhen, validZone } from "../src/when.ts";
 import { horizon, nightIn, peaks, rng, sunTimes } from "../src/home/horizon.ts";
 import { createHub, signature, throttle } from "../src/live.ts";
 import { type Need, needsOf } from "../src/home/needs.ts";
@@ -14,13 +15,50 @@ import { homePage, prStats } from "../src/pages/home.ts";
 const at = (iso: string) => Date.parse(iso);
 const text = (bits: ReturnType<typeof lede>) => bits.map((s) => s.map((b) => (typeof b === "string" ? b : b.code ? `\`${b.code}\`` : b.text)).join("")).join(" ");
 
-test("the greeting follows the hour in Oslo", () => {
-  assert.equal(greeting(at("2026-10-22T07:42:00Z")), "God morgen"); // 09:42 CEST
-  assert.equal(greeting(at("2026-10-22T12:00:00Z")), "God dag");
-  assert.equal(greeting(at("2026-10-22T18:30:00Z")), "God kveld");
-  assert.equal(greeting(at("2026-10-22T23:30:00Z")), "God natt");
-  assert.equal(eyebrow(at("2026-10-22T07:42:00Z")), "Thursday 22 October · Week 43 · 09:42");
-  assert.equal(isoWeek(at("2027-01-01T12:00:00Z")), 53);
+test("the greeting follows the hour in both English and Norwegian across all bands", () => {
+  // English (default)
+  assert.equal(greeting(at("2026-10-22T03:00:00Z"), { tz: "UTC" }), "Good night");
+  assert.equal(greeting(at("2026-10-22T07:00:00Z"), { tz: "UTC" }), "Good morning");
+  assert.equal(greeting(at("2026-10-22T12:00:00Z"), { tz: "UTC" }), "Good afternoon");
+  assert.equal(greeting(at("2026-10-22T18:00:00Z"), { tz: "UTC" }), "Good evening");
+  assert.equal(greeting(at("2026-10-22T23:30:00Z"), { tz: "UTC" }), "Good night");
+
+  // Norwegian
+  assert.equal(greeting(at("2026-10-22T03:00:00Z"), { tz: "UTC", lang: "no" }), "God natt");
+  assert.equal(greeting(at("2026-10-22T07:00:00Z"), { tz: "UTC", lang: "no" }), "God morgen");
+  assert.equal(greeting(at("2026-10-22T12:00:00Z"), { tz: "UTC", lang: "no" }), "God dag");
+  assert.equal(greeting(at("2026-10-22T18:00:00Z"), { tz: "UTC", lang: "no" }), "God kveld");
+  assert.equal(greeting(at("2026-10-22T23:30:00Z"), { tz: "UTC", lang: "no" }), "God natt");
+});
+
+test("a non-Oslo zone moves the hour and date line, and an invalid zone falls back to UTC", () => {
+  const t = at("2026-10-22T07:42:00Z");
+  // Same instant, different local hours
+  assert.equal(greeting(t, { tz: "America/New_York" }), "Good night"); // 03:42 EDT
+  assert.match(eyebrow(t, "America/New_York"), /03:42/);
+
+  assert.equal(greeting(t, { tz: "UTC" }), "Good morning"); // 07:42 UTC
+  assert.match(eyebrow(t, "UTC"), /07:42/);
+
+  assert.equal(greeting(t, { tz: "Europe/Oslo" }), "Good morning"); // 09:42 CEST
+  assert.match(eyebrow(t, "Europe/Oslo"), /09:42/);
+
+  assert.equal(greeting(t, { tz: "Asia/Tokyo" }), "Good afternoon"); // 16:42 JST
+  assert.match(eyebrow(t, "Asia/Tokyo"), /16:42/);
+
+  assert.equal(isoWeek(at("2027-01-01T12:00:00Z"), "UTC"), 53);
+
+  // Invalid timezone falls back to UTC with a log line
+  const logs: string[] = [];
+  const fallback = validZone("Mars/Olympus_Mons", (m) => logs.push(m));
+  assert.equal(fallback, "UTC");
+  assert.match(logs[0] ?? "", /invalid timezone "Mars\/Olympus_Mons", falling back to UTC/);
+
+  // Setting the default through setWhen works and resets cleanly
+  setWhen({ tz: "Europe/Oslo", lang: "no" });
+  assert.equal(greeting(t), "God morgen");
+  resetWhen();
+  assert.equal(greeting(t), "Good morning");
 });
 
 test("the briefing says what needs me in sentences, the packs' between deploys and red builds, and leaves out leftover deploys", () => {
@@ -165,8 +203,8 @@ test("the ringer: the first note at once, the rest of a burst as one; quiet hour
   r.ring([note("d")]);
   assert.equal(delivered.length, 2);
   assert.equal(r.log()[0]!.held, "quiet");
-  assert.equal(workHours(at("2026-10-22T14:59:00Z")), true);
-  assert.equal(workHours(at("2026-10-22T15:01:00Z")), false, "17:01 in Oslo");
+  assert.equal(workHours(at("2026-10-22T14:59:00Z"), "Europe/Oslo"), true);
+  assert.equal(workHours(at("2026-10-22T15:01:00Z"), "Europe/Oslo"), false, "17:01 in Oslo");
 });
 
 test("a stored policy is read safely: missing or odd values fall back, numbers are kept in range", () => {

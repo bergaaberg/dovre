@@ -11,16 +11,17 @@
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { currentTz } from "../when.ts";
 
 export type SpendDay = { day: string; claude: number; omp: number; sessions: number };
 
-/** The day (YYYY-MM-DD) in Oslo of a time. */
-export const osloDay = (at: number | string | Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Oslo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+/** The day (YYYY-MM-DD) in the instance timezone of a time. */
+export const osloDay = (at: number | string | Date, tz = currentTz()) => new Intl.DateTimeFormat("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
 
 const TS = /"timestamp":"(\d{4}-\d\d-\d\dT[\d:.]+Z)"/;
 
 /** One Claude Code transcript's lines: cost per day. */
-export function claudeCostDays(lines: Iterable<string>): Map<string, number> {
+export function claudeCostDays(lines: Iterable<string>, tz = currentTz()): Map<string, number> {
   const out = new Map<string, number>();
   let last: string | undefined;
   let prev = 0;
@@ -38,7 +39,7 @@ export function claudeCostDays(lines: Iterable<string>): Map<string, number> {
       const rise = total >= prev ? total - prev : total;
       prev = total;
       const when = last ?? (Number.isFinite(j.startTime) ? new Date(j.startTime).toISOString() : undefined);
-      if (rise > 0 && when) out.set(osloDay(when), (out.get(osloDay(when)) ?? 0) + rise);
+      if (rise > 0 && when) out.set(osloDay(when, tz), (out.get(osloDay(when, tz)) ?? 0) + rise);
       continue;
     }
     const i = line.lastIndexOf('"timestamp":"');
@@ -51,7 +52,7 @@ export function claudeCostDays(lines: Iterable<string>): Map<string, number> {
 }
 
 /** One omp session's lines: cost per day, from each assistant message's usage. */
-export function ompCostDays(lines: Iterable<string>): Map<string, number> {
+export function ompCostDays(lines: Iterable<string>, tz = currentTz()): Map<string, number> {
   const out = new Map<string, number>();
   for (const line of lines) {
     if (!line.includes('"role":"assistant"') || !line.includes('"usage"')) continue;
@@ -64,7 +65,7 @@ export function ompCostDays(lines: Iterable<string>): Map<string, number> {
     const cost = Number(j.message?.usage?.cost?.total);
     const at = j.timestamp ?? j.message?.timestamp;
     if (!Number.isFinite(cost) || cost <= 0 || !at) continue;
-    const d = osloDay(at);
+    const d = osloDay(at, tz);
     out.set(d, (out.get(d) ?? 0) + cost);
   }
   return out;

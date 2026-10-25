@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Ran } from "../spawn.ts";
 import type { FindingKind, StoredMessage } from "./store.ts";
+import { currentTz } from "../when.ts";
 
 export const MAX_FINDINGS = 20;
 /** One batch: at most this many messages, and this much text. */
@@ -117,7 +118,7 @@ export function batchesOf(msgs: StoredMessage[], chats: Map<string, { name: stri
 }
 
 function promptOf(chats: string, o: { me: string; today: string }): string {
-  return `You read a person's Microsoft Teams chats and list what they need to act on. The person is ${o.me || "the user"}, shown as "You" in the chats. Today is ${o.today} (Europe/Oslo).
+  return `You read a person's Microsoft Teams chats and list what they need to act on. The person is ${o.me || "the user"}, shown as "You" in the chats. Today is ${o.today} (${currentTz()}).
 
 Find only things for the person themselves:
 - todo: something they were asked to do, or said they would do.

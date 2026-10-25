@@ -341,7 +341,8 @@ const topicsOf = (doc) => {
   return (m ? m.content : "snapshot").split(/\s+/).filter(Boolean);
 };
 let wanted = topicsOf(document);
-const clock = (at) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit" }).format(at);
+const tzOf = (doc) => doc.querySelector('meta[name="u-tz"]')?.getAttribute("content") || "UTC";
+const clock = (at) => new Intl.DateTimeFormat("en-GB", { timeZone: tzOf(document), hour: "2-digit", minute: "2-digit" }).format(at);
 
 function busyWith(region) {
   if (region.contains(document.activeElement) && typing(document.activeElement)) return true;

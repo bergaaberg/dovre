@@ -68,7 +68,7 @@ export function createDemoWorker(opts: { version?: string } = {}) {
   const build = (): App => {
     if (app) return app;
     const DB = emptyD1();
-    const env: Env = { DB, GHE_HOST: DEMO_HOST, GHE_ORG: DEMO_ORG, OWNERS: DEMO_ORG, GITHUB_USER: DEMO_LOGIN, CODE_DIR: "/code", CLAUDE_DIR: "/claude", IS_HOSTED: "1" };
+    const env: Env = { DB, GHE_HOST: DEMO_HOST, GHE_ORG: DEMO_ORG, OWNERS: DEMO_ORG, GITHUB_USER: DEMO_LOGIN, CODE_DIR: "/code", CLAUDE_DIR: "/claude", IS_HOSTED: "1", GREETING: "en", TZ_NAME: "UTC" };
     const gatherer = demoGatherer();
     const sessions = demoSessions();
     const here = fixedHere(sessions);

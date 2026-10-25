@@ -19,6 +19,8 @@ test("demo: every hosted page draws over the made-up data, with the bar saying s
   const today = await (await w.fetch(at("/"))).text();
   assert.match(today, /Retry card payments once/);
   assert.match(today, new RegExp(DEMO_HOST.replace(/\./g, "\\.")));
+  assert.match(today, /<h1 id="greet">Good (morning|afternoon|evening|night),/);
+  assert.doesNotMatch(today, /<h1 id="greet">God (morgen|dag|kveld|natt),/);
 });
 
 test("demo: every write is refused before the app, and the bridge isn't there", async () => {

@@ -20,9 +20,9 @@ import { type Column, type Layout, type Slot, placeCards } from "../layout.ts";
 import type { Bit, Glance, Lane, RefRule, TodayCard } from "../packs/types.ts";
 import { type AgentOf, changelogBlock, prAnchor, prBody, type SummaryOf } from "./inline.ts";
 import { Ago, Chev, harnessTag, Link, mineByKey, safeUrl, st, trunc } from "./parts.ts";
+import { currentGreeting, currentTz } from "../when.ts";
 
-const TZ = "Europe/Oslo";
-const hm = (at: number | string) => new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(typeof at === "string" ? Date.parse(at) : at);
+const hm = (at: number | string, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(typeof at === "string" ? Date.parse(at) : at);
 const short = (repo: string, org: string) => repo.replace(`${org}/`, "");
 
 
@@ -147,7 +147,7 @@ function feedRow(e: FeedEvent, org: string, now: number) {
   return html`<li class="fe${e.mine ? " mine" : ""}" data-key="${e.key}"><time>${now - e.at < 20 * 3600e3 ? hm(e.at) : day(e.at)}</time><div class="fe-b"><p class="fe-l">${st(e.tone, "")}<strong>${e.who}</strong> ${e.what}${e.title ? html` ${e.href ? Link(e.href, trunc(e.title, 110)) : trunc(e.title, 110)}` : ""}</p><p class="fe-m">${e.repo ? short(e.repo, org) : ""}${e.repo ? " · " : ""}${Ago(e.at)}</p></div></li>`;
 }
 
-const day = (at: number) => new Intl.DateTimeFormat("en-GB", { timeZone: TZ, weekday: "short" }).format(at);
+const day = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short" }).format(at);
 
 /**
  * `apps`: the packs' events (src/home/feed.ts packFeedOf). With `only`, the panel is those alone
@@ -213,13 +213,15 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
     ...(opts.packs?.cards ?? []).map((c) => ({ id: c.id, label: c.id, col: c.column === "left" ? ("left" as const) : ("right" as const), order: own(c.id) ? Math.max(0, Math.min(999, c.order ?? 100)) : packOrder(c.order), render: c.render })),
   ];
   const cols = placeCards(slots, opts.cards);
+  const tz = frame.tz ?? currentTz();
+  const lang = frame.greeting ?? currentGreeting();
   const body = html`<div data-live id="today">
 <section class="brief" aria-labelledby="greet">
-<div><p class="eyebrow">${eyebrow(now)}</p><h1 id="greet">${greeting(now)}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence)}`)}</p></div>
+<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence)}`)}</p></div>
 ${opts.avatar ?? ""}<dl class="glance" aria-label="Last 24 hours"><div><dt>Merged</dt><dd>${g.merged}</dd></div><div><dt>Released</dt><dd>${g.released}</dd></div>${apps.glance.slice(0, 4).map((x) => html`<div><dt>${x.label}</dt><dd>${x.value}</dd></div>`)}</dl>
 </section>
 <section class="horizon" aria-labelledby="hz-h"><div class="hz-head"><h2 id="hz-h">The last 24 hours</h2>${legend(apps.lanes)}</div>
-${horizon({ moves: s.moves.ok ? s.moves.value : [], deploys: s.deploys.ok ? s.deploys.value : [], lanes: apps.lanes, me: s.login, now })}
+${horizon({ moves: s.moves.ok ? s.moves.value : [], deploys: s.deploys.ok ? s.deploys.value : [], lanes: apps.lanes, me: s.login, now, tz })}
 </section>
 <div class="today-main">
 <div class="today-cols">
