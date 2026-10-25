@@ -1,6 +1,7 @@
 /** Runs Dovre: open the database, find out who I am on GHE, keep the view fresh, bind to localhost. */
 import { ownersIn } from "./owners.ts";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -45,7 +46,7 @@ import { codexHarness } from "./agents/codex.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
 import { createHub, startRefresher, throttle } from "./live.ts";
-import { createDocker, readPipe } from "./packs/core/docker/docker.ts";
+import { createDocker, findEngineSocket, readPipe } from "./packs/core/docker/docker.ts";
 import { createEngine } from "./packs/core/docker/engine.ts";
 import { dockerPack } from "./packs/core/docker/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
@@ -190,7 +191,9 @@ mkdirSync(copilotDir, { recursive: true });
 const copilot = omp ? ompCrawler({ omp: { bin: omp.bin, pre: omp.pre }, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: copilotDir, run: runOff, who: { name: "Copilot through omp", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" } }) : undefined;
 found.copilot = copilot ? (copilot.why() ?? "ready") : undefined;
 const copilotAsk = copilotTool ? copilotCli(copilotTool, { model: env.COPILOT_CLI_MODEL, log: (l) => console.log(l) }) : undefined;
-const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, pwsh: !!pwsh, db: !!dbTool, terminals: existsSync(hostExe), windows: process.platform === "win32" });
+const isWin = process.platform === "win32";
+const dockerSocket = isWin ? undefined : findEngineSocket(env, homedir());
+const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, pwsh: !!pwsh, db: !!dbTool, terminals: existsSync(hostExe), windows: isWin, dockerSocket });
 const on = runningOf(panes);
 console.log(`agents: ${found.harnesses.join(", ") || "none found"}; panes off: ${Object.entries(on).filter(([, v]) => !v).map(([k]) => k).join(", ") || "none"}`);
 // Bino, the assistant: talks through BINO_VIA / ASSISTANT_VIA (Claude Code's CLI by default), remembers with memlet when it's installed.
@@ -348,10 +351,11 @@ const corePacks = [
     ? [
         dockerPack((ctx) =>
           createDocker({
-            engine: createEngine(() => env.DOCKER_PIPE || readPipe(join(dataDir, "docker-pipe"))),
+            engine: createEngine(() => (isWin ? env.DOCKER_PIPE || readPipe(join(dataDir, "docker-pipe")) : findEngineSocket(env, homedir()))),
             pipeFile: join(dataDir, "docker-pipe"),
             offFile: join(dataDir, "docker-off"),
-            pipe: env.DOCKER_PIPE,
+            pipe: isWin ? env.DOCKER_PIPE : () => findEngineSocket(env, homedir()),
+            ours: isWin && !env.DOCKER_PIPE,
             onChange: throttle(() => ctx.publish(["docker"]), 500),
             log: (kind, target, ok, error) => logAction(ctx.db, { kind, target, ok, error }),
           }),
