@@ -173,9 +173,8 @@ test("Today's header and horizon are responsive: wide screen brief has readable 
   ];
   const out = String(await horizon({ moves, deploys: [], lanes: [], me: "alice", now }));
   const peakMatch = out.match(/<g class="hz-peak">[\s\S]*?<text x="([^"]+)" y="[^"]+" text-anchor="end">/);
-  if (peakMatch) {
-    const tx = Number(peakMatch[1]);
-    assert.ok(tx <= W - 72, `peak label tx (${tx}) leaves clearance from W (${W})`);
-  }
+  assert.ok(peakMatch, "a peak near now is drawn end-anchored");
+  const tx = Number(peakMatch[1]);
+  assert.ok(tx <= W - 72, `peak label tx (${tx}) leaves clearance from W (${W})`);
 });
 
