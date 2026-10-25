@@ -44,6 +44,17 @@ what the core promises, and what is still open.
 
 Both put core's packs first, then the instance's, and hand the list to `activePacks`.
 
+### The public demo entry (`createDemoWorker`)
+
+The public demo (such as `demo.dovre.dev`; it may move to its own repository, #14) uses a third, safety-bounded entry point: `createDemoWorker({ packs, fixtures, allowWrite, layout, version })` exported from `dovre/demo/worker.ts`.
+
+It keeps core's safety boundary intact:
+- **No real bindings:** reads zero secrets, no real D1, no Cloudflare Access, and no bridge (`/bridge` returns 404).
+- **In-memory empty D1:** every database read returns empty results; every write is dropped.
+- **Isolated open door:** bypasses authentication only for the visitor identity (`visitor@demo.dovre.dev`); this bypass cannot be enabled in a real instance by any setting.
+- **Strict write boundary:** every non-`GET`/`HEAD` request returns a 403 read-only page except asking the scripted Bino, and what `allowWrite(req)` permits.
+- **Pluggable demo packs and fixtures:** the calling demo repo supplies fictional fixtures and demo-specific packs, while core ensures isolation.
+
 ## A pack's life
 
 1. **Declared.** A pack is an object: a `manifest` and the hooks it answers. A packs module's

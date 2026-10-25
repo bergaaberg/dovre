@@ -2,7 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDemoWorker } from "../src/demo/worker.ts";
-import { DEMO_HOST, demoHistory } from "../src/demo/fixtures.ts";
+import { DEMO_HOST, demoHistory, demoSnapshot } from "../src/demo/fixtures.ts";
+import { type Pack, PACK_API } from "../src/packs/types.ts";
+import { html } from "hono/html";
 import { northwindShopPack } from "../src/demo/shop/index.ts";
 import { demoShopData, type ShopData } from "../src/demo/shop/data.ts";
 import { weekOf, weeksOf } from "../src/stats/history.ts";
@@ -394,4 +396,74 @@ test("real instances: brand logo still links to /", async () => {
   const text = await res.text();
   assert.match(text, /<a class="brand" href="\/"/);
   assert.doesNotMatch(text, /This is a demo\./);
+});
+
+test("demo: createDemoWorker accepts custom fixtures, packs, allowWrite, and layout", async () => {
+  const customPack: Pack = {
+    manifest: {
+      api: PACK_API,
+      id: "kiosk",
+      name: "Kiosk",
+      description: "A test pack",
+      domain: "work",
+      paths: ["kiosk"],
+    },
+    today: () => [
+      {
+        id: "orders",
+        column: "left",
+        order: 10,
+        render: html`<section class="card"><h2>Kiosk Orders</h2><p>3 tickets waiting</p></section>`,
+      },
+    ],
+    routes(app, ctx) {
+      app.get("/kiosk", (c) => ctx.page(c, { title: "Kiosk · Dovre", current: "/kiosk", body: html`<p>Kiosk Storefront</p>` }));
+      app.post("/kiosk/refund", (c) => c.text("Refunded"));
+    },
+  };
+
+  const w = createDemoWorker({
+    version: "1.0.0",
+    fixtures: {
+      host: "demo-git.internal",
+      org: "acme-corp",
+      login: "alice",
+      snapshot: (now) => ({ ...demoSnapshot(now), login: "alice" }),
+    },
+    packs: [customPack],
+    allowWrite: (req) => req.method === "POST" && new URL(req.url).pathname === "/kiosk/refund",
+    layout: { tabs: ["/kiosk", "/prs", "/agents"] },
+  });
+
+  // Custom fixtures & pack on Today
+  const todayRes = await w.fetch(at("/"));
+  assert.equal(todayRes.status, 200);
+  const todayText = await todayRes.text();
+  assert.match(todayText, /demo-git\.internal/);
+  assert.match(todayText, /Kiosk Orders/);
+  assert.match(todayText, /3 tickets waiting/);
+
+  // Custom pack route
+  const shopRes = await w.fetch(at("/kiosk"));
+  assert.equal(shopRes.status, 200);
+  const shopText = await shopRes.text();
+  assert.match(shopText, /Kiosk Storefront/);
+  assert.match(shopText, /This is a demo\./);
+
+  // AllowWrite hook: permitted write returns 200
+  const allowedRes = await w.fetch(at("/kiosk/refund", { method: "POST" }));
+  assert.equal(allowedRes.status, 200);
+  assert.equal(await allowedRes.text(), "Refunded");
+
+  // AllowWrite hook: non-permitted write returns 403 read-only
+  const deniedRes = await w.fetch(at("/kiosk/other", { method: "POST" }));
+  assert.equal(deniedRes.status, 403);
+  assert.match(await deniedRes.text(), /read-only/);
+
+  // Hostile input in custom pack stays inert
+  for (const hostile of ["<script>alert(1)</script>", "javascript:alert(1)"]) {
+    const r = await w.fetch(at(`/kiosk?q=${encodeURIComponent(hostile)}`));
+    assert.equal(r.status, 200);
+    assertInert(`custom pack ${hostile}`, await r.text());
+  }
 });

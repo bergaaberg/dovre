@@ -9,9 +9,9 @@ import { createApp } from "../app.ts";
 import type { D1 } from "../db.ts";
 import type { App, AppEnv, Env } from "../env.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { Gatherer } from "../gather.ts";
+import type { Gatherer, Snapshot } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
-import { fixedLayout } from "../layout.ts";
+import { fixedLayout, type Layout, type LayoutStore } from "../layout.ts";
 import { activePacks } from "../packs/registry.ts";
 import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
@@ -31,6 +31,9 @@ import { demoBino, demoEngine, demoScriptRoute, demoSeedConvs } from "./bino.ts"
 import type { Engine } from "../packs/core/assistant/bino/bino.ts";
 import { northwindShopPack } from "./shop/index.ts";
 import type { Desk } from "../agents/desk.ts";
+import type { Stats } from "../stats/stats.ts";
+import type { Sessions } from "../sources/sessions.ts";
+import type { Turn } from "../agents/conversation.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
 export function emptyD1(): D1 {
@@ -44,17 +47,19 @@ export function emptyD1(): D1 {
 }
 
 /** GitHub that isn't there: pages that ask it directly say it failed, as they do when GitHub is down. */
-const noGhe: Ghe = {
-  host: DEMO_HOST,
-  rest: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
-  graphql: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
-};
+export function makeNoGhe(host: string = DEMO_HOST): Ghe {
+  return {
+    host,
+    rest: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
+    graphql: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
+  };
+}
 
 /** The snapshot, made fresh each minute so its times read as this morning. */
-function demoGatherer(): Gatherer {
-  let s = demoSnapshot();
+export function demoGatherer(snapshotFn: (now?: number) => Snapshot = demoSnapshot): Gatherer {
+  let s = snapshotFn();
   const now = () => {
-    if (Date.now() - s.at > 120_000) s = demoSnapshot();
+    if (Date.now() - s.at > 120_000) s = snapshotFn();
     return s;
   };
   return { get: async () => now(), stale: () => {}, gathering: () => false, peek: () => now() };
@@ -141,8 +146,36 @@ export function isAllowedDemoWrite(request: Request): boolean {
 /** A Bino conversation's page, where /bino/new and /say send you: the demo draws it in the same response. */
 const CONV_PAGE = /^\/bino\/(?:dock\/)?c\/[0-9a-f-]{36}$/i;
 
-export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}) {
+/** Made-up data a demo repo can supply in place of core's (src/demo/fixtures.ts). */
+export type DemoFixtures = {
+  host?: string;
+  org?: string;
+  login?: string;
+  snapshot?: (now?: number) => Snapshot;
+  sessions?: (now?: number) => Sessions;
+  turns?: (sid: string) => Turn[];
+  stats?: () => Stats;
+};
+
+export type DemoOpts = {
+  version?: string;
+  /** More writes to let through, beyond asking Bino (isAllowedDemoWrite). Every other non-GET stays 403. */
+  allowWrite?: (req: Request) => boolean;
+  /** The fixed layout (default: tabs PRs, Agents, Deploys). */
+  layout?: LayoutStore | Layout;
+  fixtures?: DemoFixtures;
+  /** Extra packs, next to the demo's own. */
+  packs?: Pack[];
+};
+
+export function createDemoWorker(opts: DemoOpts = {}) {
   const version = opts.version ?? "0.2.0";
+  const fx = opts.fixtures ?? {};
+  const host = fx.host ?? DEMO_HOST;
+  const org = fx.org ?? DEMO_ORG;
+  const login = fx.login ?? DEMO_LOGIN;
+  const snapshotFn = fx.snapshot ?? demoSnapshot;
+  const turnsFn = fx.turns ?? demoTurns;
   /** This request's Bino (demoBino): fresh each time, so nothing a visitor asks outlives their request. */
   const current = new AsyncLocalStorage<Engine>();
   let freshEngine: () => Engine = () => {
@@ -152,9 +185,9 @@ export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}
   const build = (): App => {
     if (app) return app;
     const DB = emptyD1();
-    const env: Env = { DB, GHE_HOST: DEMO_HOST, GHE_ORG: DEMO_ORG, OWNERS: DEMO_ORG, GITHUB_USER: DEMO_LOGIN, CODE_DIR: "/code", CLAUDE_DIR: "/claude", IS_HOSTED: "1", GREETING: "en", TZ_NAME: "UTC" };
-    const gatherer = demoGatherer();
-    const sessions = demoSessions();
+    const env: Env = { DB, GHE_HOST: host, GHE_ORG: org, OWNERS: org, GITHUB_USER: login, CODE_DIR: "/code", CLAUDE_DIR: "/claude", IS_HOSTED: "1", GREETING: "en", TZ_NAME: "UTC" };
+    const gatherer = demoGatherer(snapshotFn);
+    const sessions = (fx.sessions ?? demoSessions)();
     const here = fixedHere(sessions);
     const dismissed = createDismissed(DB);
     // No runner: nothing can start, and the writes that would ask are refused before the app anyway.
@@ -165,24 +198,24 @@ export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}
       ...local,
       async session(sid) {
         const session = [...sessions.live, ...sessions.recent].find((x) => x.sessionId === sid);
-        return session ? { session, turns: demoTurns(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;
+        return session ? { session, turns: turnsFn(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;
       },
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
     const shop = northwindShopPack();
     const extraPacks = opts.packs ?? [];
     const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), shop, ...extraPacks], { env: {}, bindings: {}, hosted: true });
-    const stats = demoStats();
-    const snapshot = () => gatherer.peek() ?? demoSnapshot();
+    const stats = (fx.stats ?? demoStats)();
+    const snapshot = () => gatherer.peek() ?? snapshotFn();
     const route = demoScriptRoute({ snapshot });
     const memory = noMemory("The demo remembers nothing.");
     freshEngine = () => demoEngine({ route, memory, seed: () => demoSeedConvs(snapshot()) });
     const bino = { remote: demoBino({ route, memory, engine: () => current.getStore() ?? freshEngine() }) };
     app = createApp(env, {
       gatherer,
-      ghe: noGhe,
+      ghe: makeNoGhe(host),
       stats,
-      layout: fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }),
+      layout: !opts.layout ? fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }) : "get" in opts.layout ? opts.layout : fixedLayout(opts.layout),
       bino,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
@@ -200,7 +233,7 @@ export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}
         if (res.ok) return res;
       }
       if (request.method !== "GET" && request.method !== "HEAD") {
-        if (!isAllowedDemoWrite(request)) return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        if (!isAllowedDemoWrite(request) && !opts.allowWrite?.(request)) return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
       const app = build();
