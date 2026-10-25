@@ -9,7 +9,7 @@ const on = (lines: ReturnType<typeof hostedSetup>) => Object.fromEntries(lines.m
 
 test("hostedSetup: the essentials needed, the rest advised; a half-set bridge says so; a pack that's off is named", () => {
   const empty = hostedSetup({});
-  assert.deepEqual(empty.filter((l) => l.needed).map((l) => [l.name, l.on]), [["Database (D1)", false], ["Its tables", false], ["Cloudflare Access", false]]);
+  assert.deepEqual(empty.filter((l) => l.needed).map((l) => [l.name, l.on]), [["Database (D1)", false], ["Its tables", false], ["Who gets in", false]]);
   const db = { prepare: () => ({}) };
   const ready = hostedSetup({ DB: db, CF_ACCESS_TEAM: "t", CF_ACCESS_AUD: "a", HUB: {}, BRIDGE_CLIENT_ID: "x" }, { tables: true, off: [{ id: "shop", name: H, why: H }] });
   assert.ok(ready.filter((l) => l.needed).every((l) => l.on));

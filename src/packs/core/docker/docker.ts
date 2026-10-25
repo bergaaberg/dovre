@@ -13,6 +13,7 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { posix } from "node:path";
 import { type Engine, demuxer } from "./engine.ts";
 import { type Container, ID_RE, type Verb, allowed, parseContainers, shapeOf } from "./model.ts";
 
@@ -58,14 +59,50 @@ export function readPipe(file: string): string | undefined {
   }
 }
 
+/**
+ * On macOS and Linux, finds the Docker Engine socket using the first one that exists:
+ * 1. DOCKER_PIPE, if set (already supported)
+ * 2. DOCKER_HOST, when it's unix://… (ignore tcp:// hosts: Dovre never talks to a remote engine)
+ * 3. ~/.docker/run/docker.sock (Docker Desktop)
+ * 4. ~/.orbstack/run/docker.sock (OrbStack)
+ * 5. ~/.colima/default/docker.sock (Colima)
+ * 6. $XDG_RUNTIME_DIR/docker.sock (rootless)
+ * 7. /var/run/docker.sock (native dockerd)
+ */
+export function findEngineSocket(
+  env: Record<string, string | undefined>,
+  home: string | undefined,
+  exists: (path: string) => boolean = existsSync,
+): string | undefined {
+  const candidates: (string | undefined)[] = [];
+  if (env.DOCKER_PIPE) candidates.push(env.DOCKER_PIPE);
+  const host = env.DOCKER_HOST?.trim();
+  if (host?.startsWith("unix://")) {
+    candidates.push(host.replace(/^unix:\/\/?\/?/, "/"));
+  }
+  if (home) {
+    candidates.push(posix.join(home, ".docker", "run", "docker.sock"));
+    candidates.push(posix.join(home, ".orbstack", "run", "docker.sock"));
+    candidates.push(posix.join(home, ".colima", "default", "docker.sock"));
+  }
+  if (env.XDG_RUNTIME_DIR) {
+    candidates.push(posix.join(env.XDG_RUNTIME_DIR, "docker.sock"));
+  }
+  candidates.push("/var/run/docker.sock");
+
+  return candidates.find((p): p is string => Boolean(p && exists(p)));
+}
+
 export function createDocker(opts: {
   engine: Engine;
   /** Written by the launcher: the pipe it serves. */
   pipeFile: string;
   /** Its presence switches the engine off (the launcher lets the distro go). */
   offFile: string;
-  /** A pipe to use instead (DOCKER_PIPE: Docker Desktop's, say); Dovre then can't switch it. */
-  pipe?: string;
+  /** A pipe or socket to use instead (DOCKER_PIPE: Docker Desktop's, say); Dovre then can't switch it. */
+  pipe?: string | (() => string | undefined);
+  /** Whether Dovre owns this engine (can switch it on and off: the launcher's WSL distro). Off Windows, src/index.ts passes false. */
+  ours?: boolean;
   onChange?: () => void;
   log?: (kind: string, target: string, ok: boolean, error?: string) => Promise<void>;
   /** Stops the distro at once (wsl --terminate); for tests, a fake. */
@@ -76,9 +113,11 @@ export function createDocker(opts: {
   const { engine } = opts;
   const now = opts.now ?? Date.now;
   const terminate = opts.terminate ?? (() => new Promise<void>((res) => execFile("wsl.exe", ["--terminate", DISTRO], { windowsHide: true }, () => res())));
-  const pipeOf = () => opts.pipe || readPipe(opts.pipeFile);
-  const isOff = () => !opts.pipe && existsSync(opts.offFile);
-  let view: DockerView = { state: pipeOf() ? "down" : "none", pipe: pipeOf(), ours: !opts.pipe, containers: [], busy: {} };
+  const pipeOf = () => (typeof opts.pipe === "function" ? opts.pipe() : opts.pipe) || readPipe(opts.pipeFile);
+  // The caller says whose engine it is (src/index.ts: Windows without DOCKER_PIPE); unsaid, as before: ours unless a pipe was given.
+  const ours = opts.ours ?? !opts.pipe;
+  const isOff = () => ours && existsSync(opts.offFile);
+  let view: DockerView = { state: pipeOf() ? "down" : "none", pipe: pipeOf(), ours, containers: [], busy: {} };
   let shape = "";
   let starting = 0;
   const set = (next: Partial<DockerView>) => {
@@ -205,7 +244,7 @@ export function createDocker(opts: {
       return { ok: true, message: "" };
     },
     engine(on) {
-      if (opts.pipe || !pipeOf()) return { ok: false, message: "This engine isn't Dovre's to switch." };
+      if (!ours || !pipeOf()) return { ok: false, message: "This engine isn't Dovre's to switch." };
       if (on) {
         rmSync(opts.offFile, { force: true });
         starting = now();

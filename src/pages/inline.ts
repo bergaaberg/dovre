@@ -8,7 +8,7 @@ import { deploySummaryKey, prSummaryKey, type Result } from "../gather.ts";
 import { type Changelog, groupChanges, KIND_TITLE } from "../sources/changelog.ts";
 import type { Pr } from "../sources/ghe.ts";
 import { type Child, type Html, KeyValues, Notice, Pill } from "../ui/kit.ts";
-import type { RefRule } from "../packs/types.ts";
+import type { PrSlotArg, RefRule } from "../packs/types.ts";
 import { appRefs } from "../todo/links.ts";
 import { markdown } from "../ui/markdown.ts";
 import { Ago, Link, prPills, safeUrl } from "./parts.ts";
@@ -55,7 +55,7 @@ function checksLine(runs: Pr["runs"]): Child {
 
 /** What a PR opened in place shows: the summary, who reviewed, checks, where it changes things, the description. */
 /** What packs put on a PR (the "pr.lead" and "pr.facts" slots: atlas's tier and docs). */
-export type PrSlots = { lead(repo: string): Child[]; facts(repo: string): [Child, Child][] };
+export type PrSlots = { lead(pr: PrSlotArg): Child[]; facts(pr: PrSlotArg): [Child, Child][] };
 
 export function prBody(p: Pr, opts: { summary: SummaryOf; agent?: AgentOf; slots?: PrSlots; /** The forge: without Dovre's viewer, the PR opens on the forge. */ forge?: ForgeView }): Html {
   const forge = opts.forge ?? GITHUB_VIEW;
@@ -72,7 +72,7 @@ ${KeyValues([
   ...(p.openThreads ? ([["Threads", Pill({ tone: "warn", children: `${p.openThreads} unresolved` })]] as [Child, Child][]) : []),
   ["Touches", where.length ? html`${where.map((a) => html`<span class="area"><code>${a.area}</code> <span class="t3">${a.files} ${a.files === 1 ? "file" : "files"}, ${a.lines} lines</span></span>`)}` : html`<span class="t3">no files</span>`],
   ...(p.labels.length ? ([["Labels", html`<span class="pills">${p.labels.map((l) => Pill({ children: l }))}</span>`]] as [Child, Child][]) : []),
-  ...(opts.slots?.facts(p.repo) ?? []),
+  ...(opts.slots?.facts(p) ?? []),
 ])}
 ${p.body.trim() ? html`<div class="description">${markdown(p.body)}</div>` : html`<p class="t3">No description.</p>`}
 ${opts.agent?.(p) ?? ""}
@@ -88,7 +88,7 @@ export function prCard(p: Pr, opts: { org: string; summary: SummaryOf; agent?: A
   const short = p.repo.replace(`${opts.org}/`, "");
   const sum = opts.summary(prSummaryKey(p));
   return html`<li><details class="thread pr" id="${prAnchor(p)}"${opts.open ? html` open` : ""}>
-<summary class="item"><span class="lead"><span class="repo-tag">${short}</span>${opts.slots?.lead(p.repo) ?? ""}</span><span class="main"><span class="title"><strong>#${p.number} ${p.title}</strong> ${prPills(p)}</span><span class="line">${opts.showAuthor ? html`${p.author} · ` : ""}${p.branch} · <span class="ok">+${p.additions}</span> <span class="bad">−${p.deletions}</span> in ${p.files.length} files</span>${
+<summary class="item"><span class="lead"><span class="repo-tag">${short}</span>${opts.slots?.lead(p) ?? ""}</span><span class="main"><span class="title"><strong>#${p.number} ${p.title}</strong> ${prPills(p)}</span><span class="line">${opts.showAuthor ? html`${p.author} · ` : ""}${p.branch} · <span class="ok">+${p.additions}</span> <span class="bad">−${p.deletions}</span> in ${p.files.length} files</span>${
     sum?.state === "ready" ? html`<span class="clamp ai-clamp">${sum.text}</span>` : ""
   }</span><span class="trail">${Ago(p.updatedAt)}</span></summary>
 <div class="thread-body">${prBody(p, opts)}</div></details></li>`;

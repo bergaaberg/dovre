@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Hono } from "hono";
-import { createDocker, type Docker, readPipe } from "../docker.ts";
+import { createDocker, type Docker, findEngineSocket, readPipe } from "../docker.ts";
 import { createEngine, demuxer } from "../engine.ts";
 import { allowed, groupsOf, parseContainers } from "../model.ts";
 import { dockerPack } from "../index.ts";
@@ -105,7 +105,7 @@ test("the service lists, acts after re-reading, logs by name, and switches the e
   t.after(e.close);
   const logged: string[] = [];
   let terminated = 0;
-  const docker = createDocker({ engine: createEngine(() => readPipe(e.pipeFile)), pipeFile: e.pipeFile, offFile: join(e.dir, "off"), log: async (k, target, ok) => void logged.push(`${k} ${target} ${ok}`), terminate: async () => void terminated++ });
+  const docker = createDocker({ engine: createEngine(() => readPipe(e.pipeFile)), pipeFile: e.pipeFile, offFile: join(e.dir, "off"), ours: true, log: async (k, target, ok) => void logged.push(`${k} ${target} ${ok}`), terminate: async () => void terminated++ });
   t.after(docker.stop);
   await docker.refresh();
   assert.equal(docker.view().state, "ok");
@@ -162,7 +162,7 @@ test("the routes: strict origin on writes, ids checked, hostile names inert", as
 
 test("no engine set up: the page says how, and nothing is asked", async () => {
   const dir = mkdtempSync(join(tmpdir(), "u-docker-"));
-  const docker = createDocker({ engine: createEngine(() => undefined), pipeFile: join(dir, "none"), offFile: join(dir, "off") });
+  const docker = createDocker({ engine: createEngine(() => undefined), pipeFile: join(dir, "none"), offFile: join(dir, "off"), ours: true });
   await docker.refresh();
   assert.equal(docker.view().state, "none");
   const app = routesOf(docker, "me");
@@ -192,4 +192,86 @@ test("in the app: the Docker pages keep the engine's names inert", async (t) => 
   const off = signedIn(snapshot(), {}, { packs: [pack], packEnv: { PACK_DOCKER: "off" } });
   assert.equal((await off.get("/docker")).status, 404);
   assert.doesNotMatch(await (await off.get("/")).text(), /href="\/docker"/);
+});
+
+test("findEngineSocket: finds engine socket in order, ignoring remote tcp hosts and missing files", () => {
+  const home = "/Users/alice";
+  const existing = new Set<string>();
+  const exists = (p: string) => existing.has(p);
+
+  // 1. None exists: returns undefined
+  assert.equal(findEngineSocket({}, home, exists), undefined);
+
+  // 2. /var/run/docker.sock
+  existing.add("/var/run/docker.sock");
+  assert.equal(findEngineSocket({}, home, exists), "/var/run/docker.sock");
+
+  // 3. XDG_RUNTIME_DIR
+  existing.add("/run/user/1000/docker.sock");
+  assert.equal(findEngineSocket({ XDG_RUNTIME_DIR: "/run/user/1000" }, home, exists), "/run/user/1000/docker.sock");
+
+  // 4. Colima
+  existing.add("/Users/alice/.colima/default/docker.sock");
+  assert.equal(findEngineSocket({}, home, exists), "/Users/alice/.colima/default/docker.sock");
+
+  // 5. OrbStack
+  existing.add("/Users/alice/.orbstack/run/docker.sock");
+  assert.equal(findEngineSocket({}, home, exists), "/Users/alice/.orbstack/run/docker.sock");
+
+  // 6. Docker Desktop
+  existing.add("/Users/alice/.docker/run/docker.sock");
+  assert.equal(findEngineSocket({}, home, exists), "/Users/alice/.docker/run/docker.sock");
+
+  // 7. DOCKER_HOST with unix://
+  existing.add("/custom/daemon.sock");
+  assert.equal(findEngineSocket({ DOCKER_HOST: "unix:///custom/daemon.sock" }, home, exists), "/custom/daemon.sock");
+
+  // DOCKER_HOST with tcp:// is ignored (falls back to Docker Desktop)
+  assert.equal(findEngineSocket({ DOCKER_HOST: "tcp://127.0.0.1:2375" }, home, exists), "/Users/alice/.docker/run/docker.sock");
+
+  // 8. DOCKER_PIPE
+  existing.add("/explicit/pipe.sock");
+  assert.equal(findEngineSocket({ DOCKER_PIPE: "/explicit/pipe.sock", DOCKER_HOST: "unix:///custom/daemon.sock" }, home, exists), "/explicit/pipe.sock");
+
+  // Missing DOCKER_PIPE falls through
+  assert.equal(findEngineSocket({ DOCKER_PIPE: "/missing/pipe.sock", DOCKER_HOST: "unix:///custom/daemon.sock" }, home, exists), "/custom/daemon.sock");
+});
+
+test("off Windows: ours is false, no engine controls or wsl calls, containers still act", async (t) => {
+  const list = [raw({ Id: ID, State: "running" }), raw({ Id: ID2, State: "exited", Names: ["/web"] })];
+  const e = await fakeEngine(list);
+  t.after(e.close);
+  let terminated = 0;
+  const logged: string[] = [];
+  const docker = createDocker({
+    engine: createEngine(() => readPipe(e.pipeFile)),
+    pipeFile: e.pipeFile,
+    offFile: join(e.dir, "off"),
+    ours: false,
+    log: async (k, target, ok) => void logged.push(`${k} ${target} ${ok}`),
+    terminate: async () => void terminated++,
+  });
+  t.after(docker.stop);
+  await docker.refresh();
+
+  assert.equal(docker.view().ours, false);
+  assert.equal(docker.view().state, "ok");
+
+  // Engine on/off is refused: does not touch offFile and never calls terminate
+  assert.deepEqual(docker.engine(false), { ok: false, message: "This engine isn't Dovre's to switch." });
+  assert.deepEqual(docker.engine(true), { ok: false, message: "This engine isn't Dovre's to switch." });
+  assert.equal(existsSync(join(e.dir, "off")), false);
+  assert.equal(terminated, 0);
+
+  // The page has no Stop Docker button
+  const app = routesOf(docker, "tester");
+  const pageHtml = await (await app.request("http://localhost/docker")).text();
+  assert.doesNotMatch(pageHtml, /action="\/docker\/engine\/off"/);
+  assert.doesNotMatch(pageHtml, /Stop Docker/);
+
+  // But container actions still work
+  docker.act(ID2, "start");
+  await settle();
+  assert.ok(e.calls.includes(`POST /containers/${ID2}/start`));
+  assert.deepEqual(logged, ["docker.start web true"]);
 });

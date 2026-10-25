@@ -234,6 +234,35 @@ test("createWorker: hosted packs get the bindings; cron, email and stale refresh
   assert.match(rejected, /No one here/);
 });
 
+test("createWorker: POST /_dovre/scheduled runs the cron with the right CRON_KEY, else it's a 404", async () => {
+  const seen: string[] = [];
+  const pending: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p) };
+  const tick = pack({ id: "tick", execution: "any" }, { scheduled: async (e) => void seen.push(`cron ${e.cron}`) });
+  const worker = createWorker({ packs: [tick] });
+  const KEY = "k".repeat(40);
+  const bindings = { DB: mockD1(), IS_HOSTED: "1", CF_ACCESS_TEAM: "team", CF_ACCESS_AUD: "aud", CRON_KEY: KEY };
+  const call = (init: RequestInit, b: Partial<typeof bindings> = bindings) => worker.fetch(new Request("https://t.example.dev/_dovre/scheduled", init), b as typeof bindings, ctx);
+  const bearer = (k: string) => ({ authorization: `Bearer ${k}` });
+
+  assert.equal((await call({ method: "POST" })).status, 404, "no key");
+  assert.equal((await call({ method: "POST", headers: bearer("x".repeat(40)) })).status, 404, "wrong key");
+  assert.equal((await call({ method: "GET", headers: bearer(KEY) })).status, 404, "GET");
+  assert.equal((await call({ method: "POST", headers: bearer("short") }, { ...bindings, CRON_KEY: "short" })).status, 404, "a key under 32 characters keeps the route closed");
+  const { CRON_KEY: _, ...noKey } = bindings;
+  assert.equal((await call({ method: "POST", headers: bearer(KEY) }, noKey)).status, 404, "no CRON_KEY set");
+  assert.equal(seen.length, 0);
+
+  assert.equal((await call({ method: "POST", headers: bearer(KEY) }, { ...bindings, CF_ACCESS_AUD: "" })).status, 503, "not set up");
+
+  const res = await call({ method: "POST", headers: { ...bearer(KEY), "x-dovre-cron": "*/5 * * * *" } });
+  assert.equal(res.status, 204);
+  assert.deepEqual(seen, ["cron */5 * * * *"]);
+  await call({ method: "POST", headers: bearer(KEY) });
+  assert.equal(seen[1], "cron http", "the default cron name");
+  await Promise.all(pending);
+});
+
 test("createWorker: a start that never finishes (its request was cancelled) holds no page", async () => {
   const stuck = pack({ id: "stuck", execution: "any" }, { init: () => new Promise<void>(() => {}) });
   const worker = createWorker({ packs: [stuck] });
@@ -392,8 +421,8 @@ test("slots: each pack fills a core page's place; one that throws fills nothing,
   const ok: Pack = { manifest: m("ok"), slots: () => ({ "work.new": () => html`<p class="t3">from ok</p>`, "pr.lead": ({ repo }) => html`<span>${repo}</span>` }) };
   const logged: string[] = [];
   const fill = fillOf(() => [boom, half, ok], () => ({}) as never, (id, line) => logged.push(`${id}: ${line}`));
-  assert.deepEqual(fill("pr.lead", { repo: H }).map(String), [`<span>${html`${H}`}</span>`]);
-  assert.deepEqual(fill("pr.facts", { repo: "x" }), []);
+  assert.deepEqual(fill("pr.lead", { repo: H, number: 1, branch: "b", title: "t", url: "https://x" }).map(String), [`<span>${html`${H}`}</span>`]);
+  assert.deepEqual(fill("pr.facts", { repo: "x", number: 1, branch: "b", title: "t", url: "https://x" }), []);
   assert.deepEqual(logged, ["boom: slot pr.lead: no slots today", "half: slot pr.lead: lead broke", "boom: slot pr.facts: no slots today"]);
 
   const { get } = signedIn(snapshot(), {}, { packs: [boom, ok] });

@@ -1,9 +1,11 @@
 /**
  * Who gets in (PLAN D16). Two modes, and a request never picks its own:
  * - Local (the default): a localhost Host and the launch-token cookie. Anything else is a 404.
- * - Hosted (IS_HOSTED=1, set by the Worker, never by a request): Cloudflare Access's
- *   Cf-Access-Jwt-Assertion, its RS256 signature checked against the team's published keys, with
- *   its issuer, audience and expiry. Without a team and an audience configured, nobody gets in.
+ * - Hosted (IS_HOSTED=1, set by the Worker, never by a request): the Cf-Access-Jwt-Assertion
+ *   header, its RS256 signature checked against the issuer's published keys, with its issuer,
+ *   audience and expiry. The issuer is Cloudflare Access (CF_ACCESS_TEAM, CF_ACCESS_AUD) or any
+ *   other that publishes a JWKS (AUTH_ISSUER, AUTH_AUD, AUTH_JWKS_URL). Without one configured,
+ *   nobody gets in.
  */
 import { timingSafeEqual } from "node:crypto";
 
@@ -51,7 +53,7 @@ export function allowed(request: Request, token: string | undefined): boolean {
   return isLocal(request) && sameSecret(cookieOf(request, COOKIE), token);
 }
 
-// ── Hosted: Cloudflare Access ──
+// ── Hosted: Cloudflare Access, or any RS256 issuer ──
 
 const b64urlBytes = (s: string): Uint8Array<ArrayBuffer> => {
   const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
@@ -73,9 +75,12 @@ export function parseJwtPayload(jwt: string): CfAccessPayload | undefined {
 }
 
 export type AccessConfig = {
-  /** The Access team: "myteam" or "myteam.cloudflareaccess.com". */
-  team: string;
-  /** The Access application's AUD tag. */
+  /** Cloudflare Access: the team, "myteam" or "myteam.cloudflareaccess.com". */
+  team?: string;
+  /** Any other issuer: its exact `iss` (https), and where its keys are (default `<issuer>/.well-known/jwks.json`). Wins over `team`. */
+  issuer?: string;
+  jwksUrl?: string;
+  /** The expected audience: the Access application's AUD tag, or the issuer's `aud` for this instance. */
   aud: string;
   /** Lowercased; unset or empty: whoever the Access policy lets through. */
   allowedEmails?: string[];
@@ -85,13 +90,42 @@ export type AccessConfig = {
   waitMs?: number;
 };
 
-/** Hosted mode's config from the environment, or undefined when it's incomplete (then nobody gets in). */
-export function accessConfigOf(env: { CF_ACCESS_TEAM?: string; CF_ACCESS_AUD?: string; ALLOWED_EMAILS?: string }): AccessConfig | undefined {
+export type AccessEnv = { CF_ACCESS_TEAM?: string; CF_ACCESS_AUD?: string; AUTH_ISSUER?: string; AUTH_AUD?: string; AUTH_JWKS_URL?: string; ALLOWED_EMAILS?: string };
+
+const httpsUrl = (v: string): boolean => {
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" && !u.username && !u.password && !u.hash;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Hosted mode's config from the environment, or undefined when it's incomplete (then nobody gets in).
+ * AUTH_ISSUER, when set, wins: a bad or half-set one shuts the door rather than falling back to Access.
+ */
+export function accessConfigOf(env: AccessEnv): AccessConfig | undefined {
+  const allowedEmails = (env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const issuer = env.AUTH_ISSUER?.trim();
+  if (issuer) {
+    const aud = env.AUTH_AUD?.trim();
+    const jwksUrl = env.AUTH_JWKS_URL?.trim() || `${issuer.replace(/\/+$/, "")}/.well-known/jwks.json`;
+    if (!aud || !httpsUrl(issuer) || !httpsUrl(jwksUrl)) return undefined;
+    return { issuer, jwksUrl, aud, allowedEmails };
+  }
   const team = env.CF_ACCESS_TEAM?.trim();
   const aud = env.CF_ACCESS_AUD?.trim();
   if (!team || !aud) return undefined;
-  const allowedEmails = (env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
   return { team, aud, allowedEmails };
+}
+
+/** Where the keys are and the `iss` a token must carry. */
+function endpointsOf(cfg: AccessConfig): { issuer: string; certs: string } | undefined {
+  if (cfg.issuer) return { issuer: cfg.issuer, certs: cfg.jwksUrl ?? `${cfg.issuer.replace(/\/+$/, "")}/.well-known/jwks.json` };
+  if (!cfg.team) return undefined;
+  const host = cfg.team.includes(".") ? cfg.team : `${cfg.team}.cloudflareaccess.com`;
+  return { issuer: `https://${host}`, certs: `https://${host}/cdn-cgi/access/certs` };
 }
 
 /** A person (their email), or a service token (its client id): never both. Pages take only a person; /bridge only the bridge's token. */
@@ -101,7 +135,7 @@ export type AccessVerifier = (request: Request) => Promise<Verified | undefined>
 
 type Jwk = JsonWebKey & { kid?: string };
 const KEYS_FOR_MS = 60 * 60 * 1000;
-/** A token naming a key we don't have refetches the keys, at most this often (Access rotates them). */
+/** A token naming a key we don't have refetches the keys, at most this often (issuers rotate them). */
 const REFETCH_AFTER_MS = 60 * 1000;
 /** The longest a request waits on the keys' fetch; one older is dropped and started again. */
 const FETCH_MS = 5000;
@@ -110,9 +144,9 @@ export function createAccessVerifier(cfg: AccessConfig): AccessVerifier {
   const fetchFn = cfg.fetchFn ?? fetch;
   const waitMs = cfg.waitMs ?? FETCH_MS;
   const now = cfg.now ?? Date.now;
-  const host = cfg.team.includes(".") ? cfg.team : `${cfg.team}.cloudflareaccess.com`;
-  const issuer = `https://${host}`;
-  const certs = `${issuer}/cdn-cgi/access/certs`;
+  const ends = endpointsOf(cfg);
+  if (!ends) return async () => undefined;
+  const { issuer, certs } = ends;
   const emails = cfg.allowedEmails?.length ? new Set(cfg.allowedEmails) : undefined;
   let keys = new Map<string, CryptoKey>();
   let keysAt = 0;

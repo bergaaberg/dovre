@@ -1,7 +1,7 @@
 /**
  * Docker, a core pack (PLAN WP-H9): the containers on the engine the launcher serves
- * (launcher/docker.go, scripts/docker.ps1). Windows only; Settings' Docker pane decides whether
- * the machine adds it, and PACK_DOCKER=off or Layout turns it off like any pack.
+ * (launcher/docker.go, scripts/docker.ps1 on Windows; Unix socket engines on macOS and Linux).
+ * Settings' Docker pane decides whether the machine adds it, and PACK_DOCKER=off or Layout turns it off like any pack.
  * What it may do, and that logs are never kept, is docker.ts's header.
  */
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
@@ -20,10 +20,10 @@ export function dockerPack(make: (ctx: PackContext) => Docker): Pack {
       api: PACK_API,
       id: "docker",
       name: "Docker",
-      description: "Containers on Docker Engine in its own WSL distro: start, stop, logs",
+      description: "Containers on Docker Engine: start, stop, logs",
       domain: "general",
       execution: "local-only",
-      settings: [{ key: "DOCKER_PIPE", label: "Another engine's pipe instead of the launcher's (Docker Desktop's is \\\\.\\pipe\\docker_engine)" }],
+      settings: [{ key: "DOCKER_PIPE", label: "Another engine's pipe or socket instead of the default" }],
     },
     init(ctx) {
       docker = make(ctx);

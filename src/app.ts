@@ -653,7 +653,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Th
   app.get("/stats", async (c) => {
     const { frame } = await page();
     stats.refresh();
-    return c.html(statsPage(frame, stats.view()));
+    return c.html(statsPage(frame, stats.view(), { forge }));
   });
   app.post("/stats/refresh", async (c) => {
     stats.refresh(true);
@@ -675,7 +675,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Th
 
   app.get("/prs", async (c) => {
     const { s, frame } = await page();
-    return c.html(prsPage(frame, s, summary, await reviewViews(s), { lead: (repo) => fill("pr.lead", { repo }), facts: (repo) => fill("pr.facts", { repo }).flat() }, forge));
+    return c.html(prsPage(frame, s, summary, await reviewViews(s), { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge));
   });
   // ── Stacked PRs (src/home/stacks.ts, src/sources/stacks.ts) ──
   const stackSource = createStacks(ghe, ownersIn(env), { kept: deps.kept });
@@ -698,6 +698,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Th
       ghe,
       frame: async () => (await page()).frame,
       hub: deps.hub,
+      facts: (p) => fill("pr.facts", p).flat(),
       kept: deps.kept,
       agentFor: async (repo, n) => {
         const { s } = await page();

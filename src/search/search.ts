@@ -104,7 +104,7 @@ export type Sources = {
 
 /** `ACME/repo#12` from a GitHub issue or PR URL; `group/sub/repo#12` from a GitLab one (`/-/issues/`, `/-/merge_requests/`). */
 const keyOfUrl = (url: string): string | undefined => {
-  const m = url.match(/^https:\/\/[^/]+\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)/) ?? url.match(/^https:\/\/[^/]+\/([\w.-]+(?:\/[\w.-]+)+)\/-\/(?:issues|merge_requests)\/(\d+)/);
+  const m = url.match(/^(?:https:\/\/[^/]+|\/elsewhere)\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)/) ?? url.match(/^(?:https:\/\/[^/]+|\/elsewhere)\/([\w.-]+(?:\/[\w.-]+)+)\/-\/(?:issues|merge_requests)\/(\d+)/);
   return m ? `${m[1]}#${m[2]}` : undefined;
 };
 /** A PR's (or merge request's) web URL. */

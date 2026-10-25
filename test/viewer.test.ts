@@ -1,5 +1,7 @@
 /** Dovre's own PR viewer, diff viewer and code explorer: read-only, org-only, cached, hostile text inert. */
 import assert from "node:assert/strict";
+import { html } from "hono/html";
+import type { Child } from "../src/ui/kit.ts";
 import { test } from "node:test";
 import type { Env } from "../src/env.ts";
 import { createViewerRoutes } from "../src/pages/viewer.ts";
@@ -94,6 +96,14 @@ test("the PR page and its files draw hostile text inert, link nothing unsafe, an
   await app.request("/prs/ACME/shop-api/840");
   await app.request("/prs/ACME/shop-api/840/files");
   assert.equal(calls.length, before, "both cached");
+});
+
+test("the PR page draws the pack's facts for that PR, not just its repo", async () => {
+  const { ghe } = fakeGhe();
+  const facts = (p: { repo: string; number: number; branch: string }) => [["Ticket", html`<a href="https://example.net/${p.number}">${p.branch}</a>`] as [Child, Child]];
+  const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [], facts });
+  const out = await (await app.request("/prs/ACME/shop-api/840")).text();
+  assert.match(out, /href="https:\/\/example.net\/840"/, "the fact row is this PR's");
 });
 
 test("only the org's PRs; odd numbers and other owners are a 404 without asking GHE", async () => {

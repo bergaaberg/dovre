@@ -115,6 +115,9 @@ export type Env = {
   IS_HOSTED?: string;
   CF_ACCESS_AUD?: string;
   CF_ACCESS_TEAM?: string;
+  AUTH_ISSUER?: string;
+  AUTH_AUD?: string;
+  AUTH_JWKS_URL?: string;
   CF_ACCOUNT_ID?: string;
   CF_GATEWAY_NAME?: string;
   CF_AIG_TOKEN?: string;

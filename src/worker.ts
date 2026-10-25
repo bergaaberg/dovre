@@ -7,6 +7,7 @@
 import { ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
 import { keyOk } from "./bridge/wire.ts";
+import { sameSecret } from "./access.ts";
 import { packsOf, createApp } from "./app.ts";
 import { activePacks, initAll, refresher } from "./packs/registry.ts";
 import type { Pack, Defer, ScheduledEvent } from "./packs/types.ts";
@@ -48,6 +49,10 @@ export interface WorkerBindings {
   /** The Access team ("myteam" or "myteam.cloudflareaccess.com") and the application's AUD tag: both needed, or nobody gets in. */
   CF_ACCESS_TEAM?: string;
   CF_ACCESS_AUD?: string;
+  /** Instead of Access: any issuer that signs RS256 JWTs and publishes a JWKS (default `<issuer>/.well-known/jwks.json`). Wins when set. */
+  AUTH_ISSUER?: string;
+  AUTH_AUD?: string;
+  AUTH_JWKS_URL?: string;
   ALLOWED_EMAILS?: string;
   IS_HOSTED?: string;
   /** The Durable Object (src/hosted/hub.ts, exported by the instance as DovreHub): pages' live updates and Bino. */
@@ -58,11 +63,27 @@ export interface WorkerBindings {
   /** The Mac's bridge (PLAN D24): the Access service token's client id it signs in with, and the key its frames are signed with. Both, or /bridge is closed. */
   BRIDGE_CLIENT_ID?: string;
   BRIDGE_KEY?: string;
+  /** Cron over HTTP, for hosts without native cron triggers: `POST /_dovre/scheduled` with this as the Bearer key (32+ characters). Unset, the route is a 404. */
+  CRON_KEY?: string;
   /** Anything else the packs bind (service bindings, R2, more D1s, send_email) or read (vars, secrets). */
   [binding: string]: unknown;
 }
 
 type Ctx = { waitUntil(p: Promise<unknown>): void };
+
+/**
+ * POST /_dovre/scheduled with `Authorization: Bearer <CRON_KEY>`: runs the cron and answers 204 when it's done,
+ * so a caller can retry per instance. No key set, a wrong one, or another method: 404. Not set up: 503.
+ */
+async function scheduledIn(request: Request, bindings: WorkerBindings, ctx: Ctx | undefined, notSetUp: (b: WorkerBindings) => Promise<string | undefined>, run: (e: ScheduledEvent, b: WorkerBindings, c: Ctx) => Promise<void>): Promise<Response> {
+  const presented = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
+  if (request.method !== "POST" || !keyOk(bindings.CRON_KEY) || !sameSecret(presented, bindings.CRON_KEY)) return new Response("Not found", { status: 404 });
+  if (await notSetUp(bindings)) return new Response("Not set up", { status: 503, headers: { "cache-control": "no-store" } });
+  const later: Promise<unknown>[] = [];
+  await run({ cron: request.headers.get("x-dovre-cron")?.slice(0, 64) || "http", scheduledTime: Date.now() }, bindings, ctx ?? { waitUntil: (p) => void later.push(p) });
+  if (later.length) await Promise.allSettled(later);
+  return new Response(null, { status: 204 });
+}
 
 /** The one host: REPO_HOST, else GHE_HOST, else github.com. */
 const hostOf = (b: WorkerBindings) => b.REPO_HOST || b.GHE_HOST || "github.com";
@@ -225,6 +246,31 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     return hosted;
   };
 
+  /** Cron: every pack's scheduled hook, then any refresh that's due and the snapshot. */
+  const runScheduled = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {
+    if (await notSetUp(bindings)) return console.error("dovre: not set up yet (D1, its tables or Access): the cron waits");
+    const h = build(bindings);
+    await capped(h.ready);
+    const mounted = packsOf(h.app)!;
+    const defer: Defer = (p) => ctx.waitUntil(p);
+    await Promise.all(
+      h.packs
+        .filter((c) => c.scheduled)
+        .map((c) =>
+          c.scheduled!({ cron: event.cron, scheduledTime: event.scheduledTime }, mounted.ctxOf(c), defer).then(
+            () => mounted.refreshes.cron(c.manifest.id, Date.now()),
+            (e) => {
+              console.error(`pack ${c.manifest.id}: scheduled failed: ${(e as Error)?.message ?? e}`);
+              mounted.refreshes.cron(c.manifest.id, Date.now(), String((e as Error)?.message ?? e).slice(0, 300));
+            },
+          ),
+        ),
+    );
+    // And the snapshot, so a page opened later has something to draw at once.
+    await Promise.all([capped(h.refresh.due()), capped(h.gatherer.get().then(() => h.kept.drain()))]);
+    if (h.hub) ctx.waitUntil(capped(h.hub.drain()));
+  };
+
   return {
     async fetch(request: Request, bindings: WorkerBindings, ctx?: Ctx): Promise<Response> {
       const url = new URL(request.url);
@@ -233,6 +279,9 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
         const res = await bindings.ASSETS.fetch(new Request(new URL(url.pathname.slice("/assets".length), url), request));
         if (res.ok) return res;
       }
+
+      // Cron over HTTP (hosts without cron triggers): the right Bearer CRON_KEY, else a 404 like any unknown path.
+      if (url.pathname === "/_dovre/scheduled") return scheduledIn(request, bindings, ctx, notSetUp, runScheduled);
 
       // Not set up yet (no D1, its tables or Access): say what's missing rather than fail. Names only.
       const page = await notSetUp(bindings);
@@ -258,29 +307,9 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       return res;
     },
 
-    /** Cron (the instance's triggers): every pack's scheduled hook, then any refresh that's due and the snapshot. */
+    /** Cron (the instance's triggers). */
     async scheduled(event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> {
-      if (await notSetUp(bindings)) return console.error("dovre: not set up yet (D1, its tables or Access): the cron waits");
-      const h = build(bindings);
-      await capped(h.ready);
-      const mounted = packsOf(h.app)!;
-      const defer: Defer = (p) => ctx.waitUntil(p);
-      await Promise.all(
-        h.packs
-          .filter((c) => c.scheduled)
-          .map((c) =>
-            c.scheduled!({ cron: event.cron, scheduledTime: event.scheduledTime }, mounted.ctxOf(c), defer).then(
-              () => mounted.refreshes.cron(c.manifest.id, Date.now()),
-              (e) => {
-                console.error(`pack ${c.manifest.id}: scheduled failed: ${(e as Error)?.message ?? e}`);
-                mounted.refreshes.cron(c.manifest.id, Date.now(), String((e as Error)?.message ?? e).slice(0, 300));
-              },
-            ),
-          ),
-      );
-      // And the snapshot, so a page opened later has something to draw at once.
-      await Promise.all([capped(h.refresh.due()), capped(h.gatherer.get().then(() => h.kept.drain()))]);
-      if (h.hub) ctx.waitUntil(capped(h.hub.drain()));
+      await runScheduled(event, bindings, ctx);
     },
 
     /** Email Routing: the first pack that takes the message handles it; nobody taking it is an error (the sender hears of it). */
