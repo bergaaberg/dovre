@@ -6,6 +6,7 @@
  * The quick-add parser and the date helpers are pure and tested; the rest is plain SQL.
  */
 import type { D1 } from "../db.ts";
+import { currentTz } from "../when.ts";
 
 export const STATES = ["doing", "next", "waiting", "done"] as const;
 export type State = (typeof STATES)[number];
@@ -42,11 +43,11 @@ const fromRow = (r: Row): Todo => ({
   doneAt: r.done_at,
 });
 
-// ── Dates (Oslo) ─────────────────────────────────────────────────────────────
+// ── Dates ─────────────────────────────────────────────────────────────
 
 const DAY = 86_400_000;
-/** The date in Oslo, as YYYY-MM-DD. */
-export const osloDate = (at: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Oslo", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+/** The date in the instance timezone, as YYYY-MM-DD. */
+export const osloDate = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 const weekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 /** Days from `today` to `date` (negative: past). */

@@ -14,6 +14,7 @@ import { startingPage } from "./pwa.ts";
 import { openDb } from "./db.ts";
 import { loadEnv, onPath, rawVars } from "./env.ts";
 import { loadConfig, panesOf, runningOf, saveConfig } from "./config.ts";
+import { setWhen } from "./when.ts";
 import { createHelper } from "./teams/helper.ts";
 import { createTeams } from "./teams/teams.ts";
 import { createOutlook } from "./teams/outlook.ts";
@@ -92,6 +93,7 @@ if (db.applied.length) console.log(`migrations applied: ${db.applied.join(", ")}
 // What Settings keeps (src/config.ts), under the environment and .dev.vars.
 let config = await loadConfig(db.DB);
 let env = loadEnv(config);
+setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
 const setup = { token: launch, port, dataDir, version, supervised };
 // Which forge the code lives on (FORGE): GitHub unless a pack brings another (src/forge/pick.ts).
 const forgeId = forgeIdOf(env.FORGE);

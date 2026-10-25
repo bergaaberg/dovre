@@ -11,6 +11,7 @@
 import { ownerQuery } from "../owners.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { osloDay } from "./spend.ts";
+import { currentTz } from "../when.ts";
 
 export const WEEKS = 12;
 const DAY = 86400e3;
@@ -24,9 +25,9 @@ export type History = { at: number; login: string; mine: MyPr[]; reviewsGiven: s
 /** A week: Monday (Oslo) as YYYY-MM-DD, its ISO number, and where it starts and ends. */
 export type Week = { key: string; label: string; start: number; end: number };
 
-/** The last `n` weeks, Monday to Monday in Oslo, oldest first; the last is this week (so far). */
-export function weeksOf(now: number, n = WEEKS): Week[] {
-  const [y, m, d] = osloDay(now).split("-").map(Number) as [number, number, number];
+/** The last `n` weeks, Monday to Monday in the instance timezone, oldest first; the last is this week (so far). */
+export function weeksOf(now: number, n = WEEKS, tz = currentTz()): Week[] {
+  const [y, m, d] = osloDay(now, tz).split("-").map(Number) as [number, number, number];
   const today = Date.UTC(y, m - 1, d);
   const dow = new Date(today).getUTCDay() || 7;
   const monday = today - (dow - 1) * DAY;
@@ -43,9 +44,9 @@ export function weeksOf(now: number, n = WEEKS): Week[] {
   return out;
 }
 
-/** Which week (by its Monday) a time falls in, by its Oslo day. */
-export function weekOf(at: string | number, weeks: Week[]): Week | undefined {
-  const [y, m, d] = osloDay(at).split("-").map(Number) as [number, number, number];
+/** Which week (by its Monday) a time falls in, by its day in the instance timezone. */
+export function weekOf(at: string | number, weeks: Week[], tz = currentTz()): Week | undefined {
+  const [y, m, d] = osloDay(at, tz).split("-").map(Number) as [number, number, number];
   const t = Date.UTC(y, m - 1, d);
   return weeks.find((w) => t >= w.start && t < w.end);
 }

@@ -22,7 +22,7 @@ test("quick add takes a due date only from the end", () => {
   assert.deepEqual(parseQuick("Fix man page", TODAY), { title: "Fix man page", due: null }, "only the last word counts");
   assert.deepEqual(parseQuick("man", TODAY), { title: "man", due: null }, "a lone word is a title");
   assert.deepEqual(parseQuick("Rydd 31.02", TODAY).due, null, "no such day");
-  assert.equal(osloDate(Date.parse("2026-10-21T22:30:00Z")), TODAY, "Oslo's date, not UTC's");
+  assert.equal(osloDate(Date.parse("2026-10-21T22:30:00Z"), "Europe/Oslo"), TODAY, "Oslo's date, not UTC's");
 });
 
 test("items keep order, state and steps; done folds steps' count; delete takes the steps with it", async () => {

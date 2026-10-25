@@ -11,6 +11,7 @@ import { type History, historyOf, isBot, median, weekly, weeksOf } from "../src/
 import { claudeCostDays, createSpend, ompCostDays } from "../src/stats/spend.ts";
 import { createStats } from "../src/stats/stats.ts";
 import { columns, niceTicks } from "../src/ui/chart.ts";
+import { resetWhen, setWhen } from "../src/when.ts";
 import { H, assertInert, fakeGhe, fixedGatherer, snapshot } from "./helpers.ts";
 
 const NOW = Date.parse("2026-10-22T14:00:00Z"); // a Thursday, week 43
@@ -20,8 +21,8 @@ test("weeks: twelve, Monday to Monday in Oslo, the last one this week", () => {
   assert.equal(w.length, 12);
   assert.deepEqual([w[11]!.key, w[11]!.label, w[0]!.key, w[0]!.label], ["2026-10-19", "w43", "2026-08-03", "w32"]);
   // Late Sunday evening in Oslo is still that week, though it's Monday in some other places.
-  assert.equal(weeksOf(Date.parse("2026-10-25T21:30:00Z"))[11]!.key, "2026-10-19");
-  assert.equal(weeksOf(Date.parse("2026-10-25T23:30:00Z"))[11]!.key, "2026-10-26");
+  assert.equal(weeksOf(Date.parse("2026-10-25T21:30:00Z"), undefined, "Europe/Oslo")[11]!.key, "2026-10-19");
+  assert.equal(weeksOf(Date.parse("2026-10-25T23:30:00Z"), undefined, "Europe/Oslo")[11]!.key, "2026-10-26");
   assert.equal(median([5, 1, 3]), 3);
   assert.equal(median([1, 2, 3, 10]), 2.5);
   assert.equal(median([]), undefined);
@@ -76,16 +77,18 @@ test("spend: Claude Code's running total by the day of the line before it; omp's
     `not json`,
   ];
   // 22:30Z is past midnight in Oslo: the 21st.
-  assert.deepEqual([...claudeCostDays(claude)], [["2026-10-20", 1.5], ["2026-10-21", 3]]);
+  assert.deepEqual([...claudeCostDays(claude, "Europe/Oslo")], [["2026-10-20", 1.5], ["2026-10-21", 3]]);
   const omp = [
     `{"type":"message","timestamp":"2026-10-21T08:00:00Z","message":{"role":"assistant","usage":{"cost":{"total":0.25}}}}`,
     `{"type":"message","timestamp":"2026-10-21T09:00:00Z","message":{"role":"user","content":"${"x"}"}}`,
     `{"type":"message","timestamp":"2026-10-22T09:00:00Z","message":{"role":"assistant","usage":{"cost":{"total":0.5}}}}`,
   ];
-  assert.deepEqual([...ompCostDays(omp)], [["2026-10-21", 0.25], ["2026-10-22", 0.5]]);
+  assert.deepEqual([...ompCostDays(omp, "Europe/Oslo")], [["2026-10-21", 0.25], ["2026-10-22", 0.5]]);
 });
 
-test("spend from the folders: Claude Code's projects and omp's sessions, read again only when a file changes", async () => {
+test("spend from the folders: Claude Code's projects and omp's sessions, read again only when a file changes", async (t) => {
+  setWhen({ tz: "UTC" });
+  t.after(resetWhen);
   const home = mkdtempSync(join(tmpdir(), "spend-"));
   mkdirSync(join(home, ".claude", "projects", "C--Code-a"), { recursive: true });
   mkdirSync(join(home, ".omp", "agent", "sessions", "-Code"), { recursive: true });

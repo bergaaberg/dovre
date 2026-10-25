@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState } from "../config.ts";
+import { currentTz } from "../when.ts";
 import { type Policy, RING_KINDS, type Rung } from "../notify.ts";
 import { Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
@@ -136,10 +137,10 @@ export function setupPanel(lines: SetupLine[], title = "Setup") {
   });
 }
 
-function appPanel(info: { version: string; startedAt: number } | undefined, canRestart: boolean) {
+function appPanel(info: { version: string; startedAt: number } | undefined, canRestart: boolean, tz = currentTz()) {
   return Panel({
     title: "The app",
-    children: html`<dl class="kv"><dt>Version</dt><dd>${info?.version ?? "?"}</dd><dt>Running since</dt><dd>${info ? html`${new Date(info.startedAt).toLocaleString("en-GB", { timeZone: "Europe/Oslo" })} (${Ago(info.startedAt)})` : "?"}</dd>
+    children: html`<dl class="kv"><dt>Version</dt><dd>${info?.version ?? "?"}</dd><dt>Running since</dt><dd>${info ? html`${new Date(info.startedAt).toLocaleString("en-GB", { timeZone: tz })} (${Ago(info.startedAt)})` : "?"}</dd>
 <dt>Open it</dt><dd>${process.platform === "win32" ? html`<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>, the Start menu, or <code>dovre</code> in a terminal. It starts at login.` : html`<code>pnpm start</code> in Dovre's folder, then this address, or the installed app. It doesn't start at login here yet.`}</dd></dl>
 <div class="buttons"><button type="button" id="install" class="primary" hidden>Install Dovre as an app</button>${
       canRestart ? html`<form method="post" action="/settings/restart"><button type="submit">Restart Dovre</button></form>` : ""
@@ -176,7 +177,7 @@ export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notif
   const body = html`${PageHeader({ title: "Settings", sub: undefined })}
 ${opts.saved ? (opts.restarting ? restartingNote(opts.restarting, "/settings", "Saved. Dovre is starting again with it.") : Notice({ tone: "ok", children: "Saved." })) : ""}
 ${opts.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${opts.bad.join(", ")} ${opts.bad.length > 1 ? "aren't values they take" : "isn't a value it takes"}.` }) : ""}
-${appPanel(opts.info, !!opts.canRestart)}
+${appPanel(opts.info, !!opts.canRestart, frame.tz ?? currentTz())}
 ${opts.layout ?? ""}
 ${opts.setup ? setupPanel(opts.setup) : ""}
 ${opts.panes ? panesPanel(opts.panes, !!opts.canRestart) : ""}

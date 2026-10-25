@@ -13,6 +13,7 @@ import { isoSvg } from "./iso.ts";
 import { buildAvatar, DEFAULT_LOOK, type Look, lookOf, statsOf } from "./model.ts";
 import { type Signals, type Situation, situationKey, situationOf } from "./mood.ts";
 import type { AvatarData } from "./stats.ts";
+import { hourAt } from "../../../when.ts";
 
 export const MOODS = ["idle", "working", "pop", "ask", "done", "sleep"] as const;
 export type Mood = (typeof MOODS)[number];
@@ -66,7 +67,7 @@ export function createAvatar(o: { data?: AvatarData; signals: () => Signals | un
   let today: TodayMode = "move";
   const blank: Signals = { redBuilds: 0, deploysWaiting: 0, agentsWorking: 0, agentsAsking: 0, reviewsAsked: 0, mergedToday: 0, doing: 0, hour: 12 };
   const situationNow = () => {
-    const s = o.signals() ?? { ...blank, hour: new Date(clock()).getHours() };
+    const s = o.signals() ?? { ...blank, hour: hourAt(clock()) };
     return situationOf({ ...s, mergedToday: Math.max(s.mergedToday, o.data?.facts()?.mergedToday ?? 0) });
   };
   const statsNow = () => statsOf(o.data?.facts()?.stats);

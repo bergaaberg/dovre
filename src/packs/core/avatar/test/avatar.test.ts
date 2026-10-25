@@ -12,6 +12,7 @@ import { createAvatarData, nightShareOf, statsFrom, streakOf } from "../stats.ts
 import { openDb } from "../../../../db.ts";
 import { needsOf } from "../../../../home/needs.ts";
 import { AVATAR_CSS } from "../style.ts";
+import { resetWhen, setWhen } from "../../../../when.ts";
 import { H, assertInert, deploy, pr, session, signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const STATS = { prs: 30, reviews: 90, repos: 5, streak: 12, night: 40, langs: ["C#", "TypeScript"] };
@@ -196,7 +197,10 @@ test("the service: one key per picture, a line when the scene turns, the look ke
   assert.equal(again.look().creature, "owl", "kept in settings");
 });
 
-test("the pack: the image with its cache rules, what's going on now, Today and the Bino button, the crafting page, and saving a look", async () => {
+test("the pack: the image with its cache rules, what's going on now, Today and the Bino button, the crafting page, and saving a look", async (t) => {
+  // 10:00 UTC is daytime here, wherever the tests run.
+  setWhen({ tz: "UTC" });
+  t.after(resetWhen);
   const s = snapshot();
   const pack = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: true }), now: () => Date.parse("2026-10-22T10:00:00Z") });
   const { get, post } = signedIn(s, {}, { packs: [pack] });
