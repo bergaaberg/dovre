@@ -101,7 +101,7 @@ export function createDocker(opts: {
   offFile: string;
   /** A pipe or socket to use instead (DOCKER_PIPE: Docker Desktop's, say); Dovre then can't switch it. */
   pipe?: string | (() => string | undefined);
-  /** Whether Dovre owns this engine (can switch on/off, runs WSL distro). Off Windows, ours is false. */
+  /** Whether Dovre owns this engine (can switch it on and off: the launcher's WSL distro). Off Windows, src/index.ts passes false. */
   ours?: boolean;
   onChange?: () => void;
   log?: (kind: string, target: string, ok: boolean, error?: string) => Promise<void>;
@@ -114,8 +114,8 @@ export function createDocker(opts: {
   const now = opts.now ?? Date.now;
   const terminate = opts.terminate ?? (() => new Promise<void>((res) => execFile("wsl.exe", ["--terminate", DISTRO], { windowsHide: true }, () => res())));
   const pipeOf = () => (typeof opts.pipe === "function" ? opts.pipe() : opts.pipe) || readPipe(opts.pipeFile);
-  const isWindows = process.platform === "win32";
-  const ours = opts.ours ?? (isWindows && !opts.pipe);
+  // The caller says whose engine it is (src/index.ts: Windows without DOCKER_PIPE); unsaid, as before: ours unless a pipe was given.
+  const ours = opts.ours ?? !opts.pipe;
   const isOff = () => ours && existsSync(opts.offFile);
   let view: DockerView = { state: pipeOf() ? "down" : "none", pipe: pipeOf(), ours, containers: [], busy: {} };
   let shape = "";
