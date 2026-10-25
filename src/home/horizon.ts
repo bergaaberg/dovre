@@ -298,11 +298,11 @@ export function horizon(opts: { moves: Move[]; deploys: Deploy[]; /** The packs'
     const x = X(p.at);
     const title = `${hm(p.from)} – ${p.to >= now - 20 * 60e3 ? "now" : hm(p.to)}`;
     const width = Math.max(title.length * 6.5, p.line.length * 6.6);
-    const anchor = x < width / 2 + 10 ? "start" : x > W - width / 2 - 10 ? "end" : "middle";
-    const left = anchor === "start" ? x - 6 : anchor === "end" ? x - width + 6 : x - width / 2;
+    const anchor = x < width / 2 + 10 ? "start" : x > W - width / 2 - 84 ? "end" : "middle";
+    const tx = anchor === "start" ? x - 6 : anchor === "end" ? Math.min(W - 84, x - 6) : x;
+    const left = anchor === "start" ? x - 6 : anchor === "end" ? tx - width : x - width / 2;
     if (left < lastRight + 24) continue;
-    lastRight = left + width;
-    const tx = anchor === "start" ? x - 6 : anchor === "end" ? x + 6 : x;
+    lastRight = anchor === "end" ? tx : left + width;
     out.push(`<g class="hz-peak"><line x1="${f1(x)}" y1="${LABEL_Y + 8}" x2="${f1(x)}" y2="${f1(top(x) - 4)}"/><text x="${f1(tx)}" y="${LABEL_Y - 12}" text-anchor="${anchor}"><tspan class="t">${esc(title)}</tspan><tspan x="${f1(tx)}" dy="15" class="d">${esc(p.line)}</tspan></text></g>`);
   }
   out.push(`</svg>`);

@@ -148,3 +148,34 @@ test("hosted keeps the last snapshot in D1: a fresh isolate draws it at once; wr
   assert.equal(g.peek()?.at, t, "an older one doesn't replace it");
   t += 1;
 });
+
+test("Today's header and horizon are responsive: wide screen brief has readable width, phone stacks, horizon peak leaves room for dock", async () => {
+  const { STYLE } = await import("../src/ui/style.ts");
+  const { horizon, W } = await import("../src/home/horizon.ts");
+
+  // Wide screen layout rules
+  assert.match(STYLE, /\.brief\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto/);
+  assert.match(STYLE, /\.brief\s*>\s*div\s*\{[^}]*max-width:\s*66ch/);
+  assert.match(STYLE, /\.brief\s*\.av-hero\s*\{[^}]*grid-column:\s*2/);
+  assert.match(STYLE, /\.brief\s*\.glance\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
+  assert.match(STYLE, /\.eyebrow\s*\{[^}]*white-space:\s*nowrap/);
+
+  // Phone / narrow width stacking under 860px
+  assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*\{[^}]*grid-template-columns:\s*1fr/);
+  assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*\.av-hero\s*\{[^}]*grid-column:\s*auto/);
+  assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*\.glance\s*\{[^}]*grid-column:\s*auto/);
+
+  // Horizon peak near now leaves room for the fixed dock button
+  const now = Date.now();
+  const moves = [
+    { at: new Date(now - 5 * 60e3).toISOString(), actor: "alice", bot: false, repo: "org/repo", type: "PullRequestEvent", verb: "merged", title: "feature", url: "https://example.com" },
+    { at: new Date(now - 2 * 60e3).toISOString(), actor: "bob", bot: false, repo: "org/repo", type: "IssuesEvent", verb: "opened", title: "bug", url: "https://example.com" },
+  ];
+  const out = String(await horizon({ moves, deploys: [], lanes: [], me: "alice", now }));
+  const peakMatch = out.match(/<g class="hz-peak">[\s\S]*?<text x="([^"]+)" y="[^"]+" text-anchor="end">/);
+  if (peakMatch) {
+    const tx = Number(peakMatch[1]);
+    assert.ok(tx <= W - 72, `peak label tx (${tx}) leaves clearance from W (${W})`);
+  }
+});
+
