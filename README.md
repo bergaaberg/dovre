@@ -122,6 +122,7 @@ health:
 | `IS_HOSTED` | `1` on Cloudflare Workers (enforces Cloudflare Access RS256 JWT check) | `0` (local loopback) |
 | `CF_ACCESS_TEAM`, `CF_ACCESS_AUD` | Cloudflare Zero Trust team name and application Audience (AUD) tag | required when `IS_HOSTED=1` |
 | `BRIDGE_URL`, `BRIDGE_KEY` | Outbound Mac Bridge WebSocket URL (`wss://<host>/bridge`) and shared HMAC secret | optional |
+| `CRON_KEY` | Hosts without cron triggers: `POST /_dovre/scheduled` with `Authorization: Bearer <CRON_KEY>` (32+ characters) runs the cron and answers `204`. Unset, the route is a `404` | optional |
 
 ---
 
