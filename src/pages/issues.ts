@@ -254,7 +254,7 @@ const isNonce = (s: string) => /^[0-9a-f-]{36}$/.test(s);
  * `kept`: where GHE's answers are kept between runs (data/catalog.json), so these pages
  * answer at once after a restart. `prewarm`: load what the pages need shortly after starting.
  */
-export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promise<Frame>; checkouts?: () => Checkout[]; kept?: Kept; /** What packs put on New work (the "work.new" slot). */ newWork?: () => Child[]; prewarm?: boolean }): Hono<AppEnv> {
+export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promise<Frame>; checkouts?: () => Checkout[]; kept?: Kept; /** What packs put on New work (the "work.new" slot). */ newWork?: () => Child[]; /** The issues list, when a pack shows one (the Issues pack's /tracker): /issues goes there. */ list?: () => string | undefined; prewarm?: boolean }): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   if (env.IS_HOSTED === "1") return app;
   const { ghe } = deps;
@@ -325,7 +325,7 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
       console.error(`my list: ${msg(e)}`);
     }
   };
-  app.get("/issues", (c) => c.redirect(CURRENT, 303));
+  app.get("/issues", (c) => c.redirect(deps.list?.() ?? CURRENT, 303));
 
   app.get("/issues/new", async (c) => {
     const kind = c.req.query("kind");

@@ -57,6 +57,7 @@ import { loadWorktrees } from "./sources/worktrees.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
+import { issuesPack } from "./packs/core/issues/index.ts";
 import { terminalPack } from "./packs/core/terminal/index.ts";
 import { findPrograms } from "./packs/core/terminal/programs.ts";
 import { createTerminals } from "./packs/core/terminal/terms.ts";
@@ -348,6 +349,8 @@ const corePacks = [
     ghe: { ghe, org: ownersIn(env), login: () => gatherer.peek()?.login },
     onStart: (svg) => writeFileSync(join(dataDir, "avatar-start.svg"), svg),
   }),
+  // My open issues from the forge (/tracker), where the forge has them.
+  issuesPack({ forge, owners: () => ownersIn(env), login: () => gatherer.peek()?.login, newHref: "/issues/new" }),
   ...(terminals ? [terminalPack(terminals)] : []),
   ...(on.docker
     ? [

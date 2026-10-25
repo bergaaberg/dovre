@@ -25,6 +25,7 @@ import { remoteDesk } from "./bridge/remote.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { avatarPack } from "./packs/core/avatar/index.ts";
+import { issuesPack } from "./packs/core/issues/index.ts";
 import type { AvatarFeeds } from "./packs/registry.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
@@ -223,8 +224,10 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     let feeds = (): AvatarFeeds & { busy: boolean } => ({ working: 0, asking: 0, trouble: [], busy: false });
     // My avatar: GitHub's numbers shape it; the snapshot, My list and the packs (signals) set its scene.
     const avatar = avatarPack({ feeds: () => feeds(), ghe: { ghe, org: env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login } });
-    // Dovre's own packs first (agents, assistant: Bino's switch, avatar), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed }), assistantPack(), avatar, ...instancePacks], { env: strings, bindings, hosted: true });
+    // My open issues from the forge (/tracker), where the forge has them.
+    const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
+    // Dovre's own packs first (agents, assistant: Bino's switch, avatar, issues), then the instance's.
+    const { on, off } = activePacks([agentsPack({ desk, dismissed }), assistantPack(), avatar, issues, ...instancePacks], { env: strings, bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
@@ -235,7 +238,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       forge,
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
-      packs: { on, off, env: strings, bindings, core: ["agents", "assistant", "avatar"] },
+      packs: { on, off, env: strings, bindings, core: ["agents", "assistant", "avatar", "tracker"] },
       setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
     });
     const mounted = packsOf(app)!;

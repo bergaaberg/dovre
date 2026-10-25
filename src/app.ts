@@ -1009,7 +1009,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   });
 
   app.route("/", createReviewRoutes(env, { ...reviewDeps, ghe, stale: () => gatherer.stale() }));
-  app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), prewarm: deps.prewarm }));
+  app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), list: () => (shown().some((x) => x.manifest.id === "tracker") ? "/tracker" : undefined), prewarm: deps.prewarm }));
   // ── My list (src/pages/todo.ts): small things kept on this machine ──
   /** Teams' crawler's proposals, for My list (empty when Teams or its store isn't there). */
   const teamsProposals = async () => {

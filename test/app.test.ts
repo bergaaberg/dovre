@@ -138,3 +138,44 @@ test("reject superseded rejects every older waiting run of that workflow and kee
   assert.ok(writes.every((c) => (c.body as { state: string }).state === "rejected"));
   assert.match((writes[0]!.body as { comment: string }).comment, /Superseded by run 3/);
 });
+
+test("Issues (/tracker): hostile issue text and links stay inert; /issues goes there when it's on", async () => {
+  const { issuesPack } = await import("../src/packs/core/issues/index.ts");
+  const { testContext } = await import("../src/packs/testing.ts");
+  const bad = {
+    repo: `ACME/${H}`,
+    number: 1,
+    title: H,
+    url: "javascript:alert(1)",
+    state: "OPEN" as const,
+    labels: [H],
+    author: H,
+    assignees: [H],
+    comments: 1,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: H,
+    milestone: H,
+    type: H,
+    subIssues: { done: 1, total: 2 },
+    prs: [{ key: `${H}#${H}`, state: "OPEN" as const }],
+  };
+  const pack = issuesPack({
+    forge: { host: H, can: ["issues"], viewer: async () => ({ login: "me", name: null }), issues: async () => ({ assigned: [bad], mentioned: [bad], authored: [bad], triage: [bad] }) },
+    owners: () => "ACME",
+    newHref: "/issues/new",
+  });
+  await pack.refresh!(testContext({ env: { ISSUES_TRIAGE_REPOS: "ACME/a" } }));
+  const { get } = signedIn(snapshot(), {}, { packs: [pack], packEnv: { ISSUES_TRIAGE_REPOS: "ACME/a" } });
+  for (const path of ["/tracker", "/tracker?set=mentioned", "/tracker?set=authored", "/tracker?set=triage", `/tracker?set=${encodeURIComponent(H)}`]) {
+    const res = await get(path);
+    assert.equal(res.status, 200, path);
+    const out = await res.text();
+    assertInert(path, out);
+    assert.ok(!out.includes('href="javascript:'), `${path}: a javascript: link got through`);
+  }
+  const to = await get("/issues");
+  assert.equal(to.status, 303);
+  assert.equal(to.headers.get("location"), "/tracker");
+  const without = signedIn(snapshot());
+  assert.equal((await without.get("/issues")).headers.get("location"), "/issues/new");
+});

@@ -1,0 +1,127 @@
+/** The Issues pack (#38): reads the forge's sets into memory, draws /tracker from it, says when it failed. */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { Hono } from "hono";
+import type { AppEnv } from "../../../../env.ts";
+import type { Issue, IssueSets } from "../../../../forge/types.ts";
+import { testContext } from "../../../testing.ts";
+import { issuesPack } from "../index.ts";
+import { setOf, staleDaysOf, staleFor, triageReposOf } from "../model.ts";
+import { issueRow } from "../view.ts";
+
+const NOW = Date.parse("2026-10-25T12:00:00Z");
+export const issue = (o: Partial<Issue> = {}): Issue => ({
+  repo: "bergaaberg/dovre",
+  number: 33,
+  title: "Today header on a wide screen",
+  url: "https://github.com/bergaaberg/dovre/issues/33",
+  state: "OPEN",
+  labels: ["layout", "ui"],
+  author: "kari",
+  assignees: ["kari"],
+  comments: 3,
+  createdAt: "2026-10-20T10:00:00Z",
+  updatedAt: "2026-10-25T10:00:00Z",
+  prs: [{ key: "bergaaberg/dovre#36", state: "OPEN" }],
+  subIssues: { done: 2, total: 3 },
+  ...o,
+});
+const sets = (o: Partial<IssueSets> = {}): IssueSets => ({ assigned: [issue()], mentioned: [], authored: [], triage: [], ...o });
+
+function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: string[] }) => Promise<IssueSets>; can?: string[]; env?: Record<string, string> } = {}) {
+  const asked: { login: string; owners: string; triage?: string[] }[] = [];
+  const published: string[][] = [];
+  const pack = issuesPack({
+    forge: {
+      host: "github.com",
+      can: (o.can ?? ["issues"]) as never,
+      viewer: async () => ({ login: "kari", name: null }),
+      issues: async (login, owners, opts) => {
+        asked.push({ login, owners, triage: opts?.triage });
+        return (o.issues ?? (async () => sets()))(login, owners, opts);
+      },
+    },
+    owners: () => "bergaaberg",
+    newHref: "/issues/new",
+    now: () => NOW,
+  });
+  const ctx = testContext({ env: o.env ?? {}, publish: (t) => published.push(t), page: async (_c, p) => new Response(String(p.body)) });
+  const app = new Hono<AppEnv>();
+  pack.routes!(app, ctx);
+  const get = async (path: string) => (await app.request(`http://localhost${path}`)).text();
+  return { pack, ctx, app, get, asked, published };
+}
+
+test("settings: stale days and triage repos are read plainly; odd values fall back", () => {
+  assert.equal(staleDaysOf(undefined), 14);
+  assert.equal(staleDaysOf(" 30 "), 30);
+  assert.equal(staleDaysOf("0"), 14);
+  assert.equal(staleDaysOf("2.5"), 14);
+  assert.equal(staleDaysOf("x"), 14);
+  assert.deepEqual(triageReposOf(" a/b, c/d  e/f,"), ["a/b", "c/d", "e/f"]);
+  assert.deepEqual(triageReposOf(undefined), []);
+  assert.equal(setOf("triage"), "triage");
+  assert.equal(setOf("<x>"), "assigned");
+  assert.equal(staleFor(issue({ updatedAt: "2026-10-01T00:00:00Z" }), 14, NOW), 24);
+  assert.equal(staleFor(issue(), 14, NOW), undefined);
+  assert.equal(staleFor(issue({ updatedAt: "nope" }), 14, NOW), undefined);
+});
+
+test("on only where the forge has issues", () => {
+  assert.equal(setup().pack.available!(testContext()), true);
+  assert.equal(setup({ can: [] }).pack.available!(testContext()), false);
+  const bare = issuesPack({ forge: { host: "x", can: ["issues"], viewer: async () => ({ login: "k", name: null }) }, owners: () => "o" });
+  assert.equal(bare.available!(testContext()), false);
+});
+
+test("refresh reads the sets once, with the triage repos, and publishes", async () => {
+  const s = setup({ env: { ISSUES_TRIAGE_REPOS: "bergaaberg/dovre, bergaaberg/site" } });
+  await s.pack.refresh!(s.ctx);
+  assert.deepEqual(s.asked, [{ login: "kari", owners: "bergaaberg", triage: ["bergaaberg/dovre", "bergaaberg/site"] }]);
+  assert.deepEqual(s.published, [["tracker"]]);
+  assert.equal(s.pack.kept()?.sets?.assigned.length, 1);
+});
+
+test("the page: tabs with counts, rows with labels, PR, sub-issues, stale; triage only when set", async () => {
+  const s = setup({ issues: async () => sets({ mentioned: [issue({ number: 9, title: "Old one", updatedAt: "2026-10-01T00:00:00Z", prs: [], subIssues: undefined, labels: [] })] }) });
+  assert.match(await s.get("/tracker"), /Reading your issues/);
+  await s.pack.refresh!(s.ctx);
+  const out = await s.get("/tracker");
+  assert.match(out, /Assigned<span class="n">1<\/span>/);
+  assert.match(out, /Mentioned<span class="n">1<\/span>/);
+  assert.doesNotMatch(out, /Triage/);
+  assert.match(out, /dovre#33/);
+  assert.match(out, /<span class="pill">layout<\/span>/);
+  assert.match(out, /PR #36 open/);
+  assert.match(out, /2\/3/);
+  assert.match(out, /href="\/issues\/new"/);
+  assert.match(out, /data-live id="tracker"/);
+  const old = await s.get("/tracker?set=mentioned");
+  assert.match(old, /pill warn[^>]*>stale 24 d/);
+  assert.match(await s.get("/tracker?set=authored"), /You have no open issues/);
+  const t = setup({ env: { ISSUES_TRIAGE_REPOS: "bergaaberg/dovre" } });
+  await t.pack.refresh!(t.ctx);
+  assert.match(await t.get("/tracker?set=triage"), /Nothing waits for triage/);
+});
+
+test("a merged PR is ok; labels never take a status colour", () => {
+  const out = String(issueRow(issue({ labels: ["bad", "warn"], prs: [{ key: "a/b#1", state: "MERGED" }] }), { staleDays: 14, now: NOW }));
+  assert.match(out, /pill ok[^>]*>PR #1 merged/);
+  assert.match(out, /<span class="pill">bad<\/span>/);
+});
+
+test("a failed read says so and keeps what it had", async () => {
+  let fail = false;
+  const s = setup({
+    issues: async () => {
+      if (fail) throw new Error("GHE graphql: 502");
+      return sets();
+    },
+  });
+  await s.pack.refresh!(s.ctx);
+  fail = true;
+  await s.pack.refresh!(s.ctx);
+  const out = await s.get("/tracker");
+  assert.match(out, /Issues didn.t load from github.com: GHE graphql: 502/);
+  assert.match(out, /dovre#33/);
+});
