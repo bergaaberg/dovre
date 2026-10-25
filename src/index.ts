@@ -37,6 +37,7 @@ import { routeOf, viaOf } from "./packs/core/assistant/bino/route.ts";
 import { createGhe, missingGhe, viewer } from "./sources/ghe.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
 import { githubForge } from "./forge/github.ts";
+import { forgeCan } from "./forge/types.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
@@ -350,7 +351,7 @@ const corePacks = [
     onStart: (svg) => writeFileSync(join(dataDir, "avatar-start.svg"), svg),
   }),
   // My open issues from the forge (/tracker), where the forge has them.
-  issuesPack({ forge, owners: () => ownersIn(env), login: () => gatherer.peek()?.login, newHref: "/issues/new", tasks: true }),
+  issuesPack({ forge, owners: () => ownersIn(env), login: () => gatherer.peek()?.login, ...(forgeCan(forge, "issues") ? { newHref: "/issues/new", tasks: true } : {}) }),
   ...(terminals ? [terminalPack(terminals)] : []),
   ...(on.docker
     ? [
