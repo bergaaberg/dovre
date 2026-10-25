@@ -42,9 +42,70 @@ test("demo: it reads no bindings, so a token or Access set on it changes nothing
 
 test("demo: hostile input stays inert", async () => {
   const w = createDemoWorker();
-  for (const path of [`/search?q=${encodeURIComponent(H)}`, `/prs?repo=${encodeURIComponent(H)}`, `/agents/s/${encodeURIComponent(H)}`]) {
+  for (const path of [`/search?q=${encodeURIComponent(H)}`, `/prs?repo=${encodeURIComponent(H)}`, `/agents/s/${encodeURIComponent(H)}`, `/elsewhere/${encodeURIComponent(H)}`]) {
     const res = await w.fetch(at(path));
     assertInert(path, await res.text());
+  }
+});
+
+test("demo: every link across demo pages stays inside demo or goes to dovre.dev, with no href='#'", async () => {
+  const w = createDemoWorker();
+  const pages = [
+    "/",
+    "/prs",
+    "/deploys",
+    "/agents",
+    "/packs",
+    "/settings",
+    "/stats",
+    "/avatar",
+    "/todo",
+    "/prs/northwind/checkout/412",
+    "/agents/s/d0e0a001-0000-4000-8000-000000000002",
+    "/search?q=catalog",
+    "/elsewhere/northwind/catalog/pull/88",
+  ];
+  for (const path of pages) {
+    const res = await w.fetch(at(path));
+    assert.ok(res.status === 200 || res.status === 502, `${path} status ${res.status}`);
+    const html = await res.text();
+    const hrefMatches = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/gi)];
+    assert.ok(hrefMatches.length > 0, `${path} should have links`);
+    for (const match of hrefMatches) {
+      const href = match[1];
+      assert.notEqual(href, "#", `Page ${path} rendered href="#"`);
+      const isRelative = href.startsWith("/");
+      const isDovreDev = href.startsWith("https://dovre.dev/");
+      assert.ok(
+        isRelative || isDovreDev,
+        `Page ${path} has external link that leaves demo: "${href}" (expected relative /... or https://dovre.dev/...)`,
+      );
+    }
+  }
+});
+
+test("demo: elsewhere splash page says where it would have gone, links back, and keeps hostile input inert", async () => {
+  const w = createDemoWorker();
+  const res = await w.fetch(at("/elsewhere/northwind/catalog/pull/88", { headers: { referer: "https://demo.dovre.dev/prs" } }));
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /On your own Dovre this opens <strong>northwind\/catalog#88<\/strong> on GitHub\./);
+  assert.match(text, /href="\/prs"/);
+  assert.match(text, /href="https:\/\/dovre\.dev\/docs\/"/);
+
+  // A referer path that a browser would read as another host goes back to Today instead.
+  const sly = await w.fetch(at("/elsewhere/northwind/catalog/pull/88", { headers: { referer: "https://demo.dovre.dev//evil.example/x" } }));
+  const slyText = await sly.text();
+  assert.match(slyText, /<a href="\/">Back to the demo<\/a>/);
+  assert.doesNotMatch(slyText, /evil\.example/);
+
+  for (const hostile of ["<script>alert(1)</script>", "javascript:alert(1)"]) {
+    const r = await w.fetch(at(`/elsewhere/${encodeURIComponent(hostile)}`));
+    assert.equal(r.status, 200);
+    const body = await r.text();
+    assert.ok(!body.includes("<script>alert(1)</script>"), `unescaped script in ${hostile}`);
+    assert.ok(!body.includes('href="javascript:alert(1)"'), `javascript: href in ${hostile}`);
+    assertInert(`elsewhere ${hostile}`, body);
   }
 });
 

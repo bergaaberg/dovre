@@ -120,10 +120,10 @@ export function agentBrief(live: Session[], runs: Run[]): Bit[] {
   const agents = (n: number) => `${word(n)} ${n === 1 ? "agent" : "agents"}`;
   if (ask) {
     const one = asking[0];
-    if (ask === 1 && one?.waitingFor) return [{ text: agents(1), href: "#agents", tone: "warn" }, " wants your OK for ", { text: "", href: "", code: one.waitingFor }, "."];
-    return [{ text: agents(ask), href: "#agents", tone: "warn" }, ` ${ask === 1 ? "needs" : "need"} your OK.`];
+    if (ask === 1 && one?.waitingFor) return [{ text: agents(1), href: "/#agents", tone: "warn" }, " wants your OK for ", { text: "", href: "", code: one.waitingFor }, "."];
+    return [{ text: agents(ask), href: "/#agents", tone: "warn" }, ` ${ask === 1 ? "needs" : "need"} your OK.`];
   }
-  if (idle.length) return [{ text: agents(idle.length), href: "#agents" }, ` ${idle.length === 1 ? "waits" : "wait"} for you.`];
+  if (idle.length) return [{ text: agents(idle.length), href: "/#agents" }, ` ${idle.length === 1 ? "waits" : "wait"} for you.`];
   return [];
 }
 
