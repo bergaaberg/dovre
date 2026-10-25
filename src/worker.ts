@@ -90,9 +90,16 @@ const hostOf = (b: WorkerBindings) => b.REPO_HOST || b.GHE_HOST || "github.com";
 /** Every owner tracked, comma-separated: REPO_OWNERS, else GHE_ORG, else GITHUB_USER, else `fallback`. */
 const ownersOfBindings = (b: WorkerBindings, fallback: string) => ownersOf(b.REPO_OWNERS || b.GHE_ORG || b.GITHUB_USER || fallback).join(",");
 
-/** GitHub with the GITHUB_TOKEN secret; without one, every call fails saying so (pages show it as failed, not empty). */
-export function createHostedGhe(bindings: WorkerBindings): Ghe {
+/** The instance's own way to get a GitHub token (a GitHub App's broker, say), asked before every call. */
+export type GithubTokenProvider = (bindings: WorkerBindings) => Promise<string>;
+
+/**
+ * GitHub with the instance's token provider, else the GITHUB_TOKEN secret; without either, every call
+ * fails saying so (pages show it as failed, not empty). A provider that throws fails that call with its message.
+ */
+export function createHostedGhe(bindings: WorkerBindings, provider?: GithubTokenProvider): Ghe {
   const host = hostOf(bindings);
+  if (provider) return createGhe({ host, token: () => provider(bindings) });
   const token = bindings.GITHUB_TOKEN?.trim();
   if (token) return createGhe({ host, token });
   return missingGhe(host, "No GITHUB_TOKEN: set it with `wrangler secret put GITHUB_TOKEN`.");
@@ -147,7 +154,7 @@ const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Obj
 
 type Hosted = { builtAt: number; started: boolean; app: App; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier };
 
-export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, for an instance not yet renamed. */ crates?: Pack[]; version?: string } = {}) {
+export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, for an instance not yet renamed. */ crates?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.0";
   // One app per isolate: its caches outlive a request (bindings don't change within an isolate).
   let hosted: Hosted | undefined;
@@ -155,7 +162,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
   let essentials = false;
   const notSetUp = async (bindings: WorkerBindings): Promise<string | undefined> => {
     if (essentials) return undefined;
-    const lines = hostedSetup(bindings, { tables: await tablesOk(bindings.DB) });
+    const lines = hostedSetup(bindings, { tables: await tablesOk(bindings.DB), githubToken: !!opts.githubToken });
     if (lines.some((l) => l.needed && !l.on)) return setupPage(lines);
     essentials = true;
     return undefined;
@@ -174,7 +181,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const instancePacks = opts.packs ?? opts.crates ?? [];
     // GitHub unless FORGE names a forge one of the instance's packs brings (src/forge/pick.ts).
     const forgeId = forgeIdOf(bindings.FORGE);
-    const ghe = forgeId === "github" ? createHostedGhe(bindings) : missingGhe(hostOf(bindings), `GitHub isn't this instance's forge (FORGE=${forgeId}).`);
+    const ghe = forgeId === "github" ? createHostedGhe(bindings, opts.githubToken) : missingGhe(hostOf(bindings), `GitHub isn't this instance's forge (FORGE=${forgeId}).`);
     const forge = pickForge(bindings.FORGE, instancePacks, () => githubForge(ghe), strings);
     // The last snapshot, kept in D1: a fresh isolate draws it at once and gathers behind it.
     const kept = d1SnapshotStore(bindings.DB, version);
@@ -229,7 +236,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, bindings, core: ["agents", "assistant", "avatar"] },
-      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off }),
+      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
     });
     const mounted = packsOf(app)!;
     linked = mounted.linked;
