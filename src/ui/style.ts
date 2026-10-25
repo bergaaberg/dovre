@@ -59,6 +59,12 @@ svg.pulse .pulse-mark rect { fill: var(--accent); }
 td.pulse-cell svg.pulse { height: 22px; }
 .health-card svg.pulse { height: 26px; }
 .item .line svg.pulse { height: 18px; margin-top: 0.35rem; }
+/* Issues (src/packs/core/issues/): labels are neutral pills; the trail holds linked PRs, sub-issue progress and stale. */
+.issue-ref { font: 600 var(--fs-xs)/1.4 var(--mono); color: var(--text-2); white-space: nowrap; }
+.issue-labels { display: inline-flex; flex-wrap: wrap; gap: .25rem; vertical-align: middle; margin-right: .35rem; }
+.issue-trail { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .35rem; }
+.issue-subs { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-2); }
+.issue-subs .gauge { width: 3rem; }
 .viz svg.narrow { display: none; }
 .viz svg text.end { fill: var(--text); font-size: 12px; font-weight: 500; }
 .viz .base { stroke: var(--axis); stroke-width: 1; }
@@ -339,14 +345,17 @@ main.page { padding: 26px 0 0; min-width: 0; }
 .foot p { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--ink-3); margin: 6px 0 26px; }
 
 /* ── Briefing and horizon (home) ────────────────────────────────────────── */
-.brief { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 48px; padding: 4px 0 0; }
-.eyebrow { font: 600 var(--fs-xs)/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 14px; }
+.brief { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 24px 44px; padding: 4px 0 0; }
+.brief > div { max-width: 66ch; }
+.brief .av-hero { grid-column: 2; grid-row: 1; justify-self: start; }
+.brief .glance { grid-column: 1 / -1; }
+.eyebrow { font: 600 var(--fs-xs)/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 14px; white-space: nowrap; }
 .brief h1 { font: 400 var(--fs-hero)/1.02 var(--serif); letter-spacing: -.012em; margin: 0 0 12px; }
 .lede { font: 400 19px/1.5 var(--serif-text); color: var(--ink-2); margin: 0; max-width: 66ch; }
 .lede a { color: var(--ink); text-decoration-thickness: 1px; }
 .lede code { font-size: .78em; vertical-align: .08em; background: transparent; }
 .lede a.bad { text-decoration-color: var(--bad); } .lede a.warn { text-decoration-color: var(--warn); }
-.glance { display: flex; gap: 30px; margin: 0 0 4px; padding: 0; }
+.glance { display: flex; flex-wrap: wrap; gap: 30px; margin: 0 0 4px; padding: 0; }
 .glance div { display: flex; flex-direction: column-reverse; gap: 3px; }
 .glance dt { font: 600 11px/1.2 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
 .glance dd { margin: 0; font: 600 30px/1 var(--display); letter-spacing: -.01em; }
@@ -781,6 +790,8 @@ button.link:hover { color: var(--ink); }
 @media (max-width: 860px) {
   .grid, .today-cols, .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); }
   .brief { grid-template-columns: 1fr; gap: 20px; }
+  .brief .av-hero { grid-column: auto; grid-row: auto; }
+  .brief .glance { grid-column: auto; }
   .brief h1 { font-size: 38px; } .page-head h1 { font-size: 32px; }
   ul.changes { columns: 1; }
   .row.has-quick > details > summary { padding-right: 30px; } .quick { position: static; margin: -4px 0 10px; }
