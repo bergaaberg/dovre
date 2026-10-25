@@ -1,5 +1,5 @@
 /**
- * The Stats page's numbers, gathered in the background and kept: GHE history (src/stats/history.ts)
+ * The Stats page's numbers, gathered in the background and kept: forge history (src/stats/history.ts)
  * every six hours, kept in data/stats.json so a restart draws at once; agent spend
  * (src/stats/spend.ts) read again when the page asks and it's older than ten minutes. The page
  * never waits: it draws what's there and fills in over the hub when a gather ends.

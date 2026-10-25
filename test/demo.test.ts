@@ -46,3 +46,18 @@ test("demo: hostile input stays inert", async () => {
     assertInert(path, await res.text());
   }
 });
+
+test("demo: /stats renders history charts and spend from fixtures, without gathering or reading notices", async () => {
+  const w = createDemoWorker();
+  const res = await w.fetch(at("/stats"));
+  assert.equal(res.status, 200);
+  const page = await res.text();
+  assert.doesNotMatch(page, /Gathering twelve weeks/i);
+  assert.doesNotMatch(page, /Reading transcripts/i);
+  assert.doesNotMatch(page, /GHE/);
+  assert.match(page, /Agent spend, 7 days/);
+  assert.match(page, /The org, merged PRs per week/);
+  assert.match(page, /Open PRs by age/);
+  assert.match(page, /<p class="kpi-l">Agent spend, 7 days<\/p><p class="kpi-v">\$[0-9]+/);
+  assert.match(page, /<p class="kpi-l">Merged, this week<\/p><p class="kpi-v">1<\/p>/);
+});

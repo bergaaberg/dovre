@@ -11,6 +11,7 @@ import type { StatsView } from "../stats/stats.ts";
 import type { SpendDay } from "../stats/spend.ts";
 import { columns, compact, hbars, lines, sparkline } from "../ui/chart.ts";
 import { type Child, Empty, Notice, PageHeader, Panel } from "../ui/kit.ts";
+import { type ForgeView, GITHUB_VIEW } from "../forge/types.ts";
 import { Ago, safeUrl } from "./parts.ts";
 
 const DAY = 86400e3;
@@ -42,7 +43,7 @@ function spendTiles(spend?: SpendDay[]) {
   return tile("Agent spend, 7 days", money(last7), `${money(prev7)} the 7 days before`, spend.slice(-30).map(total));
 }
 
-function body(v: StatsView, now: number, open: History["open"]) {
+function body(v: StatsView, now: number, open: History["open"], forge: ForgeView = GITHUB_VIEW) {
   const h = v.history;
   const kpis: Child[] = [];
   const charts: Child[] = [];
@@ -90,8 +91,8 @@ function body(v: StatsView, now: number, open: History["open"]) {
         ),
       })
     : "";
-  return html`${v.historyError ? Notice({ tone: "bad", children: html`<strong>GHE didn't answer.</strong> ${v.historyError}${h ? html` <span class="t2">Showing what was gathered ${Ago(h.at)}.</span>` : ""}` }) : ""}
-${!h && v.gathering ? Notice({ children: "Gathering twelve weeks from GHE. This takes about half a minute; the page fills in by itself." }) : ""}
+  return html`${v.historyError ? Notice({ tone: "bad", children: html`<strong>${forge.name} didn't answer.</strong> ${v.historyError}${h ? html` <span class="t2">Showing what was gathered ${Ago(h.at)}.</span>` : ""}` }) : ""}
+${!h && v.gathering ? Notice({ children: `Gathering twelve weeks from ${forge.name}. This takes about half a minute; the page fills in by itself.` }) : ""}
 ${kpis.length ? html`<div class="kpis">${kpis}</div>` : ""}
 <div class="stats-grid">${charts}${agePanel}</div>
 ${!h && !v.gathering && !v.historyError ? Empty({ title: "Nothing gathered yet" }) : ""}`;
@@ -117,16 +118,17 @@ function spendPanel(spend?: SpendDay[]) {
   });
 }
 
-export function statsPage(frame: Frame, v: StatsView, o: { now?: number } = {}) {
+export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?: ForgeView } = {}) {
   const now = o.now ?? Date.now();
+  const forge = o.forge ?? GITHUB_VIEW;
   const h = v.history;
-  const sub = h ? html`Last 12 weeks. From GHE ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}; spend from this machine's transcripts.` : "Last 12 weeks.";
+  const sub = h ? html`Last 12 weeks. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}; spend from this machine's transcripts.` : "Last 12 weeks.";
   const refresh = html`<form method="post" action="/stats/refresh"><button type="submit" class="ghost" data-busy="Gathering"${v.gathering ? html` disabled` : ""}>Gather again</button></form>`;
   return shell({
     title: "Stats · Dovre",
     frame,
     current: "/stats",
-    body: html`${PageHeader({ title: "Stats", sub, actions: refresh })}<div data-live id="stats">${body(v, now, h?.open ?? [])}</div>`,
+    body: html`${PageHeader({ title: "Stats", sub, actions: refresh })}<div data-live id="stats">${body(v, now, h?.open ?? [], forge)}</div>`,
     head: html`<meta name="u-topics" content="stats">`,
   });
 }
