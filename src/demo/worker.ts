@@ -2,18 +2,22 @@
  * The public demo (demo.dovre.dev): hosted Dovre's pages over made-up data (fixtures.ts). It is a
  * separate entry from createWorker on purpose. It reads no bindings at all (no token, no D1, no
  * Access, no hub, no bridge), so nothing real can reach it, and the open door below can't be turned
- * on in a real instance by a setting. Every write is refused before the app sees it.
+ * on in a real instance by a setting. Every write is refused before the app sees it, except asking
+ * the scripted Bino (bino.ts), which each visitor has their own of.
  */
 import { createApp } from "../app.ts";
 import type { D1 } from "../db.ts";
 import type { App, AppEnv, Env } from "../env.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Gatherer } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
+import { fixedLayout } from "../layout.ts";
 import { activePacks } from "../packs/registry.ts";
 import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
 import { fixedHere } from "../packs/core/agents/here.ts";
 import { assistantPack } from "../packs/core/assistant/index.ts";
+import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { avatarPack } from "../packs/core/avatar/index.ts";
 import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
@@ -23,6 +27,7 @@ import { html } from "hono/html";
 import { PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "../pages/parts.ts";
 import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
+import { demoScriptRoute, demoSeedConvs, visitorBino } from "./bino.ts";
 import type { Desk } from "../agents/desk.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
@@ -124,8 +129,20 @@ const READ_ONLY = `<!doctype html><meta charset="utf-8"><meta name="viewport" co
 <h1>This demo is read-only</h1><p>The demo shows made-up data, so buttons that would change something stop here.</p>
 <p><a href="/">Back to the demo</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p></body>`;
 
-export function createDemoWorker(opts: { version?: string } = {}) {
+/** The only writes the demo takes: asking its scripted Bino, in a new conversation or one of your own. */
+export function isAllowedDemoWrite(request: Request): boolean {
+  if (request.method !== "POST") return false;
+  const url = new URL(request.url);
+  return url.pathname === "/bino/new" || /^\/bino\/c\/[0-9a-f-]{36}\/say$/i.test(url.pathname);
+}
+
+/** Who's visiting: a random id in a host-only cookie, so each visitor's Bino is their own. */
+const VISITOR = "__Host-demo_v";
+const visitorOf = (request: Request) => /(?:^|;\s*)__Host-demo_v=([0-9a-f-]{36})(?:;|$)/.exec(request.headers.get("cookie") ?? "")?.[1];
+
+export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}) {
   const version = opts.version ?? "0.2.0";
+  const visitor = new AsyncLocalStorage<string>();
   let app: App | undefined;
   const build = (): App => {
     if (app) return app;
@@ -147,12 +164,19 @@ export function createDemoWorker(opts: { version?: string } = {}) {
       },
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack()], { env: {}, bindings: {}, hosted: true });
+    const extraPacks = opts.packs ?? [];
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), ...extraPacks], { env: {}, bindings: {}, hosted: true });
     const stats = demoStats();
+    const snapshot = () => gatherer.peek() ?? demoSnapshot();
+    const route = demoScriptRoute({ snapshot });
+    const memory = noMemory("The demo remembers nothing.");
+    const bino = { remote: visitorBino({ route, memory, seed: () => demoSeedConvs(snapshot()), visitor: () => visitor.getStore() ?? "" }) };
     app = createApp(env, {
       gatherer,
       ghe: noGhe,
       stats,
+      layout: fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }),
+      bino,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
@@ -168,12 +192,17 @@ export function createDemoWorker(opts: { version?: string } = {}) {
         const res = await bindings.ASSETS.fetch(new Request(new URL(url.pathname.slice("/assets".length), url), request));
         if (res.ok) return res;
       }
-      if (request.method !== "GET" && request.method !== "HEAD") return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        if (!isAllowedDemoWrite(request)) return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
-      const res = await build().fetch(request);
+      const known = visitorOf(request);
+      const id = known ?? crypto.randomUUID();
+      const res = await visitor.run(id, () => build().fetch(request));
       // Search engines: the demo isn't the product's page.
       const out = new Response(res.body, res);
       out.headers.set("x-robots-tag", "noindex");
+      if (!known) out.headers.append("set-cookie", `${VISITOR}=${id}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=86400`);
       return out;
     },
   };

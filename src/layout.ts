@@ -153,3 +153,14 @@ export function layoutStore(db: D1, o: { ttlMs?: number; now?: () => number } = 
   };
 }
 export type LayoutStore = ReturnType<typeof layoutStore>;
+
+/** A layout that doesn't change and writes nothing (the demo). */
+export function fixedLayout(fixed: Layout): LayoutStore {
+  const kept = layoutOf(fixed);
+  return {
+    ready: Promise.resolve(),
+    get: () => kept,
+    save: async () => {},
+    reset: async () => {},
+  };
+}

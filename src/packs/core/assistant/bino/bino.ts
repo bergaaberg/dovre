@@ -92,8 +92,11 @@ export function createBino(o: {
   sees?: string;
   now?: () => number;
   log?: (line: string) => void;
+  /** Keep at most this many conversations in memory (oldest dropped; default 30). */
+  maxConvs?: number;
 }): Engine {
   const now = o.now ?? Date.now;
+  const keep = o.maxConvs ?? KEEP;
   const log = o.log ?? (() => {});
   const convs = new Map<string, Conv>();
   const busy = new Set<Promise<void>>();
@@ -107,6 +110,11 @@ export function createBino(o: {
       const cut = c.msgs.at(-1)?.role === "user" && !c.error;
       convs.set(c.id, { ...c, thinking: false, ...(cut ? { error: "Bino was interrupted (Dovre restarted) before answering: ask again." } : {}) });
     }
+  const trim = () => {
+    const old = [...convs.values()].sort((a, b) => b.at - a.at).slice(keep);
+    for (const c of old) convs.delete(c.id);
+  };
+  trim();
   const save = () => {
     if (!store) return;
     store.save([...convs.values()].sort((a, b) => b.at - a.at).slice(0, ON_DISK).map(({ thinking: _t, ...c }) => c as Conv));
@@ -115,10 +123,6 @@ export function createBino(o: {
     c.at = now();
     save();
     o.onChange?.(c);
-  };
-  const trim = () => {
-    const old = [...convs.values()].sort((a, b) => b.at - a.at).slice(KEEP);
-    for (const c of old) convs.delete(c.id);
   };
 
   /** A message as Bino hears it again: its own proposals as it wrote them, never what I changed or sent. */
