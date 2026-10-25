@@ -14,8 +14,9 @@ import { type Kept, memoize } from "../issues/templates.ts";
 import type { Hub } from "../live.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { loadPrFiles, loadPrView, type PrFile, type PrView, type Thread } from "../sources/prview.ts";
-import { type Child, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
+import { type Child, Empty, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
+import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
 import { type DiffLine, type FileView, fileViews } from "../viewer/diff.ts";
 import { Ago, Link } from "./parts.ts";
@@ -82,13 +83,14 @@ function threadView(t: Thread, o: { showPath?: boolean } = {}): Html {
 
 const TIMELINE_WORD: Record<string, string> = { commit: "pushed", "force-push": "force-pushed", "review-requested": "asked for a review from", ready: "marked it ready for review", draft: "made it a draft", merged: "merged it", closed: "closed it", reopened: "reopened it" };
 
-export function prPage(frame: Frame, o: { view: PrView; agent?: Html | ""; stack?: Child; topic: string }): Html {
+export function prPage(frame: Frame, o: { view: PrView; agent?: Html | ""; stack?: Child; /** Pack facts for this PR ("pr.facts" slot). */ facts?: (pr: PrSlotArg) => [Child, Child][]; topic: string }): Html {
   const v = o.view;
   const open = v.threads.filter((t) => !t.resolved && !t.outdated);
   const folded = v.threads.filter((t) => t.resolved || t.outdated);
   const reviews = v.reviews.filter((r) => r.state !== "PENDING" && (r.body.trim() || r.state !== "COMMENTED"));
+  const factRows = o.facts?.({ repo: v.repo, number: v.number, branch: v.head, title: v.title, url: v.url }) ?? [];
   const body = html`<div data-live id="pr-view">
-${Panel({ title: "Description", children: v.body.trim() ? html`<div class="description">${markdown(v.body)}</div>` : html`<p class="t3">No description.</p>` })}
+${Panel({ title: "Description", children: html`${factRows.length ? KeyValues(factRows) : ""}${v.body.trim() ? html`<div class="description">${markdown(v.body)}</div>` : html`<p class="t3">No description.</p>`}` })}
 ${o.agent ?? ""}
 ${Panel({ title: "Checks", meta: v.headSha.slice(0, 7), flush: true, children: checks(v) })}
 ${Panel({
@@ -233,6 +235,8 @@ export type ViewerDeps = {
   agentFor?: (repo: string, n: number) => Promise<Html | "">;
   /** "2 of 6 in a stack · waits on #839", when the stacks are known (never waits for them). */
   stackFor?: (repo: string, n: number) => Promise<Child | undefined>;
+  /** Pack facts for the PR ("pr.facts" slot), keyed by the PR itself. */
+  facts?: (pr: PrSlotArg) => [Child, Child][];
   checkouts?: () => Checkout[];
   git?: Git;
 };
@@ -278,7 +282,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const topic = topicOf(at.repo, at.n);
     const got = await viewOf(at.repo, at.n);
     if (!got || !got.ok) return c.html(readingPage(frame, { ...at, topic, error: got && !got.ok ? got.error : undefined }), got ? 502 : 200);
-    return c.html(prPage(frame, { view: got.value, agent: (await deps.agentFor?.(at.repo, at.n)) ?? "", stack: await deps.stackFor?.(at.repo, at.n), topic }));
+    return c.html(prPage(frame, { view: got.value, agent: (await deps.agentFor?.(at.repo, at.n)) ?? "", stack: await deps.stackFor?.(at.repo, at.n), facts: deps.facts, topic }));
   });
 
   app.get("/prs/:owner/:repo/:n/files", async (c) => {

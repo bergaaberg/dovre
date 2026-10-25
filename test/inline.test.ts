@@ -1,6 +1,8 @@
 /** Things shown in place: Markdown bodies, PR cards, what a deploy ships. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { html } from "hono/html";
+import type { Child } from "../src/ui/kit.ts";
 import { classify, groupChanges, parseCommit } from "../src/sources/changelog.ts";
 import { checkState } from "../src/sources/ghe.ts";
 import { areas, changelogBlock, prCard } from "../src/pages/inline.ts";
@@ -67,4 +69,19 @@ test("a PR card and a changelog render hostile content inert, links in new tabs"
   assert.match(log, /Ships 2 commits · 1 PR \+ 1 dependency bump/);
   assert.match(log, /Dependency bumps/);
   assert.match(log, /example.atlassian.net\/browse\/JSD-1/);
+});
+
+test("pr.lead and pr.facts know which PR of a repo they're drawn on", async () => {
+  // like a ticket pack: the branch names the ticket, so each PR of the same repo gets its own
+  const slots = {
+    lead: (p: { number: number; branch: string }) => [html`<span class="pill">ticket of #${p.number}: ${p.branch.split("/")[1]}</span>`],
+    facts: (p: { number: number }) => [["Ticket", html`<a href="https://example.net/${p.number}">#${p.number}</a>`] as [Child, Child]],
+  };
+  const one = await render(prCard(pr({ number: 8, branch: "ticket/ENG-42" }), { org: "ACME", summary: () => undefined, slots }));
+  const two = await render(prCard(pr({ number: 9, branch: "ticket/ENG-77" }), { org: "ACME", summary: () => undefined, slots }));
+  assert.match(one, /ticket of #8: ENG-42/);
+  assert.match(two, /ticket of #9: ENG-77/);
+  assert.ok(!one.includes("ENG-77") && !two.includes("ENG-42"), "one repo's two PRs don't share a slot answer");
+  assert.match(one, /href="https:\/\/example.net\/8">/);
+  assert.match(two, /href="https:\/\/example.net\/9">/);
 });

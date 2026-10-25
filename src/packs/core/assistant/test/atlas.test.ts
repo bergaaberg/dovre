@@ -51,7 +51,7 @@ components:
 
 /** The pack's slots, as core's fill would call them. */
 const slotsOf = (dir: string): Slots => assistantPack({ codeDir: dir }).slots!({} as PackContext);
-const prSlots = (sl: Slots): PrSlots => ({ lead: (repo) => [sl["pr.lead"]!({ repo })], facts: (repo) => sl["pr.facts"]!({ repo }) });
+const prSlots = (sl: Slots): PrSlots => ({ lead: (p) => [sl["pr.lead"]!(p)], facts: (p) => sl["pr.facts"]!(p) });
 
 function fakePr(repo: string, number = 101): Pr {
   return {
@@ -335,8 +335,8 @@ components:
   assertInert("/atlas", await res.text());
   const sl = slotsOf(dir);
   assertInert("agents.new", String(sl["agents.new"]!({ repo: "shop-api" })));
-  assertInert("pr.lead", String(sl["pr.lead"]!({ repo: "shop-api" })));
-  assertInert("pr.facts", sl["pr.facts"]!({ repo: "shop-api" }).map(([k, v]) => `${k}${v}`).join(""));
+  assertInert("pr.lead", String(sl["pr.lead"]!({ repo: "shop-api", number: 7, branch: "feat/x", title: "x", url: "https://ghe/shop-api/pull/7" })));
+  assertInert("pr.facts", sl["pr.facts"]!({ repo: "shop-api", number: 7, branch: "feat/x", title: "x", url: "https://ghe/shop-api/pull/7" }).map(([k, v]) => `${k}${v}`).join(""));
   assertInert("work.new", String(sl["work.new"]!({})));
 });
 

@@ -421,8 +421,8 @@ test("slots: each pack fills a core page's place; one that throws fills nothing,
   const ok: Pack = { manifest: m("ok"), slots: () => ({ "work.new": () => html`<p class="t3">from ok</p>`, "pr.lead": ({ repo }) => html`<span>${repo}</span>` }) };
   const logged: string[] = [];
   const fill = fillOf(() => [boom, half, ok], () => ({}) as never, (id, line) => logged.push(`${id}: ${line}`));
-  assert.deepEqual(fill("pr.lead", { repo: H }).map(String), [`<span>${html`${H}`}</span>`]);
-  assert.deepEqual(fill("pr.facts", { repo: "x" }), []);
+  assert.deepEqual(fill("pr.lead", { repo: H, number: 1, branch: "b", title: "t", url: "https://x" }).map(String), [`<span>${html`${H}`}</span>`]);
+  assert.deepEqual(fill("pr.facts", { repo: "x", number: 1, branch: "b", title: "t", url: "https://x" }), []);
   assert.deepEqual(logged, ["boom: slot pr.lead: no slots today", "half: slot pr.lead: lead broke", "boom: slot pr.facts: no slots today"]);
 
   const { get } = signedIn(snapshot(), {}, { packs: [boom, ok] });
