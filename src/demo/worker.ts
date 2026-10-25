@@ -12,7 +12,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Gatherer, Snapshot } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { fixedLayout, type Layout, type LayoutStore } from "../layout.ts";
-import { activePacks, refresher } from "../packs/registry.ts";
+import { activePacks, refresher, within } from "../packs/registry.ts";
 import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
 import { fixedHere } from "../packs/core/agents/here.ts";
@@ -251,7 +251,8 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
       const app = build();
-      await refresh?.due();
+      // A pack that hangs doesn't hold the page: it shows what it had.
+      if (refresh) await within(2000, () => refresh!.due());
       const engine = freshEngine();
       const res = await current.run(engine, async () => {
         let req = request;
