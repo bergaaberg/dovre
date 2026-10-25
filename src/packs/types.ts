@@ -140,6 +140,8 @@ export type RefRule = { pattern: RegExp; href(match: string): string };
 
 
 export type PageOpts = { title: string; body: Html | string; current?: string; head?: Html | string };
+/** The PR the "pr.*" slots are drawn on: which repo, and which PR of it (a pack can link a ticket named in its branch or title). */
+export type PrSlotArg = { repo: string; number: number; branch: string; title: string; url: string };
 
 /**
  * Named places on core pages a pack can fill (PLAN WP-H9), each with what the page knows there
@@ -149,10 +151,10 @@ export type PageOpts = { title: string; body: Html | string; current?: string; h
 export type SlotMap = {
   /** /agents/new with a checkout picked: a field under "Runs in" (atlas: the component picker). */
   "agents.new": { arg: { repo: string }; out: Html | "" };
-  /** A PR's row on /prs, beside its repo: a pill or two. */
-  "pr.lead": { arg: { repo: string }; out: Html | "" };
-  /** A PR on /prs opened in place: rows for its facts (label, value). */
-  "pr.facts": { arg: { repo: string }; out: [string, Html][] };
+  /** A PR's row on /prs, beside its repo: a pill or two (atlas: its repo's tier). */
+  "pr.lead": { arg: PrSlotArg; out: Html | "" };
+  /** A PR opened in place (the /prs list or the viewer): rows for its facts (label, value). */
+  "pr.facts": { arg: PrSlotArg; out: [string, Html][] };
   /** New work (/issues/new): a panel above "What is it?". */
   "work.new": { arg: Record<string, never>; out: Html | "" };
   /** /agents, after "Started here": a panel (terminal: the terminals open here). */
