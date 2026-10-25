@@ -40,7 +40,7 @@ export function upsertDevVar(file: string, key: string, value: string): void {
   if (!/^[A-Z0-9_]+$/.test(key) || /[\r\n]/.test(value)) throw new Error("invalid key or value");
   const cur = existsSync(file) ? readFileSync(file, "utf8") : "";
   const re = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
-  const next = re.test(cur) ? cur.replace(re, `${key}=${value}`) : `${cur.replace(/\s*$/, cur.trim() ? "\n" : "")}${key}=${value}\n`;
+  const next = re.test(cur) ? cur.replace(re, () => `${key}=${value}`) : `${cur.replace(/\s*$/, cur.trim() ? "\n" : "")}${key}=${value}\n`;
   writeFileSync(file, next, { mode: 0o600 });
 }
 

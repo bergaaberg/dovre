@@ -839,3 +839,13 @@ test("POST /packs/:id/settings: configures pack settings in .dev.vars, transitio
   assert.doesNotMatch(readFileSync(varsFile, "utf8"), /LINEAR_API_KEY=/);
   assert.equal((await get("/linear")).status, 404);
 });
+
+test(".dev.vars writes keep a value exactly, even with $& or $' in it, and remove only their own line", async () => {
+  const { upsertDevVar, removeDevVar } = await import("../src/setup.ts");
+  const file = join(mkdtempSync(join(tmpdir(), "devvars-")), ".dev.vars");
+  writeFileSync(file, "A_KEY=old\nB_KEY=keep\n");
+  upsertDevVar(file, "A_KEY", "p$&w$'d$`x$1");
+  assert.equal(readFileSync(file, "utf8"), "A_KEY=p$&w$'d$`x$1\nB_KEY=keep\n");
+  removeDevVar(file, "A_KEY");
+  assert.equal(readFileSync(file, "utf8"), "B_KEY=keep\n");
+});
