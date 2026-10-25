@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { eyebrow, greeting, isoWeek, lede, glance } from "../src/home/brief.ts";
-import { resetWhen, setWhen, validZone } from "../src/when.ts";
+import { currentTz, hostZone, resetWhen, setWhen, validZone } from "../src/when.ts";
 import { horizon, nightIn, peaks, rng, sunTimes } from "../src/home/horizon.ts";
 import { createHub, signature, throttle } from "../src/live.ts";
 import { type Need, needsOf } from "../src/home/needs.ts";
@@ -31,7 +31,7 @@ test("the greeting follows the hour in both English and Norwegian across all ban
   assert.equal(greeting(at("2026-10-22T23:30:00Z"), { tz: "UTC", lang: "no" }), "God natt");
 });
 
-test("a non-Oslo zone moves the hour and date line, and an invalid zone falls back to UTC", () => {
+test("a non-Oslo zone moves the hour and date line, and an empty or invalid zone falls back to this machine's", () => {
   const t = at("2026-10-22T07:42:00Z");
   // Same instant, different local hours
   assert.equal(greeting(t, { tz: "America/New_York" }), "Good night"); // 03:42 EDT
@@ -48,17 +48,21 @@ test("a non-Oslo zone moves the hour and date line, and an invalid zone falls ba
 
   assert.equal(isoWeek(at("2027-01-01T12:00:00Z"), "UTC"), 53);
 
-  // Invalid timezone falls back to UTC with a log line
+  // No setting: this machine's zone (a Worker's is UTC). An invalid one: the same, with a log line.
   const logs: string[] = [];
+  assert.equal(validZone(""), hostZone());
+  assert.equal(validZone(undefined), hostZone());
   const fallback = validZone("Mars/Olympus_Mons", (m) => logs.push(m));
-  assert.equal(fallback, "UTC");
-  assert.match(logs[0] ?? "", /invalid timezone "Mars\/Olympus_Mons", falling back to UTC/);
+  assert.equal(fallback, hostZone());
+  assert.equal(logs[0], `invalid timezone "Mars/Olympus_Mons", falling back to ${hostZone()}`);
+  resetWhen();
+  assert.equal(currentTz(), hostZone());
 
   // Setting the default through setWhen works and resets cleanly
   setWhen({ tz: "Europe/Oslo", lang: "no" });
   assert.equal(greeting(t), "God morgen");
   resetWhen();
-  assert.equal(greeting(t), "Good morning");
+  assert.equal(greeting(t, { tz: "UTC" }), "Good morning");
 });
 
 test("the briefing says what needs me in sentences, the packs' between deploys and red builds, and leaves out leftover deploys", () => {

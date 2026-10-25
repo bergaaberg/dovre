@@ -11,6 +11,7 @@ import { type History, historyOf, isBot, median, weekly, weeksOf } from "../src/
 import { claudeCostDays, createSpend, ompCostDays } from "../src/stats/spend.ts";
 import { createStats } from "../src/stats/stats.ts";
 import { columns, niceTicks } from "../src/ui/chart.ts";
+import { resetWhen, setWhen } from "../src/when.ts";
 import { H, assertInert, fakeGhe, fixedGatherer, snapshot } from "./helpers.ts";
 
 const NOW = Date.parse("2026-10-22T14:00:00Z"); // a Thursday, week 43
@@ -82,10 +83,12 @@ test("spend: Claude Code's running total by the day of the line before it; omp's
     `{"type":"message","timestamp":"2026-10-21T09:00:00Z","message":{"role":"user","content":"${"x"}"}}`,
     `{"type":"message","timestamp":"2026-10-22T09:00:00Z","message":{"role":"assistant","usage":{"cost":{"total":0.5}}}}`,
   ];
-  assert.deepEqual([...ompCostDays(omp)], [["2026-10-21", 0.25], ["2026-10-22", 0.5]]);
+  assert.deepEqual([...ompCostDays(omp, "Europe/Oslo")], [["2026-10-21", 0.25], ["2026-10-22", 0.5]]);
 });
 
-test("spend from the folders: Claude Code's projects and omp's sessions, read again only when a file changes", async () => {
+test("spend from the folders: Claude Code's projects and omp's sessions, read again only when a file changes", async (t) => {
+  setWhen({ tz: "UTC" });
+  t.after(resetWhen);
   const home = mkdtempSync(join(tmpdir(), "spend-"));
   mkdirSync(join(home, ".claude", "projects", "C--Code-a"), { recursive: true });
   mkdirSync(join(home, ".omp", "agent", "sessions", "-Code"), { recursive: true });

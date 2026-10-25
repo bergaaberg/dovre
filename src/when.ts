@@ -1,28 +1,41 @@
 /**
  * Timezone and greeting language settings.
  *
- * Configured via TZ_NAME and GREETING. Validated with Intl.DateTimeFormat;
- * an invalid timezone falls back to UTC with a log warning.
+ * Configured via TZ_NAME and GREETING. The timezone is this machine's own unless TZ_NAME
+ * names another (on a Worker, the machine's zone is UTC). TZ_NAME is validated with
+ * Intl.DateTimeFormat; an invalid one falls back to the machine's zone with a log warning.
  */
 
 export type GreetingLang = "en" | "no";
 
+const zoneOk = (name: string) => {
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** This machine's timezone (the process's `TZ`, else the system's), or UTC when it has none. */
+export function hostZone(): string {
+  const name = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return name && zoneOk(name) ? name : "UTC";
+}
+
 let state = {
-  tz: "UTC",
+  tz: hostZone(),
   lang: "en" as GreetingLang,
 };
 
-/** Validates an IANA timezone name; invalid falls back to UTC with a log line. */
+/** Validates an IANA timezone name. Empty: this machine's zone. Invalid: the same, with a log line. */
 export function validZone(raw: unknown, log: (msg: string) => void = console.warn): string {
-  if (typeof raw !== "string" || !raw.trim()) return "UTC";
+  if (typeof raw !== "string" || !raw.trim()) return hostZone();
   const name = raw.trim();
-  try {
-    new Intl.DateTimeFormat("en-GB", { timeZone: name });
-    return name;
-  } catch {
-    log(`invalid timezone ${JSON.stringify(raw)}, falling back to UTC`);
-    return "UTC";
-  }
+  if (zoneOk(name)) return name;
+  const fallback = hostZone();
+  log(`invalid timezone ${JSON.stringify(raw)}, falling back to ${fallback}`);
+  return fallback;
 }
 
 /** Parses greeting language: "no" for Norwegian, "en" (default) for English. */
@@ -36,14 +49,19 @@ export function setWhen(opts: { tz?: unknown; lang?: unknown; log?: (msg: string
   if (opts.lang !== undefined) state.lang = greetingLang(opts.lang);
 }
 
-/** Resets back to defaults ("UTC", "en"). */
+/** Resets back to defaults (this machine's zone, "en"). */
 export function resetWhen(): void {
-  state = { tz: "UTC", lang: "en" };
+  state = { tz: hostZone(), lang: "en" };
 }
 
-/** The currently configured timezone (UTC by default). */
+/** The configured timezone (this machine's by default). */
 export function currentTz(): string {
   return state.tz;
+}
+
+/** The hour (0–23) of a time in the configured timezone, or in `tz`. */
+export function hourAt(at: number, tz = currentTz()): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
 }
 
 /** The currently configured greeting language ("en" by default). */
