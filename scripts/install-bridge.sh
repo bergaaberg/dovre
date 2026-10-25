@@ -92,7 +92,10 @@ cat > "$plist" <<EOF
 EOF
 chmod 600 "$plist"
 launchctl bootout "$domain/$label" 2>/dev/null || true
-launchctl bootstrap "$domain" "$plist"
+# bootout returns before the old agent is gone; bootstrapping then fails ("5: Input/output error").
+i=0
+while launchctl print "$domain/$label" >/dev/null 2>&1 && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+launchctl bootstrap "$domain" "$plist" || { sleep 2; launchctl bootstrap "$domain" "$plist"; }
 
 # Keep the running copy and the two before it (to go back to); drop the rest.
 ls -t "$root/versions" | grep -v '^\.' | grep -vx "$short" | tail -n +3 | while read -r old; do rm -rf "$root/versions/$old"; done
