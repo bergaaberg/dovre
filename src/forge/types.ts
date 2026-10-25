@@ -5,8 +5,9 @@
  */
 import type { Changelog } from "../sources/changelog.ts";
 import type { Deploy, Move, Note, Pr, PrRef, RedBranch } from "../sources/ghe.ts";
+import type { Issue, IssueSets } from "../sources/issues.ts";
 
-export type { Changelog, Deploy, Move, Note, Pr, PrRef, RedBranch };
+export type { Changelog, Deploy, Issue, IssueSets, Move, Note, Pr, PrRef, RedBranch };
 
 /**
  * What a forge can do beyond the gather. Core pages that need one are hidden when the forge lacks it,
@@ -48,6 +49,12 @@ export type Forge = {
   changelog?(repo: string, env: string, head: string): Promise<Changelog>;
   /** Shared branches whose newest run failed, from the notes. Absent: none. */
   red?(notes: Note[]): Promise<RedBranch[]>;
+  /**
+   * My open issues in the owners' repos: assigned to me, mentioning me, opened by me, and the
+   * unassigned, unlabelled ones in `triage` (`owner/repo`s; a repo outside the owners is left out).
+   * Absent: no Issues pack.
+   */
+  issues?(login: string, owners: string, opts?: { triage?: string[] }): Promise<IssueSets>;
 };
 
 /** A forge a pack brings: picked when FORGE is its id. `env` is the pack's env (its settings). */
