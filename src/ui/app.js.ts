@@ -456,6 +456,7 @@ async function swap() {
           }
           // Something that scrolls on its own keeps its place.
           const scrolled = [...region.querySelectorAll("[data-keep-scroll][id]")].map((el) => [el.id, el.scrollTop]);
+          avKeep(region, copy);
           region.replaceWith(copy);
           for (const [id, top] of scrolled) { const el = document.getElementById(id); if (el) el.scrollTop = top; }
           enhance(copy);
@@ -527,7 +528,15 @@ const avRest = () => (avNow?.busy || document.querySelector("[data-pending]") ? 
 function avSay(text, o = {}) {
   const host = $("bdock") || document.querySelector(".av-hero");
   if (!host || !text) return;
-  host.querySelector(".av-say")?.remove();
+  const up = host.querySelector(".av-say");
+  // The same line again (a burst of changes as the page loads) stays put instead of popping in anew.
+  if (up && up.textContent === text) {
+    avHold = Date.now() + 7000;
+    clearTimeout(avTimer);
+    avTimer = setTimeout(() => { up.remove(); avMood(avRest()); }, 7000);
+    return;
+  }
+  up?.remove();
   const b = document.createElement("div");
   b.className = "av-say" + (o.tone === "bad" || o.tone === "warn" ? " " + o.tone : "");
   b.setAttribute("role", "status");
@@ -544,6 +553,15 @@ function avSay(text, o = {}) {
   clearTimeout(avTimer);
   avTimer = setTimeout(() => { b.remove(); avMood(avRest()); }, 7000);
 }
+// A region swapped in keeps what the avatar is doing: its line stays up and its mood holds.
+function avKeep(from, to) {
+  const say = from.querySelector(".av-say");
+  if (say) to.querySelector(".av-hero")?.append(say);
+  for (const img of from.querySelectorAll("img[data-av]")) {
+    const next = to.querySelector('img[data-av="' + img.dataset.av + '"]');
+    if (next && img.dataset.mood && Date.now() < avHold) { next.dataset.mood = img.dataset.mood; next.setAttribute("src", avSrc(next, img.dataset.mood)); }
+  }
+}
 async function avatarChange(c) {
   if (!document.querySelector("img[data-av]")) return;
   for (const n of (c?.notes || []).slice(-1)) avSay(n.title, { href: n.url, mood: n.kind === "agent-ask" ? "ask" : n.kind === "agent-done" ? "done" : "pop", tone: n.kind === "ci" ? "bad" : n.kind === "deploy" ? "warn" : "" });
@@ -555,7 +573,8 @@ async function avatarChange(c) {
   for (const w of document.querySelectorAll("[data-av-why]")) w.textContent = (now.why || []).slice(0, 2).join(" · ");
   let seen = 0;
   try { seen = Number(sessionStorage.getItem("av-said")) || 0; } catch {}
-  if (now.say && now.say.at > seen) {
+  // Only a fresh line: one from minutes ago isn't news to a page opened now.
+  if (now.say && now.say.at > seen && Date.now() - now.say.at < 120_000) {
     try { sessionStorage.setItem("av-said", String(now.say.at)); } catch {}
     return avSay(now.say.text, { href: now.say.href, tone: now.say.tone, mood: now.say.tone === "bad" ? "ask" : "pop" });
   }

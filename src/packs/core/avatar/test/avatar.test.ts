@@ -197,6 +197,17 @@ test("the service: one key per picture, a line when the scene turns, the look ke
   assert.equal(again.look().creature, "owl", "kept in settings");
 });
 
+test("the service: the first scene once the signals come in is where it starts, not a turn to say (#hosted first load)", () => {
+  let sig: Signals | undefined;
+  const a = createAvatar({ signals: () => sig });
+  assert.equal(a.now().say, undefined);
+  sig = { ...CALM, trouble: [{ level: "storm", why: "2 red signals", href: "/signals" }] };
+  assert.equal(a.now().scene, "storm");
+  assert.equal(a.now().say, undefined, "a fresh start (a new Worker isolate) doesn't announce what was already so");
+  sig = { ...CALM, trouble: [{ level: "fire" as const, why: "120 failed messages", href: "/signals" }] };
+  assert.equal(a.now().say?.text, "This is fine. 120 failed messages.", "a turn after that is said");
+});
+
 test("the pack: the image with its cache rules, what's going on now, Today and the Bino button, the crafting page, and saving a look", async (t) => {
   // 10:00 UTC is daytime here, wherever the tests run.
   setWhen({ tz: "UTC" });

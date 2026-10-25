@@ -66,8 +66,12 @@ export function createAvatar(o: { data?: AvatarData; signals: () => Signals | un
   let look: Look = DEFAULT_LOOK;
   let today: TodayMode = "move";
   const blank: Signals = { redBuilds: 0, deploysWaiting: 0, agentsWorking: 0, agentsAsking: 0, reviewsAsked: 0, mergedToday: 0, doing: 0, hour: 12 };
+  // Known: the signals have come in. Until then the scene is a guess, and its first real one isn't a turn.
+  let known = false;
   const situationNow = () => {
-    const s = o.signals() ?? { ...blank, hour: hourAt(clock()) };
+    const got = o.signals();
+    known ||= got !== undefined;
+    const s = got ?? { ...blank, hour: hourAt(clock()) };
     return situationOf({ ...s, mergedToday: Math.max(s.mergedToday, o.data?.facts()?.mergedToday ?? 0) });
   };
   const statsNow = () => statsOf(o.data?.facts()?.stats);
@@ -100,8 +104,9 @@ export function createAvatar(o: { data?: AvatarData; signals: () => Signals | un
   /** Looks again; a new picture gets a new key (and a copy for the starting page), a turn in the scene a line. */
   const again = () => {
     const was = situation.scene;
+    const wasKnown = known;
     situation = situationNow();
-    if (situation.scene !== was) {
+    if (situation.scene !== was && wasKnown) {
       const s = SAY[situation.scene];
       say = s ? { text: `${s.text}${situation.why[0] ? ` ${situation.why[0][0]!.toUpperCase()}${situation.why[0].slice(1)}.` : ""}`, tone: s.tone, href: situation.href ?? s.href, at: clock() } : undefined;
     }
