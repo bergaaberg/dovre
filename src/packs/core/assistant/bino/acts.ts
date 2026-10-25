@@ -1,11 +1,7 @@
 /**
- * What Bino may propose to do: a Teams message or a dev task. Bino acts on nothing;
- * a proposal is a card I change or send with one click (src/pages/bino.ts). A Teams message goes
- * through teams.send; a task opens the normal preview, whose Create is the confirm.
- *
- * Bino never sees Teams: not chat names, not messages. It says who, the way I said it ("Kari"),
- * and the card finds the chat here (chatsFor). What I send, if I change Bino's text first, stays
- * out of Bino's conversation and off disk: only that it went, and to which chat id.
+ * What Bino may propose to do: a dev task or a pack act. Bino acts on nothing;
+ * a proposal is a card I change or confirm with one click. A task opens the normal
+ * preview, whose Create is the confirm. Pack acts go through the pack's `act` hook.
  */
 
 export const ACT_FENCE = "bino-act";
@@ -15,13 +11,10 @@ export const MAX_TEXT = 4000;
 export const MAX_TITLE = 255;
 export const MAX_BODY = 8000;
 
-export type TeamsAct = { kind: "teams"; to: string; text: string };
 export type TaskAct = { kind: "task"; parent: string; repo: string; title: string; body: string };
 /** A pack's (src/packs/types.ts ActKind): kind `<pack>.<kind>`, its fields as checked. */
 export type PackAct = { kind: `${string}.${string}`; fields: Record<string, string> };
-export type Act = (TeamsAct | TaskAct | PackAct) & {
-  /** Sent (Teams): when, and to which chat. */
-  sent?: { at: number; chat: string };
+export type Act = (TaskAct | PackAct) & {
   /** Done (a pack's): when, what the card says, and where to see it. */
   done?: { at: number; text: string; href?: string };
   sending?: boolean;
@@ -29,7 +22,7 @@ export type Act = (TeamsAct | TaskAct | PackAct) & {
 };
 
 /** A kind of act a pack offers, as Bino is told it and its block is checked (registry actsFrom). */
-export type ActSpec = { kind: string; /** The pack's name ("Teams"). */ app: string; when: string; fields: { name: string; about: string; required: boolean; max: number; text: boolean }[] };
+export type ActSpec = { kind: string; /** The pack's name. */ app: string; when: string; fields: { name: string; about: string; required: boolean; max: number; text: boolean }[] };
 
 export const isPackAct = (a: Act): a is PackAct & Act => a.kind.includes(".");
 
@@ -50,11 +43,6 @@ export function actOf(raw: unknown, kinds: ActSpec[] = []): Act | null {
       else if (f.required) return null;
     }
     return { kind: spec.kind as PackAct["kind"], fields };
-  }
-  if (r.kind === "teams") {
-    const to = line(r.to, MAX_TO);
-    const text = para(r.text, MAX_TEXT);
-    return to && text ? { kind: "teams", to, text } : null;
   }
   if (r.kind === "task") {
     const title = line(r.title, MAX_TITLE);
@@ -78,9 +66,9 @@ export function splitActs(reply: string, kinds: ActSpec[] = []): { text: string;
 
 /** An act as Bino wrote it, for Bino's own transcript (never what I changed or sent). */
 export function fenceOf(a: Act): string {
-  const { sent: _s, done: _d, sending: _g, error: _e, ...rest } = a;
+  const { done: _d, sending: _g, error: _e, ...rest } = a;
   const plain = isPackAct(a) ? { kind: a.kind, ...a.fields } : rest;
-  return `\`\`\`${ACT_FENCE}\n${JSON.stringify(plain)}\n\`\`\`${a.sent ? " (sent)" : a.done ? " (done)" : ""}`;
+  return `\`\`\`${ACT_FENCE}\n${JSON.stringify(plain)}\n\`\`\`${a.done ? " (done)" : ""}`;
 }
 
 /** Lower case, accents off, Norwegian letters spelled out, so "Ase" finds "Åse" and "Bjorn" finds "Bjørn". */

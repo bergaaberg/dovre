@@ -105,7 +105,7 @@ const quickAdd = (back: string, id: string, label = "Add to my list", bino = fal
   }</form>`;
 
 /** The page: quick add, then Doing, Next, Waiting and recent Done; older done things folded away. */
-export function todoPage(frame: Frame, all: Todo[], ctx: LinkCtx, opts: { now?: number; bino?: boolean; /** Proposals from elsewhere (Teams' crawler), above the list. */ proposals?: Html | "" } = {}): Html {
+export function todoPage(frame: Frame, all: Todo[], ctx: LinkCtx, opts: { now?: number; bino?: boolean; /** Proposals from packs, above the list. */ proposals?: Html | "" } = {}): Html {
   const now = opts.now ?? Date.now();
   const today = osloDate(now);
   const trees = treeOf(all);
@@ -155,7 +155,7 @@ const backTo = (form: Record<string, unknown>, id?: number) => {
 const idOf = (s: string) => (/^\d{1,9}$/.test(s) ? Number(s) : undefined);
 
 /** /todo…: mounted at "/" by app.ts, behind its cookie and same-origin checks. */
-export function createTodoRoutes(env: Env, deps: { page: () => Promise<{ s: Snapshot; frame: Frame }>; /** The packs' kinds of reference. */ rules?: () => RefRule[]; hub?: Hub; now?: () => number; /** Bino can answer: offer talking a task through. */ bino?: boolean; /** Proposals to show above the list (Teams' crawler). */ proposals?: () => Promise<Html | ""> }): Hono<AppEnv> {
+export function createTodoRoutes(env: Env, deps: { page: () => Promise<{ s: Snapshot; frame: Frame }>; /** The packs' kinds of reference. */ rules?: () => RefRule[]; hub?: Hub; now?: () => number; /** Bino can answer: offer talking a task through. */ bino?: boolean; /** Proposals to show above the list (packs' proposals). */ proposals?: () => Promise<Html | ""> }): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const db = env.DB;
   const now = deps.now ?? Date.now;

@@ -40,7 +40,7 @@ window.addEventListener("orientationchange", () => { tallest = 0; setTimeout(kbC
 document.addEventListener("focusin", () => setTimeout(kbCheck, 250));
 document.addEventListener("focusout", () => setTimeout(kbCheck, 50));
 kbCheck();
-// Inside the Teams dock (a frame of /teams/dock on another of this app's pages).
+// Inside a dock panel (a frame of a dock page on another of this app's pages).
 const framed = window.top !== window;
 // A dock's page has no frame of its own to say light or dark: it takes its page's (Settings → Layout).
 if (framed) try {
@@ -694,7 +694,7 @@ const KEYS = [
   ["Hints", [["f", "Letters on everything clickable: type them to press it"], ["F", "The same, links open in a new window"], ["Backspace", "Take back a letter"], ["Esc", "Put the letters away"]]],
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
   ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["H / L", "Back / forward"]]],
-  ["This page", [["r", "Refresh the data"], ["T", "Teams: open or close the chat panel"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
+  ["This page", [["r", "Refresh the data"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
 ];
 let help = null;
 function showHelp() {
@@ -1500,11 +1500,10 @@ const packDock = (pack, title) => {
   return { id: "dock-" + pack, key: "u-dock-" + pack, title: title || pack, home, topic: pack, ok: { test: (src) => (src === home || src.startsWith(home + "/") || src.startsWith(home + "#")) && /^\/[\w\-./:@%]*(#[\w-]+)?$/.test(src) && !src.includes("..") && !src.includes("//") } };
 };
 const DOCKS = [
-  { id: "tdock", key: "u-dock", title: "Teams", home: "/teams/dock", ok: /^\/teams\/dock(\/c\/[^/?#]+)?(#end)?$/ },
   { id: "bdock", key: "u-bdock", title: "Bino", home: "/bino/dock", ok: /^\/bino\/dock(\/c\/[0-9a-f-]{36})?$/ },
   ...[...document.querySelectorAll("[data-dock]")].map((el) => packDock(el.id.replace(/^dock-/, ""), el.dataset.dockTitle)),
 ];
-const DOCK_KEYS = { T: "tdock", B: "bdock" };
+const DOCK_KEYS = { B: "bdock" };
 const dockOf = (id) => DOCKS.find((d) => d.id === id);
 function dockState(d) {
   try { return JSON.parse(sessionStorage.getItem(d.key) || "{}"); } catch { return {}; }
@@ -1569,8 +1568,8 @@ function dockKey(k) {
 }
 if (framed) {
   const own = /^\/([a-z][a-z0-9-]*)\/dock(\/|$)/.exec(location.pathname);
-  const mine = DOCKS.find((d) => location.pathname.startsWith(d.home)) || (own && own[1] !== "teams" && own[1] !== "bino" ? packDock(own[1]) : undefined);
-  if (mine) dockSave(mine, { src: location.pathname + (mine.id === "tdock" && location.pathname.includes("/c/") ? "#end" : mine.topic ? location.hash : "") });
+  const mine = DOCKS.find((d) => location.pathname.startsWith(d.home)) || (own && own[1] !== "bino" ? packDock(own[1]) : undefined);
+  if (mine) dockSave(mine, { src: location.pathname + (mine.topic ? location.hash : "") });
   addEventListener("u-change", (e) => {
     lastEvent = Date.now();
     const topics = Array.isArray(e.detail) ? e.detail : [];

@@ -27,10 +27,7 @@ import type { Hub } from "../../../../live.ts";
 import { addTodo, getTodo, listTodos, STATES, type Todo } from "../../../../todo/store.ts";
 import { Confirm, type Html, Notice, PageHeader, Panel } from "../../../../ui/kit.ts";
 import { markdown } from "../../../../ui/markdown.ts";
-import { MAX_SEND } from "../../../../teams/helper.ts";
-import type { Teams, TeamsView } from "../../../../teams/teams.ts";
 import { Ago, harnessTag } from "../../../../pages/parts.ts";
-import { chatHref } from "../../../../pages/teams.ts";
 
 const LABEL: Record<string, string> = { doing: "Doing", next: "Next", waiting: "Waiting" };
 const OPEN_STATES = STATES.filter((s) => s !== "done");
@@ -51,34 +48,11 @@ ${target ? html`<fieldset class="bino-target"><legend>Where</legend><label class
 }
 
 
-/** What a card needs from outside Bino: Teams' chats (names stay on this page), the org, refused sends' text. */
-export type ActCtx = { teams?: TeamsView; org: string; kept: Map<string, string>; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>> };
+/** What a card needs from outside Bino: the org, refused sends' text. */
+export type ActCtx = { org: string; kept: Map<string, string>; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>> };
 const out = (ax?: ActCtx) => (ax?.dock ? html` target="_top"` : "");
 
 const actKey = (c: Conv, i: number, n: number) => `${c.id}:${i}:${n}`;
-
-function teamsCard(c: Conv, i: number, n: number, a: Act & { kind: "teams" }, ax: ActCtx): Html {
-  const id = `act-${i}-${n}`;
-  const chats = ax.teams?.state === "ok" ? ax.teams.chats : [];
-  if (a.sent) {
-    const to = chats.find((x) => x.id === a.sent!.chat);
-    return html`<div class="bino-plan done" id="${id}"><p>Sent to ${to ? html`<strong>${to.name}</strong>` : "the chat"} ${Ago(a.sent.at)}. <a href="${chatHref(a.sent.chat)}">Open the chat</a></p></div>`;
-  }
-  if (a.sending) return html`<div class="bino-plan" id="${id}" aria-live="polite"><p><span class="spinner" aria-hidden="true"></span> Sending to Teams…</p></div>`;
-  if (ax.teams?.state !== "ok")
-    return html`<div class="bino-plan" id="${id}"><p class="bino-plan-h">A message in Teams, to ${a.to}</p>${Notice({ tone: "warn", children: html`Teams isn't connected: <a href="/teams">connect it</a>, then send from here.` })}<div class="bino-text">${markdown(a.text)}</div></div>`;
-  const fits = chatsFor(a.to, chats);
-  const rest = chats.filter((x) => !fits.includes(x)).slice(0, 30);
-  const opt = (x: (typeof chats)[number], on: boolean) => html`<option value="${x.id}"${on ? html` selected` : ""}>${x.name}</option>`;
-  const hint = !fits.length ? `No chat matches «${a.to}»: pick one. Only chats you already have work.` : fits.length > 1 ? `${fits.length} chats match «${a.to}»: check it's the right one.` : "";
-  return html`<form method="post" action="/bino/c/${c.id}/act/${i}/${n}" class="bino-plan" id="${id}">${ax.dock ? DOCK_FIELD : ""}
-<p class="bino-plan-h">A message in Teams</p>
-${a.error ? Notice({ tone: "bad", children: html`<strong>Not sent.</strong> ${a.error}` }) : ""}
-<label class="field"><span class="label">To</span>${hint ? html`<span class="hint">${hint}</span>` : ""}<select name="chat" required>${fits.length ? "" : html`<option value="">Pick a chat…</option>`}${fits.length ? html`<optgroup label="Matches «${a.to}»">${fits.map((x, k) => opt(x, k === 0))}</optgroup>` : ""}${rest.length ? html`<optgroup label="Recent chats">${rest.map((x) => opt(x, false))}</optgroup>` : ""}</select></label>
-<label class="field"><span class="label">Message</span><textarea name="text" rows="${Math.min(10, Math.max(3, a.text.split("\n").length + 1))}" maxlength="${MAX_SEND}" required>\n${ax.kept.get(actKey(c, i, n)) ?? a.text}</textarea></label>
-<div class="buttons"><button type="submit" class="primary" data-busy="Sending">Send</button><span class="hint">Plain text, as you. Change anything first.</span></div>
-</form>`;
-}
 
 function taskCard(i: number, n: number, a: Act & { kind: "task" }, ax: ActCtx): Html {
   const repo = a.repo && !a.repo.includes("/") ? `${ax.org}/${a.repo}` : a.repo;
@@ -116,7 +90,6 @@ ${inputs}
 
 function actCard(c: Conv, i: number, n: number, a: Act, ax: ActCtx): Html {
   if (isPackAct(a)) return packCard(c, i, n, a, ax);
-  if (a.kind === "teams") return teamsCard(c, i, n, a, ax);
   return taskCard(i, n, a, ax);
 }
 
@@ -225,7 +198,6 @@ export function createBinoRoutes(env: Env, deps: {
   bino: Bino;
   page: () => Promise<{ frame: Frame }>;
   hub?: Hub;
-  teams?: Teams;
   /** The newest gathered snapshot, for what a page I ask from shows. */
   peek?: () => Snapshot | undefined;
   /** What Bino knows right now, sent with each message when Bino answers elsewhere (hosted: the Durable Object). */
@@ -241,7 +213,7 @@ export function createBinoRoutes(env: Env, deps: {
   /** What I wrote in a card whose send was refused: in memory only, to try again with. */
   const kept = new Map<string, string>();
   const keptForms = new Map<string, Record<string, string>>();
-  const ax = (dock = false): ActCtx => ({ teams: deps.teams?.view(), org: env.GHE_ORG, kept, dock, packAct: deps.packAct, keptForms });
+  const ax = (dock = false): ActCtx => ({ org: env.GHE_ORG, kept, dock, packAct: deps.packAct, keptForms });
   /** Where a conversation is shown: in the pane when it was asked from there. */
   const convHref = (id: string, dock: boolean) => (dock ? `/bino/dock/c/${id}` : `/bino/c/${id}`);
   const viewIn = (form: Record<string, unknown>) => (first(form.dock) === "1" ? viewOf(first(form.view).slice(0, 500), deps.peek?.(), deps.apps?.()) || undefined : undefined);
@@ -335,32 +307,7 @@ export function createBinoRoutes(env: Env, deps: {
       });
       return c.redirect(back, 303);
     }
-    if (!conv || i === undefined || n === undefined || a?.kind !== "teams") return c.notFound();
-    const form = await c.req.parseBody();
-    const back = `${convHref(id, first(form.dock) === "1")}#act-${i}-${n}`;
-    if (a.sent || a.sending) return c.redirect(back, 303);
-    const chat = first(form.chat);
-    const text = first(form.text).replace(/\r\n?/g, "\n").trim();
-    const key = `${id}:${i}:${n}`;
-    const teams = deps.teams;
-    const refuse = async (error: string) => {
-      kept.set(key, text);
-      await bino.setAct(id, i, n, { error });
-      return c.redirect(back, 303);
-    };
-    if (!teams || teams.view().state !== "ok") return await refuse("Teams isn't connected.");
-    if (!text || text.length > MAX_SEND) return await refuse(`A message is 1 to ${MAX_SEND} characters.`);
-    if (!chat || !(await teams.store()?.chat(chat))) return await refuse("Pick a chat you have in Teams.");
-    kept.delete(key);
-    await bino.setAct(id, i, n, { sending: true, error: undefined });
-    void teams.send(chat, text).then(async (r) => {
-      if (r.ok) await bino.setAct(id, i, n, { sending: false, sent: { at: Date.now(), chat } });
-      else {
-        kept.set(key, text);
-        await bino.setAct(id, i, n, { sending: false, error: r.message });
-      }
-    });
-    return c.redirect(back, 303);
+    return c.notFound();
   });
   app.post("/bino/memory/:id/forget", async (c) => {
     const id = c.req.param("id");

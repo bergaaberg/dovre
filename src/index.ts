@@ -14,20 +14,13 @@ import { startingPage } from "./pwa.ts";
 import { openDb } from "./db.ts";
 import { loadEnv, onPath, rawVars } from "./env.ts";
 import { loadConfig, panesOf, runningOf, saveConfig } from "./config.ts";
-import { createHelper } from "./teams/helper.ts";
-import { createTeams } from "./teams/teams.ts";
-import { createOutlook } from "./teams/outlook.ts";
-import { createChannels } from "./teams/channels.ts";
-import { ompCrawler } from "./teams/crawl.ts";
 import { runOff } from "./spawn.ts";
-import { createData } from "./data/db.ts";
+import { ompCopilot } from "./ai/omp.ts";
 import { createGatherer, SNAPSHOT_SHAPE, type Snapshot, snapshotStore } from "./gather.ts";
 import { keptFile } from "./issues/templates.ts";
 import { logAction } from "./actions/deploys.ts";
-import { askInBar, createAsks } from "./relay/asks.ts";
+import { createAsks } from "./relay/asks.ts";
 import { createQueue } from "./agents/queue.ts";
-import { createDbMcp } from "./data/mcp.ts";
-import { createProd } from "./data/prod.ts";
 import { createSpend } from "./stats/spend.ts";
 import { createStats } from "./stats/stats.ts";
 import { ompAgentDirs } from "./sources/omp.ts";
@@ -179,21 +172,17 @@ found.harnesses = [...(claude && harnessOn("claude") ? (["claude"] as const) : [
 // Copilot CLI: Bino and summaries can ask through it (src/ai/copilotcli.ts); its sessions are read whether or not.
 const copilotTool = findTool("copilot", env.COPILOT_BIN);
 found.paths = { claude: claude?.path, omp: omp?.path, copilot: copilotTool?.path, agy: agy?.path, codex: codex?.path };
-const pwsh = process.platform === "win32" && onPath("pwsh") ? "pwsh" : undefined;
-const dbTool = findTool("db");
-found.paths = { ...found.paths, pwsh: pwsh ? findTool("pwsh")?.path : undefined, db: dbTool?.path };
 const hostExe = fileURLToPath(new URL(`../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
 // Which panes run (Settings, src/config.ts): one that's off, or can't run here, never starts its work.
-// Copilot through omp, for whoever has no Claude Code: Bino and summaries talk through it. The crawler's
-// asker (src/teams/crawl.ts): its own profile with no MCP servers, no tools, no session, an empty folder.
+// Copilot through omp, for whoever has no Claude Code: Bino and summaries talk through it.
 const copilotDir = join(dataDir, "copilot");
 mkdirSync(copilotDir, { recursive: true });
-const copilot = omp ? ompCrawler({ omp: { bin: omp.bin, pre: omp.pre }, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: copilotDir, run: runOff, who: { name: "Copilot through omp", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" } }) : undefined;
+const copilot = omp ? ompCopilot({ omp: { bin: omp.bin, pre: omp.pre }, profile: "dovre-copilot", model: "github-copilot/gpt-6-luna:medium", cwd: copilotDir, run: runOff, who: { name: "Copilot through omp", profileVar: "COPILOT_PROFILE", modelVar: "COPILOT_MODEL" } }) : undefined;
 found.copilot = copilot ? (copilot.why() ?? "ready") : undefined;
 const copilotAsk = copilotTool ? copilotCli(copilotTool, { model: env.COPILOT_CLI_MODEL, log: (l) => console.log(l) }) : undefined;
 const isWin = process.platform === "win32";
 const dockerSocket = isWin ? undefined : findEngineSocket(env, homedir());
-const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, pwsh: !!pwsh, db: !!dbTool, terminals: existsSync(hostExe), windows: isWin, dockerSocket });
+const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, terminals: existsSync(hostExe), windows: isWin, dockerSocket });
 const on = runningOf(panes);
 console.log(`agents: ${found.harnesses.join(", ") || "none found"}; panes off: ${Object.entries(on).filter(([, v]) => !v).map(([k]) => k).join(", ") || "none"}`);
 // Bino, the assistant: talks through BINO_VIA / ASSISTANT_VIA (Claude Code's CLI by default), remembers with memlet when it's installed.
@@ -364,61 +353,12 @@ const corePacks = [
     : []),
 ];
 
-// Teams through Graph PowerShell's sign-in (src/teams/): a pwsh helper that only GETs an allow-list.
-// What chats say stays in memory; on disk only that I connected (data/teams.json).
-// Chats are kept encrypted (data/teams.key, wrapped by DPAPI); the crawler that proposes todos from them
-// runs only on a Copilot model through omp, in its own profile with no MCP servers and no tools.
-// The Data tab's query agent: a Copilot model through omp, like the crawler (never Claude), in its own empty folder.
-const dataAgentDir = join(dataDir, "data-agent");
-mkdirSync(dataAgentDir, { recursive: true });
-const dataAsker =
-  !on.data || env.DATA_AGENT === "off"
-    ? undefined
-    : ompCrawler({
-        omp: omp ? { bin: omp.bin, pre: omp.pre } : undefined,
-        profile: env.DATA_AGENT_PROFILE || env.TEAMS_CRAWL_PROFILE || "dovre-copilot",
-        model: env.DATA_AGENT_MODEL || env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium",
-        cwd: dataAgentDir,
-        run: runOff,
-        who: { name: "The query agent", profileVar: "DATA_AGENT_PROFILE", modelVar: "DATA_AGENT_MODEL" },
-      });
-const teamsCrawlDir = join(dataDir, "teams-crawl");
-mkdirSync(teamsCrawlDir, { recursive: true });
-const graph = pwsh && on.teams ? createHelper({ pwsh, script: fileURLToPath(new URL("../scripts/teams.ps1", import.meta.url)) }) : undefined;
-const teams = !on.teams ? undefined : createTeams({
-  helper: graph,
-  marker: join(dataDir, "teams.json"),
-  onChange: throttle(() => hub.publish(["snapshot"]), 1000),
-  db: db.DB,
-  keyFile: join(dataDir, "teams.key"),
-  sinceDays: Number(env.TEAMS_SINCE_DAYS) > 0 ? Number(env.TEAMS_SINCE_DAYS) : 60,
-  log: (a) => logAction(db.DB, a),
-  crawler:
-    env.TEAMS_CRAWL === "off"
-      ? undefined
-      : ompCrawler({ omp: omp ? { bin: omp.bin, pre: omp.pre } : undefined, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: teamsCrawlDir, run: runOff }),
-  crawlEveryMs: env.TEAMS_CRAWL === "ask" ? 0 : undefined,
-  me: () => gatherer.peek()?.name ?? "",
-});
-
-// Outlook and followed team channels through the same sign-in: read-only, held in memory only.
-const microsoft = () => teams?.view().state === "ok";
-const outlook = !on.outlook ? undefined : createOutlook({ helper: graph, connected: microsoft, onChange: throttle(() => hub.publish(["snapshot"]), 1000) });
-const channels = !teams ? undefined : createChannels({ helper: graph, db: db.DB, connected: microsoft, onChange: throttle(() => hub.publish(["snapshot"]), 1000) });
-
-// The Data tab: test databases through db-cli, which only reads (src/data/db.ts). Off without `db`.
-const data = on.data && dbTool ? createData({ bin: dbTool.bin, pre: dbTool.pre, run: runOff }) : undefined;
-// Production through `db mcp`: db asks before each database, and the question goes to the bar.
-// It waits up to ten minutes for my answer; unanswered is a no.
-const askMe = askInBar(asks, "db");
 // Stats: GHE history every six hours (kept in data/stats.json), spend from the transcripts here.
 const stats = !on.stats ? undefined : createStats({ ghe, org: ownersIn(env), login: () => gatherer.peek()?.login, spend: createSpend({ claudeDir: env.CLAUDE_DIR, ompDirs: ompAgentDirs().map((d) => d.dir) }), file: join(dataDir, "stats.json"), onChange: () => hub.publish(["stats"]) });
 if (stats) {
   setInterval(() => stats.refresh(), 3600e3).unref();
   setTimeout(() => stats.refresh(), 90e3).unref();
 }
-
-const prod = data && dbTool ? createProd({ mcp: (onClose) => createDbMcp({ bin: dbTool.bin, pre: dbTool.pre, ask: askMe, onClose }), onChange: () => hub.publish(["prod"]) }) : undefined;
 
 // Packs (PLAN D23): those PACKS loaded above that can run here, after the core's.
 const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, hosted: false, which: (b) => which(b) }), env: packEnv, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars" };
@@ -427,8 +367,6 @@ for (const o of packSet.off) console.log(`pack ${o.id}: off, ${o.why}`);
 
 const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   packs: packSet,
-  data,
-  prod,
   stats,
   gatherer,
   ghe,
@@ -439,11 +377,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   notify,
   info: { version, startedAt: Date.now() },
   kept: keptAnswers,
-  teams,
-  outlook,
-  channels,
-  schemaDir: join(dataDir, "schemas"),
-  dataAsker,
   bino: { route: binoRoute, memory: binoMemory, file: join(dataDir, "bino.json"), log: (l) => console.log(l) },
   asks,
   prewarm: true,
@@ -454,8 +387,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
     refresher.stop();
     // Agent turns run apart from the server (the agent host) and carry on; they show again after the restart.
     if (!existsSync(hostExe)) for (const r of runner.list()) if (r.status === "running") runner.stop(r.id);
-    // Production closes with the server: db asks again after a restart.
-    prod?.close();
     process.exit(75);
   },
 });
@@ -494,7 +425,5 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
     refresher.stop();
     // Agent turns run apart from the server (the agent host) and carry on; they show again after the restart.
     if (!existsSync(hostExe)) for (const r of runner.list()) if (r.status === "running") runner.stop(r.id);
-    // Production closes with the server: db asks again after a restart.
-    prod?.close();
     process.exit(0);
   });

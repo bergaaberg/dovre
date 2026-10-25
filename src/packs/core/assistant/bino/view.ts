@@ -7,11 +7,8 @@
  */
 import type { Snapshot } from "../../../../gather.ts";
 
-/** Pages whose content never reaches Bino: chats, mail, query results, shells, prod alerts, artifacts. */
+/** Pages whose content never reaches Bino: shells, prod alerts, artifacts. */
 const PRIVATE: [string, string][] = [
-  ["/teams", "Teams"],
-  ["/outlook", "Outlook"],
-  ["/data", "Data"],
   ["/terminal", "Terminal"],
   ["/lab", "Lab"],
 ];

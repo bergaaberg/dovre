@@ -903,7 +903,7 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .tcompose textarea { flex: 1; min-height: 2.6em; }
 .tsend { flex: none; }
 @media (hover: none) { .treact-pick { opacity: 1; } }
-/* The Teams dock: a button at the bottom right of every page; open, a chat panel above it (a frame of /teams/dock). */
+/* Docks: buttons at the bottom right of every page; open, a panel above it. */
 .docks { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: flex; align-items: flex-end; gap: 8px; pointer-events: none; }
 .tdock { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
 .tdock > * { pointer-events: auto; }

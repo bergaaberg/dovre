@@ -5,12 +5,12 @@
  * - WP-M6: Pre-built packs installation (`addPack`, `wirePackIntoFile`, `listAvailablePacks`) from `dovre-packs`.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { routeOf } from "../src/packs/core/assistant/bino/route.ts";
-import { panesOf } from "../src/config.ts";
+import { PANE_IDS, panesOf } from "../src/config.ts";
 import { loadPacks } from "../src/packs/load.ts";
 import { activePacks } from "../src/packs/registry.ts";
 import { loadEnv } from "../src/env.ts";
@@ -252,4 +252,39 @@ test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-pack
 
   // Idempotent wiring check
   assert.equal(wirePackIntoFile(packsTs, "./packs/cf-health/index.ts", "cfHealthPack"), packsTs);
+});
+
+test("Issue #5: Core boundary test - Core never imports or names teams or db-cli", () => {
+  const root = resolve(import.meta.dirname, "..");
+  const srcDir = join(root, "src");
+
+  // 1. Folders src/teams and src/data do not exist in Core
+  assert.equal(existsSync(join(srcDir, "teams")), false, "src/teams must not exist");
+  assert.equal(existsSync(join(srcDir, "data")), false, "src/data must not exist");
+
+  // 2. Panes do not include teams, data, or outlook
+  assert.ok(!PANE_IDS.includes("teams" as any), "teams pane must not exist in Core");
+  assert.ok(!PANE_IDS.includes("data" as any), "data pane must not exist in Core");
+  assert.ok(!PANE_IDS.includes("outlook" as any), "outlook pane must not exist in Core");
+
+  // 3. No .ts files under src/ import from teams or data, or mention db-cli
+  function allTs(dir: string): string[] {
+    const list: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) list.push(...allTs(full));
+      else if (entry.name.endsWith(".ts")) list.push(full);
+    }
+    return list;
+  }
+
+  const tsFiles = allTs(srcDir);
+  assert.ok(tsFiles.length > 30, "should find TypeScript files in src");
+
+  for (const file of tsFiles) {
+    const content = readFileSync(file, "utf8");
+    assert.doesNotMatch(content, /from\s+["'](\.\/|\.\.\/)+teams(\/.*)?["']/, `Core file ${file} imports from teams`);
+    assert.doesNotMatch(content, /from\s+["'](\.\/|\.\.\/)+data\//, `Core file ${file} imports from src/data`);
+    assert.doesNotMatch(content, /\bdb-cli\b/, `Core file ${file} names db-cli`);
+  }
 });

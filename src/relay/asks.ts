@@ -1,12 +1,12 @@
 /**
- * Questions an MCP server puts to me through the relay (`dovre relay -- db mcp`, launcher/
- * relay.go): db-cli asking before it opens a production database, for a client (omp) that can't
+ * Questions an MCP server puts to me through the relay (launcher/relay.go):
+ * an MCP server asking before an action, for a client (omp) that can't
  * ask. The relay hands the question here and waits; I answer it on any page (the bar at the top),
  * and only there, so the model never answers it.
  *
- * Forms are read narrowly: one required field with a few named choices (db-cli's deny/allow), or a
- * yes/no. Anything else can only be declined. The first choice listed is the safe one (db-cli
- * lists deny first); every other choice needs a second click.
+ * Forms are read narrowly: one required field with a few named choices, or a
+ * yes/no. Anything else can only be declined. The first choice listed is the safe one;
+ * every other choice needs a second click.
  */
 import { randomUUID } from "node:crypto";
 

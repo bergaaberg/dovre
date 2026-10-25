@@ -78,22 +78,7 @@ export type Env = {
   /** Docker (src/packs/core/docker/): `on` (default) or `off`. DOCKER_PIPE: another engine's pipe (\\.\pipe\docker_engine for Docker Desktop's) instead of the launcher's. */
   DOCKER?: string;
   DOCKER_PIPE?: string;
-  /** Teams (src/teams/): `on` (default, with PowerShell 7) or `off`. Connect once on the Teams page (the Teams button, bottom right → Page). */
-  TEAMS?: string;
-  /** How many days of chat history are kept (default 60). */
-  TEAMS_SINCE_DAYS?: string;
-  /** The crawler that proposes todos from chats: `on` (every 2 h, default), `ask` (only when asked) or `off`. */
-  TEAMS_CRAWL?: string;
-  /** Its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
-  TEAMS_CRAWL_PROFILE?: string;
-  TEAMS_CRAWL_MODEL?: string;
-  /** The Data tab's query agent: on (default) or off. Its omp profile and Copilot model default to the crawler's. */
-  DATA_AGENT?: string;
-  DATA_AGENT_PROFILE?: string;
-  DATA_AGENT_MODEL?: string;
   /** Panes switched on Settings (src/config.ts): `off` turns one off; unset is on. */
-  OUTLOOK?: string;
-  DATA?: string;
   TERMINAL?: string;
   STATS?: string;
   REVIEWS?: string;
@@ -118,10 +103,6 @@ export type Env = {
   CF_GATEWAY_NAME?: string;
   CF_AIG_TOKEN?: string;
   ALLOWED_EMAILS?: string;
-  /** The Data tab: what `db ls at` names a test database, before `<app>-at` (e.g. org-sqldb-). */
-  DATA_PREFIX?: string;
-  /** The Data tab: a DB2 production database with no test copy, asked for beside the apps'. Unset: none. */
-  DATA_DB2?: string;
   /** Set when the first-run page was answered (src/pages/welcome.ts). */
   SETUP_DONE?: string;
 };
@@ -218,16 +199,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     CF_AIG_TOKEN: v.CF_AIG_TOKEN || undefined,
     DOCKER: v.DOCKER || undefined,
     DOCKER_PIPE: v.DOCKER_PIPE || undefined,
-    TEAMS: v.TEAMS || undefined,
-    TEAMS_SINCE_DAYS: v.TEAMS_SINCE_DAYS || undefined,
-    TEAMS_CRAWL: v.TEAMS_CRAWL || undefined,
-    TEAMS_CRAWL_PROFILE: v.TEAMS_CRAWL_PROFILE || undefined,
-    TEAMS_CRAWL_MODEL: v.TEAMS_CRAWL_MODEL || undefined,
-    DATA_AGENT: v.DATA_AGENT || undefined,
-    DATA_AGENT_PROFILE: v.DATA_AGENT_PROFILE || undefined,
-    DATA_AGENT_MODEL: v.DATA_AGENT_MODEL || undefined,
-    OUTLOOK: v.OUTLOOK || undefined,
-    DATA: v.DATA || undefined,
     TERMINAL: v.TERMINAL || undefined,
     STATS: v.STATS || undefined,
     REVIEWS: v.REVIEWS || undefined,
@@ -237,8 +208,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     REVIEW_SKILL: v.REVIEW_SKILL || undefined,
     TRIAGE_SKILL: v.TRIAGE_SKILL || undefined,
     FORM_SKILL: v.FORM_SKILL || undefined,
-    DATA_PREFIX: v.DATA_PREFIX || undefined,
-    DATA_DB2: v.DATA_DB2 || undefined,
     SETUP_DONE: v.SETUP_DONE || undefined,
   };
 }

@@ -36,16 +36,7 @@ export const NAV_GROUPS = ["", "Code", "Agents", "Plan", "Ops"];
 const groupRank = (g: string) => (NAV_GROUPS.includes(g) ? NAV_GROUPS.indexOf(g) : NAV_GROUPS.length);
 
 /** What every page knows: who's signed in, the sections (app.ts), when the data was gathered. */
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Teams is on: the dock at the bottom right, with how many chats have something new. */ teams?: { unread: number; mentions: number }; /** Bino can answer: its pane beside Teams'. */ bino?: boolean; /** The packs' docks after Teams' (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string } };
-
-/**
- * Teams, docked at the bottom right of every page but Teams' own. Without script it's a link to
- * /teams; with it, it opens a panel holding /teams/dock in a frame (src/ui/app.js.ts), which keeps
- * its place while I move between pages.
- */
-function teamsDock(t: { unread: number; mentions: number }): Html {
-  return html`<div class="tdock" id="tdock"><div class="tdock-panel" id="tdock-panel" hidden></div><a class="tdock-btn" id="tdock-btn" href="/teams" aria-controls="tdock-panel" aria-expanded="false"><span data-live id="tdock-n">Teams${t.unread ? html`<b class="${t.mentions ? "hot" : ""}" title="${t.unread} with something new${t.mentions ? `, ${t.mentions} mention you` : ""}">${t.mentions ? "@ " : ""}${t.unread}</b>` : ""}</span></a></div>`;
-}
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane. */ bino?: boolean; /** The packs' docks (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string } };
 
 /** Bino's pane, the same way: a link to /bino without script, a panel holding /bino/dock with it. */
 function binoDock(face: Html | ""): Html {
@@ -85,12 +76,11 @@ ${opts.body}
 
 const within = (href: string, path: string) => path === href || (href !== "/" && path.startsWith(`${href.replace(/\/new$/, "")}/`)) || (href !== "/" && path === href.replace(/\/new$/, ""));
 
-/** The docks at the bottom right: Bino, then Teams, then the packs'; none on its own pages. */
+/** The docks at the bottom right: Bino, then the packs'; none on its own pages. */
 function docksOf(frame: Frame, current: string): Html | "" {
   const bino = frame.bino && !within("/bino", current);
-  const teams = frame.teams && !within("/teams", current);
   const packs = (frame.docks ?? []).filter((d) => !within(`/${d.id}`, current));
-  return bino || teams || packs.length ? html`<div class="docks">${bino ? binoDock(frame.face?.({ place: "dock" }) ?? "") : ""}${teams ? teamsDock(frame.teams!) : ""}${packs.map(packDock)}</div>` : "";
+  return bino || packs.length ? html`<div class="docks">${bino ? binoDock(frame.face?.({ place: "dock" }) ?? "") : ""}${packs.map(packDock)}</div>` : "";
 }
 
 const hm = (at: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit" }).format(at);
@@ -103,13 +93,13 @@ const SEARCH_ICON = html`<svg viewBox="0 0 20 20" fill="none" stroke="currentCol
 
 
 /**
- * An MCP server asking for my OK (db-cli before it opens a production database), on every page,
+ * An MCP server asking for my OK, on every page,
  * above everything else. The safe answer is one click; anything else takes a second. Empty, it's
  * still there so a live update can fill it.
  */
 /**
- * Questions from one server with the same choices, two or more at once (db asking to open several
- * production databases): answered together, the safe choice first, the rest behind a second click.
+ * Questions from one server with the same choices, two or more at once:
+ * answered together, the safe choice first, the rest behind a second click.
  */
 export function groupsOf(asks: AskView[]): { groups: AskView[][]; rest: AskView[] } {
   const by = new Map<string, AskView[]>();

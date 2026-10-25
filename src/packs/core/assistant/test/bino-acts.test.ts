@@ -1,7 +1,6 @@
 /**
  * What Bino proposes to do: read strictly, shown as filled-in cards, and done only on my click.
- * Bino never gets Teams' chats; the card finds the chat. What I change before sending stays out of
- * Bino's conversation and off disk.
+ * What I change before sending stays out of Bino's conversation and off disk.
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -9,34 +8,49 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createApp } from "../../../../app.ts";
-import { actOf, chatsFor, fenceOf, fold, MAX_ACTS, splitActs } from "../bino/acts.ts";
+import { actOf, chatsFor, fenceOf, fold, MAX_ACTS, splitActs, type ActSpec } from "../bino/acts.ts";
 import { noMemory } from "../bino/memory.ts";
 import type { Route } from "../bino/route.ts";
 import { openDb } from "../../../../db.ts";
-import type { TeamsChat } from "../../../../teams/model.ts";
+import type { Pack } from "../../../../packs/types.ts";
+import { html } from "../../../../html.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", TICKET_PROJECTS: "DEV" };
-const chat = (id: string, name: string, kind: TeamsChat["kind"] = "oneOnOne"): TeamsChat => ({ id, name, kind, unread: false });
 const fence = (o: unknown) => `\`\`\`bino-act\n${JSON.stringify(o)}\n\`\`\``;
 
 test("acts are read strictly: junk and the wrong shape give no card, at most three, fields capped", () => {
-  assert.equal(actOf({ kind: "teams", to: "Kari" }), null, "no text");
+  const spec: ActSpec = {
+    kind: "slack.message",
+    app: "Slack",
+    when: "to send a Slack message",
+    fields: [
+      { name: "to", about: "recipient", required: true, max: 120, text: false },
+      { name: "text", about: "message body", required: true, max: 4000, text: true },
+    ],
+  };
+  assert.equal(actOf({ kind: "slack.message", to: "Kari" }, [spec]), null, "no text");
   assert.equal(actOf({ kind: "email", to: "x", text: "y" }), null, "not a kind Bino has");
   assert.equal(actOf([]), null);
-  assert.deepEqual(actOf({ kind: "teams", to: " Kari\u0000 ", text: "Hei\r\nder", extra: "dropped" }), { kind: "teams", to: "Kari", text: "Hei\nder" });
+  assert.deepEqual(actOf({ kind: "slack.message", to: " Kari\u0000 ", text: "Hei\r\nder", extra: "dropped" }, [spec]), { kind: "slack.message", fields: { to: "Kari", text: "Hei\nder" } });
   assert.equal(actOf({ kind: "ticket", project: "DEV", type: "Story", summary: "x" }), null, "no tickets: they belong to a pack");
   assert.equal((actOf({ kind: "task", title: "x".repeat(999) }) as { title: string }).title.length, 255);
-  const reply = `Here.\n${fence({ kind: "teams", to: "A", text: "1" })}\n${fence({ kind: "nope" })}\n\`\`\`bino-act\nnot json\n\`\`\`\n${[2, 3, 4].map((n) => fence({ kind: "teams", to: "A", text: String(n) })).join("\n")}`;
+  const reply = `Here.\n${fence({ kind: "task", title: "1" })}\n${fence({ kind: "nope" })}\n\`\`\`bino-act\nnot json\n\`\`\`\n${[2, 3, 4].map((n) => fence({ kind: "task", title: String(n) })).join("\n")}`;
   const { text, acts } = splitActs(reply);
   assert.equal(text, "Here.");
   assert.equal(acts.length, MAX_ACTS);
-  assert.deepEqual(acts.map((a) => (a as { text: string }).text), ["1", "2", "3"]);
-  assert.doesNotMatch(fenceOf({ kind: "teams", to: "A", text: "1", sent: { at: 1, chat: "19:secret" } }), /19:secret/, "Bino hears its proposal, not where it went");
+  assert.deepEqual(acts.map((a) => (a as { title: string }).title), ["1", "2", "3"]);
+  assert.match(fenceOf({ kind: "slack.message", fields: { to: "A", text: "1" } }), /slack\.message/);
 });
 
-test("the card finds the chat Bino named: word starts, Norwegian letters, one-on-one first, newest first", () => {
-  const chats = [chat("g", "Kari, Ola og Per", "group"), chat("k1", "Kari Nordmann"), chat("k2", "Kari Hansen"), chat("b", "Bjørn Åsheim"), chat("t", "Team Skytjenester", "group")];
+test("the card finds the chat: word starts, Norwegian letters, one-on-one first, newest first", () => {
+  const chats = [
+    { id: "g", name: "Kari, Ola og Per", kind: "group" },
+    { id: "k1", name: "Kari Nordmann", kind: "oneOnOne" },
+    { id: "k2", name: "Kari Hansen", kind: "oneOnOne" },
+    { id: "b", name: "Bjørn Åsheim", kind: "oneOnOne" },
+    { id: "t", name: "Team Skytjenester", kind: "group" },
+  ];
   assert.equal(fold("Bjørn Åse Ærlig"), "bjorn ase aerlig");
   assert.deepEqual(chatsFor("Kari", chats).map((c) => c.id), ["k1", "k2", "g"]);
   assert.deepEqual(chatsFor("kari hansen", chats).map((c) => c.id), ["k2"]);
@@ -47,34 +61,12 @@ test("the card finds the chat Bino named: word starts, Norwegian letters, one-on
   assert.deepEqual(chatsFor("  ", chats), []);
 });
 
-/** A Teams that's connected with these chats; what was sent. */
-function fakeTeams(chats: TeamsChat[], o: { refuse?: string } = {}) {
-  const sent: { chat: string; text: string }[] = [];
-  const teams = {
-    view: () => ({ state: "ok" as const, chats }),
-    kick() {},
-    connect: async () => ({ ok: true, message: "" }),
-    disconnect: async () => {},
-    store: () => ({ chat: async (id: string) => chats.find((c) => c.id === id) }) as never,
-    refreshChat: async () => {},
-    async send(chat: string, text: string) {
-      if (o.refuse) return { ok: false, message: o.refuse };
-      sent.push({ chat, text });
-      return { ok: true, message: "Sent." };
-    },
-    react: async () => ({ ok: true, message: "" }),
-    crawl: async () => ({ ok: true, message: "" }),
-    stop() {},
-  };
-  return { teams, sent };
-}
-
-function setup(reply: string, o: { refuse?: string; chats?: TeamsChat[] } = {}) {
+function setup(reply: string, o: { refuse?: string; pack?: Pack } = {}) {
   const asked: { system: string; user: string }[] = [];
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async (p) => (asked.push(p), { text: reply, cost: 0 }) };
   const file = join(mkdtempSync(join(tmpdir(), "bino-acts-")), "bino.json");
-  const t = fakeTeams(o.chats ?? [chat("19:g@thread.v2", "Kari, Ola og Per", "group"), chat("19:k@unq.gbl.spaces", "Kari Nordmann")], o);
-  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no"), file }, teams: t.teams });
+  const packs = o.pack ? { on: [o.pack], off: [], env: {} } : undefined;
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no"), file }, packs });
   const req = (path: string, body?: Record<string, string>) =>
     app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
   const until = async (at: string, re: RegExp) => {
@@ -85,53 +77,55 @@ function setup(reply: string, o: { refuse?: string; chats?: TeamsChat[] } = {}) 
     }
     throw new Error(`timed out waiting for ${re}`);
   };
-  return { req, until, asked, sent: t.sent, file };
+  return { req, until, asked, file };
 }
 
-test("a Teams message goes on my click only, to the chat the card picked, as the card says; Bino never sees chats or what I changed", async () => {
-  const s = setup(`Her er et forslag.\n${fence({ kind: "teams", to: "Kari", text: "Hei! Kan du se på PR-en?" })}`);
+test("a pack act executes on click only, via the pack's act hook", async () => {
+  const sent: { form: Record<string, string>; act: Record<string, string> }[] = [];
+  const fakePack: Pack = {
+    manifest: {
+      api: 1,
+      id: "slack",
+      name: "Slack",
+      description: "Slack integration",
+      domain: "general",
+    },
+    acts: () => [
+      {
+        kind: "message",
+        title: "Send a Slack message",
+        when: "to send a message in Slack",
+        button: "Send",
+        oneClick: true,
+        fields: [
+          { name: "to", about: "recipient", required: true, max: 120 },
+          { name: "text", about: "body", required: true, max: 4000, text: true },
+        ],
+        inputs: (act, kept) => html`<input name="to" value="${kept?.to ?? act.to ?? ""}" /><textarea name="text">${kept?.text ?? act.text ?? ""}</textarea>`,
+        run: async (form, act) => {
+          sent.push({ form, act });
+          return { ok: true, done: `Sent to ${form.to || act.to}` };
+        },
+      },
+    ],
+  };
+
+  const s = setup(`Her er et forslag.\n${fence({ kind: "slack.message", to: "Kari", text: "Hei! Kan du se på PR-en?" })}`, { pack: fakePack });
   const at = (await s.req("/bino/new", { text: "Skriv til Kari at hun må se på PR-en" })).headers.get("location")!;
-  const page = await s.until(at, /A message in Teams/);
-  assert.match(page, /<option value="19:k@unq.gbl.spaces" selected>Kari Nordmann<\/option>/, "the one-on-one first, picked");
-  assert.match(page, /2 chats match «Kari»/);
-  assert.match(page, /Hei! Kan du se på PR-en\?<\/textarea>/);
-  assert.equal(s.sent.length, 0, "nothing sent before the click");
-  for (const a of s.asked) assert.doesNotMatch(a.system + a.user, /Nordmann|Ola og Per|19:/, "Bino is never told the chats");
+  const page = await s.until(at, /Send a Slack message/);
+  assert.match(page, /Hei! Kan du se på PR-en\?/);
+  assert.equal(sent.length, 0, "nothing sent before the click");
 
-  const send = await s.req(`${at}/act/1/0`, { chat: "19:k@unq.gbl.spaces", text: "Hei! Kan du se på PR-en i dag? (endret av meg)" });
-  assert.equal(send.status, 303);
-  await s.until(at, /Sent to <strong>Kari Nordmann<\/strong>/);
-  assert.deepEqual(s.sent, [{ chat: "19:k@unq.gbl.spaces", text: "Hei! Kan du se på PR-en i dag? (endret av meg)" }]);
-  await s.req(`${at}/act/1/0`, { chat: "19:k@unq.gbl.spaces", text: "again" });
-  assert.equal(s.sent.length, 1, "a second press sends nothing");
-  assert.doesNotMatch(readFileSync(s.file, "utf8"), /endret av meg/, "what I sent isn't kept on disk");
-
-  await s.req(`${at}/say`, { text: "Takk" });
-  await s.until(at, /Takk/);
-  const last = s.asked.filter((a) => !a.system.includes("memory")).at(-1)!;
-  assert.match(last.user, /bino-act/, "Bino hears its own proposal");
-  assert.doesNotMatch(last.user, /endret av meg|19:k@/, "but not what I changed, or the chat");
-});
-
-test("a refused send keeps my text to try again; a chat I don't have, or no text, sends nothing", async () => {
-  const s = setup(fence({ kind: "teams", to: "Nobody", text: "Hei" }), { refuse: "Not sent: Graph said 403" });
-  const at = (await s.req("/bino/new", { text: "x" })).headers.get("location")!;
-  const page = await s.until(at, /A message in Teams/);
-  assert.match(page, /No chat matches «Nobody»: pick one/);
-  assert.match(page, /<option value="">Pick a chat…<\/option>/);
-  await s.req(`${at}/act/1/0`, { chat: "19:not-mine@thread.v2", text: "Hei" });
-  assert.match(await s.until(at, /Not sent\./), /Pick a chat you have in Teams/);
-  await s.req(`${at}/act/1/0`, { chat: "19:k@unq.gbl.spaces", text: "   " });
-  assert.match(await s.until(at, /1 to 4000/), /Not sent\./);
-  await s.req(`${at}/act/1/0`, { chat: "19:k@unq.gbl.spaces", text: "Min egen tekst" });
-  const after = await s.until(at, /Graph said 403/);
-  assert.match(after, /Min egen tekst<\/textarea>/, "my text, to try again");
-  assert.doesNotMatch(readFileSync(s.file, "utf8"), /Min egen tekst/);
-  assert.equal((await s.req(`${at}/act/0/5`, { chat: "x", text: "y" })).status, 404, "an act that isn't there");
+  const actRes = await s.req(`${at}/act/1/0`, { to: "Kari Nordmann", text: "Hei! Kan du se på PR-en i dag? (endret av meg)" });
+  assert.equal(actRes.status, 303);
+  await s.until(at, /Sent to Kari Nordmann/);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.form.to, "Kari Nordmann");
+  assert.equal(sent[0]!.form.text, "Hei! Kan du se på PR-en i dag? (endret av meg)");
 });
 
 test("a task card goes to the normal preview, filled in; a ticket gets no card; hostile text stays inert", async () => {
-  const s = setup(`${H}\n${fence({ kind: "teams", to: H, text: H })}\n${fence({ kind: "ticket", project: "DEV", type: "Story", summary: H, description: H })}\n${fence({ kind: "task", parent: "ACME/intake#12", repo: "shop-api", title: H, body: H })}`);
+  const s = setup(`${H}\n${fence({ kind: "ticket", project: "DEV", type: "Story", summary: H, description: H })}\n${fence({ kind: "task", parent: "ACME/intake#12", repo: "shop-api", title: H, body: H })}`);
   const at = (await s.req("/bino/new", { text: "x" })).headers.get("location")!;
   const page = await s.until(at, /A dev task/);
   assertInert("bino acts", page);
