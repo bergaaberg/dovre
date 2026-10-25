@@ -21,7 +21,8 @@ import { createQueue } from "../agents/queue.ts";
 import type { Context } from "hono";
 import { html } from "hono/html";
 import { PageHeader, Panel } from "../ui/kit.ts";
-import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoTurns } from "./fixtures.ts";
+import { safeUrl } from "../pages/parts.ts";
+import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
 import type { Desk } from "../agents/desk.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
@@ -95,9 +96,9 @@ const demoPack = (): Pack => ({
         try {
           const u = new URL(referer);
           const cur = new URL(c.req.url);
-          if (u.origin === cur.origin && u.pathname !== c.req.path) {
-            backHref = u.pathname + u.search + u.hash;
-          }
+          const back = u.pathname + u.search;
+          // Only a path of this demo's own: safeUrl() turns `//elsewhere.example` into "#".
+          if (u.origin === cur.origin && u.pathname !== c.req.path && safeUrl(back) === back) backHref = back;
         } catch {}
       }
       const body = html`
@@ -147,9 +148,11 @@ export function createDemoWorker(opts: { version?: string } = {}) {
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
     const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack()], { env: {}, bindings: {}, hosted: true });
+    const stats = demoStats();
     app = createApp(env, {
       gatherer,
       ghe: noGhe,
+      stats,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },

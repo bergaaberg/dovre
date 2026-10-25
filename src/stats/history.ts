@@ -1,11 +1,11 @@
 /**
- * History for the Stats page, from GHE in two GraphQL queries (each answers in one go):
+ * History for the Stats page, from GitHub in two GraphQL queries (each answers in one go):
  * - people: my PRs touched in the window (created, ready, first review by someone else, merged),
  *   the reviews I gave, my open PRs and the ones asking me (with their age), and the org's merged
  *   PRs per week (a count per week, by search).
  * - repos: the org's most recently pushed repos, their releases, and their main branch's commits
  *   with each commit's checks.
- * Then pure functions turn it into weeks. Only GHE metadata (numbers, titles, times), as the
+ * Then pure functions turn it into weeks. Only GitHub metadata (numbers, titles, times), as the
  * snapshot already holds.
  */
 import { ownerQuery } from "../owners.ts";
@@ -135,7 +135,7 @@ async function searchAll(ghe: Ghe, query: string, fields: string, pages = 8): Pr
 /** Copilot's own review and other bots don't count as someone looking at it. */
 export const isBot = (login: unknown) => typeof login !== "string" || /\[bot\]$|^copilot|-bot$|^github-actions/i.test(login);
 
-/** GHE's answers, read narrowly: anything missing or odd is left out. */
+/** GitHub's answers, read narrowly: anything missing or odd is left out. */
 export function historyOf(people: Node, repos: Node, o: { login: string; weeks: Week[]; now: number }): History {
   const nodes = (x: any): Node[] => (Array.isArray(x?.nodes) ? x.nodes.filter((n: unknown) => n && typeof n === "object") : []);
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);

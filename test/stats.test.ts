@@ -148,7 +148,12 @@ test("the page: tiles, charts with a hover target and a table for each, open PRs
   assert.match(page, /class="vb warn"/, "a PR over two weeks old is marked");
   // Nothing gathered yet: says so, and draws without history.
   const empty = String(statsPage({ operator: "me", nav: [] }, { gathering: true }, { now: NOW }));
-  assert.match(empty, /Gathering twelve weeks from GHE/);
+  assert.match(empty, /Gathering twelve weeks from GitHub/);
+  // Names the forge when it is not GitHub
+  const gitlab = String(statsPage({ operator: "me", nav: [] }, { gathering: true }, { now: NOW, forge: { name: "GitLab", can: ["stats"] } }));
+  assert.match(gitlab, /Gathering twelve weeks from GitLab/);
+  const errored = String(statsPage({ operator: "me", nav: [] }, { historyError: "502 Bad Gateway", gathering: false }, { now: NOW, forge: { name: "GitLab", can: ["stats"] } }));
+  assert.match(errored, /GitLab didn't answer/);
   // Columns: a hostile series name and tip are text.
   assertInert("chart", String(columns({ title: H, labels: [H], tips: [H], fmt: String, series: [{ name: H, tone: "c1", values: [3] }] })));
 });
