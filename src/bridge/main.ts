@@ -2,7 +2,8 @@
  * `pnpm bridge`: the Mac's agents, reached from hosted Dovre (PLAN D24, WP-N10). Builds this
  * machine's agents desk as the server does (the harnesses found here, the agent host when it's
  * built, its own data/bridge for runs and the reply queue) and holds the bridge's socket to the
- * hub. Nothing listens here. Started at login by a launchd agent (scripts/install-bridge.sh).
+ * hub. Nothing listens here. Started at login by a launchd agent (scripts/install-bridge.sh) from a
+ * fixed copy of one commit, so it never runs whatever branch the checkout has.
  *
  * Needs, from the environment or .dev.vars:
  * - BRIDGE_URL: wss://<hosted>/bridge
@@ -10,7 +11,7 @@
  * - BRIDGE_CLIENT_ID, BRIDGE_CLIENT_SECRET: the Access service token
  * - CODE_DIR (the checkouts), CLAUDE_DIR as for the server
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localDesk } from "../agents/desk.ts";
@@ -27,7 +28,15 @@ import { findTool, harnessesOn } from "../tools.ts";
 import { type Bridge, startBridge } from "./mac.ts";
 import { keyOk } from "./wire.ts";
 
-const VERSION = "0.2.0";
+/** The commit an installed copy runs (REVISION, written by scripts/install-bridge.sh); a checkout says so. */
+const revision = (() => {
+  try {
+    return readFileSync(new URL("../../REVISION", import.meta.url), "utf8").trim().slice(0, 12) || "checkout";
+  } catch {
+    return "checkout";
+  }
+})();
+const VERSION = `0.2.0+${revision}`;
 const env = loadEnv();
 const v = rawVars();
 const url = v.BRIDGE_URL?.trim();
@@ -81,7 +90,7 @@ const sessions = () => {
 
 const desk = localDesk({ env, runner, queue, sessions });
 bridge = startBridge({ url: url!, key: key!, headers: { "CF-Access-Client-Id": id!, "CF-Access-Client-Secret": secret! }, desk, sessions, version: VERSION, log: (l) => console.log(l) });
-console.log(`dovre bridge: ${runner.harnesses().join(", ") || "no agent CLIs found"}; dialling ${new URL(url!).host}`);
+console.log(`dovre bridge: ${revision}; ${runner.harnesses().join(", ") || "no agent CLIs found"}; dialling ${new URL(url!).host}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => {
