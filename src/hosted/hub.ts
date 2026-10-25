@@ -20,6 +20,8 @@
  *   answers back to that request, never kept. It tells the bridge when a page is watching, so
  *   the Mac streams only then.
  *
+ * - Export (GET /export): every table it keeps, for a hosted cockpit's export of its data.
+ *
  * Only the Worker reaches it, through its binding, after Cloudflare Access let the request in
  * (src/worker.ts, src/app.ts): it has no route of its own. The instance's worker.ts exports it
  * (`export { DovreHub } from "dovre/hosted/hub.ts"`) and binds it as HUB.
@@ -192,7 +194,24 @@ export class DovreHub {
       return json({ ok: true, listeners: this.subs.size + this.pages().length });
     }
     if (req.method === "POST" && path === "/bino") return json(await this.binoOp((await req.json()) as BinoOp));
+    if (req.method === "GET" && path === "/export") return json(this.dump());
     return new Response("Not found", { status: 404 });
+  }
+
+  /**
+   * Everything this object keeps, table by table (GET /export): Bino's conversations and the Mac's
+   * metadata. For a cockpit's export (hosted Dovre's control plane asks through its tenant script).
+   * Cloudflare's own tables (`_cf_…`) and SQLite's are left out.
+   */
+  dump(): { tables: Record<string, Record<string, unknown>[]> } {
+    const sql = this.state.storage.sql;
+    const names = sql
+      .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
+      .toArray()
+      .map((r) => String(r.name));
+    const tables: Record<string, Record<string, unknown>[]> = {};
+    for (const n of names) tables[n] = sql.exec(`SELECT * FROM "${n.replace(/"/g, '""')}"`).toArray();
+    return { tables };
   }
 
   /** Keeps the object from being put away while Bino is answering. */
