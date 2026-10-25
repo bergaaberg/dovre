@@ -114,3 +114,67 @@ export async function loadIssues(ghe: Ghe, login: string, owners: string, opts: 
   });
   return issueSetsOf(d, owners);
 }
+
+// ── One issue, and what I may do to it (#40) ──────────────────────────────────
+
+/** A write to one issue. Callers check the repo is the owners' and re-read the issue first. */
+export type IssueAct =
+  | { kind: "assign"; repo: string; number: number; login: string }
+  | { kind: "close"; repo: string; number: number; reason: "completed" | "not_planned" }
+  | { kind: "reopen"; repo: string; number: number }
+  | { kind: "comment"; repo: string; number: number; body: string };
+
+type RestIssue = {
+  number: number;
+  title: string;
+  html_url: string;
+  state: "open" | "closed";
+  created_at: string;
+  updated_at: string;
+  user: { login: string } | null;
+  labels: ({ name?: string } | string)[];
+  assignees: { login: string }[] | null;
+  comments: number;
+  milestone: { title: string } | null;
+  pull_request?: unknown;
+};
+
+export function restIssue(repo: string, r: RestIssue): Issue {
+  return {
+    repo,
+    number: r.number,
+    title: r.title,
+    url: r.html_url,
+    state: r.state === "closed" ? "CLOSED" : "OPEN",
+    labels: r.labels.flatMap((l) => (typeof l === "string" ? [l] : l.name ? [l.name] : [])),
+    author: r.user?.login ?? "ghost",
+    assignees: (r.assignees ?? []).map((a) => a.login),
+    comments: r.comments,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    ...(r.milestone ? { milestone: r.milestone.title } : {}),
+    prs: [],
+  };
+}
+
+const path = (repo: string, n: number) => {
+  if (!REPO.test(repo) || repo.split("/").some((p) => p === "." || p === "..") || !Number.isInteger(n) || n < 1) throw new Error(`not an issue: ${repo}#${n}`);
+  return `/repos/${repo}/issues/${n}`;
+};
+
+/** The issue as it is now; undefined when there's none (or it's a PR). */
+export async function loadIssue(ghe: Ghe, repo: string, n: number): Promise<Issue | undefined> {
+  const r = await ghe.rest<RestIssue>(path(repo, n)).catch((e: Error) => {
+    if (/: (404|410)\b/.test(String(e?.message))) return undefined;
+    throw e;
+  });
+  return r && !r.pull_request ? restIssue(repo, r) : undefined;
+}
+
+export async function actOnIssue(ghe: Ghe, a: IssueAct): Promise<void> {
+  const p = path(a.repo, a.number);
+  if (a.kind === "assign") await ghe.rest(`${p}/assignees`, { method: "POST", body: { assignees: [a.login] } });
+  else if (a.kind === "close") await ghe.rest(p, { method: "PATCH", body: { state: "closed", state_reason: a.reason } });
+  else if (a.kind === "reopen") await ghe.rest(p, { method: "PATCH", body: { state: "open" } });
+  else await ghe.rest(`${p}/comments`, { method: "POST", body: { body: a.body } });
+}

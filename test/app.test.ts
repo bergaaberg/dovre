@@ -160,13 +160,14 @@ test("Issues (/tracker): hostile issue text and links stay inert; /issues goes t
     prs: [{ key: `${H}#${H}`, state: "OPEN" as const }],
   };
   const pack = issuesPack({
-    forge: { host: H, can: ["issues"], viewer: async () => ({ login: "me", name: null }), issues: async () => ({ assigned: [bad], mentioned: [bad], authored: [bad], triage: [bad] }) },
+    forge: { host: H, can: ["issues"], viewer: async () => ({ login: "me", name: null }), issues: async () => ({ assigned: [bad], mentioned: [bad], authored: [bad], triage: [bad] }), issue: async () => bad, issueAct: async () => {} },
     owners: () => "ACME",
     newHref: "/issues/new",
+    tasks: true,
   });
   await pack.refresh!(testContext({ env: { ISSUES_TRIAGE_REPOS: "ACME/a" } }));
   const { get } = signedIn(snapshot(), {}, { packs: [pack], packEnv: { ISSUES_TRIAGE_REPOS: "ACME/a" } });
-  for (const path of ["/", `/search?q=${encodeURIComponent("<")}`, "/tracker", "/tracker?set=mentioned", "/tracker?set=authored", "/tracker?set=triage", `/tracker?set=${encodeURIComponent(H)}`]) {
+  for (const path of ["/", `/search?q=${encodeURIComponent("<")}`, `/tracker?done=close&ref=${encodeURIComponent(H)}`, "/tracker?done=close&ref=ACME%2Fa%231&reason=not_planned", "/tracker", "/tracker?set=mentioned", "/tracker?set=authored", "/tracker?set=triage", `/tracker?set=${encodeURIComponent(H)}`]) {
     const res = await get(path);
     assert.equal(res.status, 200, path);
     const out = await res.text();
@@ -178,4 +179,80 @@ test("Issues (/tracker): hostile issue text and links stay inert; /issues goes t
   assert.equal(to.headers.get("location"), "/tracker");
   const without = signedIn(snapshot());
   assert.equal((await without.get("/issues")).headers.get("location"), "/issues/new");
+});
+
+test("Issues actions (#40): the owners' repos only, re-checked, written once, logged; a comment is previewed first", async () => {
+  const { issuesPack } = await import("../src/packs/core/issues/index.ts");
+  const { testContext } = await import("../src/packs/testing.ts");
+  type I = import("../src/forge/types.ts").Issue;
+  type A = import("../src/forge/types.ts").IssueAct;
+  const now: Record<string, I> = {};
+  const mk = (n: number, o: Partial<I> = {}): I => ({ repo: "ACME/a", number: n, title: `Issue ${n}`, url: `https://github.com/ACME/a/issues/${n}`, state: "OPEN", labels: [], author: "x", assignees: [], comments: 0, createdAt: "2026-10-24T00:00:00Z", updatedAt: "2026-10-24T00:00:00Z", prs: [], ...o });
+  now["1"] = mk(1);
+  now["2"] = mk(2, { state: "CLOSED" });
+  const asked: string[] = [];
+  const acts: A[] = [];
+  const pack = issuesPack({
+    forge: {
+      host: "github.com",
+      can: ["issues"],
+      viewer: async () => ({ login: "me", name: null }),
+      issues: async () => ({ assigned: [], mentioned: [now["1"]!], authored: [], triage: [] }),
+      issue: async (repo, n) => {
+        asked.push(`${repo}#${n}`);
+        return now[String(n)];
+      },
+      issueAct: async (a) => {
+        acts.push(a);
+      },
+    },
+    owners: () => "ACME",
+    login: () => "me",
+  });
+  await pack.refresh!(testContext());
+  const { get, post, db } = signedIn(snapshot(), {}, { packs: [pack] });
+
+  const page = await (await get("/tracker?set=mentioned")).text();
+  assert.match(page, /Assign me/);
+  assert.match(page, /action="\/tracker\/act"/);
+  assert.doesNotMatch(page, /Start a task/, "tasks only where they start (local)");
+
+  const res = await post("/tracker/act", { kind: "assign", repo: "ACME/a", number: "1", set: "mentioned" });
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get("location"), "/tracker?set=mentioned&done=assign&ref=ACME%2Fa%231");
+  assert.deepEqual(acts, [{ kind: "assign", repo: "ACME/a", number: 1, login: "me" }]);
+  assert.equal(pack.kept()?.sets?.assigned[0]?.number, 1, "shown as mine before the next read");
+  assert.match(await (await get("/tracker?set=mentioned&done=assign&ref=ACME%2Fa%231")).text(), /Assigned ACME\/a#1 to you/);
+
+  assert.equal((await post("/tracker/act", { kind: "reopen", repo: "ACME/a", number: "1" })).status, 409, "it's open: nothing to reopen");
+  assert.equal((await post("/tracker/act", { kind: "close", reason: "completed", repo: "ACME/a", number: "2" })).status, 409);
+  assert.equal((await post("/tracker/act", { kind: "close", reason: "completed", repo: "evil/repo", number: "1" })).status, 400);
+  assert.equal((await post("/tracker/act", { kind: "close", reason: "completed", repo: "ACME/a", number: "1" }, { origin: "http://evil.example" })).status, 403);
+  assert.deepEqual(asked, ["ACME/a#1", "ACME/a#1", "ACME/a#2"], "the outside repo and the cross-site post never reach the forge");
+  assert.equal(acts.length, 1);
+
+  const preview = await post("/tracker/comment", { repo: "ACME/a", number: "1", set: "mentioned", body: H });
+  assert.equal(preview.status, 200);
+  const pv = await preview.text();
+  assertInert("/tracker/comment", pv);
+  assert.match(pv, /Post comment/);
+  assert.equal(acts.length, 1, "a preview writes nothing");
+  assert.equal((await post("/tracker/act", { kind: "comment", repo: "ACME/a", number: "1", body: H })).status, 303);
+  assert.deepEqual(acts[1], { kind: "comment", repo: "ACME/a", number: 1, body: H });
+
+  const closed = await post("/tracker/act", { kind: "close", reason: "not_planned", repo: "ACME/a", number: "1", set: "mentioned" });
+  assert.equal(closed.headers.get("location"), "/tracker?set=mentioned&done=close&ref=ACME%2Fa%231&reason=not_planned");
+  assert.deepEqual(pack.kept()?.sets?.mentioned, [], "a closed issue leaves the open sets at once");
+  const after = await (await get(closed.headers.get("location")!)).text();
+  assert.match(after, /Closed ACME\/a#1 \(not planned\)/);
+  assert.match(after, /name="kind" value="reopen"/);
+
+  const log = await recentActions(db.DB);
+  assert.deepEqual(log.map((a) => [a.kind, a.target, a.ok]).reverse(), [
+    ["issues.assign", "ACME/a#1", 1],
+    ["issues.reopen", "ACME/a#1", 0],
+    ["issues.close", "ACME/a#2", 0],
+    ["issues.comment", "ACME/a#1", 1],
+    ["issues.close", "ACME/a#1", 1],
+  ]);
 });

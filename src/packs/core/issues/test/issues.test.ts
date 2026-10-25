@@ -3,29 +3,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../../../env.ts";
-import type { Issue, IssueSets } from "../../../../forge/types.ts";
+import type { IssueSets } from "../../../../forge/types.ts";
 import { testContext } from "../../../testing.ts";
 import { issuesPack } from "../index.ts";
 import { setOf, staleDaysOf, staleFor, triageReposOf } from "../model.ts";
 import { issueRow } from "../view.ts";
+import { issue, NOW } from "./fixtures.ts";
 
-const NOW = Date.parse("2026-10-25T12:00:00Z");
-export const issue = (o: Partial<Issue> = {}): Issue => ({
-  repo: "bergaaberg/dovre",
-  number: 33,
-  title: "Today header on a wide screen",
-  url: "https://github.com/bergaaberg/dovre/issues/33",
-  state: "OPEN",
-  labels: ["layout", "ui"],
-  author: "kari",
-  assignees: ["kari"],
-  comments: 3,
-  createdAt: "2026-10-20T10:00:00Z",
-  updatedAt: "2026-10-25T10:00:00Z",
-  prs: [{ key: "bergaaberg/dovre#36", state: "OPEN" }],
-  subIssues: { done: 2, total: 3 },
-  ...o,
-});
 const sets = (o: Partial<IssueSets> = {}): IssueSets => ({ assigned: [issue()], mentioned: [], authored: [], triage: [], ...o });
 
 function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: string[] }) => Promise<IssueSets>; can?: string[]; env?: Record<string, string> } = {}) {
@@ -169,4 +153,30 @@ test("Today (#39): Bino gets counts and repo#n only; Ctrl K finds each issue onc
   assert.equal(finds[0]!.sub, "bergaaberg/dovre#33 · assigned");
   assert.match(s.pack.about!(s.ctx, "/tracker") ?? "", /1 assigned/);
   assert.equal(s.pack.about!(s.ctx, "/elsewhere"), undefined);
+});
+
+test("my own writes show at once, stay shown over lagging reads for a while, and don't ring me", async () => {
+  let t = NOW;
+  const current = sets({ assigned: [], mentioned: [issue({ number: 7 })], authored: [issue({ number: 8 })] });
+  const pack = issuesPack({
+    forge: { host: "github.com", can: ["issues"], viewer: async () => ({ login: "kari", name: null }), issues: async () => current, issue: async () => issue({ number: 7, assignees: [] }), issueAct: async () => {} },
+    owners: () => "bergaaberg",
+    login: () => "kari",
+    now: () => t,
+  });
+  const ctx = testContext({ db: { prepare: () => ({ bind: () => ({ run: async () => ({}) }) }) } as never });
+  await pack.refresh!(ctx);
+  const app = new Hono<AppEnv>();
+  pack.routes!(app, { ...ctx, page: async (_c, p) => new Response(String(p.body)) });
+  const post = (body: Record<string, string>) => app.request("http://localhost/tracker/act", { method: "POST", body: new URLSearchParams(body) });
+  assert.equal((await post({ kind: "assign", repo: "bergaaberg/dovre", number: "7" })).status, 303);
+  assert.equal((await post({ kind: "close", reason: "completed", repo: "bergaaberg/dovre", number: "8" })).status, 303);
+  t += 30_000;
+  await pack.refresh!(ctx);
+  assert.deepEqual(pack.kept()!.sets!.assigned.map((i) => [i.number, i.assignees]), [[7, ["kari"]]], "search hasn't caught up; my write still shows");
+  assert.deepEqual(pack.kept()!.sets!.authored, []);
+  assert.deepEqual(pack.needs!(ctx), [], "assigning myself doesn't ring me");
+  t += 3 * 60_000;
+  await pack.refresh!(ctx);
+  assert.deepEqual(pack.kept()!.sets!.assigned, [], "after a while the forge's word stands");
 });
