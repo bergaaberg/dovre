@@ -13,7 +13,7 @@ export const DEMO_HOST = "git.example.com";
 export const DEMO_ORG = "northwind";
 export const DEMO_LOGIN = "kari-demo";
 
-const base = `https://${DEMO_HOST}`;
+const base = "/elsewhere";
 const ago = (now: number, min: number) => new Date(now - min * 60_000).toISOString();
 
 const pr = (now: number, o: Partial<Pr> & Pick<Pr, "repo" | "number" | "title">): Pr => ({
@@ -33,7 +33,7 @@ const pr = (now: number, o: Partial<Pr> & Pick<Pr, "repo" | "number" | "title">)
   files: [],
   reviews: [],
   requested: [],
-  runs: [{ name: "build", state: "ok", url: null }, { name: "test", state: "ok", url: null }],
+  runs: [{ name: "build", state: "ok", url: `${base}/${o.repo}/actions` }, { name: "test", state: "ok", url: `${base}/${o.repo}/actions` }],
   ...o,
 });
 
@@ -42,8 +42,8 @@ export function demoPrs(now: number): { mine: Pr[]; review: Pr[] } {
   return {
     mine: [
       pr(now, { repo: r("checkout"), number: 412, title: "Retry card payments once on a gateway timeout", branch: "feat/payment-retry", review: "APPROVED", updatedAt: ago(now, 18), additions: 86, deletions: 12, reviews: [{ login: "ola-demo", state: "APPROVED" }], files: [{ path: "src/payments/charge.ts", additions: 54, deletions: 9 }, { path: "test/charge.test.ts", additions: 32, deletions: 3 }] }),
-      pr(now, { repo: r("catalog"), number: 88, title: "Cache product images at the edge", branch: "feat/image-cache", checks: "FAILURE", updatedAt: ago(now, 52), openThreads: 2, runs: [{ name: "test", state: "bad", url: null }, { name: "build", state: "ok", url: null }], reviews: [{ login: "per-demo", state: "CHANGES_REQUESTED" }], review: "CHANGES_REQUESTED" }),
-      pr(now, { repo: r("web"), number: 1290, title: "Dark mode for the order history page", branch: "feat/dark-orders", draft: true, checks: "PENDING", updatedAt: ago(now, 140), runs: [{ name: "build", state: "pending", url: null }] }),
+      pr(now, { repo: r("catalog"), number: 88, title: "Cache product images at the edge", branch: "feat/image-cache", checks: "FAILURE", updatedAt: ago(now, 52), openThreads: 2, runs: [{ name: "test", state: "bad", url: `${base}/${r("catalog")}/actions` }, { name: "build", state: "ok", url: `${base}/${r("catalog")}/actions` }], reviews: [{ login: "per-demo", state: "CHANGES_REQUESTED" }], review: "CHANGES_REQUESTED" }),
+      pr(now, { repo: r("web"), number: 1290, title: "Dark mode for the order history page", branch: "feat/dark-orders", draft: true, checks: "PENDING", updatedAt: ago(now, 140), runs: [{ name: "build", state: "pending", url: `${base}/${r("web")}/actions` }] }),
     ],
     review: [
       pr(now, { repo: r("checkout"), number: 415, title: "Show the delivery estimate in the basket", author: "ola-demo", branch: "feat/delivery-eta", updatedAt: ago(now, 25), requested: [DEMO_LOGIN], additions: 120, deletions: 30 }),

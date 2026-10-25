@@ -6,7 +6,7 @@
  */
 import { createApp } from "../app.ts";
 import type { D1 } from "../db.ts";
-import type { App, Env } from "../env.ts";
+import type { App, AppEnv, Env } from "../env.ts";
 import type { Gatherer } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { activePacks } from "../packs/registry.ts";
@@ -18,7 +18,9 @@ import { avatarPack } from "../packs/core/avatar/index.ts";
 import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
 import { createQueue } from "../agents/queue.ts";
+import type { Context } from "hono";
 import { html } from "hono/html";
+import { PageHeader, Panel } from "../ui/kit.ts";
 import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoTurns } from "./fixtures.ts";
 import type { Desk } from "../agents/desk.ts";
 
@@ -50,11 +52,70 @@ function demoGatherer(): Gatherer {
   return { get: async () => now(), stale: () => {}, gathering: () => false, peek: () => now() };
 }
 
-/** The bar on every page that says what this is. */
+export function describeTarget(path: string): string {
+  const clean = path.replace(/^\/+/, "");
+  const prOrIssue = clean.match(/^([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)/);
+  if (prOrIssue) return `${prOrIssue[1]}#${prOrIssue[2]}`;
+  const actionsRun = clean.match(/^([\w.-]+\/[\w.-]+)\/actions\/runs\/(\d+)/);
+  if (actionsRun) return `${actionsRun[1]} (run #${actionsRun[2]})`;
+  const actions = clean.match(/^([\w.-]+\/[\w.-]+)\/actions/);
+  if (actions) return `${actions[1]} actions`;
+  const commit = clean.match(/^([\w.-]+\/[\w.-]+)\/commits?\/(.+)/);
+  if (commit) return `${commit[1]} (${commit[2]})`;
+  const repo = clean.match(/^([\w.-]+\/[\w.-]+)/);
+  if (repo) return repo[1];
+  return clean || "this link";
+}
+
+/** The bar on every page that says what this is, and the splash route for external links. */
 const demoPack = (): Pack => ({
-  manifest: { api: PACK_API, id: "demo", name: "Demo", description: "Says on every page that this is a demo with made-up data.", domain: "general" },
+  manifest: {
+    api: PACK_API,
+    id: "demo",
+    name: "Demo",
+    description: "Says on every page that this is a demo with made-up data.",
+    domain: "general",
+    paths: ["elsewhere"],
+  },
   banner: () =>
     html`<div class="notice accent"><div><p><strong>This is a demo.</strong> The repos, people and agents are made up, and nothing you click changes anything. <a href="https://dovre.dev/docs/">Run your own Dovre</a>.</p></div></div>`,
+  routes(app, ctx) {
+    const splash = async (c: Context<AppEnv>) => {
+      const raw = c.req.path.replace(/^\/elsewhere\/?/, "");
+      let target = raw;
+      try {
+        target = decodeURIComponent(raw);
+      } catch {
+        target = raw;
+      }
+      const label = describeTarget(target);
+      const referer = c.req.header("referer");
+      let backHref = "/";
+      if (referer) {
+        try {
+          const u = new URL(referer);
+          const cur = new URL(c.req.url);
+          if (u.origin === cur.origin && u.pathname !== c.req.path) {
+            backHref = u.pathname + u.search + u.hash;
+          }
+        } catch {}
+      }
+      const body = html`
+        ${PageHeader({ title: "External link", crumbs: [{ label: "Demo", href: "/" }, { label: "External link" }] })}
+        ${Panel({
+          children: html`
+            <div class="empty">
+              <p>On your own Dovre this opens <strong>${label}</strong> on GitHub. This is a demo, so it stops here.</p>
+              <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
+            </div>
+          `,
+        })}
+      `;
+      return ctx.page(c, { title: "External link · Dovre", current: "/elsewhere", body });
+    };
+    app.get("/elsewhere", splash);
+    app.get("/elsewhere/*", splash);
+  },
 });
 
 const READ_ONLY = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Read-only demo</title>

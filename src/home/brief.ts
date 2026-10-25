@@ -52,7 +52,7 @@ export function lede(s: Snapshot, briefs: Bit[][] = []): Bit[][] {
   const reviews = s.prs.ok ? s.prs.value.review.length : 0;
   const sentences: Bit[][] = [];
 
-  if (deploys.length) sentences.push([{ text: `${word(deploys.length)} ${deploys.length === 1 ? "deploy" : "deploys"}`, href: "#ship", tone: "warn" }, ` ${deploys.length === 1 ? "waits" : "wait"} for your approval.`]);
+  if (deploys.length) sentences.push([{ text: `${word(deploys.length)} ${deploys.length === 1 ? "deploy" : "deploys"}`, href: "/#ship", tone: "warn" }, ` ${deploys.length === 1 ? "waits" : "wait"} for your approval.`]);
   for (const b of briefs) if (b.length) sentences.push([...b]);
 
   const second: Bit[] = [];
@@ -63,7 +63,7 @@ export function lede(s: Snapshot, briefs: Bit[][] = []): Bit[][] {
     branches.slice(0, 3).forEach((r, i) => second.push(i ? (i === Math.min(3, branches.length) - 1 ? " and " : ", ") : "", { text: `${r.repo.split("/").pop()} ${r.branch}`, href: r.url, tone: "bad" }));
     second.push(".");
   }
-  if (red.length) second.push(second.length ? " " : "", { text: `${cap(word(red.length))} ${red.length === 1 ? "PR" : "PRs"}`, href: "#prs", tone: "bad" }, ` ${red.length === 1 ? "has a" : "have"} red ${red.length === 1 ? "build" : "builds"}.`);
+  if (red.length) second.push(second.length ? " " : "", { text: `${cap(word(red.length))} ${red.length === 1 ? "PR" : "PRs"}`, href: "/#prs", tone: "bad" }, ` ${red.length === 1 ? "has a" : "have"} red ${red.length === 1 ? "build" : "builds"}.`);
   if (second.length) sentences.push(second);
 
   if (!sentences.length) sentences.push(["Nothing needs you."]);
