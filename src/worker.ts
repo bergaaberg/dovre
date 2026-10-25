@@ -49,6 +49,10 @@ export interface WorkerBindings {
   /** The Access team ("myteam" or "myteam.cloudflareaccess.com") and the application's AUD tag: both needed, or nobody gets in. */
   CF_ACCESS_TEAM?: string;
   CF_ACCESS_AUD?: string;
+  /** Instead of Access: any issuer that signs RS256 JWTs and publishes a JWKS (default `<issuer>/.well-known/jwks.json`). Wins when set. */
+  AUTH_ISSUER?: string;
+  AUTH_AUD?: string;
+  AUTH_JWKS_URL?: string;
   ALLOWED_EMAILS?: string;
   IS_HOSTED?: string;
   /** The Durable Object (src/hosted/hub.ts, exported by the instance as DovreHub): pages' live updates and Bino. */

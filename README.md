@@ -119,8 +119,9 @@ health:
 | `CF_ACCOUNT_ID`, `CF_AIG_TOKEN` | Cloudflare AI Gateway account & token (`ASSISTANT_VIA=cf-gateway`) | optional |
 | `PACKS` | Comma-separated instance pack directories loaded locally | none |
 | `PACK_<ID>` | Set `off` to disable any core or instance pack | `on` |
-| `IS_HOSTED` | `1` on Cloudflare Workers (enforces Cloudflare Access RS256 JWT check) | `0` (local loopback) |
-| `CF_ACCESS_TEAM`, `CF_ACCESS_AUD` | Cloudflare Zero Trust team name and application Audience (AUD) tag | required when `IS_HOSTED=1` |
+| `IS_HOSTED` | `1` on Cloudflare Workers (enforces the RS256 JWT check: Cloudflare Access or `AUTH_ISSUER`) | `0` (local loopback) |
+| `CF_ACCESS_TEAM`, `CF_ACCESS_AUD` | Cloudflare Zero Trust team name and application Audience (AUD) tag | required when `IS_HOSTED=1`, unless `AUTH_ISSUER` is set |
+| `AUTH_ISSUER`, `AUTH_AUD`, `AUTH_JWKS_URL` | Instead of Access: any issuer that signs RS256 JWTs (sent in `Cf-Access-Jwt-Assertion`). Its exact `iss` (https), the expected `aud`, and its keys. When set, it wins; a bad value lets nobody in | JWKS: `<issuer>/.well-known/jwks.json` |
 | `BRIDGE_URL`, `BRIDGE_KEY` | Outbound Mac Bridge WebSocket URL (`wss://<host>/bridge`) and shared HMAC secret | optional |
 | `CRON_KEY` | Hosts without cron triggers: `POST /_dovre/scheduled` with `Authorization: Bearer <CRON_KEY>` (32+ characters) runs the cron and answers `204`. Unset, the route is a `404` | optional |
 
