@@ -18,12 +18,14 @@ test("demo: every hosted page draws over the made-up data, with the bar saying s
     assert.equal(res.headers.get("x-robots-tag"), "noindex", path);
     const page = await res.text();
     assert.match(page, /This is a demo\./, path);
+    assert.match(page, /<a href="https:\/\/dovre\.dev\/">← dovre\.dev<\/a>/, path);
   }
   const today = await (await w.fetch(at("/"))).text();
   assert.match(today, /Retry card payments once/);
   assert.match(today, new RegExp(DEMO_HOST.replace(/\./g, "\\.")));
   assert.match(today, /<h1 id="greet">Good (morning|afternoon|evening|night),/);
   assert.doesNotMatch(today, /<h1 id="greet">God (morgen|dag|kveld|natt),/);
+  assert.match(today, /<a class="brand" href="\/"/);
 });
 
 test("demo: every write is refused before the app, and the bridge isn't there", async () => {
@@ -100,6 +102,12 @@ test("demo: every link across demo pages stays inside demo or goes to dovre.dev,
         `Page ${path} has external link that leaves demo: "${href}" (expected relative /... or https://dovre.dev/...)`,
       );
     }
+    if (path !== "/bino/dock") {
+      assert.ok(
+        hrefMatches.some((m) => m[1] === "https://dovre.dev/"),
+        `Page ${path} should have a link back to https://dovre.dev/`,
+      );
+    }
   }
 });
 
@@ -110,6 +118,7 @@ test("demo: elsewhere splash page says where it would have gone, links back, and
   const text = await res.text();
   assert.match(text, /On your own Dovre this opens <strong>northwind\/catalog#88<\/strong> on GitHub\./);
   assert.match(text, /href="\/prs"/);
+  assert.match(text, /href="https:\/\/dovre\.dev\/"/);
   assert.match(text, /href="https:\/\/dovre\.dev\/docs\/"/);
 
   // A referer path that a browser would read as another host goes back to Today instead.
@@ -374,5 +383,15 @@ test("demo: Northwind Shop support actions answer 403 read-only page on POST", a
     const text = await res.text();
     assert.match(text, /This demo is read-only/);
     assert.match(text, /The demo shows made-up data/);
+    assert.match(text, /href="https:\/\/dovre\.dev\/"/);
   }
+});
+
+test("real instances: brand logo still links to /", async () => {
+  const { get } = signedIn(snapshot());
+  const res = await get("/");
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /<a class="brand" href="\/"/);
+  assert.doesNotMatch(text, /This is a demo\./);
 });

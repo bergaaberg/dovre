@@ -86,7 +86,7 @@ const demoPack = (): Pack => ({
     paths: ["elsewhere"],
   },
   banner: () =>
-    html`<div class="notice accent"><div><p><strong>This is a demo.</strong> The repos, people and agents are made up, and nothing you click changes anything. <a href="https://dovre.dev/docs/">Run your own Dovre</a>.</p></div></div>`,
+    html`<div class="notice accent"><div><p><strong>This is a demo.</strong> The repos, people and agents are made up, and nothing you click changes anything. <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a>.</p></div></div>`,
   routes(app, ctx) {
     const splash = async (c: Context<AppEnv>) => {
       const raw = c.req.path.replace(/^\/elsewhere\/?/, "");
@@ -114,7 +114,7 @@ const demoPack = (): Pack => ({
           children: html`
             <div class="empty">
               <p>On your own Dovre this opens <strong>${label}</strong> on GitHub. This is a demo, so it stops here.</p>
-              <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
+              <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
             </div>
           `,
         })}
@@ -129,7 +129,7 @@ const demoPack = (): Pack => ({
 const READ_ONLY = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Read-only demo</title>
 <body>
 <h1>This demo is read-only</h1><p>The demo shows made-up data, so buttons that would change something stop here.</p>
-<p><a href="/">Back to the demo</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p></body>`;
+<p><a href="/">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p></body>`;
 
 /** The only writes the demo takes: asking its scripted Bino, in a new conversation or one of your own. */
 export function isAllowedDemoWrite(request: Request): boolean {
