@@ -5,9 +5,9 @@
  */
 import type { Changelog } from "../sources/changelog.ts";
 import type { Deploy, Move, Note, Pr, PrRef, RedBranch } from "../sources/ghe.ts";
-import type { Issue, IssueSets } from "../sources/issues.ts";
+import type { Issue, IssueAct, IssueSets } from "../sources/issues.ts";
 
-export type { Changelog, Deploy, Issue, IssueSets, Move, Note, Pr, PrRef, RedBranch };
+export type { Changelog, Deploy, Issue, IssueAct, IssueSets, Move, Note, Pr, PrRef, RedBranch };
 
 /**
  * What a forge can do beyond the gather. Core pages that need one are hidden when the forge lacks it,
@@ -55,6 +55,10 @@ export type Forge = {
    * Absent: no Issues pack.
    */
   issues?(login: string, owners: string, opts?: { triage?: string[] }): Promise<IssueSets>;
+  /** One issue as it is now (for re-checking before a write); undefined: no such issue. Absent: no writes. */
+  issue?(repo: string, number: number): Promise<Issue | undefined>;
+  /** Assign, close, reopen or comment on an issue. Absent: the Issues page has no actions. */
+  issueAct?(act: IssueAct): Promise<void>;
 };
 
 /** A forge a pack brings: picked when FORGE is its id. `env` is the pack's env (its settings). */

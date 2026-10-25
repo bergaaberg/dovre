@@ -65,6 +65,12 @@ td.pulse-cell svg.pulse { height: 22px; }
 .issue-trail { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .35rem; }
 .issue-subs { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-2); }
 .issue-subs .gauge { width: 3rem; }
+.issue-acts { margin-top: .4rem; }
+.issue-acts > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-2); }
+.issue-acts-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; padding-top: .5rem; }
+.issue-comment { display: flex; flex-wrap: wrap; gap: .4rem; flex: 1 1 18rem; margin: 0; }
+.issue-comment textarea { flex: 1 1 14rem; min-height: 2.4rem; }
+.issue-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 1rem; padding: .75rem 1rem; border-left: 3px solid var(--line); background: var(--surface-2); }
 .viz svg.narrow { display: none; }
 .viz svg text.end { fill: var(--text); font-size: 12px; font-weight: 500; }
 .viz .base { stroke: var(--axis); stroke-width: 1; }

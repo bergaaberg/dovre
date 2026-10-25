@@ -350,7 +350,7 @@ const corePacks = [
     onStart: (svg) => writeFileSync(join(dataDir, "avatar-start.svg"), svg),
   }),
   // My open issues from the forge (/tracker), where the forge has them.
-  issuesPack({ forge, owners: () => ownersIn(env), login: () => gatherer.peek()?.login, newHref: "/issues/new" }),
+  issuesPack({ forge, owners: () => ownersIn(env), login: () => gatherer.peek()?.login, newHref: "/issues/new", tasks: true }),
   ...(terminals ? [terminalPack(terminals)] : []),
   ...(on.docker
     ? [

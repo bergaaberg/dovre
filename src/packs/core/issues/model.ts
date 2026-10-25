@@ -1,5 +1,5 @@
 /** What the Issues pack keeps in memory, and the pure rules over it: which set, what's stale. */
-import type { Issue, IssueSets } from "../../../forge/types.ts";
+import type { Issue, IssueAct, IssueSets } from "../../../forge/types.ts";
 import { ISSUE_SETS } from "../../../sources/issues.ts";
 
 export type SetId = (typeof ISSUE_SETS)[number];
@@ -8,7 +8,7 @@ export { ISSUE_SETS };
 export const SET_LABEL: Record<SetId, string> = { assigned: "Assigned", mentioned: "Mentioned", authored: "Opened by me", triage: "Triage" };
 
 /** The last read: its sets, or why it failed (the sets before it are kept to show). */
-export type IssuesKept = { at: number; sets?: IssueSets; error?: string };
+export type IssuesKept = { at: number; sets?: IssueSets; error?: string; /** Who the sets are for. */ login?: string };
 
 export const DAY = 86_400_000;
 export const DEFAULT_STALE_DAYS = 14;
@@ -70,4 +70,25 @@ export function binoLine(sets: IssueSets | undefined, fresh: { set: string; issu
   const parts = [`${sets.assigned.length} assigned to me`, `${sets.mentioned.length} mentioning me`, `${sets.authored.length} opened by me`, ...(triage ? [`${sets.triage.length} waiting for triage`] : [])];
   const news = fresh.length ? ` New for me: ${[...new Set(fresh.map((f) => keyOf(f.issue)))].slice(0, 10).join(", ")}.` : "";
   return `Open issues: ${parts.join(", ")}.${news}`;
+}
+
+/** How long a write of mine is shown over what the forge reads (its search catches up within this). */
+export const ACT_SHOWN_MS = 2 * 60_000;
+
+/** The sets as my writes left them: a closed issue gone, an assigned one mine, a comment counted. Reopened ones come back with the next read that has them. */
+export function withActs(sets: IssueSets, acts: IssueAct[]): IssueSets {
+  let out = sets;
+  for (const a of acts) {
+    const same = (i: Pick<Issue, "repo" | "number">) => i.repo === a.repo && i.number === a.number;
+    const each = (f: (l: Issue[]) => Issue[]): IssueSets => ({ assigned: f(out.assigned), mentioned: f(out.mentioned), authored: f(out.authored), triage: f(out.triage) });
+    if (a.kind === "close") out = each((l) => l.filter((i) => !same(i)));
+    else if (a.kind === "comment") out = each((l) => l.map((i) => (same(i) ? { ...i, comments: i.comments + 1 } : i)));
+    else if (a.kind === "assign") {
+      const mine = (i: Issue) => (same(i) && !i.assignees.some((x) => x.toLowerCase() === a.login.toLowerCase()) ? { ...i, assignees: [...i.assignees, a.login] } : i);
+      const next = each((l) => l.map(mine));
+      const found = [...next.mentioned, ...next.authored, ...next.triage].find(same);
+      out = found && !next.assigned.some(same) ? { ...next, assigned: [found, ...next.assigned] } : next;
+    }
+  }
+  return out;
 }

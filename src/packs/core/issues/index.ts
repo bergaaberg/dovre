@@ -4,24 +4,31 @@
  * background on the pack's schedule; the page draws from memory. On only where the forge has issues
  * (src/forge/types.ts), so a forge pack that brings `issues()` gets it too.
  */
+import type { Context } from "hono";
 import { html } from "hono/html";
+import { logAction } from "../../../actions/deploys.ts";
+import type { AppEnv } from "../../../env.ts";
+import type { IssueAct } from "../../../forge/types.ts";
 import { type Forge, forgeCan } from "../../../forge/types.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { safeUrl } from "../../../pages/parts.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
-import { binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf } from "./model.ts";
-import { HREF, trackerBody } from "./view.ts";
+import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
+import { actOf, doneText, refusal } from "./act.ts";
+import { ACT, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
 
 export const ISSUES_PACK_ID = "tracker";
 
 export type IssuesDeps = {
-  forge: Pick<Forge, "host" | "can" | "issues" | "viewer">;
+  forge: Pick<Forge, "host" | "can" | "issues" | "viewer" | "issue" | "issueAct">;
   /** The owners' list (OWNERS), as the gather uses it. */
   owners: () => string;
   /** Who I am, once the gather knows; else the forge is asked. */
   login?: () => string | undefined;
   /** Where "New issue" goes; none on hosted. */
   newHref?: string;
+  /** Rows offer "Start a task" (the dev-task flow, local only). */
+  tasks?: boolean;
   now?: () => number;
 };
 
@@ -37,13 +44,26 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     try {
       const login = o.login?.() || (await o.forge.viewer()).login;
       const sets = await issues(login, o.owners(), { triage: triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS) });
-      came = cameIn(came, sets, now());
-      kept = { at: now(), sets };
+      recent = recent.filter((r) => now() - r.at < ACT_SHOWN_MS);
+      const shown = withActs(sets, recent.map((r) => r.act));
+      came = cameIn(came, shown, now());
+      // What I did myself isn't news to me.
+      for (const r of recent) if (r.act.kind === "assign") came.set(`assigned:${keyOf(r.act)}`, 0);
+      kept = { at: now(), sets: shown, login };
     } catch (e) {
       kept = { at: now(), sets: kept?.sets, error: String((e as Error)?.message ?? e).slice(0, 300) };
       ctx.log(`issues: ${kept.error}`);
     }
     ctx.publish([ISSUES_PACK_ID]);
+  };
+  const canAct = () => !!o.forge.issue && !!o.forge.issueAct;
+  const me = () => o.login?.() || kept?.login || "";
+  /** Writes of the last few minutes: search lags behind them, so each read shows them on top (model.ts withActs). */
+  let recent: { act: IssueAct; at: number }[] = [];
+  const applied = (a: IssueAct) => {
+    recent = [...recent.filter((r) => now() - r.at < ACT_SHOWN_MS), { act: a, at: now() }];
+    if (kept?.sets) kept = { ...kept, sets: withActs(kept.sets, [a]) };
+    if (a.kind === "assign") came?.set(`assigned:${keyOf(a)}`, 0);
   };
   return {
     kept: () => kept,
@@ -99,6 +119,58 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     bino: (ctx) => binoLine(kept?.sets, fresh(), triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS).length > 0),
     about: (_ctx, path) => (path.startsWith(HREF) && kept?.sets ? `My open issues page: ${kept.sets.assigned.length} assigned, ${kept.sets.mentioned.length} mentioning me` : undefined),
     routes(app, ctx) {
+      const with_ = async (c: Context<AppEnv>, status: number, title: string, body: ReturnType<typeof trackerBody>) => {
+        const res = await ctx.page(c, { title, current: HREF, body });
+        return new Response(res.body, { status, headers: res.headers });
+      };
+      const formOf = async (c: Context<AppEnv>) => (await c.req.parseBody()) as Record<string, unknown>;
+      const setIn = (f: Record<string, unknown>) => setOf(typeof f.set === "string" ? f.set : undefined);
+
+      // The comment's confirm step: checked like the write, then shown as it will be posted.
+      app.post(COMMENT, async (c) => {
+        const f = await formOf(c);
+        const set = setIn(f);
+        if (!canAct()) return c.notFound();
+        const asked = actOf({ ...f, kind: "comment" }, o.owners(), me());
+        if (!asked.ok) return with_(c, 400, "Not done", refusedBody({ title: "Not posted", why: asked.error, set }));
+        const a = asked.act as Extract<IssueAct, { kind: "comment" }>;
+        const issue = await o.forge.issue!(a.repo, a.number).catch(() => undefined);
+        const no = refusal(issue, a);
+        if (no || !issue) return with_(c, 409, "Not done", refusedBody({ title: "Not posted", why: no ?? "", set }));
+        return with_(c, 200, `Comment on ${a.repo}#${a.number}`, commentPreview({ issue, body: a.body, set }));
+      });
+
+      // Every write: the owners' repo (refused before any URL), re-read now, still allowed, then written and logged.
+      app.post(ACT, async (c) => {
+        const f = await formOf(c);
+        const set = setIn(f);
+        if (!canAct()) return c.notFound();
+        const asked = actOf(f, o.owners(), me());
+        if (!asked.ok) return with_(c, 400, "Not done", refusedBody({ title: "Not done", why: asked.error, set }));
+        const a = asked.act;
+        const target = `${a.repo}#${a.number}`;
+        const kind = `issues.${a.kind}`;
+        try {
+          const no = refusal(await o.forge.issue!(a.repo, a.number), a);
+          if (no) {
+            await logAction(ctx.db, { kind, target, ok: false, error: no });
+            return with_(c, 409, "Not done", refusedBody({ title: "Not done", why: `${target}: ${no}`, set }));
+          }
+          await o.forge.issueAct!(a);
+          await logAction(ctx.db, { kind, target, detail: a.kind === "close" ? a.reason : undefined, ok: true });
+        } catch (e) {
+          const error = String((e as Error)?.message ?? e).slice(0, 300);
+          await logAction(ctx.db, { kind, target, ok: false, error }).catch(() => {});
+          return with_(c, 502, "Not done", refusedBody({ title: "Not done", why: `${o.forge.host} said: ${error}`, set, tone: "bad" }));
+        }
+        applied(a);
+        ctx.publish([ISSUES_PACK_ID]);
+        void read(ctx);
+        ctx.log(doneText(a.kind === "close" ? { ...a, reason: a.reason } : a));
+        const q = new URLSearchParams({ set, done: a.kind, ref: target, ...(a.kind === "close" ? { reason: a.reason } : {}) });
+        return c.redirect(`${HREF}?${q}`, 303);
+      });
+
       app.get(HREF, (c) =>
         ctx.page(c, {
           title: "Issues",
@@ -112,6 +184,8 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
             now: now(),
             host: o.forge.host,
             newHref: o.newHref,
+            acts: canAct() ? { me: me(), task: !!o.tasks } : undefined,
+            done: doneOf({ done: c.req.query("done"), ref: c.req.query("ref"), reason: c.req.query("reason") }),
           }),
         }),
       );
