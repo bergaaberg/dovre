@@ -7,13 +7,15 @@
 import { createApp } from "../app.ts";
 import type { D1 } from "../db.ts";
 import type { App, AppEnv, Env } from "../env.ts";
-import type { Gatherer } from "../gather.ts";
+import type { Gatherer, Snapshot } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
+import { fixedLayout, type LayoutStore } from "../layout.ts";
 import { activePacks } from "../packs/registry.ts";
 import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
 import { fixedHere } from "../packs/core/agents/here.ts";
 import { assistantPack } from "../packs/core/assistant/index.ts";
+import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { avatarPack } from "../packs/core/avatar/index.ts";
 import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
@@ -23,7 +25,11 @@ import { html } from "hono/html";
 import { PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "../pages/parts.ts";
 import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
+import { demoScriptRoute, demoSeedConvs } from "./bino.ts";
 import type { Desk } from "../agents/desk.ts";
+import type { Stats } from "../stats/stats.ts";
+import type { Sessions } from "../sources/sessions.ts";
+import type { Turn } from "../agents/conversation.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
 export function emptyD1(): D1 {
@@ -37,17 +43,20 @@ export function emptyD1(): D1 {
 }
 
 /** GitHub that isn't there: pages that ask it directly say it failed, as they do when GitHub is down. */
-const noGhe: Ghe = {
-  host: DEMO_HOST,
-  rest: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
-  graphql: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
-};
+export function makeNoGhe(host: string = DEMO_HOST): Ghe {
+  return {
+    host,
+    rest: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
+    graphql: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
+  };
+}
+const noGhe = makeNoGhe();
 
 /** The snapshot, made fresh each minute so its times read as this morning. */
-function demoGatherer(): Gatherer {
-  let s = demoSnapshot();
+export function demoGatherer(snapshotFn: (now?: number) => Snapshot = demoSnapshot): Gatherer {
+  let s = snapshotFn();
   const now = () => {
-    if (Date.now() - s.at > 120_000) s = demoSnapshot();
+    if (Date.now() - s.at > 120_000) s = snapshotFn();
     return s;
   };
   return { get: async () => now(), stale: () => {}, gathering: () => false, peek: () => now() };
@@ -124,15 +133,48 @@ const READ_ONLY = `<!doctype html><meta charset="utf-8"><meta name="viewport" co
 <h1>This demo is read-only</h1><p>The demo shows made-up data, so buttons that would change something stop here.</p>
 <p><a href="/">Back to the demo</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p></body>`;
 
-export function createDemoWorker(opts: { version?: string } = {}) {
+export function isAllowedDemoWrite(request: Request): boolean {
+  if (request.method !== "POST") return false;
+  const url = new URL(request.url);
+  return url.pathname === "/bino/new" || /^\/bino\/c\/[0-9a-f-]{36}\/say$/i.test(url.pathname);
+}
+
+export type DemoFixtures = {
+  host?: string;
+  org?: string;
+  login?: string;
+  snapshot?: (now?: number) => Snapshot;
+  sessions?: (now?: number) => Sessions;
+  turns?: (sid: string) => Turn[];
+  stats?: () => Stats;
+};
+
+export type DemoOpts = {
+  version?: string;
+  allowWrite?: (req: Request) => boolean;
+  layout?: LayoutStore | { tabs?: string[]; [key: string]: unknown };
+  fixtures?: DemoFixtures;
+  packs?: Pack[];
+};
+
+export function createDemoWorker(opts: DemoOpts = {}) {
   const version = opts.version ?? "0.2.0";
+  const fixtures = opts.fixtures;
+  const host = fixtures?.host ?? DEMO_HOST;
+  const org = fixtures?.org ?? DEMO_ORG;
+  const login = fixtures?.login ?? DEMO_LOGIN;
+  const snapshotFn = fixtures?.snapshot ?? demoSnapshot;
+  const sessionsFn = fixtures?.sessions ?? demoSessions;
+  const turnsFn = fixtures?.turns ?? demoTurns;
+  const statsFn = fixtures?.stats ?? demoStats;
+
   let app: App | undefined;
   const build = (): App => {
     if (app) return app;
     const DB = emptyD1();
-    const env: Env = { DB, GHE_HOST: DEMO_HOST, GHE_ORG: DEMO_ORG, OWNERS: DEMO_ORG, GITHUB_USER: DEMO_LOGIN, CODE_DIR: "/code", CLAUDE_DIR: "/claude", IS_HOSTED: "1", GREETING: "en", TZ_NAME: "UTC" };
-    const gatherer = demoGatherer();
-    const sessions = demoSessions();
+    const env: Env = { DB, GHE_HOST: host, GHE_ORG: org, OWNERS: org, GITHUB_USER: login, CODE_DIR: "/code", CLAUDE_DIR: "/claude", IS_HOSTED: "1", GREETING: "en", TZ_NAME: "UTC" };
+    const gatherer = demoGatherer(snapshotFn);
+    const sessions = sessionsFn();
     const here = fixedHere(sessions);
     const dismissed = createDismissed(DB);
     // No runner: nothing can start, and the writes that would ask are refused before the app anyway.
@@ -143,16 +185,26 @@ export function createDemoWorker(opts: { version?: string } = {}) {
       ...local,
       async session(sid) {
         const session = [...sessions.live, ...sessions.recent].find((x) => x.sessionId === sid);
-        return session ? { session, turns: demoTurns(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;
+        return session ? { session, turns: turnsFn(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;
       },
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack()], { env: {}, bindings: {}, hosted: true });
-    const stats = demoStats();
+    const extraPacks = opts.packs ?? [];
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), ...extraPacks], { env: {}, bindings: {}, hosted: true });
+    const stats = statsFn();
+    const layout = opts.layout ? ("get" in opts.layout ? (opts.layout as LayoutStore) : fixedLayout(opts.layout)) : fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] });
+    const initialSnapshot = gatherer.peek() ?? snapshotFn();
+    const route = demoScriptRoute({ snapshot: () => gatherer.peek() ?? snapshotFn() });
+    const memory = noMemory("The demo remembers nothing.");
+    const seed = demoSeedConvs(initialSnapshot);
+    const store = { load: () => seed, save: () => {} };
+    const bino = { route, memory, store, maxConvs: 20 };
     app = createApp(env, {
       gatherer,
-      ghe: noGhe,
+      ghe: makeNoGhe(host),
       stats,
+      layout,
+      bino,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
@@ -168,7 +220,10 @@ export function createDemoWorker(opts: { version?: string } = {}) {
         const res = await bindings.ASSETS.fetch(new Request(new URL(url.pathname.slice("/assets".length), url), request));
         if (res.ok) return res;
       }
-      if (request.method !== "GET" && request.method !== "HEAD") return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        const allowed = opts.allowWrite ? opts.allowWrite(request) : isAllowedDemoWrite(request);
+        if (!allowed) return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
       const res = await build().fetch(request);
       // Search engines: the demo isn't the product's page.
