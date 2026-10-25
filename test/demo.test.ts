@@ -165,103 +165,95 @@ test("demo: phone-width bottom tab bar shows with Bino in the middle, and the Mo
   }
 });
 
-test("demo: /bino and /bino/dock render, Bino POST is allowed with scripted answers, and hostile input is inert", async () => {
-  const w = createDemoWorker();
+/** One visitor: keeps the demo's visitor cookie across requests, like a browser. */
+function visitor(w: ReturnType<typeof createDemoWorker>) {
+  let cookie = "";
+  const go = async (path: string, init: RequestInit = {}) => {
+    const res = await w.fetch(at(path, { ...init, headers: { ...(init.headers as Record<string, string>), ...(cookie ? { cookie } : {}) } }));
+    const set = res.headers.getSetCookie().find((c) => c.startsWith("__Host-demo_v="));
+    if (set) cookie = set.split(";")[0]!;
+    return res;
+  };
+  const ask = (path: string, text: string) => go(path, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ text }).toString() });
+  const page = async (path: string) => (await go(path)).text();
+  return { go, ask, page, cookie: () => cookie };
+}
 
-  // /bino renders
-  const binoRes = await w.fetch(at("/bino"));
-  assert.equal(binoRes.status, 200);
-  const binoHtml = await binoRes.text();
+test("demo: /bino and /bino/dock render, Bino POST is allowed with scripted answers, and hostile input is inert", async () => {
+  const v = visitor(createDemoWorker());
+
+  const binoHtml = await v.page("/bino");
+  assert.match(v.cookie(), /^__Host-demo_v=[0-9a-f-]{36}$/, "a visitor cookie is set");
   assert.match(binoHtml, /What&#39;s red this morning\?/);
   assert.match(binoHtml, /Summarise my PRs/);
   assert.match(binoHtml, /The demo remembers nothing\./);
 
-  // /bino/dock renders
-  const dockRes = await w.fetch(at("/bino/dock"));
-  assert.equal(dockRes.status, 200);
-  const dockHtml = await dockRes.text();
+  const dockHtml = await v.page("/bino/dock");
   assert.match(dockHtml, /What&#39;s red/);
   assert.match(dockHtml, /Summarise my PRs/);
 
-  // Scripted answer: "what's red?"
-  const redRes = await w.fetch(at("/bino/new", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ text: "what's red?" }).toString(),
-  }));
+  const redRes = await v.ask("/bino/new", "what's red?");
   assert.equal(redRes.status, 303);
   const redLoc = redRes.headers.get("location")!;
   assert.match(redLoc, /^\/bino\/c\/[0-9a-f-]{36}$/);
-  const redPage = await (await w.fetch(at(redLoc))).text();
+  const redPage = await v.page(redLoc);
   assert.match(redPage, /what&#39;s red\?/);
   assert.match(redPage, /northwind\/catalog/);
   assert.match(redPage, /feat\/image-cache/);
 
-  // Scripted answer: "what should I do first?"
-  const firstRes = await w.fetch(at("/bino/new", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ text: "what should I do first?" }).toString(),
-  }));
+  const firstRes = await v.ask("/bino/new", "what should I do first?");
   assert.equal(firstRes.status, 303);
-  const firstLoc = firstRes.headers.get("location")!;
-  const firstPage = await (await w.fetch(at(firstLoc))).text();
-  assert.match(firstPage, /Review open PRs/);
+  assert.match(await v.page(firstRes.headers.get("location")!), /Review open PRs/);
 
-  // Scripted answer in existing conversation: "summarise my PRs"
-  const sayRes = await w.fetch(at("/bino/c/d0e0b001-0000-4000-8000-000000000001/say", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ text: "summarise my PRs" }).toString(),
-  }));
+  const sayRes = await v.ask("/bino/c/d0e0b001-0000-4000-8000-000000000001/say", "summarise my PRs");
   assert.equal(sayRes.status, 303);
-  const sayPage = await (await w.fetch(at("/bino/c/d0e0b001-0000-4000-8000-000000000001"))).text();
+  const sayPage = await v.page("/bino/c/d0e0b001-0000-4000-8000-000000000001");
   assert.match(sayPage, /summarise my PRs/);
   assert.match(sayPage, /412/);
   assert.match(sayPage, /88/);
 
-  // Fallback for unscripted queries
-  const otherRes = await w.fetch(at("/bino/new", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ text: "tell me about quantum computing" }).toString(),
-  }));
+  const otherRes = await v.ask("/bino/new", "tell me about quantum computing");
   assert.equal(otherRes.status, 303);
-  const otherPage = await (await w.fetch(at(otherRes.headers.get("location")!))).text();
-  assert.match(otherPage, /In the demo I only know a few things/);
+  assert.match(await v.page(otherRes.headers.get("location")!), /In the demo I only know a few things/);
 
-  // Hostile input stays inert
-  const hostileRes = await w.fetch(at("/bino/new", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ text: H }).toString(),
-  }));
+  const hostileRes = await v.ask("/bino/new", H);
   assert.equal(hostileRes.status, 303);
-  const hostilePage = await (await w.fetch(at(hostileRes.headers.get("location")!))).text();
-  assertInert("bino new message hostile", hostilePage);
+  assertInert("bino new message hostile", await v.page(hostileRes.headers.get("location")!));
 });
 
-test("demo: conversation cap holds at 20 in memory, oldest dropped", async () => {
+test("demo: each visitor's Bino is their own: nobody sees what another typed", async () => {
   const w = createDemoWorker();
+  const a = visitor(w);
+  const b = visitor(w);
+  const res = await a.ask("/bino/new", "a secret only A typed");
+  const loc = res.headers.get("location")!;
+  assert.match(await a.page("/bino"), /a secret only A typed/);
+  const bList = await b.page("/bino");
+  assert.notEqual(a.cookie(), b.cookie());
+  assert.doesNotMatch(bList, /a secret only A typed/, "B's list");
+  assert.match(bList, /Summarise my PRs/, "B still gets the seeded conversations");
+  assert.doesNotMatch(await b.page(loc), /a secret only A typed/, "B opening A's conversation");
+  assert.doesNotMatch(await (await w.fetch(at("/bino"))).text(), /a secret only A typed/, "no cookie at all");
+  // B's say into A's conversation doesn't reach it.
+  await b.ask(`${loc}/say`, "B was here");
+  assert.doesNotMatch(await a.page(loc), /B was here/);
+  // A forged cookie is a new visitor, not someone else's.
+  assert.doesNotMatch(await (await w.fetch(at("/bino", { headers: { cookie: "__Host-demo_v=not-an-id" } }))).text(), /a secret only A typed/);
+});
 
-  // Add 25 new conversations
-  for (let i = 0; i < 25; i++) {
-    const res = await w.fetch(at("/bino/new", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ text: `Question ${i + 1}` }).toString(),
-    }));
-    assert.equal(res.status, 303);
-  }
+test("demo: what Bino keeps is capped: conversations, messages in one, and their length", async () => {
+  const v = visitor(createDemoWorker());
+  for (let i = 0; i < 8; i++) assert.equal((await v.ask("/bino/new", `Question ${i + 1}`)).status, 303);
+  const list = await v.page("/bino");
+  assert.equal(new Set([...list.matchAll(/href="\/bino\/c\/([0-9a-f-]{36})"/g)].map((m) => m[1])).size, 5, "at most 5 conversations");
+  assert.doesNotMatch(list, /d0e0b001-0000-4000-8000-000000000001/, "oldest dropped");
+  assert.match(list, /Question 8/);
 
-  const binoHtml = await (await w.fetch(at("/bino"))).text();
-  const convLinks = [...binoHtml.matchAll(/href="\/bino\/c\/[0-9a-f-]{36}"/g)];
-  assert.equal(convLinks.length, 20, "capped at 20 conversations");
-
-  // Oldest seeded conversations should have been dropped
-  assert.doesNotMatch(binoHtml, /d0e0b001-0000-4000-8000-000000000001/);
-  assert.doesNotMatch(binoHtml, /d0e0b001-0000-4000-8000-000000000002/);
-
-  // Newest conversation is present
-  assert.match(binoHtml, /Question 25/);
+  const loc = (await v.ask("/bino/new", "x".repeat(2000))).headers.get("location")!;
+  const page = await v.page(loc);
+  assert.ok(page.includes("x".repeat(500)) && !page.includes("x".repeat(501)), "a message is cut to 500 characters");
+  for (let i = 0; i < 10; i++) await v.ask(`${loc}/say`, `more ${i}`);
+  const full = await v.page(loc);
+  assert.match(full, /more 4/);
+  assert.doesNotMatch(full, /more 5/, "at most 12 messages in one conversation");
 });
