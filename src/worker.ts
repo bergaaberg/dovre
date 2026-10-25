@@ -4,7 +4,7 @@
  * domain, Access, D1 and whatever bindings its packs need. Cloudflare Access is checked on every
  * request (src/access.ts); without it configured nobody gets in.
  */
-import { AsyncLocalStorage } from "node:async_hooks";
+import { type Actor, actingAs, currentActor } from "./actor.ts";
 import { ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
 import { keyOk } from "./bridge/wire.ts";
@@ -92,8 +92,7 @@ const hostOf = (b: WorkerBindings) => b.REPO_HOST || b.GHE_HOST || "github.com";
 /** Every owner tracked, comma-separated: REPO_OWNERS, else GHE_ORG, else GITHUB_USER, else `fallback`. */
 const ownersOfBindings = (b: WorkerBindings, fallback: string) => ownersOf(b.REPO_OWNERS || b.GHE_ORG || b.GITHUB_USER || fallback).join(",");
 
-/** The person a write is made by: the verified email on a POST. Background work has none. */
-export type Actor = { email: string };
+export type { Actor };
 
 /**
  * The instance's own way to get a GitHub token (a GitHub App's broker, say), asked before every call.
@@ -102,10 +101,8 @@ export type Actor = { email: string };
  */
 export type GithubTokenProvider = (bindings: WorkerBindings, actor?: Actor) => Promise<string>;
 
-/** Who the current GitHub call is for: set around a POST, cleared around background gathers. */
-const acting = new AsyncLocalStorage<Actor | undefined>();
 /** Runs `fn` as nobody in particular: what it starts (a gather) uses the instance's own token. */
-const asInstance = <T>(fn: () => T): T => acting.run(undefined, fn);
+const asInstance = <T>(fn: () => T): T => actingAs(undefined, fn);
 
 /**
  * GitHub with the instance's token provider, else the GITHUB_TOKEN secret; without either, every call
@@ -113,7 +110,7 @@ const asInstance = <T>(fn: () => T): T => acting.run(undefined, fn);
  */
 export function createHostedGhe(bindings: WorkerBindings, provider?: GithubTokenProvider): Ghe {
   const host = hostOf(bindings);
-  if (provider) return createGhe({ host, token: () => provider(bindings, acting.getStore()) });
+  if (provider) return createGhe({ host, token: () => provider(bindings, currentActor()) });
   const token = bindings.GITHUB_TOKEN?.trim();
   if (token) return createGhe({ host, token });
   return missingGhe(host, "No GITHUB_TOKEN: set it with `wrangler secret put GITHUB_TOKEN`.");
@@ -341,7 +338,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       // A write (POST) by a verified person goes to GitHub with their own token, when the instance's
       // provider tells people apart. The app still checks Access itself; this only names the actor.
       const who = opts.githubToken && request.method === "POST" && h.verify ? await h.verify(request).catch(() => undefined) : undefined;
-      const res = who?.email ? await acting.run({ email: who.email }, () => h.app.fetch(request)) : await h.app.fetch(request);
+      const res = who?.email ? await actingAs({ email: who.email }, () => h.app.fetch(request)) : await h.app.fetch(request);
       if (ctx) {
         // A page answered from memory and started a gather, or a pack is due: finish after the response.
         const work = [capped(h.refresh.due())];
