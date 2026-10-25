@@ -5,6 +5,8 @@ import { actOnIssue, loadIssue, loadIssues } from "../sources/issues.ts";
 import { FORGE_CAN, type Forge } from "./types.ts";
 
 export function githubForge(ghe: Ghe): Forge {
+  /** The notes came from search (the token can't read notifications): red CI is read from runs instead. */
+  let searched = false;
   return {
     id: "github",
     name: "GitHub",
@@ -12,13 +14,13 @@ export function githubForge(ghe: Ghe): Forge {
     can: FORGE_CAN,
     viewer: () => viewer(ghe),
     prs: (login, owners) => loadPrs(ghe, login, owners),
-    notes: () => loadNotes(ghe),
+    notes: () => loadNotes(ghe, { searched: (yes) => (searched = yes) }),
     moves: (login, owners) => loadMoves(ghe, login, owners),
     prRefs: (keys) => loadPrRefs(ghe, keys),
     prKeyOfUrl,
     deploys: (repos) => loadDeploys(ghe, repos),
     changelog: (repo, env, head) => loadChangelog(ghe, repo, env, head),
-    red: (notes) => loadRedBranches(ghe, notes),
+    red: (notes, repos) => loadRedBranches(ghe, notes, searched ? repos : []),
     issues: (login, owners, opts) => loadIssues(ghe, login, owners, opts),
     issue: (repo, n) => loadIssue(ghe, repo, n),
     issueAct: (a) => actOnIssue(ghe, a),
