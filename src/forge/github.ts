@@ -1,6 +1,7 @@
 /** GitHub (github.com, GHE.com or Enterprise Server) as a forge: the default, through the Ghe client. */
 import { loadChangelog } from "../sources/changelog.ts";
 import { type Ghe, loadDeploys, loadMoves, loadNotes, loadPrRefs, loadPrs, loadRedBranches, prKeyOfUrl, viewer } from "../sources/ghe.ts";
+import { loadIssues } from "../sources/issues.ts";
 import { FORGE_CAN, type Forge } from "./types.ts";
 
 export function githubForge(ghe: Ghe): Forge {
@@ -18,5 +19,6 @@ export function githubForge(ghe: Ghe): Forge {
     deploys: (repos) => loadDeploys(ghe, repos),
     changelog: (repo, env, head) => loadChangelog(ghe, repo, env, head),
     red: (notes) => loadRedBranches(ghe, notes),
+    issues: (login, owners, opts) => loadIssues(ghe, login, owners, opts),
   };
 }
