@@ -2,14 +2,14 @@
  * Issues, a core pack (#36): my open issues from the forge — assigned to me, mentioning me, opened by
  * me, and triage in chosen repos — at /tracker (core's /issues sends me here when it's on). Read in the
  * background on the pack's schedule; the page draws from memory. On only where the forge has issues
- * (src/forge/types.ts), so a forge pack that brings `issues()` gets it too.
+ * (`Forge.issues`, src/forge/types.ts), so a forge pack that brings `issues()` gets it too.
  */
 import type { Context } from "hono";
 import { html } from "hono/html";
 import { logAction } from "../../../actions/deploys.ts";
 import type { AppEnv } from "../../../env.ts";
 import type { IssueAct } from "../../../forge/types.ts";
-import { type Forge, forgeCan } from "../../../forge/types.ts";
+import type { Forge } from "../../../forge/types.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { safeUrl } from "../../../pages/parts.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
@@ -83,7 +83,8 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         { kind: "mentioned", label: "An issue mentions me", hint: "Also where notifications don't reach (a GitHub App token)" },
       ],
     },
-    available: () => !!o.forge.issues && forgeCan(o.forge, "issues"),
+    // The forge reading issues is enough: `can: issues` is core's GitHub forms (New work), which a read-only forge lacks.
+    available: () => !!o.forge.issues,
     refresh: read,
     nav: () => [{ href: HREF, title: "Issues", icon: "ticket", group: "Plan" }],
     pages: () => [{ title: "Issues", href: HREF, icon: "◎", about: "My open issues: assigned, mentioned, opened, triage", also: ["issues", "assigned", "mentions", "triage", "backlog"] }],

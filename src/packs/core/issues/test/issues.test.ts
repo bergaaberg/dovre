@@ -51,9 +51,9 @@ test("settings: stale days and triage repos are read plainly; odd values fall ba
   assert.equal(staleFor(issue({ updatedAt: "nope" }), 14, NOW), undefined);
 });
 
-test("on only where the forge has issues", () => {
+test("on wherever the forge reads issues", () => {
   assert.equal(setup().pack.available!(testContext()), true);
-  assert.equal(setup({ can: [] }).pack.available!(testContext()), false);
+  assert.equal(setup({ can: [] }).pack.available!(testContext()), true, "a read-only forge (GitLab) has issues without core's forms");
   const bare = issuesPack({ forge: { host: "x", can: ["issues"], viewer: async () => ({ login: "k", name: null }) }, owners: () => "o" });
   assert.equal(bare.available!(testContext()), false);
 });
