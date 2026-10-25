@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { accessConfigOf, allowed, createAccessVerifier, operatorOf } from "../src/access.ts";
-import worker, { resetHostedApp } from "../src/worker.ts";
+import worker, { createWorker, resetHostedApp } from "../src/worker.ts";
 import type { D1 } from "../src/db.ts";
 import { signedIn, snapshot } from "./helpers.ts";
 
@@ -281,6 +281,37 @@ test("worker: GitHub without a token shows as failed, with one it's asked with a
   } finally {
     globalThis.fetch = realFetch;
     resetHostedApp();
+  }
+});
+
+test("worker: an instance's GitHub token provider wins over GITHUB_TOKEN, is asked with the bindings, and its failure shows on the page", async () => {
+  const k = await keyPair("k1");
+  const realFetch = globalThis.fetch;
+  const auth: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url) === `${ISS}/cdn-cgi/access/certs`) return new Response(JSON.stringify({ keys: [k.jwk] }));
+    auth.push(new Request(url, init).headers.get("authorization") ?? "");
+    return new Response(JSON.stringify({ data: { mine: { nodes: [] }, review: { nodes: [] } } }));
+  }) as typeof fetch;
+  let broken = false;
+  const asked: unknown[] = [];
+  const w = createWorker({ githubToken: async (b) => { asked.push(b.TOKEN_KEY); if (broken) throw new Error("GitHub is disconnected: reconnect it"); return "brokered"; } });
+  const page = async () => {
+    w.reset();
+    const headers = { "cf-access-jwt-assertion": await k.sign({ ...good, exp: Math.floor(Date.now() / 1000) + 3600 }) };
+    const res = await w.fetch(new Request("https://dovre.example.dev/prs", { headers }), { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD, GITHUB_TOKEN: "static", TOKEN_KEY: "k" });
+    assert.equal(res.status, 200);
+    return res.text();
+  };
+  try {
+    assert.doesNotMatch(await page(), /didn't load/);
+    assert.ok(auth.length > 0 && auth.every((a) => a === "Bearer brokered"), auth.join());
+    assert.equal(asked[0], "k");
+    broken = true;
+    assert.match(await page(), /didn't load\.<\/strong> GitHub is disconnected: reconnect it/);
+  } finally {
+    globalThis.fetch = realFetch;
+    w.reset();
   }
 });
 

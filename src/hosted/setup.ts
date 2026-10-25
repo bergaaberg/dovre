@@ -18,8 +18,8 @@ const isDb = (v: unknown): v is D1 => !!v && typeof (v as D1).prepare === "funct
 /** Each line: on or off, what it gives, and how to turn it on. `needed`: nothing works without it. */
 export type HostedLine = SetupLine & { needed?: boolean };
 
-/** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). */
-export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[] } = {}): HostedLine[] {
+/** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
+export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean } = {}): HostedLine[] {
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
   const access = !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
   const bridge = [set(b.BRIDGE_CLIENT_ID), set(b.BRIDGE_KEY)];
@@ -30,7 +30,7 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
     { name: "Allowed emails", on: set(b.ALLOWED_EMAILS), what: "Only these people, even if the Access policy lets more through", fix: "Set the var ALLOWED_EMAILS (comma-separated)." },
     { name: "Live pages and Bino (HUB)", on: !!b.HUB, what: "Pages update by themselves; Bino answers", fix: "Bind the Durable Object: durable_objects HUB → DovreHub, a new_sqlite_classes migration, and `export { DovreHub } from \"dovre/hosted/hub.ts\"` in worker.ts." },
     { name: "Icons and fonts (ASSETS)", on: !!b.ASSETS, what: "The app icon and Nordwand Mono", fix: "assets: { directory: \"../dovre/assets\", binding: \"ASSETS\", run_worker_first: true } in wrangler.jsonc." },
-    { name: "GitHub", on: set(b.GITHUB_TOKEN), what: "Pull requests and deploys on Today", fix: "`wrangler secret put GITHUB_TOKEN` (a fine-grained token, read-only on the repos you track)." },
+    { name: "GitHub", on: !!o.githubToken || set(b.GITHUB_TOKEN), what: "Pull requests and deploys on Today", fix: "`wrangler secret put GITHUB_TOKEN` (a fine-grained token, read-only on the repos you track)." },
     { name: "Bino's model (AI Gateway)", on: set(b.CF_AIG_TOKEN), what: "Bino's answers, through Cloudflare AI Gateway", fix: "Make a gateway (AI_GATEWAY, default dovre) with your Anthropic key in it, then `wrangler secret put CF_AIG_TOKEN`." },
     {
       name: "The Mac's agents (bridge)",

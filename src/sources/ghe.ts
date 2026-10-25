@@ -21,14 +21,20 @@ export function apiEndpointsOf(host: string): { rest: string; graphql: string } 
   return { rest: `https://${clean}/api/v3`, graphql: `https://${clean}/api/graphql` };
 }
 
-export function createGhe(opts: { host: string; token: string; fetchFn?: Fetch }): Ghe {
+/** A token, or a function that gives the current one (a rotating token: it's asked before every call, so caching is its job). */
+export type TokenSource = string | (() => Promise<string>);
+
+export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fetch }): Ghe {
   const endpoints = apiEndpointsOf(opts.host);
   const f = opts.fetchFn ?? fetch;
+  const t = opts.token;
+  const tokenOf = typeof t === "string" ? async () => t : t;
   // GitHub refuses a request without a User-Agent; Node's fetch sends one, a Worker's doesn't.
-  const headers = { authorization: `Bearer ${opts.token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "dovre" };
+  const headersOf = async () => ({ authorization: `Bearer ${await tokenOf()}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "dovre" });
   return {
     host: opts.host,
     async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
+      const headers = await headersOf();
       const res = await f(endpoints.rest + path, {
         method: init.method ?? "GET",
         headers: init.body ? { ...headers, "content-type": "application/json" } : headers,
@@ -38,6 +44,7 @@ export function createGhe(opts: { host: string; token: string; fetchFn?: Fetch }
       return (res.status === 204 ? null : await res.json()) as T;
     },
     async graphql<T>(query: string) {
+      const headers = await headersOf();
       const res = await f(endpoints.graphql, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ query }) });
       const text = await res.text();
       let body: { data?: T; errors?: { message: string }[] };

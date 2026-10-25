@@ -110,7 +110,7 @@ health:
 | `FORGE` | Where the code lives: `github`, or the id of a forge a pack brings (`Pack.forge`, e.g. `gitlab`). Pages that forge can't serve are hidden | `github` |
 | `REPO_HOST` | GitHub host (`github.com` or GitHub Enterprise hostname) | `github.com` |
 | `REPO_OWNERS` | Comma-separated GitHub orgs/users to track | auto-discovered on `/setup` |
-| `GITHUB_TOKEN` / `GHE_TOKEN` | GitHub token (uses `gh auth token` locally when unset) | `gh auth token` |
+| `GITHUB_TOKEN` / `GHE_TOKEN` | GitHub token (uses `gh auth token` locally when unset). Hosted, an instance can pass `createWorker({ githubToken: async (bindings) => … })` instead, for a rotating token such as a GitHub App's; it's asked before every call and wins over the secret | `gh auth token` |
 | `CODE_DIR` | Parent directory of local repo checkouts | `~/Code` or `~/src` |
 | `AGENT_HARNESSES` | Enabled local agent CLIs (`claude,codex,omp,copilot,agy`) | all detected on `PATH` |
 | `ASSISTANT_VIA` (`BINO_VIA`) | Assistant route: `api-key`, `cf-gateway`, `openrouter`, `claude`, `codex`, `omp`, `copilot`, `agy`, or `off` | best detected harness |

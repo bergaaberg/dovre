@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { apiEndpointsOf, apiToHtml, byPerson, describeEvent, isBot, loadDeploys, newestWaiting, normalizePr, prKeyOfUrl, type Run } from "../src/sources/ghe.ts";
+import { apiEndpointsOf, apiToHtml, createGhe, byPerson, describeEvent, isBot, loadDeploys, newestWaiting, normalizePr, prKeyOfUrl, type Run } from "../src/sources/ghe.ts";
 import { fakeGhe, move } from "./helpers.ts";
 
 test("apiEndpointsOf: github.com and GHE.com on api., GitHub Enterprise Server under /api/v3", () => {
@@ -20,6 +20,24 @@ test("apiEndpointsOf: github.com and GHE.com on api., GitHub Enterprise Server u
     rest: "https://github.acme.example/api/v3",
     graphql: "https://github.acme.example/api/graphql",
   });
+});
+
+test("createGhe: a token function is asked before every call, and one that throws fails that call with its message", async () => {
+  const seen: string[] = [];
+  const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+    seen.push(new Headers(init?.headers).get("authorization") ?? "");
+    return new Response(JSON.stringify({ data: { ok: 1 } }));
+  }) as typeof fetch;
+  let n = 0;
+  const ghe = createGhe({ host: "github.com", fetchFn, token: async () => `t${++n}` });
+  await ghe.rest("/user");
+  await ghe.graphql("{ viewer { login } }");
+  assert.deepEqual(seen, ["Bearer t1", "Bearer t2"]);
+  const gone = createGhe({ host: "github.com", fetchFn, token: () => Promise.reject(new Error("GitHub disconnected: reconnect it")) });
+  await assert.rejects(gone.rest("/user"), /GitHub disconnected/);
+  await assert.rejects(gone.graphql("{ viewer { login } }"), /GitHub disconnected/);
+  assert.equal(seen.length, 2, "no token, no request");
+  assert.deepEqual(await (async () => { seen.length = 0; await createGhe({ host: "github.com", fetchFn, token: "fixed" }).rest("/user"); return seen; })(), ["Bearer fixed"]);
 });
 
 test("a PR node becomes a Pr: checks from the last commit, unresolved threads counted", () => {
