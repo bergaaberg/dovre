@@ -1,0 +1,368 @@
+/**
+ * Dovre Packs (PLAN D15, D22, D23): every app Dovre works with beyond the core comes as a pack,
+ * kept in the instance's own packs repo and listed in that machine's config (PACKS). Core never
+ * names a pack. A pack imports core as `dovre/…` (a pnpm `link:` to this checkout) and gets
+ * everything that belongs to the running instance through its context.
+ */
+import type { Context, Hono } from "hono";
+import type { D1 } from "../db.ts";
+import type { AppEnv } from "../env.ts";
+import type { Snapshot } from "../gather.ts";
+import type { ForgeDecl } from "../forge/types.ts";
+import type { NavItem } from "../html.ts";
+import type { Page } from "../search/search.ts";
+import type { Session } from "../sources/claude.ts";
+import type { Html } from "../ui/kit.ts";
+
+/** The contract's version: a pack built for another is off, saying so. Bump on a breaking change. */
+export const PACK_API = 1;
+
+export type PackDomain = "general" | "personal" | "work";
+/**
+ * Where it can run: "local-only" needs this machine (CLIs, files), "hosted-only" needs the
+ * Worker's bindings (service bindings, D1, R2, email), "any" runs in both.
+ */
+export type ExecutionAffinity = "any" | "local-only" | "hosted-only";
+
+/** A setting the pack reads from the instance's config (.dev.vars locally, wrangler vars/secrets hosted). */
+export type PackSetting = { key: string; label: string; secret?: boolean; required?: boolean; help?: string };
+
+export type PackManifest = {
+  /** The PACK_API it was written for. */
+  api: number;
+  /** Unique id: lowercase, used for its routes' prefix check, its styles' path and PACK_<ID>=off. */
+  id: string;
+  name: string;
+  description: string;
+  domain: PackDomain;
+  execution?: ExecutionAffinity;
+  /** CLIs it needs on PATH (local). */
+  requiredBinaries?: string[];
+  /** Worker bindings it needs (hosted): without them it's off. */
+  requiredBindings?: string[];
+  settings?: PackSetting[];
+  /** How often the core calls refresh() (default 5 min): an interval locally, cron and stale pages hosted. */
+  everyMs?: number;
+  /**
+   * The cron triggers its scheduled() acts on (hosted), as wrangler writes them ("0 5 * * *"). The
+   * instance's wrangler config lists the triggers; this says which are this pack's, for the Packs page.
+   */
+  crons?: string[];
+  /**
+   * Top-level paths it owns besides /<id> (agents: "worktrees"), each a lowercase word. One that's a
+   * core path or another pack's keeps the pack off, as a route outside them does.
+   */
+  paths?: string[];
+  /**
+   * Kinds of notification its needs ring as (`PackNeed.ring`), each a line on Settings → Notifications
+   * that I can switch off. A kind is this Dovre's alone: one the core or another pack has is refused.
+   */
+  rings?: RingDecl[];
+};
+
+/** A kind of notification: its id (lowercase), and how Settings says it. On unless I switch it off. */
+export type RingDecl = { kind: string; label: string; hint?: string };
+
+/**
+ * Something in this app that needs me now, from memory: a row in what needs me, and with `ring`, a
+ * notification the first time its key is seen. `key` stays the same while it's in the same state.
+ * `title` says it whole ("Agent in shop needs your OK: Bash(npm test)"): a notification shows it as it is.
+ */
+export type PackNeed = {
+  key: string;
+  title: string;
+  line?: string;
+  /** A path on this app or an http(s) link (it goes through safeUrl). */
+  href: string;
+  tone: "bad" | "warn" | "accent" | "ok" | "neutral";
+  /** 0 drop everything … 4 when there's time; default 2. */
+  rank?: number;
+  at: number;
+  /** One of this pack's manifest rings; any other is dropped. */
+  ring?: string;
+  /** Its label in a list (default the pack's name). */
+  label?: string;
+};
+
+export type TodayCard = {
+  id: string;
+  column?: "left" | "right";
+  order?: number;
+  render: Html;
+};
+
+/**
+ * Something that happened in one of my apps, for Today's feed (What's happening): a signup, a
+ * deploy, a mail in. `key` stays the same while it's the same event (the page marks new ones);
+ * `href` is a path on this app or an http(s) link (it goes through safeUrl).
+ */
+export type FeedItem = {
+  key: string;
+  at: number;
+  tone: "ok" | "warn" | "bad" | "acc" | "mute";
+  /** What happened, in a few words ("signed up", "deployed", "mail from"). */
+  what: string;
+  /** What it was about (a name, a subject), shown as a link when there's an href. */
+  title?: string;
+  href?: string;
+  /** The app it happened in, when the pack covers several (health, inbox). */
+  app?: string;
+  /** Who did it, when that's more to the point than the app ("Agent", "You"). */
+  who?: string;
+  /** The repo it was in. */
+  repo?: string;
+  /** I did it (quieter in the feed: I know about it). */
+  mine?: boolean;
+};
+
+/** A number beside Today's greeting ("Agents live 3"). */
+export type Glance = { label: string; value: string | number };
+
+/** A piece of Today's opening line: text, or a link with the status it points at (a `code` bit is a command). */
+export type Bit = string | { text: string; href: string; tone?: "bad" | "warn"; code?: string };
+
+/** A row on Today's horizon (the last 24 hours): marks at times, sized, a live one at the right edge. */
+export type Lane = { label: string; /** Its line in the horizon's legend ("Agent session, by cost"). */ legend?: string; marks: { at: number; /** 2–9; default 3. */ size?: number; live?: boolean; title: string }[] };
+
+/**
+ * A row for Ctrl K search, from memory: something in this app a person might look for. `kind`
+ * puts it in one of search's own groups (and its prefix: a: agents, w: code, >: actions, the "Do"
+ * group of things to start); otherwise it's under "In your apps", named after the pack.
+ */
+export type FindItem = { title: string; sub?: string; href: string; also?: string[]; kind?: "agents" | "code" | "actions"; icon?: string };
+
+/**
+ * What this app's references look like in text, and where one points: a ticket key `DEV-12`, say.
+ * My list and what a deploy ships link them. `pattern` is matched as it is (made global);
+ * `href` gets the matched text.
+ */
+export type RefRule = { pattern: RegExp; href(match: string): string };
+
+
+export type PageOpts = { title: string; body: Html | string; current?: string; head?: Html | string };
+
+/**
+ * Named places on core pages a pack can fill (PLAN WP-H9), each with what the page knows there
+ * (`arg`) and what goes in (`out`). A pack answers from memory, never awaited; one that throws
+ * fills nothing. One pack reaching another's page goes through a slot, never an import.
+ */
+export type SlotMap = {
+  /** /agents/new with a checkout picked: a field under "Runs in" (atlas: the component picker). */
+  "agents.new": { arg: { repo: string }; out: Html | "" };
+  /** A PR's row on /prs, beside its repo: a pill or two. */
+  "pr.lead": { arg: { repo: string }; out: Html | "" };
+  /** A PR on /prs opened in place: rows for its facts (label, value). */
+  "pr.facts": { arg: { repo: string }; out: [string, Html][] };
+  /** New work (/issues/new): a panel above "What is it?". */
+  "work.new": { arg: Record<string, never>; out: Html | "" };
+  /** /agents, after "Started here": a panel (terminal: the terminals open here). */
+  "agents.panel": { arg: Record<string, never>; out: Html | "" };
+  /** A worktree's row on /worktrees: a button or two (terminal: open one in it). */
+  "worktree.actions": { arg: { name: string }; out: Html | "" };
+  /** An ended session in a checkout (not Dovre's own folder): a way to pick it up again (terminal: resume it here). */
+  "session.resume": { arg: { session: Session }; out: Html | "" };
+  /** A deploy's row on /deploys: what's in production for its repo (the version an ops pack sees running there). */
+  "deploy.prod": { arg: { repo: string }; out: Html | "" };
+  /** My list, above the list: items proposed from elsewhere, each to add or let go (Teams' crawler). */
+  "todo.proposals": { arg: Record<string, never>; out: Html | "" };
+  /** Today's header, before the glance (avatar: me in my scene). The first pack that answers fills it. */
+  "today.hero": { arg: Record<string, never>; out: Html | "" };
+  /**
+   * The Bino button at the bottom right (`dock`) and beside Bino's header (`mini`): what it looks
+   * like instead of the word (avatar: me, at work while Bino answers). The first pack that answers.
+   */
+  "bino.face": { arg: { place: "dock" | "mini"; thinking?: boolean }; out: Html | "" };
+  /**
+   * An entry on the actions log (Today's card and /actions): a name for what it logged by id (Teams:
+   * a chat's name). The first pack that answers names it, cut to a line; undefined: not one of its.
+   */
+  "actions.where": { arg: { kind: string; target: string }; out: string | undefined };
+};
+export type SlotName = keyof SlotMap;
+export type Slots = { [K in SlotName]?: (arg: SlotMap[K]["arg"]) => SlotMap[K]["out"] };
+
+export type PackContext = {
+  /** The instance's settings (strings): this pack reads its own keys. */
+  env: Record<string, string | undefined>;
+  /** The Worker's bindings when hosted (D1, R2, service bindings, send_email…); empty locally. */
+  bindings: Record<string, unknown>;
+  hosted: boolean;
+  /** Dovre's own database. */
+  db: D1;
+  /** Tell open pages these data-live regions changed (src/live.ts). Today listens to "snapshot" and each pack's id. */
+  publish(topics: string[]): void;
+  /** The newest gathered snapshot, if any. */
+  snapshot(): Snapshot | undefined;
+  /** The same for a page about to be drawn: with nothing gathered yet, it waits a moment for the first gather, as core pages do. */
+  gathered(): Promise<Snapshot | undefined>;
+  /** What the packs put in a named place (SlotMap) on one of this pack's own pages: its page can host others' slots too. */
+  fill<K extends SlotName>(name: K, arg: SlotMap[K]["arg"]): SlotMap[K]["out"][];
+  /** A page inside Dovre's shell (nav, docks, styles), for a route this pack mounts. */
+  page(c: Context<AppEnv>, opts: PageOpts): Promise<Response>;
+  /** A page for inside its dock (`dock`, under /<id>/dock): no menu or footer, the same styles and script. */
+  dockPage(c: Context<AppEnv>, opts: Omit<PageOpts, "current">): Response | Promise<Response>;
+  log(line: string): void;
+  /**
+   * Rings once now (a notification), for something that happened rather than something waiting
+   * (`needs` are rung by key): an agent turn that ended. `kind` must be one of its manifest's
+   * `rings`, and rings only while I have it on; `tag` is kept under the pack's id, so one with the
+   * same tag replaces the last. Nothing happens where nothing rings (hosted, tests).
+   */
+  ring(note: PackNote): void;
+};
+
+/** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */
+export type PackNote = { kind: string; title: string; body?: string; href: string; tag: string };
+
+/**
+ * A pack's button beside Bino's at the bottom right of every page but its own (Teams: the chats).
+ * Without script it's a link to /<id>; with it, it opens a panel holding the pack's /<id>/dock page
+ * in a frame (drawn with `ctx.dockPage`), which keeps its place while I move between pages. `count`
+ * is how many have something new; `hot` when one of them is for me (a mention).
+ */
+export type Dock = { label: string; count?: number; hot?: boolean; /** The count's tooltip ("3 with something new"). */ title?: string };
+
+/** A field of a pack's act, as Bino fills it in: its name (lowercase) and what goes in it, for Bino. */
+export type ActField = { name: string; about: string; required?: boolean; /** Longest it may be (default 200, 4000 at most). */ max?: number; /** Several lines (a message), not one. */ text?: boolean };
+
+/** How a pack's act went (`ActKind.run`): what the card says after, or why it didn't. */
+export type ActDone = { ok: true; /** "Sent to Kari Nordmann". */ done: string; href?: string } | { ok: false; error: string };
+
+/**
+ * Something Bino may propose that this pack carries out (Teams: a message to someone). Bino acts on
+ * nothing: it writes a block of kind `<pack id>.<kind>` with these fields, the core checks them
+ * (unknown ones dropped, each cut to its max, a missing required one drops the block), and I see a
+ * card I can change before I press it. Local only (hosted, Bino proposes nothing).
+ */
+export type ActKind = {
+  /** A lowercase word. */
+  kind: string;
+  /** The card's heading ("A message in Teams"). */
+  title: string;
+  /** For Bino: when to propose it, a sentence or two, plain. Names and states only, like `bino`. */
+  when: string;
+  fields: ActField[];
+  /** The card's button ("Send"). */
+  button: string;
+  hint?: string;
+  /**
+   * One click is enough. Otherwise the button asks again first (`question`, default the heading),
+   * as every write to a pack's app does; Teams' send is one click by my call.
+   */
+  oneClick?: boolean;
+  question?: string;
+  /** The card's inputs, from memory: Bino's values (`act`), or what I typed when it was refused (`kept`). */
+  inputs(act: Record<string, string>, kept: Record<string, string> | undefined, ctx: PackContext): Html;
+  /**
+   * Carries it out from what the card's form says (`form`: its fields, strings) and what Bino
+   * proposed (`act`). Re-checks the state first and logs the write to the actions table, as every
+   * write does. The core runs it in the background and shows how it went on the card.
+   */
+  run(form: Record<string, string>, act: Record<string, string>, ctx: PackContext): Promise<ActDone>;
+};
+
+/**
+ * What a pack tells the avatar, from memory: how many of its things work for me and wait on me
+ * (it looks busy while anything works; a drone each), and what's wrong, if anything: rain for a
+ * storm, flames for a fire. `why` is a short line of counts ("2 red signals"), never what a thing
+ * says; `href` one of its own pages.
+ */
+export type AvatarFeed = { working?: number; asking?: number; trouble?: { level: "storm" | "fire"; why: string; href?: string }; /** I'm on duty (an on-call rota): the avatar wears its beacon. */ onDuty?: boolean };
+
+export type ScheduledEvent = { cron: string; scheduledTime: number };
+/** A Worker's waitUntil, for work that finishes after the handler returns. */
+export type Defer = (p: Promise<unknown>) => void;
+
+export type Pack = {
+  manifest: PackManifest;
+  /**
+   * A forge it brings (GitLab): used for PRs, notifications, movement and deploys instead of GitHub
+   * when FORGE is its id. Picked at start, before the pack's own checks or init (src/forge/pick.ts).
+   */
+  forge?: ForgeDecl;
+  /** Runs here? Called after the manifest's checks (bindings, binaries); default yes. */
+  available?(ctx: PackContext): boolean;
+  init?(ctx: PackContext): Promise<void> | void;
+  /**
+   * Re-reads what its pages show, into memory (or its own storage), then publishes what changed.
+   * The core calls it on its schedule; pages and cards never wait for it.
+   */
+  refresh?(ctx: PackContext): Promise<void>;
+  dispose?(): Promise<void> | void;
+  /** CSS for its own classes, served beside the core's and linked from every page. */
+  styles?: string;
+  nav?(ctx: PackContext): NavItem[];
+  /** Mounted after the core's guard (login or Access) and core routes: it can't shadow a core path. */
+  routes?(app: Hono<AppEnv>, ctx: PackContext): void;
+  today?(ctx: PackContext): TodayCard[] | Promise<TodayCard[]>;
+  /** Pages for Ctrl K search. */
+  pages?(ctx: PackContext): Page[];
+  /** Things in this app for Ctrl K search ("In your apps"), from memory like nav. */
+  finds?(ctx: PackContext): FindItem[];
+  /** Its kinds of reference, linked wherever I write or a commit says them (My list, deploys). */
+  refs?(ctx: PackContext): RefRule[];
+  /** What it tells the avatar now, from memory (agents: turns and sessions; signals: red ones). */
+  avatar?(ctx: PackContext): AvatarFeed | null | undefined;
+  /**
+   * PR links its pages show (URLs), from memory: the gather looks up each one's state and title
+   * (Snapshot.refs), so a page can say it merged. Agents: the PRs their sessions opened.
+   */
+  linked?(ctx: PackContext): string[];
+  /**
+   * Before a page is drawn (not an event stream): bring what it shows up to date. The core waits for
+   * all of them together, 1.5 s at most, then draws anyway. Hosted agents: what the Mac last said.
+   */
+  beforePage?(ctx: PackContext): Promise<void>;
+  /** What happened lately, newest first or not, from memory (like nav): Today's feed, never awaited. */
+  feed?(ctx: PackContext): FeedItem[];
+  /**
+   * What Bino may know about this app right now: a few plain lines from memory (like feed), never
+   * awaited. States and counts ("3 open signals: …", "12 trials, 2 end this week"); never a
+   * customer's words, an address, a token, or anything else that isn't mine to hand a model.
+   */
+  bino?(ctx: PackContext): string;
+  /** What needs me in this app right now, from memory, never awaited (rung once per key; see PackNeed). */
+  needs?(ctx: PackContext): PackNeed[];
+  /**
+   * A bar at the top of every page, above the page itself, from memory: something to answer wherever I
+   * am (an agent waiting for my OK on a tool). Empty most of the time. It's redrawn with the page's
+   * live regions, so what it shows can change.
+   */
+  banner?(ctx: PackContext, at: { path: string }): Html | "";
+  /** Numbers beside Today's greeting, from memory (two at most are shown). */
+  glance?(ctx: PackContext): Glance[];
+  /** A sentence for Today's opening line when something here wants me, from memory; empty when not. */
+  brief?(ctx: PackContext): Bit[];
+  /** A row on Today's horizon, from memory. */
+  lane?(ctx: PackContext): Lane | undefined;
+  /**
+   * What one of its pages is, for Bino when I ask from there: names and states only, like `bino`
+   * (a session's title and status, never what was said). Undefined: "a page of <pack name>".
+   */
+  about?(ctx: PackContext, path: string): string | undefined;
+  /** What Bino may propose that this pack carries out (see ActKind); local only. */
+  acts?(ctx: PackContext): ActKind[];
+  /**
+   * Its panel on Settings, under its name, from memory: what isn't a key in the manifest's `settings`
+   * (how it's signed in, the databases it may open). Its forms post to its own routes.
+   */
+  settings?(ctx: PackContext): Html | "";
+  /** What it puts in core pages' named places (SlotMap), from memory. */
+  slots?(ctx: PackContext): Slots;
+  /** Its button beside Bino's (see Dock), from memory; undefined: none right now. Its /<id>/dock pages may be framed by Dovre's own. */
+  dock?(ctx: PackContext): Dock | undefined;
+  /**
+   * GET /<id>/callback, answered before the sign-in check: where another site sends me back (an
+   * OAuth return), so it arrives without Dovre's cookie. Local only, on this machine's own address.
+   * The pack checks its own state (a one-time value it made, a few minutes old at most) and finishes
+   * nothing it didn't start. `signedIn`: the request carries Dovre's cookie (this browser is Dovre's).
+   */
+  callback?(c: Context<AppEnv>, ctx: PackContext, at: { signedIn: boolean }): Response | Promise<Response>;
+  /** Hosted cron (wrangler triggers). */
+  scheduled?(event: ScheduledEvent, ctx: PackContext, defer: Defer): Promise<void>;
+  /** Hosted Email Routing: a message to an address routed to this Worker. Return true when handled. */
+  email?(message: unknown, ctx: PackContext, defer: Defer): Promise<boolean>;
+};
+
+/** A packs module's default export: its packs, given the instance's settings. */
+export type PacksModule = { default: Pack[] | ((env: Record<string, string | undefined>) => Pack[]) };

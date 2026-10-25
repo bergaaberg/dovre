@@ -1,0 +1,114 @@
+/**
+ * Agents, a core pack (PLAN WP-H9d): the coding agents on this machine (or, hosted, on the Mac
+ * over the bridge) and the agents desk that talks to them (src/agents/desk.ts). What it adds to
+ * core pages goes through hooks like any pack's: Agents and Worktrees in the menu (with how many
+ * are live, and whether one waits), the agents that need me (`needs`, ringing "agent-ask"), and
+ * the bar on every page when an agent started here stopped on a tool it needs my OK for (`banner`),
+ * on Today its card, numbers, sentence, horizon row and feed events (today.ts), and in search its
+ * pages, sessions and worktrees (finds.ts); for Bino, the agents running and what its pages are (bino.ts).
+ * Its pages: /agents (the list, a session, a new one) and /worktrees (routes.ts), on whose places
+ * other packs put theirs through slots (terminal: its panel, a worktree's button, resume here).
+ * It keeps this machine's sessions and worktrees itself (here.ts: read every 15 s and when Claude
+ * Code's session files change), asks the gather for the PRs they link (`linked`), gives the avatar
+ * its counts (`avatar`), and rings when a turn started here ends (turns.ts).
+ * Runs locally and hosted ("any"); hosted, the sessions are the Mac's over the desk (brought up to
+ * date before each page, `beforePage`), and worktrees aren't there to show.
+ */
+import { html } from "hono/html";
+import type { Desk } from "../../../agents/desk.ts";
+import type { Dismissed } from "../../../agents/dismissed.ts";
+import type { Run } from "../../../agents/runner.ts";
+import { type Pack, PACK_API } from "../../types.ts";
+import { agentAsksOf } from "./asks.ts";
+import { aboutAgentPage, agentsForBino } from "./bino.ts";
+import { agentFinds, agentPages } from "./finds.ts";
+import type { Here, Sessions } from "./here.ts";
+import { agentNeeds } from "./needs.ts";
+import { agentRoutes } from "./routes.ts";
+import { agentBrief, agentFeed, agentGlance, agentLane, agentsCard } from "./today.ts";
+import { agentActivity, turnNote, turnWatch } from "./turns.ts";
+import { askBar } from "./view.ts";
+
+export type AgentsDeps = {
+  /** This machine's desk, or hosted the Mac's over the bridge. */
+  desk: Desk;
+  /** Sessions I've cleared away from Dovre's lists. */
+  dismissed: Dismissed;
+  /** This machine's sessions and worktrees (here.ts); hosted there are none, the Mac's come over the desk. */
+  here?: Here;
+  /** Hears every change to a turn started here (the runner's onChange): one that ends may ring. */
+  onTurn?: (listen: (r: Run) => void) => void;
+  /** How long a turn runs before its end rings (Settings → Notifications); default 10 min. */
+  longTurnMs?: () => number;
+};
+
+const NONE: Sessions = { live: [], recent: [] };
+
+/** The sessions the pages show: hosted the Mac's as it last said, else this machine's; without the ended ones I cleared away. */
+export function sessionsOf(desk: Desk, here: Here | undefined, dismissed?: Pick<Dismissed, "has">): Sessions {
+  const all = desk.view().sessions ?? here?.sessions() ?? NONE;
+  return dismissed ? { live: all.live, recent: all.recent.filter((x) => !dismissed.has(x.sessionId)) } : all;
+}
+
+export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs }: AgentsDeps): Pack {
+  const sessions = (cleared?: boolean) => sessionsOf(desk, here, cleared ? dismissed : undefined);
+  let stop = () => {};
+  return {
+    manifest: {
+      api: PACK_API,
+      id: "agents",
+      name: "Agents",
+      description: "Coding agents on this machine, or the Mac's from anywhere: start, follow, answer",
+      domain: "general",
+      execution: "any",
+      paths: ["worktrees"],
+      rings: [
+        { kind: "agent-ask", label: "An agent needs my OK", hint: "A permission question, or a tool it was refused" },
+        { kind: "agent-done", label: "A long agent turn finishes", hint: "Only turns started here, longer than the threshold below" },
+      ],
+    },
+    init(ctx) {
+      // Locally the sessions and worktrees are read here; a read that changed them redraws the pages (and what needs me rings).
+      if (here && !ctx.hosted) stop = here.start(() => ctx.publish(["snapshot"]));
+      const watch = turnWatch();
+      onTurn?.((r) => {
+        if (!watch.ended(r)) return;
+        const note = turnNote(r, longTurnMs?.() ?? 10 * 60_000);
+        if (note) ctx.ring(note);
+      });
+    },
+    dispose: () => stop(),
+    avatar: () => agentActivity(sessions().live, desk.view().runs),
+    linked: () => [...sessions().live, ...sessions().recent].flatMap((x) => (x.prs ?? []).map((p) => p.url)),
+    ...(desk.refresh ? { beforePage: () => desk.refresh!() } : {}),
+    nav: (ctx) => {
+      const { live } = sessions();
+      const runs = desk.view().runs;
+      const count = live.length + runs.filter((r) => r.status === "running").length;
+      const hot = live.some((a) => a.status !== "busy") || runs.some((r) => r.status !== "running" && r.events.some((e) => e.t === "denied"));
+      return [
+        { href: "/agents", title: "Agents", icon: "spark", group: "Agents", order: 10, count, hot },
+        ...(ctx.hosted ? [] : [{ href: "/worktrees", title: "Worktrees", icon: "branch" as const, group: "Code", order: 30 }]),
+      ];
+    },
+    needs: (ctx) => agentNeeds(sessions().live),
+    today: async (ctx) => {
+      const s = await ctx.gathered();
+      return s ? [{ id: "live", column: "left", order: 10, render: agentsCard(s, sessions(true), desk.view().runs, Date.now()) }] : [];
+    },
+    glance: (ctx) => agentGlance(sessions(true), desk.view().runs, Date.now()),
+    brief: (ctx) => agentBrief(sessions().live, desk.view().runs),
+    lane: (ctx) => agentLane(sessions(true), Date.now()),
+    pages: (ctx) => agentPages(ctx.hosted),
+    bino: (ctx) => agentsForBino(sessions().live),
+    about: (ctx, path) => aboutAgentPage(path, sessions()),
+    finds: (ctx) => agentFinds(sessions(true), desk.view().runs, ctx.hosted ? [] : (here?.worktrees() ?? [])),
+    feed: (ctx) => agentFeed(sessions(true), desk.view().runs, Date.now()),
+    routes: (app, ctx) => agentRoutes(app, ctx, { desk, dismissed, here }),
+    // Not on the session's own page: it asks there itself.
+    banner: (_ctx, { path }) => {
+      const asks = agentAsksOf(desk.view().runs, (sid) => dismissed.has(sid)).filter((a) => path !== `/agents/s/${a.sid}`);
+      return asks.length ? html`${asks.map(askBar)}` : "";
+    },
+  };
+}

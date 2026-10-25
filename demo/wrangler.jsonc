@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // The public demo (src/demo/worker.ts): hosted Dovre's pages over made-up data. It reads no
+  // bindings besides the icons and fonts: no secrets, no database, no Access, no bridge.
+  "name": "dovre-demo",
+  "main": "../src/demo/worker.ts",
+  "compatibility_date": "2026-10-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "demo.dovre.dev", "custom_domain": true }],
+  "observability": { "enabled": true },
+  "assets": { "directory": "../assets", "binding": "ASSETS", "run_worker_first": true }
+}

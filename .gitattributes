@@ -1,0 +1,5 @@
+# Line endings: Git decides per file, except where a tool needs LF (gofmt in launcher/).
+* text=auto
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

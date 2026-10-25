@@ -1,0 +1,33 @@
+// {{name}}'s hosted Dovre. Until D1, its tables and Access are there, every request gets a page
+// saying what's missing (names only). README.md walks through it.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{{worker}}",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "{{domain}}", "custom_domain": true }],
+  "observability": { "enabled": true },
+  "vars": {
+    "IS_HOSTED": "1",
+    // The GitHub host and the owners whose repos Dovre tracks (comma-separated).
+    "REPO_HOST": "github.com",
+    "REPO_OWNERS": "",
+    "GITHUB_USER": "",
+    // Cloudflare Access: the team name and the application's AUD tag, then who may come in.
+    "CF_ACCESS_TEAM": "",
+    "CF_ACCESS_AUD": "",
+    "ALLOWED_EMAILS": ""
+  },
+  // Secrets (wrangler secret put): GITHUB_TOKEN; CF_AIG_TOKEN for Bino; BRIDGE_KEY for the Mac's agents.
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "DovreHub" }] },
+  "migrations": [{ "tag": "hub-v1", "new_sqlite_classes": ["DovreHub"] }],
+  "d1_databases": [
+    // `wrangler d1 create {{db}}` prints the id to put here.
+    { "binding": "DB", "database_name": "{{db}}", "database_id": "", "migrations_dir": "../dovre/migrations" }
+  ],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "assets": { "directory": "../dovre/assets", "binding": "ASSETS", "run_worker_first": true }
+}

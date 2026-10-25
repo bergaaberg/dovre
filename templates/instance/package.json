@@ -1,0 +1,23 @@
+{
+  "name": "{{name}}",
+  "private": true,
+  "type": "module",
+  "description": "A Dovre instance: its packs and its hosted Worker ({{domain}}).",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/*.test.ts' 'packs/*/test/*.test.ts'",
+    "dev": "wrangler dev --local --port 8799",
+    "deploy": "wrangler d1 migrations apply {{db}} --remote && wrangler deploy"
+  },
+  "dependencies": {
+    "dovre": "link:../dovre"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.152.0"
+  }
+}

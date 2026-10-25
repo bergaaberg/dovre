@@ -1,0 +1,37 @@
+/** The keys, Vimium's way: the page script parses, every key is in the help, and hint labels are unique and even. */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { HINT_LABELS_JS, SCRIPT } from "../src/ui/app.js.ts";
+import { STYLE } from "../src/ui/style.ts";
+
+test("the page script parses", () => {
+  assert.doesNotThrow(() => new Function(SCRIPT));
+});
+
+test("the keys dialog lists every key", () => {
+  for (const key of ["f", "F", "g g", "G", "H / L", "j / k", "d / u", "r", "y y", "g i", "g c", "] / [", "J / K", "o", "/", "?", "Esc"]) assert.ok(SCRIPT.includes(`["${key}", `), `the help lists ${key}`);
+  for (const group of ["Hints", "Moving", "Going to", "This page"]) assert.ok(SCRIPT.includes(`["${group}", [`), group);
+  assert.ok(!SCRIPT.includes(`["g i", "New work"]`), "g i is Vimium's focus-input now; New work moved to g c");
+});
+
+test("hint labels: one each, all the same length, the shortest that fits, only Vimium's letters", () => {
+  const hintLabels = new Function(`${HINT_LABELS_JS}; return hintLabels;`)() as (n: number, chars: string) => string[];
+  const chars = "sadfjklewcmpgh";
+  for (const [n, len] of [[1, 1], [14, 1], [15, 2], [196, 2], [200, 3]] as const) {
+    const labels = hintLabels(n, chars);
+    assert.equal(labels.length, n);
+    assert.equal(new Set(labels).size, n, `${n}: unique`);
+    assert.ok(labels.every((l) => l.length === len), `${n}: all ${len} long`);
+    assert.ok(labels.every((l) => [...l].every((c) => chars.includes(c))), `${n}: only hint letters`);
+    // No label is the start of another, so typing one never stops at the wrong target.
+    assert.ok(labels.every((a) => labels.every((b) => a === b || !b.startsWith(a))), `${n}: none a prefix of another`);
+  }
+  // The first letter varies fastest: 15 targets don't all start with the same key.
+  assert.ok(new Set(hintLabels(15, chars).map((l) => l[0])).size > 1);
+});
+
+test("the hint overlay has its own colours in light and dark, and doesn't take the form kit's .hint", () => {
+  assert.equal((STYLE.match(/--hint: #/g) ?? []).length, 3, "light, the system's dark, and a picked dark");
+  assert.match(STYLE, /\.key-hint \{/);
+  assert.doesNotMatch(STYLE, /^\.hint \{/m, "the form kit's .hint stays a quiet help line");
+});

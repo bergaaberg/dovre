@@ -1,0 +1,90 @@
+# Copy to .dev.vars (never committed). Settings -> Setup shows what's on.
+# REPO_OWNERS (or GHE_ORG) is the one key Dovre needs; the lists below are off until set.
+# A tracker (Jira, say) comes as a pack in the instance repo, with its own settings.
+
+# The login secret. Unset: made on first start and kept in data/launch-token.
+# LAUNCH_TOKEN=
+
+# GitHub (Enterprise or github.com): one host, and the orgs and users on it Dovre tracks and may write
+# to. The first owner is where short names (repo#12) belong. GHE_HOST and GHE_ORG are read too.
+# The token comes from `gh auth token --hostname <host>` when unset.
+# REPO_HOST=github.com
+# REPO_OWNERS=my-org, my-user
+# GHE_HOST=
+# GHE_ORG=
+# GITHUB_USER=
+# GHE_TOKEN=
+# GITHUB_TOKEN=
+# GHE_LOGIN=
+# Your team's slug on GHE, for grouping work by the people in it.
+# TEAM=
+
+# Lists, comma-separated. Unset or empty is off.
+# Repos where work is planned (dev tasks go under their issues), and repos with their own issue forms.
+# SORTING_REPOS=
+# FORM_REPOS=
+# The skill that drafts an issue through a repo's forms. Unset: plain instructions.
+# FORM_SKILL=
+
+# Agent reviews: the skills that review someone's PR and assess a review on yours.
+# REVIEW_SKILL=review
+# TRIAGE_SKILL=review-triage
+
+# Where repos are (each directly in it) and Claude Code's state.
+# CODE_DIR=
+# CLAUDE_DIR=
+
+# Agent CLIs when not on the PATH. Not found: that harness is off.
+# AGY_BIN=
+# CLAUDE_BIN=
+# OMP_BIN=
+# COPILOT_BIN=
+# CODEX_BIN=
+# Which of them to use (claude, omp, copilot, agy, codex), comma-separated. Unset: every one found.
+# AGENT_HARNESSES=
+
+# AI summaries through agent turn: agy, claude, omp, copilot, on or off.
+# SUMMARIES=
+
+# Bino, the assistant: agy | cf-gateway (Cloudflare AI Gateway) | claude | omp | copilot | off.
+# BINO_VIA=
+# For Cloudflare AI Gateway (BINO_VIA=cf-gateway):
+# CF_ACCOUNT_ID=
+# CF_GATEWAY_NAME=
+# CF_AIG_TOKEN=
+# Its model for talking, and the cheap one it keeps its memory with.
+# BINO_MODEL=sonnet
+# BINO_REFLECT_MODEL=haiku
+# Who Bino is told you are.
+# ABOUT_ME=a developer who works across several repos
+
+# Packs (PLAN D23): the pack folders this machine loads, comma-separated. Each pack's own
+# settings go here too (see its repo). PACK_<ID>=off switches one off.
+# PACKS=~/src/<your-instance-repo>
+# Hosted Mode (Cloudflare Workers / Cloudflare Access):
+# IS_HOSTED=1
+# Both needed in hosted mode, or nobody gets in: the Access team (myteam or myteam.cloudflareaccess.com)
+# and the Access application's AUD tag. Tokens are checked against the team's signing keys.
+# CF_ACCESS_TEAM=
+# CF_ACCESS_AUD=
+# Optional: only these emails, on top of the Access policy.
+# ALLOWED_EMAILS=you@example.com
+
+# Teams chats through Graph PowerShell's sign-in, read-only: on (default) | off. Needs pwsh and
+# Microsoft.Graph.Authentication. Connect once on the Teams page (More → Teams).
+# TEAMS=
+# Days of chat history kept (encrypted, on this machine): default 60.
+# TEAMS_SINCE_DAYS=
+# The crawler proposing todos from chats: on (every 2 h) | ask | off. Copilot only, through omp,
+# in its own profile with no MCP servers: make it once with `omp --profile dovre-copilot`, /login.
+# TEAMS_CRAWL=
+# TEAMS_CRAWL_PROFILE=dovre-copilot
+# TEAMS_CRAWL_MODEL=github-copilot/gpt-6-luna:medium
+
+# The Data tab, through db-cli: how `db ls at` names a test database before `<app>-at`, and a
+# DB2 production database with no test copy (unset: none).
+# DATA_PREFIX=
+# DATA_DB2=
+
+# U_DB=data/dovre.sqlite
+# PORT=4848
