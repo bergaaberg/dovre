@@ -157,6 +157,9 @@ export const STYLE = String.raw`
 
 /* ── Tokens ─────────────────────────────────────────────────────────────── */
 :root {
+  /* The bottom inset, held still: Chrome on Android animates safe-area-inset-bottom as its toolbar
+     shows and hides, which moved the tab bar while scrolling. Elsewhere the max isn't known: the plain inset. */
+  --sab: env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px));
   color-scheme: light dark;
   --nordwand: "Nordwand Mono", "Cascadia Mono", Consolas, monospace;
   --serif: var(--nordwand);
@@ -288,11 +291,11 @@ details > summary { cursor: pointer; }
   body:not(:has(.tabbar)) .side.open { max-height: 100dvh; overflow-y: auto; }
   /* More: the rest of the menu as a sheet above the bar, the page dimmed behind it; a tap outside closes it (app.js). */
   body:has(.tabbar) .side-sheet { display: none; }
-  body:has(.tabbar) .side.open .side-sheet { display: block; position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 1; max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 10px; background: var(--surface); border-top: 1px solid var(--line-2); border-radius: 16px 16px 0 0; box-shadow: 0 -16px 40px -16px rgb(0 0 0 / .5); }
+  body:has(.tabbar) .side.open .side-sheet { display: block; position: fixed; left: 0; right: 0; bottom: calc(58px + var(--sab)); z-index: 1; max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 10px; background: var(--surface); border-top: 1px solid var(--line-2); border-radius: 16px 16px 0 0; box-shadow: 0 -16px 40px -16px rgb(0 0 0 / .5); }
   body:has(.tabbar) .side.open::before { content: ""; position: fixed; inset: 0; z-index: 0; background: rgb(0 0 0 / .45); }
   body:has(.tabbar) .side-sheet .is-tab, body:has(.tabbar) .side-sheet .all-tabs { display: none; }
   body:has(.tabbar):has(.side.open) { overflow: hidden; }
-  .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; background: var(--bg); border-top: 1px solid var(--line); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; background: var(--bg); border-top: 1px solid var(--line); padding: 0 env(safe-area-inset-right) var(--sab) env(safe-area-inset-left); }
   #tabs { display: contents; }
   .tabbar a, .tabbar button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 58px; padding: 0 4px; border: 0; border-radius: 0; background: none; font: 500 11px/1 var(--sans); color: var(--ink-3); text-decoration: none; cursor: pointer; }
   .tabbar .tab-ico { position: relative; display: inline-flex; }
@@ -302,17 +305,17 @@ details > summary { cursor: pointer; }
   .tabbar a[aria-current="page"] svg, .tabbar button.on svg, .tabbar button[aria-expanded="true"] svg { color: var(--accent); }
   .tabbar b { position: absolute; top: -6px; left: 14px; min-width: 18px; padding: 2px 5px; border: 2px solid var(--bg); border-radius: 999px; background: var(--ink-2); color: var(--bg); font: 600 10px/1 var(--sans); text-align: center; font-variant-numeric: tabular-nums; }
   .tabbar b.hot { background: var(--warn); }
-  body:has(.tabbar) .wrap { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
-  body:has(.tabbar) .docks { bottom: calc(70px + env(safe-area-inset-bottom)); }
+  body:has(.tabbar) .wrap { padding-bottom: calc(66px + var(--sab)); }
+  body:has(.tabbar) .docks { bottom: calc(70px + var(--sab)); }
   /* Bino's button in the middle of the bar (the tab-gap holds its place): round, raised above the bar's
      edge, a ring of the page's colour around it so it reads as set into the bar. */
   .tab-gap { display: block; }
   .tabbar.gap-21 { grid-template-columns: 1fr 1fr 76px 2fr; }
   .tabbar.gap-22 { grid-template-columns: 1fr 1fr 76px 1fr 1fr; }
   .tabbar.gap-32 { grid-template-columns: 2fr 2fr 2fr 76px 3fr 3fr; }
-  body:has(.tab-gap) #bdock-btn { position: fixed; left: calc(50% - 31px); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 1; width: 62px; height: 62px; padding: 0; justify-content: center; border-width: 1.5px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, var(--surface-2), var(--surface) 70%); box-shadow: 0 0 0 5px var(--bg), 0 0 0 6px var(--line), 0 10px 24px -10px var(--accent); transition: transform .15s ease-out; }
+  body:has(.tab-gap) #bdock-btn { position: fixed; left: calc(50% - 31px); bottom: calc(10px + var(--sab)); z-index: 1; width: 62px; height: 62px; padding: 0; justify-content: center; border-width: 1.5px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, var(--surface-2), var(--surface) 70%); box-shadow: 0 0 0 5px var(--bg), 0 0 0 6px var(--line), 0 10px 24px -10px var(--accent); transition: transform .15s ease-out; }
   body:has(.tab-gap) #bdock-btn:active { transform: scale(.94); }
-  body:has(.tab-gap) .av-say { position: fixed; left: 50%; right: auto; bottom: calc(86px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); transform: translateX(-50%); }
+  body:has(.tab-gap) .av-say { position: fixed; left: 50%; right: auto; bottom: calc(86px + var(--sab)); max-width: calc(100vw - 32px); transform: translateX(-50%); }
   body:has(.tab-gap) .av-say::after { right: calc(50% - 5px); }
   body:has(.side.open) #bdock-btn, body:has(.side.open) .av-say { display: none; }
 }
@@ -936,7 +939,7 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
   .docks { right: 10px; bottom: 10px; }
   /* On the phone an open pane is a sheet over the whole page, tab bar too; its own header closes it.
      It fits what's visible, keyboard or not (interactive-widget=resizes-content in the viewport meta). */
-  .tdock-panel { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; height: auto; }
+  .tdock-panel { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; bottom: calc(8px + var(--sab)); width: auto; height: auto; }
   .docks:has(.tdock.open) .tdock-btn { display: none; }
   body:has(.tdock.open) { overflow: hidden; }
 }
