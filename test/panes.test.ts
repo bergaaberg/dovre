@@ -39,8 +39,11 @@ test("a pane that can't run here says why; one switched off doesn't", () => {
   assert.match(p.reviews.why ?? "", /agent CLI/);
   assert.equal(p.docker.on, true, "unknown: as before");
   const mac = panesOf({}, { ...none, windows: false });
-  assert.match(mac.docker.why ?? "", /Windows only/);
+  assert.match(mac.docker.why ?? "", /No Docker Engine socket found/);
   assert.match(mac.teams.why ?? "", /Windows only/, "no advice to install pwsh where Teams can't run");
+  const macWithDocker = panesOf({}, { ...none, windows: false, dockerSocket: "/var/run/docker.sock" });
+  assert.equal(macWithDocker.docker.on, true);
+  assert.equal(macWithDocker.docker.why, undefined);
   assert.equal(p.bino.wanted, false, "no model at all: off");
   const on = runningOf(p);
   assert.equal(on.teams, false);

@@ -49,7 +49,9 @@ function groupPanel(g: Group, v: DockerView): Html {
 function engineNote(v: DockerView): Html {
   if (v.state === "none")
     return Notice({
-      children: html`<p><strong>No Docker engine here yet.</strong> Dovre runs Docker Engine in a WSL distro of its own, without Docker Desktop:</p><pre class="code">pwsh scripts/docker.ps1</pre><p>Then restart Dovre (Settings → Restart): the launcher serves the engine to the docker CLI, Testcontainers and this page.</p>`,
+      children: v.ours
+        ? html`<p><strong>No Docker engine here yet.</strong> Dovre runs Docker Engine in a WSL distro of its own, without Docker Desktop:</p><pre class="code">pwsh scripts/docker.ps1</pre><p>Then restart Dovre (Settings → Restart): the launcher serves the engine to the docker CLI, Testcontainers and this page.</p>`
+        : html`<p><strong>No Docker engine found.</strong> Start Docker Desktop, OrbStack, Colima, or native dockerd.</p>`,
     });
   if (v.state === "off") return Notice({ children: html`<p><strong>Docker is off.</strong> Its containers stopped with it; the ones with a restart policy come back when it starts.</p><div class="buttons">${btn("/docker/engine/on", "Start Docker", "Starting", "primary")}</div>` });
   if (v.state === "starting") return Notice({ children: html`<p><strong>Starting Docker…</strong> The distro and the engine take a few seconds; this fills in by itself.</p>` });
@@ -61,7 +63,7 @@ function engineNote(v: DockerView): Html {
 export function dockerPage(v: DockerView, flash?: DockerView["flash"]): PageOpts {
   const groups = groupsOf(v.containers);
   const running = v.containers.filter((c) => c.state === "running").length;
-  const sub = v.state === "ok" ? `${running} running · ${v.containers.length} in all${v.version ? ` · Docker Engine ${v.version}` : ""}` : "Containers on this machine, without Docker Desktop.";
+  const sub = v.state === "ok" ? `${running} running · ${v.containers.length} in all${v.version ? ` · Docker Engine ${v.version}` : ""}` : (v.ours ? "Containers on this machine, without Docker Desktop." : "Containers on Docker Engine.");
   const actions = v.ours && v.state === "ok" ? Confirm({ action: "/docker/engine/off", label: "Stop Docker", question: `Stop the engine and every container (${running} running)? Volumes and images stay.` }) : undefined;
   const body = html`${PageHeader({ title: "Docker", sub, actions })}
 <div data-live id="docker">

@@ -23,7 +23,7 @@ export const PANE_IDS = ["teams", "outlook", "data", "bino", "terminal", "docker
 export type PaneId = (typeof PANE_IDS)[number];
 
 /** What this machine has: a pane that needs something missing can't run, whatever its switch says. */
-export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/teams/crawl.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh: boolean; db: boolean; terminals: boolean; /** This is Windows: Teams (DPAPI) and Docker (WSL) need it. Unset: yes, for tests and old callers. */ windows?: boolean };
+export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/teams/crawl.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh: boolean; db: boolean; terminals: boolean; /** This is Windows: Teams (DPAPI) and Docker (WSL) need it. Unset: yes, for tests and old callers. */ windows?: boolean; /** Unix socket for Docker Engine on macOS/Linux. */ dockerSocket?: string };
 
 export type Pane = {
   id: PaneId;
@@ -78,7 +78,7 @@ export const PANES: Pane[] = [
     options: [],
   },
   { id: "terminal", name: "Terminal", what: "Shells and agent CLIs in a checkout, inside Dovre", key: "TERMINAL", on: ON, options: [] },
-  { id: "docker", name: "Docker", what: "Containers on Docker Engine in its own WSL distro, without Docker Desktop (scripts/docker.ps1)", key: "DOCKER", on: ON, options: [] },
+  { id: "docker", name: "Docker", what: "Containers on Docker Engine: start, stop, restart and logs", key: "DOCKER", on: ON, options: [] },
   { id: "stats", name: "Stats", what: "Twelve weeks of PRs, reviews and agent spend", key: "STATS", on: ON, options: [] },
   { id: "reviews", name: "Agent reviews", what: "Review a PR, or assess a review on yours, with an agent skill (REVIEW_SKILL, TRIAGE_SKILL)", key: "REVIEWS", on: ON, options: [] },
   {
@@ -180,7 +180,7 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
           : undefined,
     },
     terminal: simple("terminal", "TERMINAL", f.terminals, "Needs the launcher built (go build -o ../bin/dovre . in launcher/, or scripts/install.ps1)."),
-    docker: simple("docker", "DOCKER", windows, "Windows only: Docker Engine runs in a WSL distro of its own."),
+    docker: simple("docker", "DOCKER", windows || !!f.dockerSocket, windows ? "Windows only: Docker Engine runs in a WSL distro of its own." : "No Docker Engine socket found (looked in ~/.docker/run/docker.sock, ~/.orbstack/run/docker.sock, ~/.colima/default/docker.sock, /var/run/docker.sock)."),
     stats: simple("stats", "STATS", true, ""),
     reviews: simple("reviews", "REVIEWS", f.claude || f.omp, "Needs an agent CLI: Claude Code or omp."),
     summaries: { id: "summaries", wanted: sumVia !== "off", on: sumCan, via: sumVia, why: sumVia !== "off" && !sumCan ? (sumVia === "claude" ? "Needs Claude Code (`claude` on the PATH)." : sumVia === "copilot" ? noCli : sumVia === "agy" ? noAgy : sumVia === "codex" ? noCodex : noCopilot) : undefined },
