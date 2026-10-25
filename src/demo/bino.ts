@@ -59,8 +59,13 @@ export function extractLastUserMessage(user: string): string {
   return lastUserPart.replace(/^User:\s*/, "").replace(/\n\nReply as Bino to the user's last message\.?$/, "").trim();
 }
 
-export function matchScriptedAnswer(prompt: string, s: Snapshot): string {
+/** A scripted answer a demo adds: when the question matches, Bino says this. */
+export type DemoAnswer = { match: RegExp; answer: (s: Snapshot) => string };
+
+export function matchScriptedAnswer(prompt: string, s: Snapshot, answers: DemoAnswer[] = []): string {
   const clean = prompt.replace(/^\[Looking at [^\]]+\]\s*/i, "").trim().toLowerCase();
+  const own = answers.find((a) => a.match.test(clean));
+  if (own) return own.answer(s);
   if (/(what'?s|what is|any(thing)?)\s+red/i.test(clean) || /\bred\b/i.test(clean)) {
     return answerRed(s);
   }
@@ -73,7 +78,7 @@ export function matchScriptedAnswer(prompt: string, s: Snapshot): string {
   return DEMO_FALLBACK;
 }
 
-export function demoScriptRoute(opts: { snapshot: () => Snapshot }): Route {
+export function demoScriptRoute(opts: { snapshot: () => Snapshot; answers?: DemoAnswer[] }): Route {
   return {
     via: "api-key",
     ready: true,
@@ -81,7 +86,7 @@ export function demoScriptRoute(opts: { snapshot: () => Snapshot }): Route {
     reflectModel: "demo-scripted",
     ask: async ({ user }) => {
       const last = extractLastUserMessage(user);
-      const text = matchScriptedAnswer(last, opts.snapshot());
+      const text = matchScriptedAnswer(last, opts.snapshot(), opts.answers);
       return { text, cost: 0 };
     },
   };
