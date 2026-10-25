@@ -315,6 +315,45 @@ test("worker: an instance's GitHub token provider wins over GITHUB_TOKEN, is ask
   }
 });
 
+test("worker: a person's POST goes to GitHub with their own token; pages and the gather it starts use the instance's", async () => {
+  const k = await keyPair("k1");
+  const realFetch = globalThis.fetch;
+  const calls: Array<{ path: string; method: string; auth: string }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url) === `${ISS}/cdn-cgi/access/certs`) return new Response(JSON.stringify({ keys: [k.jwk] }));
+    const r = new Request(url, init);
+    const path = new URL(r.url).pathname;
+    calls.push({ path, method: r.method, auth: r.headers.get("authorization") ?? "" });
+    if (path.endsWith("/pending_deployments") && r.method === "GET") return Response.json([{ current_user_can_approve: true, environment: { id: 7, name: "prod" } }]);
+    if (path.endsWith("/pending_deployments")) return Response.json([]);
+    return new Response(JSON.stringify({ data: { mine: { nodes: [] }, review: { nodes: [] } } }));
+  }) as typeof fetch;
+  const w = createWorker({ githubToken: async (_b, actor) => (actor ? `as-${actor.email}` : "instance") });
+  const bindings = { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD };
+  const jwt = await k.sign({ ...good, email: "Per@Example.dev", exp: Math.floor(Date.now() / 1000) + 3600 });
+  const later: Promise<unknown>[] = [];
+  try {
+    w.reset();
+    const page = await w.fetch(new Request("https://dovre.example.dev/deploys", { headers: { "cf-access-jwt-assertion": jwt } }), bindings);
+    assert.equal(page.status, 200);
+    assert.ok(calls.length && calls.every((c) => c.auth === "Bearer instance"), "a page reads as the instance");
+    calls.length = 0;
+    const res = await w.fetch(
+      new Request("https://dovre.example.dev/deploys/approve", { method: "POST", body: new URLSearchParams({ repo: "dovre-user/app", run: "42" }), headers: { "cf-access-jwt-assertion": jwt, origin: "https://dovre.example.dev" } }),
+      bindings,
+      { waitUntil: (p) => void later.push(p) },
+    );
+    assert.equal(res.status, 303);
+    await Promise.allSettled(later);
+    const writes = calls.filter((c) => c.path.startsWith("/repos/dovre-user/app/actions/runs/42/"));
+    assert.deepEqual(writes.map((c) => `${c.method} ${c.auth}`), ["GET Bearer as-per@example.dev", "POST Bearer as-per@example.dev"]);
+    const rest = calls.filter((c) => !writes.includes(c));
+    assert.ok(rest.length && rest.every((c) => c.auth === "Bearer instance"), `the gather the action started: ${rest.map((c) => c.auth).join()}`);
+  } finally {
+    globalThis.fetch = realFetch;
+    w.reset();
+  }
+});
 
 test("a service token is never a person: pages refuse it, /bridge takes only the bridge's, and only as a socket", async () => {
   const k = await keyPair("k1");
