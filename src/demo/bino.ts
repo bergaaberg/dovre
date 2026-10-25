@@ -1,7 +1,7 @@
 /**
  * Scripted Bino for the demo (#10): answers from a short script matched against the demo
- * snapshot, never calls a model or the network, and seeds two finished conversations. Each
- * visitor has their own (visitorBino), with everything it keeps capped.
+ * snapshot, never calls a model or the network, and seeds two finished conversations. It keeps
+ * nothing between requests (demoBino).
  */
 import type { Route } from "../packs/core/assistant/bino/route.ts";
 import { type Bino, type Conv, createBino, type Engine } from "../packs/core/assistant/bino/bino.ts";
@@ -112,45 +112,30 @@ export function demoSeedConvs(s: Snapshot, now = Date.now()): Conv[] {
   ];
 }
 
-/** The demo's limits: every visitor has their own Bino, and what it keeps is capped. */
-export const DEMO_LIMITS = { visitors: 200, convs: 5, msgs: 12, chars: 500 };
+/** The longest question the demo keeps, in characters. */
+export const DEMO_CHARS = 500;
+
+/** A fresh scripted Bino with only the seeded conversations: the demo makes one per request. */
+export function demoEngine(o: { route: Route; memory: BinoMemory; seed: () => Conv[] }): Engine {
+  return createBino({ route: o.route, memory: o.memory, store: { load: o.seed, save: () => {} }, context: async (_c, given) => given ?? "", kinds: () => [] });
+}
 
 /**
- * Bino per visitor: each visitor (`visitor()`, the demo's cookie) gets their own engine, seeded
- * with the scripted conversations, so nobody sees what another visitor typed. Engines are kept
- * for the most recent DEMO_LIMITS.visitors visitors only, and what a visitor types is cut to
- * DEMO_LIMITS.chars, so memory stays bounded however the demo is used.
+ * Bino as the demo's pages see it: each call goes to this request's engine (`engine()`). The
+ * demo runs on many isolates at once, so nothing is kept between requests. What a visitor asks
+ * is answered in the same response (worker.ts), and nobody ever sees another visitor's question.
  */
-export function visitorBino(o: { route: Route; memory: BinoMemory; seed: () => Conv[]; visitor: () => string; limits?: Partial<typeof DEMO_LIMITS> }): Bino {
-  const lim = { ...DEMO_LIMITS, ...o.limits };
-  const engines = new Map<string, Engine>();
-  const mine = (): Engine => {
-    const id = o.visitor();
-    let e = engines.get(id);
-    if (e) {
-      engines.delete(id); // Most recent last.
-      engines.set(id, e);
-      return e;
-    }
-    e = createBino({ route: o.route, memory: o.memory, store: { load: o.seed, save: () => {} }, maxConvs: lim.convs, context: async (_c, given) => given ?? "", kinds: () => [] });
-    engines.set(id, e);
-    while (engines.size > lim.visitors) engines.delete(engines.keys().next().value!);
-    return e;
-  };
-  const cut = (text: string) => text.slice(0, lim.chars);
+export function demoBino(o: { route: Route; memory: BinoMemory; engine: () => Engine }): Bino {
+  const cut = (text: string) => text.slice(0, DEMO_CHARS);
   return {
     route: o.route,
     memory: o.memory,
-    list: () => mine().list(),
-    get: (id) => mine().get(id),
-    start: (text, opts) => mine().start(cut(text), opts),
-    say(id, text, opts) {
-      const e = mine();
-      if ((e.get(id)?.msgs.length ?? 0) >= lim.msgs) return false;
-      return e.say(id, cut(text), opts);
-    },
-    added: (id, index, todo) => mine().added(id, index, todo),
-    act: (id, index, n) => mine().act(id, index, n),
-    setAct: (id, index, n, patch) => mine().setAct(id, index, n, patch),
+    list: () => o.engine().list(),
+    get: (id) => o.engine().get(id),
+    start: (text, opts) => o.engine().start(cut(text), opts),
+    say: (id, text, opts) => o.engine().say(id, cut(text), opts),
+    added: (id, index, todo) => o.engine().added(id, index, todo),
+    act: (id, index, n) => o.engine().act(id, index, n),
+    setAct: (id, index, n, patch) => o.engine().setAct(id, index, n, patch),
   };
 }

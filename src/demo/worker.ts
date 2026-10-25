@@ -3,7 +3,7 @@
  * separate entry from createWorker on purpose. It reads no bindings at all (no token, no D1, no
  * Access, no hub, no bridge), so nothing real can reach it, and the open door below can't be turned
  * on in a real instance by a setting. Every write is refused before the app sees it, except asking
- * the scripted Bino (bino.ts), which each visitor has their own of.
+ * the scripted Bino (bino.ts), which answers in the same response and keeps nothing.
  */
 import { createApp } from "../app.ts";
 import type { D1 } from "../db.ts";
@@ -27,7 +27,8 @@ import { html } from "hono/html";
 import { PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "../pages/parts.ts";
 import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
-import { demoScriptRoute, demoSeedConvs, visitorBino } from "./bino.ts";
+import { demoBino, demoEngine, demoScriptRoute, demoSeedConvs } from "./bino.ts";
+import type { Engine } from "../packs/core/assistant/bino/bino.ts";
 import { northwindShopPack } from "./shop/index.ts";
 import type { Desk } from "../agents/desk.ts";
 
@@ -137,13 +138,16 @@ export function isAllowedDemoWrite(request: Request): boolean {
   return url.pathname === "/bino/new" || /^\/bino\/c\/[0-9a-f-]{36}\/say$/i.test(url.pathname);
 }
 
-/** Who's visiting: a random id in a host-only cookie, so each visitor's Bino is their own. */
-const VISITOR = "__Host-demo_v";
-const visitorOf = (request: Request) => /(?:^|;\s*)__Host-demo_v=([0-9a-f-]{36})(?:;|$)/.exec(request.headers.get("cookie") ?? "")?.[1];
+/** A Bino conversation's page, where /bino/new and /say send you: the demo draws it in the same response. */
+const CONV_PAGE = /^\/bino\/(?:dock\/)?c\/[0-9a-f-]{36}$/i;
 
 export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}) {
   const version = opts.version ?? "0.2.0";
-  const visitor = new AsyncLocalStorage<string>();
+  /** This request's Bino (demoBino): fresh each time, so nothing a visitor asks outlives their request. */
+  const current = new AsyncLocalStorage<Engine>();
+  let freshEngine: () => Engine = () => {
+    throw new Error("demo not built");
+  };
   let app: App | undefined;
   const build = (): App => {
     if (app) return app;
@@ -172,7 +176,8 @@ export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}
     const snapshot = () => gatherer.peek() ?? demoSnapshot();
     const route = demoScriptRoute({ snapshot });
     const memory = noMemory("The demo remembers nothing.");
-    const bino = { remote: visitorBino({ route, memory, seed: () => demoSeedConvs(snapshot()), visitor: () => visitor.getStore() ?? "" }) };
+    freshEngine = () => demoEngine({ route, memory, seed: () => demoSeedConvs(snapshot()) });
+    const bino = { remote: demoBino({ route, memory, engine: () => current.getStore() ?? freshEngine() }) };
     app = createApp(env, {
       gatherer,
       ghe: noGhe,
@@ -198,13 +203,23 @@ export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}
         if (!isAllowedDemoWrite(request)) return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
-      const known = visitorOf(request);
-      const id = known ?? crypto.randomUUID();
-      const res = await visitor.run(id, () => build().fetch(request));
+      const app = build();
+      const engine = freshEngine();
+      const res = await current.run(engine, async () => {
+        let req = request;
+        // A follow-up in your own conversation: nothing was kept, so it starts a new one.
+        const say = /^\/bino\/c\/([0-9a-f-]{36})\/say$/i.exec(url.pathname);
+        if (say && !engine.get(say[1]!)) req = new Request(new URL("/bino/new", url), request);
+        const r = await app.fetch(req);
+        const to = r.status === 303 ? r.headers.get("location") : null;
+        if (request.method !== "POST" || !to || !CONV_PAGE.test(to)) return r;
+        // The answer, drawn now: the next request may land on another isolate.
+        await engine.idle();
+        return app.fetch(new Request(new URL(to, url), { headers: request.headers }));
+      });
       // Search engines: the demo isn't the product's page.
       const out = new Response(res.body, res);
       out.headers.set("x-robots-tag", "noindex");
-      if (!known) out.headers.append("set-cookie", `${VISITOR}=${id}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=86400`);
       return out;
     },
   };
