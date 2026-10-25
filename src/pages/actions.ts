@@ -2,7 +2,7 @@
  * What Dovre did for me (the `actions` table, src/actions/deploys.ts): deploys decided, Teams
  * messages sent, issues and tasks created, production asked for, questions answered. A card on
  * Today and /actions. The log holds what and where, never what was said or what came back; a Teams
- * chat shows by its name, looked up here.
+ * chat shows by its name, looked up here. On a hosted team, each entry names who made it.
  */
 import { html } from "hono/html";
 import type { Logged } from "../actions/deploys.ts";
@@ -52,7 +52,7 @@ export function actionsCard(log: Logged[], chatName?: ChatName, named?: Named): 
 <div class="card-h"><h2 id="actions-h">Actions</h2><p>${log.length ? "what Dovre did for you" : ""}</p></div>
 ${
   shown.length
-    ? html`<ul class="wts">${shown.map((a) => html`<li><span class="wt-n">${st(a.ok ? "ok" : "bad", whatOf(a.kind))}</span><span class="wt-b">${a.ok ? whereOf(a, chatName, named) : `${whereOf(a, chatName, named)}: ${a.error ?? "failed"}`}</span><span class="wt-t">${Ago(a.at)}</span></li>`)}</ul>`
+    ? html`<ul class="wts">${shown.map((a) => html`<li><span class="wt-n">${st(a.ok ? "ok" : "bad", whatOf(a.kind))}</span><span class="wt-b">${a.ok ? whereOf(a, chatName, named) : `${whereOf(a, chatName, named)}: ${a.error ?? "failed"}`}${a.actor ? ` · by ${a.actor}` : ""}</span><span class="wt-t">${Ago(a.at)}</span></li>`)}</ul>`
     : html`<p class="notes">Nothing yet. Deploys you decide, messages you send and issues you create from here show up here.</p>`
 }
 <div class="card-f"><span></span><a href="/actions">All actions</a></div>
@@ -67,7 +67,7 @@ ${Panel({
   meta: String(log.length),
   flush: true,
   children: log.length
-    ? List(log.map((a) => Item({ lead: Pill({ tone: a.ok ? "ok" : "bad", children: a.ok ? "done" : "failed" }), title: whatOf(a.kind), line: [whereOf(a, chatName, named), a.ok ? "" : (a.error ?? "")].filter(Boolean).join(" · "), trail: Ago(a.at) })))
+    ? List(log.map((a) => Item({ lead: Pill({ tone: a.ok ? "ok" : "bad", children: a.ok ? "done" : "failed" }), title: whatOf(a.kind), line: [whereOf(a, chatName, named), a.ok ? "" : (a.error ?? ""), a.actor ? `by ${a.actor}` : ""].filter(Boolean).join(" · "), trail: Ago(a.at) })))
     : Empty({ title: "Nothing yet" }),
 })}`;
   return shell({ title: "Actions · Dovre", frame, current: "/actions", body });

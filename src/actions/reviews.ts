@@ -4,6 +4,7 @@
  * the agent read, comments that sit in the diff, replies to comments on this PR), then posts, and
  * logs either way: what and where, counts and the verdict, never the text.
  */
+import { currentActor } from "../actor.ts";
 import type { D1 } from "../db.ts";
 import { draftCounts, placeComments, replyTargets, type ReviewDraft, reviewRequest, type TriageDraft, type Verdict, withOutside } from "../reviews/draft.ts";
 import type { Ghe } from "../sources/ghe.ts";
@@ -30,7 +31,9 @@ export async function checkReview(ghe: Ghe, repo: string, n: number, o: { review
   try {
     const at = await openAt(ghe, repo, n, o.reviewed);
     if (!at.ok) return at;
-    if (at.pr.user.login.toLowerCase() === o.me.toLowerCase()) return { ok: false, message: `${repo}#${n} is your own PR: an agent's review goes on someone else's.` };
+    // A member's write (hosted Team) is theirs: "your own PR" means the PRs they opened.
+    const me = currentActor() ? (await ghe.rest<{ login?: string }>("/user"))?.login ?? "" : o.me;
+    if (me && at.pr.user.login.toLowerCase() === me.toLowerCase()) return { ok: false, message: `${repo}#${n} is your own PR: an agent's review goes on someone else's.` };
     const { inline, outside } = placeComments(o.draft.comments, await loadPrFiles(ghe, repo, n));
     const notes = outside.length ? [`${outside.length === 1 ? "One comment isn't" : `${outside.length} comments aren't`} on a line of the diff, so ${outside.length === 1 ? "it goes" : "they go"} at the end of the summary.`] : [];
     return { ok: true, draft: { kind: "review", summary: withOutside(o.draft.summary, outside), comments: inline }, notes, commit: at.pr.head.sha };

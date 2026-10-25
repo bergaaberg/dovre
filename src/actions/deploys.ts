@@ -4,15 +4,17 @@
  * logs what it did.
  */
 import type { D1 } from "../db.ts";
+import { currentActor } from "../actor.ts";
 import { owns } from "../owners.ts";
 import { type Ghe, newestWaiting, pendingEnvs, reviewDeploy, type Run } from "../sources/ghe.ts";
 
-export type Logged = { id: number; at: string; kind: string; target: string; detail: string | null; ok: number; error: string | null };
+export type Logged = { id: number; at: string; kind: string; target: string; detail: string | null; ok: number; error: string | null; actor?: string | null };
 
+/** Logs a write, with the person whose POST it was (hosted) when there is one. */
 export async function logAction(db: D1, a: { kind: string; target: string; detail?: string; ok: boolean; error?: string }) {
   await db
-    .prepare("INSERT INTO actions (at, kind, target, detail, ok, error) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(new Date().toISOString(), a.kind, a.target, a.detail ?? null, a.ok ? 1 : 0, a.error ?? null)
+    .prepare("INSERT INTO actions (at, kind, target, detail, ok, error, actor) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(new Date().toISOString(), a.kind, a.target, a.detail ?? null, a.ok ? 1 : 0, a.error ?? null, currentActor()?.email ?? null)
     .run();
 }
 

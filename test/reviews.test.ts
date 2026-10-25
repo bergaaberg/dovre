@@ -8,7 +8,9 @@ import type { HarnessId, Run, Runner, StartOpts } from "../src/agents/runner.ts"
 import { createApp } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
 import type { Snapshot } from "../src/gather.ts";
-import { recentActions } from "../src/actions/deploys.ts";
+import { logAction, recentActions } from "../src/actions/deploys.ts";
+import { checkReview } from "../src/actions/reviews.ts";
+import { actingAs } from "../src/actor.ts";
 import { allowedFor, kindFor, REVIEW_ALLOWED, reviewPrompt, skillOf } from "../src/reviews/agent.ts";
 import { H, assertInert, fakeGhe, pr, snapshot } from "./helpers.ts";
 
@@ -394,4 +396,25 @@ test("replies on my PR: one per thread (a reply to a reply goes to its thread), 
   assert.match((await w.get("/prs/draft?run=run-1")).text, /Posted 2 replies and a comment on ACME\/people#7/);
   const log = (await recentActions(w.db.DB)).filter((a) => a.kind === "pr.replies");
   assert.deepEqual(log.map((a) => [a.detail, a.ok]), [["2 replies and a comment", 1]]);
+});
+
+test("a team member's write (hosted): 'your own PR' means theirs, and the log names them", async () => {
+  const at = (author: string) => ({
+    "GET /repos/ACME/people/pulls/7": { state: "open", head: { sha: "aaa1111" }, user: { login: author } },
+    "GET /repos/ACME/people/pulls/7/files?per_page=100&page=1": [],
+    "GET /user": { login: "kari" },
+  });
+  const draft = { kind: "review" as const, summary: "S", comments: [] };
+  const check = (author: string, who?: string) => actingAs(who ? { email: who } : undefined, () => checkReview(fakeGhe(at(author)).ghe, "ACME/people", 7, { reviewed: "aaa1111", me: "ola", draft }));
+  // The instance (local, or a page with no person): the instance's login.
+  assert.match((await check("ola") as { message: string }).message, /is your own PR/);
+  assert.equal((await check("kari")).ok, true);
+  // A member: their own login from GitHub, with their token.
+  assert.match((await check("kari", "kari@example.dev") as { message: string }).message, /is your own PR/);
+  assert.equal((await check("ola", "kari@example.dev")).ok, true);
+
+  const db = openDb();
+  await actingAs({ email: "kari@example.dev" }, () => logAction(db.DB, { kind: "pr.review", target: "ACME/people#7", ok: true }));
+  await logAction(db.DB, { kind: "pr.review", target: "ACME/people#8", ok: true });
+  assert.deepEqual((await recentActions(db.DB)).map((a) => [a.target, a.actor]), [["ACME/people#8", null], ["ACME/people#7", "kari@example.dev"]]);
 });
