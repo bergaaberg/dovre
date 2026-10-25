@@ -1,6 +1,6 @@
 /**
  * The Worker's side of the hub (src/hosted/hub.ts): publish goes to the Durable Object, a page's
- * /events is the object's stream, and Bino is asked there. Publishes are fetches the Worker must
+ * /live socket and /events stream are the object's, and Bino is asked there. Publishes are fetches the Worker must
  * not drop when its request ends, so they're kept until worker.ts hands them to waitUntil.
  */
 import type { Bino, Conv } from "../packs/core/assistant/bino/bino.ts";
@@ -22,6 +22,8 @@ export type HubClient = Hub & {
   gathered(at: number, changed: boolean): void;
   /** Publishes still on their way (worker.ts waits for them after answering). */
   drain(): Promise<void>;
+  /** A page's live socket (H5): its upgrade, handed to the object as it came. */
+  live(req: Request): Promise<Response>;
   /** The Mac's bridge (WP-N10): its socket's upgrade, handed to the object as it came. */
   bridge(req: Request): Promise<Response>;
   /** The Mac: online or last seen, and its metadata. */
@@ -65,6 +67,7 @@ export function hubClient(ns: HubNamespace): HubClient {
     },
     // A socket's upgrade answer can't be re-wrapped: it goes back as the object gave it.
     bridge: (req) => stub().fetch(new Request(`${BASE}/bridge`, req)),
+    live: (req) => stub().fetch(new Request(`${BASE}/live`, req)),
     async mac() {
       const res = await stub().fetch(`${BASE}/mac`);
       if (!res.ok) throw new Error(`The hub answered ${res.status}`);

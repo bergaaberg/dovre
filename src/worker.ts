@@ -150,6 +150,22 @@ async function bridgeIn(request: Request, bindings: WorkerBindings, h: Hosted): 
   return h.hub.bridge(request);
 }
 
+/**
+ * /live (H5): a page's live socket. The same check as a page (a person Access let in, on the
+ * allow list), and the upgrade must come from this app's own origin, since a browser sends the
+ * cookie with another site's socket too. Then the socket goes to the hub. Anything else is a 404.
+ */
+export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">): Promise<Response> {
+  const nope = new Response("Not found", { status: 404 });
+  if (!h.hub || !h.verify || request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return nope;
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin") return nope;
+  if (request.headers.get("origin") !== new URL(request.url).origin) return nope;
+  const who = await h.verify(request);
+  if (!who?.email) return nope;
+  return h.hub.live(request);
+}
+
 /** The vars and secrets among the bindings: what a pack's settings read. */
 const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Object.fromEntries(Object.entries(b).filter(([, v]) => typeof v === "string")) as Record<string, string>;
 
@@ -232,6 +248,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const app = createApp(env, {
       hub,
       events: hub?.events,
+      live: !!hub,
       bino: hub ? { remote: remoteBino(hub, { route: hostedBinoRoute(bindings as HubEnv), memory, sees: "My list and what your apps share" }) } : undefined,
       gatherer,
       ghe,
@@ -300,6 +317,8 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       const h = build(bindings);
       // The Mac's bridge: only its own service token, then the socket goes to the hub.
       if (url.pathname === "/bridge") return bridgeIn(request, bindings, h);
+      // A page's live socket: a person, from this app's own pages (a socket's answer can't pass the app's headers).
+      if (url.pathname === "/live") return liveIn(request, h);
 
       // Everything else: the app checks Cloudflare Access on each request (src/access.ts). A start
       // that's slow (or stuck in a cancelled request) is waited on a moment, then the page draws without it.
