@@ -28,6 +28,7 @@ import { PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "../pages/parts.ts";
 import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
 import { demoScriptRoute, demoSeedConvs, visitorBino } from "./bino.ts";
+import { northwindShopPack } from "./shop/index.ts";
 import type { Desk } from "../agents/desk.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
@@ -164,8 +165,9 @@ export function createDemoWorker(opts: { version?: string; packs?: Pack[] } = {}
       },
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
+    const shop = northwindShopPack();
     const extraPacks = opts.packs ?? [];
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), ...extraPacks], { env: {}, bindings: {}, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), shop, ...extraPacks], { env: {}, bindings: {}, hosted: true });
     const stats = demoStats();
     const snapshot = () => gatherer.peek() ?? demoSnapshot();
     const route = demoScriptRoute({ snapshot });
