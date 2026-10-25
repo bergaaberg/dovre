@@ -651,7 +651,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Th
   app.get("/stats", async (c) => {
     const { frame } = await page();
     stats.refresh();
-    return c.html(statsPage(frame, stats.view()));
+    return c.html(statsPage(frame, stats.view(), { forge }));
   });
   app.post("/stats/refresh", async (c) => {
     stats.refresh(true);

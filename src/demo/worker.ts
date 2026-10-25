@@ -19,7 +19,7 @@ import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
 import { createQueue } from "../agents/queue.ts";
 import { html } from "hono/html";
-import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoTurns } from "./fixtures.ts";
+import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
 import type { Desk } from "../agents/desk.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
@@ -86,9 +86,11 @@ export function createDemoWorker(opts: { version?: string } = {}) {
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
     const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack()], { env: {}, bindings: {}, hosted: true });
+    const stats = demoStats();
     app = createApp(env, {
       gatherer,
       ghe: noGhe,
+      stats,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },

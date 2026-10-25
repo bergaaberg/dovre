@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDemoWorker } from "../src/demo/worker.ts";
-import { DEMO_HOST } from "../src/demo/fixtures.ts";
+import { DEMO_HOST, demoHistory } from "../src/demo/fixtures.ts";
+import { weekOf, weeksOf } from "../src/stats/history.ts";
 import { H, assertInert } from "./helpers.ts";
 
 const at = (path: string, init?: RequestInit) => new Request(`https://demo.dovre.dev${path}`, init);
@@ -44,5 +45,31 @@ test("demo: hostile input stays inert", async () => {
   for (const path of [`/search?q=${encodeURIComponent(H)}`, `/prs?repo=${encodeURIComponent(H)}`, `/agents/s/${encodeURIComponent(H)}`]) {
     const res = await w.fetch(at(path));
     assertInert(path, await res.text());
+  }
+});
+
+test("demo: /stats renders history charts and spend from fixtures, without gathering or reading notices", async () => {
+  const w = createDemoWorker();
+  const res = await w.fetch(at("/stats"));
+  assert.equal(res.status, 200);
+  const page = await res.text();
+  assert.doesNotMatch(page, /Gathering twelve weeks/i);
+  assert.doesNotMatch(page, /Reading transcripts/i);
+  assert.doesNotMatch(page, /GHE/);
+  assert.match(page, /Agent spend, 7 days/);
+  assert.match(page, /The org, merged PRs per week/);
+  assert.match(page, /Open PRs by age/);
+  assert.match(page, /<p class="kpi-l">Agent spend, 7 days<\/p><p class="kpi-v">\$[0-9]+/);
+  assert.match(page, /<p class="kpi-l">Merged, this week<\/p><p class="kpi-v">1<\/p>/);
+});
+
+test("demo: this week's merged PR stays in this week, even just after midnight on a Monday", () => {
+  for (const iso of ["2026-10-25T23:30:00Z", "2026-10-22T12:00:00Z"]) { // Monday 00:30 in Oslo (CET); a Thursday
+    const now = Date.parse(iso);
+    const h = demoHistory(now);
+    const weeks = weeksOf(now);
+    const thisWeek = h.mine.filter((p) => p.mergedAt && weekOf(p.mergedAt, weeks) === weeks.at(-1));
+    assert.equal(thisWeek.length, 1, iso);
+    for (const p of h.mine) assert.ok(Date.parse(p.mergedAt!) <= now, `${p.title} merged in the future`);
   }
 });
