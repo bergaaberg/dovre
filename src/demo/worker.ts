@@ -5,14 +5,14 @@
  * on in a real instance by a setting. Every write is refused before the app sees it, except asking
  * the scripted Bino (bino.ts), which answers in the same response and keeps nothing.
  */
-import { createApp } from "../app.ts";
+import { createApp, packsOf } from "../app.ts";
 import type { D1 } from "../db.ts";
 import type { App, AppEnv, Env } from "../env.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Gatherer, Snapshot } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { fixedLayout, type Layout, type LayoutStore } from "../layout.ts";
-import { activePacks } from "../packs/registry.ts";
+import { activePacks, refresher, within } from "../packs/registry.ts";
 import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
 import { fixedHere } from "../packs/core/agents/here.ts";
@@ -27,9 +27,9 @@ import { html } from "hono/html";
 import { PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "../pages/parts.ts";
 import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
-import { demoBino, demoEngine, demoScriptRoute, demoSeedConvs } from "./bino.ts";
+import { type DemoAnswer, demoBino, demoEngine, demoScriptRoute, demoSeedConvs } from "./bino.ts";
+export type { DemoAnswer };
 import type { Engine } from "../packs/core/assistant/bino/bino.ts";
-import { northwindShopPack } from "./shop/index.ts";
 import type { Desk } from "../agents/desk.ts";
 import type { Stats } from "../stats/stats.ts";
 import type { Sessions } from "../sources/sessions.ts";
@@ -63,6 +63,14 @@ export function demoGatherer(snapshotFn: (now?: number) => Snapshot = demoSnapsh
     return s;
   };
   return { get: async () => now(), stale: () => {}, gathering: () => false, peek: () => now() };
+}
+
+/** Where an external link would have gone: GitHub paths by default, or another app's when the path starts with its host. */
+export function whereTo(path: string): { label: string; site: string } {
+  const clean = path.replace(/^\/+/, "");
+  const host = clean.match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)+)\/(.*)$/i);
+  if (host) return { label: host[2]!.split("/").filter(Boolean).pop() || host[1]!, site: host[1]! };
+  return { label: describeTarget(clean), site: "GitHub" };
 }
 
 export function describeTarget(path: string): string {
@@ -101,7 +109,7 @@ const demoPack = (): Pack => ({
       } catch {
         target = raw;
       }
-      const label = describeTarget(target);
+      const { label, site } = whereTo(target);
       const referer = c.req.header("referer");
       let backHref = "/";
       if (referer) {
@@ -118,7 +126,7 @@ const demoPack = (): Pack => ({
         ${Panel({
           children: html`
             <div class="empty">
-              <p>On your own Dovre this opens <strong>${label}</strong> on GitHub. This is a demo, so it stops here.</p>
+              <p>On your own Dovre this opens <strong>${label}</strong> on ${site}. This is a demo, so it stops here.</p>
               <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
             </div>
           `,
@@ -166,6 +174,10 @@ export type DemoOpts = {
   fixtures?: DemoFixtures;
   /** Extra packs, next to the demo's own. */
   packs?: Pack[];
+  /** Made-up values for those packs' settings (a fake API key, so a pack fed fixtures runs). Never real secrets. */
+  settings?: Record<string, string>;
+  /** More scripted Bino answers, tried before the built-in ones (src/demo/bino.ts). */
+  answers?: DemoAnswer[];
 };
 
 export function createDemoWorker(opts: DemoOpts = {}) {
@@ -182,6 +194,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     throw new Error("demo not built");
   };
   let app: App | undefined;
+  let refresh: ReturnType<typeof refresher> | undefined;
   const build = (): App => {
     if (app) return app;
     const DB = emptyD1();
@@ -202,12 +215,11 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       },
     };
     const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
-    const shop = northwindShopPack();
-    const extraPacks = opts.packs ?? [];
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), shop, ...extraPacks], { env: {}, bindings: {}, hosted: true });
+    const settings = { ...opts.settings };
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const stats = (fx.stats ?? demoStats)();
     const snapshot = () => gatherer.peek() ?? snapshotFn();
-    const route = demoScriptRoute({ snapshot });
+    const route = demoScriptRoute({ snapshot, answers: opts.answers });
     const memory = noMemory("The demo remembers nothing.");
     freshEngine = () => demoEngine({ route, memory, seed: () => demoSeedConvs(snapshot()) });
     const bino = { remote: demoBino({ route, memory, engine: () => current.getStore() ?? freshEngine() }) };
@@ -220,8 +232,10 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
-      packs: { on, off, env: {}, bindings: {}, core: ["agents", "assistant", "avatar"] },
+      packs: { on, off, env: settings, bindings: {}, core: ["agents", "assistant", "avatar"] },
     });
+    // Packs fed made-up data read it the way they'd read their app: on their schedule, before the page.
+    refresh = refresher(on, packsOf(app)!.ctxOf, () => {});
     return app;
   };
 
@@ -237,6 +251,8 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
       const app = build();
+      // A pack that hangs doesn't hold the page: it shows what it had.
+      if (refresh) await within(2000, () => refresh!.due());
       const engine = freshEngine();
       const res = await current.run(engine, async () => {
         let req = request;
@@ -258,4 +274,3 @@ export function createDemoWorker(opts: DemoOpts = {}) {
   };
 }
 
-export default createDemoWorker();

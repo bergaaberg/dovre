@@ -46,14 +46,14 @@ Both put core's packs first, then the instance's, and hand the list to `activePa
 
 ### The public demo entry (`createDemoWorker`)
 
-The public demo (such as `demo.dovre.dev`; it may move to its own repository, #14) uses a third, safety-bounded entry point: `createDemoWorker({ packs, fixtures, allowWrite, layout, version })` exported from `dovre/demo/worker.ts`.
+The public demo (`demo.dovre.dev`) runs from its own instance repo, through a third, safety-bounded entry point: `createDemoWorker({ packs, settings, answers, fixtures, allowWrite, layout, version })` exported from `dovre/demo/worker.ts`. Core has no demo deploy of its own.
 
 It keeps core's safety boundary intact:
 - **No real bindings:** reads zero secrets, no real D1, no Cloudflare Access, and no bridge (`/bridge` returns 404).
 - **In-memory empty D1:** every database read returns empty results; every write is dropped.
 - **Isolated open door:** bypasses authentication only for the visitor identity (`visitor@demo.dovre.dev`); this bypass cannot be enabled in a real instance by any setting.
 - **Strict write boundary:** every non-`GET`/`HEAD` request returns a 403 read-only page except asking the scripted Bino, and what `allowWrite(req)` permits.
-- **Pluggable demo packs and fixtures:** the calling demo repo supplies fictional fixtures and demo-specific packs, while core ensures isolation.
+- **Pluggable demo packs and fixtures:** the calling demo repo supplies fictional fixtures and packs, while core ensures isolation. A real pack runs on made-up data when the demo gives it a fake `fetch`, made-up values for its required `settings` (never real secrets), and its refresh runs before each page when it's due. `answers` adds scripted Bino answers (say, about that pack's data) ahead of core's own.
 
 ## A pack's life
 
