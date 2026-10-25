@@ -176,13 +176,15 @@ export function demoHistory(now = Date.now()): History {
     const isCurrentWeek = i === weeks.length - 1;
 
     if (isCurrentWeek) {
+      // Hours ago, but inside this week (early on a Monday too), so this week always has them.
+      const hAgo = (h: number) => new Date(Math.min(now, Math.max(w.start, now - h * 3600e3))).toISOString();
       // Current week: PR merged yesterday/today
       const num = 410;
       const repo = r("checkout");
-      const created = new Date(now - 28 * 3600e3).toISOString();
-      const ready = new Date(now - 26 * 3600e3).toISOString();
-      const reviewed = new Date(now - 22 * 3600e3).toISOString();
-      const merged = new Date(now - 4 * 3600e3).toISOString();
+      const created = hAgo(28);
+      const ready = hAgo(26);
+      const reviewed = hAgo(22);
+      const merged = hAgo(4);
       mine.push({
         repo,
         number: num,
@@ -196,14 +198,14 @@ export function demoHistory(now = Date.now()): History {
         draft: false,
       });
 
-      reviewsGiven.push(new Date(now - 6 * 3600e3).toISOString());
-      reviewsGiven.push(new Date(now - 18 * 3600e3).toISOString());
+      reviewsGiven.push(hAgo(6));
+      reviewsGiven.push(hAgo(18));
 
       commits.push(
-        { repo: r("checkout"), at: new Date(now - 2 * 3600e3).toISOString(), state: "SUCCESS" },
-        { repo: r("web"), at: new Date(now - 5 * 3600e3).toISOString(), state: "SUCCESS" },
-        { repo: r("catalog"), at: new Date(now - 12 * 3600e3).toISOString(), state: "FAILURE" },
-        { repo: r("checkout"), at: new Date(now - 20 * 3600e3).toISOString(), state: "SUCCESS" },
+        { repo: r("checkout"), at: hAgo(2), state: "SUCCESS" },
+        { repo: r("web"), at: hAgo(5), state: "SUCCESS" },
+        { repo: r("catalog"), at: hAgo(12), state: "FAILURE" },
+        { repo: r("checkout"), at: hAgo(20), state: "SUCCESS" },
       );
     } else {
       // Past weeks: 1 or 2 merged PRs per week for Kari
