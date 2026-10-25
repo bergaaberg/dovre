@@ -47,8 +47,11 @@ export type Forge = {
   deploys?(repos: string[]): Promise<Deploy[]>;
   /** What a waiting deploy ships. Absent: no changelogs. */
   changelog?(repo: string, env: string, head: string): Promise<Changelog>;
-  /** Shared branches whose newest run failed, from the notes. Absent: none. */
-  red?(notes: Note[]): Promise<RedBranch[]>;
+  /**
+   * Shared branches whose newest run failed, from the notes, or, when they can't say (no
+   * notifications), from the recent runs in `repos` (those of my open PRs). Absent: none.
+   */
+  red?(notes: Note[], repos?: string[]): Promise<RedBranch[]>;
   /**
    * My open issues in the owners' repos: assigned to me, mentioning me, opened by me, and the
    * unassigned, unlabelled ones in `triage` (`owner/repo`s; a repo outside the owners is left out).

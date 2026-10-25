@@ -178,7 +178,7 @@ export function createGatherer(deps: {
     const [deploys, refs, red] = await Promise.all([
       settle(forge.deploys?.(deployRepos) ?? Promise.resolve([])),
       forge.prRefs(wanted),
-      notes.ok && forge.red ? forge.red(notes.value).catch(() => []) : Promise.resolve([]),
+      notes.ok && forge.red ? forge.red(notes.value, prs.ok ? prs.value.mine.map((p) => p.repo) : []).catch(() => []) : Promise.resolve([]),
     ]);
     if (prs.ok) for (const p of [...prs.value.mine, ...prs.value.review]) refs.set(forge.prKeyOfUrl(p.url)!, { state: "OPEN", title: p.title, url: p.url });
 

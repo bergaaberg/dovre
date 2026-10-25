@@ -210,8 +210,24 @@ export function apiToHtml(host: string, url: string | null, repo: string): strin
     .replace(/\/pulls\/(\d+)$/, "/pull/$1");
 }
 
-export async function loadNotes(ghe: Ghe): Promise<Note[]> {
-  const raw = await ghe.rest<RawNote[]>("/notifications?per_page=50");
+/** GitHub App user tokens and fine-grained PATs may not read /notifications: a 403 "not accessible by …". */
+export const notesRefused = (e: unknown) => /\/notifications\S*: 403 .*not accessible/i.test(String((e as Error)?.message ?? e));
+
+/**
+ * What asks for me. From notifications when the token may read them; otherwise (#31) from a search
+ * for what mentions me, updated in the last `days`, so mentions still reach Today. `searched` says
+ * which it was.
+ */
+export async function loadNotes(ghe: Ghe, o: { now?: number; days?: number; searched?: (yes: boolean) => void } = {}): Promise<Note[]> {
+  let raw: RawNote[];
+  try {
+    raw = await ghe.rest<RawNote[]>("/notifications?per_page=50");
+  } catch (e) {
+    if (!notesRefused(e)) throw e;
+    o.searched?.(true);
+    return searchNotes(ghe, o.now ?? Date.now(), o.days ?? 7);
+  }
+  o.searched?.(false);
   return raw.map((n) => ({
     id: n.id,
     reason: n.reason,
@@ -221,6 +237,19 @@ export async function loadNotes(ghe: Ghe): Promise<Note[]> {
     updatedAt: n.updated_at,
     url: apiToHtml(ghe.host, n.subject.url, n.repository.full_name),
   }));
+}
+
+type Mentioned = { __typename?: string; id?: string; url?: string; title?: string; updatedAt?: string; repository?: { nameWithOwner: string } };
+
+/** Issues and PRs mentioning me, updated since `days` ago, as mention notes (newest first). */
+export async function searchNotes(ghe: Ghe, now: number, days: number): Promise<Note[]> {
+  const since = new Date(now - days * 86400e3).toISOString().slice(0, 10);
+  const q = `mentions:@me updated:>=${since} sort:updated-desc`;
+  const fields = "id url title updatedAt repository { nameWithOwner }";
+  const d = await ghe.graphql<{ s: { nodes: (Mentioned | null)[] } }>(`{ s: search(query:${JSON.stringify(q)}, type:ISSUE, first:30){ nodes{ __typename ... on Issue { ${fields} } ... on PullRequest { ${fields} } } } }`);
+  return (d.s?.nodes ?? [])
+    .filter((n): n is Required<Mentioned> => !!n?.id && !!n.url && !!n.repository && !!n.updatedAt)
+    .map((n) => ({ id: `search:${n.id}`, reason: "mention", type: n.__typename === "PullRequest" ? "PullRequest" : "Issue", title: n.title ?? "", repo: n.repository.nameWithOwner, updatedAt: n.updatedAt, url: n.url }));
 }
 
 // ── The org's movement ────────────────────────────────────────────────────────
@@ -390,14 +419,39 @@ export function failedRuns(notes: Note[]): Omit<RedBranch, "url">[] {
  * Unread failure notifications outlive the failure, so each candidate is checked against the
  * branch's newest finished run of that workflow: red only if that one failed too.
  */
-export async function loadRedBranches(ghe: Ghe, notes: Note[]): Promise<RedBranch[]> {
+export async function loadRedBranches(ghe: Ghe, notes: Note[], repos: string[] = []): Promise<RedBranch[]> {
   const out: RedBranch[] = [];
-  await Promise.all(
-    failedRuns(notes).map(async (c) => {
+  await Promise.all([
+    ...failedRuns(notes).map(async (c) => {
       const runs = (await ghe.rest<{ workflow_runs: { name: string; conclusion: string | null; status: string; html_url: string }[] }>(`/repos/${c.repo}/actions/runs?branch=${encodeURIComponent(c.branch)}&status=completed&per_page=20`).catch(() => ({ workflow_runs: [] }))).workflow_runs;
       const last = runs.find((r) => r.name === c.workflow);
       if (last && last.conclusion === "failure") out.push({ ...c, url: last.html_url });
     }),
-  );
+    ...[...new Set(repos)].slice(0, 8).map(async (repo) => out.push(...(await redFromRuns(ghe, repo)))),
+  ]);
   return out.sort((a, b) => b.failures - a.failures);
+}
+
+type PushRun = { name: string; head_branch: string | null; conclusion: string | null; html_url: string; updated_at: string };
+
+/**
+ * Without notifications (#31): a repo's shared branches whose newest finished run of a workflow
+ * failed, from its recent pushes. `failures` counts the failed runs in a row, newest first.
+ */
+export async function redFromRuns(ghe: Ghe, repo: string): Promise<RedBranch[]> {
+  const runs = (await ghe.rest<{ workflow_runs: PushRun[] }>(`/repos/${repo}/actions/runs?event=push&status=completed&per_page=50`).catch(() => ({ workflow_runs: [] }))).workflow_runs;
+  const by = new Map<string, PushRun[]>();
+  for (const r of runs) {
+    if (!r.head_branch || !SHARED.test(r.head_branch)) continue;
+    const k = `${r.head_branch} ${r.name}`;
+    by.set(k, [...(by.get(k) ?? []), r]);
+  }
+  const out: RedBranch[] = [];
+  for (const rs of by.values()) {
+    const streak = rs.findIndex((r) => r.conclusion !== "failure");
+    const row = streak === -1 ? rs : rs.slice(0, streak);
+    if (!row.length) continue;
+    out.push({ repo, branch: rs[0]!.head_branch!, workflow: rs[0]!.name, failures: row.length, since: row[row.length - 1]!.updated_at, url: rs[0]!.html_url });
+  }
+  return out;
 }
