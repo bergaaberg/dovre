@@ -15,7 +15,7 @@ import { createApp } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
 import { onPath } from "../src/env.ts";
 import { chatPage, teamsCard, teamsPage } from "../src/pages/teams.ts";
-import { answerOf, batchesOf, type Crawler, findingsOf, ompCrawler } from "../src/teams/crawl.ts";
+import { batchesOf, type Crawler, findingsOf } from "../src/teams/crawl.ts";
 import { ALLOWED, allowedPath, createHelper, type Helper, PATHS, parseGraph, REACTIONS, skiptokenOf } from "../src/teams/helper.ts";
 import { chatsOf, messageOf, newIn, teamsUrl, textOf } from "../src/teams/model.ts";
 import { createStore, loadKey, sealerOf, type StoredMessage } from "../src/teams/store.ts";
@@ -300,22 +300,6 @@ test("a message sent from the page goes out in the background; one Teams refuses
   assert.match(out, /<p class="tfail-t">refused &lt;script&gt;/, "the text is kept, as text");
   assertInert("failed send", out);
   teams.stop();
-});
-
-test("the crawler runs only on Copilot through a profile without MCP servers, and a tool call throws the run away", async () => {
-  const home = tmp();
-  const make = (model: string) => ompCrawler({ omp: { bin: "omp", pre: [] }, profile: "dovre-copilot", model, cwd: home, home, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
-  assert.match(make("github-copilot/gpt-6-luna:medium").why()!, /omp --profile dovre-copilot/, "no profile yet: says how to make one");
-  mkdirSync(join(home, ".omp", "profiles", "dovre-copilot", "agent"), { recursive: true });
-  assert.equal(make("github-copilot/gpt-6-luna:medium").why(), undefined);
-  assert.match(make("anthropic/claude-sonnet").why()!, /only on a Copilot model/);
-  writeFileSync(join(home, ".omp", "profiles", "dovre-copilot", "agent", "mcp.json"), "{}");
-  assert.match(make("github-copilot/gpt-6-luna:medium").why()!, /must have none/);
-  const line = (j: unknown) => JSON.stringify(j);
-  const said = (text: string, provider = "github-copilot") => line({ type: "message_end", message: { role: "assistant", provider, content: [{ type: "text", text }] } });
-  assert.equal(answerOf({ code: 0, stdout: [said('{"findings":[]}')].join("\n"), stderr: "" }), '{"findings":[]}');
-  assert.throws(() => answerOf({ code: 0, stdout: [line({ type: "tool_execution_start", toolName: "mcp__db_query" }), said("x")].join("\n"), stderr: "" }), /tried a tool/);
-  assert.throws(() => answerOf({ code: 0, stdout: said("x", "anthropic"), stderr: "" }), /not Copilot/);
 });
 
 test("the crawler's answer is read strictly, its batches tie findings to messages, and chat text is fenced off as data", () => {

@@ -6,10 +6,7 @@
  * Chat text goes in as data; what comes back is JSON, checked strictly, each finding tied to a
  * message that was in the batch.
  */
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import type { Ran } from "../spawn.ts";
+import type { AskerWho, OmpAsker } from "../ai/omp.ts";
 import type { FindingKind, StoredMessage } from "./store.ts";
 import { currentTz } from "../when.ts";
 
@@ -18,65 +15,9 @@ export const MAX_FINDINGS = 20;
 export const BATCH_MESSAGES = 300;
 export const BATCH_CHARS = 60_000;
 
-export type Crawler = {
-  /** Why it can't run (undefined: it can). */
-  why(): string | undefined;
-  /** The model's text answer to one prompt (with `system` in place of omp's own). Throws on a tool call, a non-Copilot model, or a failed run. */
-  ask(prompt: string, o?: { system?: string }): Promise<string>;
-  model: string;
-  profile: string;
-};
-
-const PROFILE_NAME = /^[A-Za-z0-9_-]{1,40}$/;
-
-export function ompCrawler(o: { omp?: { bin: string; pre: string[] }; profile: string; model: string; cwd: string; run: (bin: string, args: string[], opts: { cwd: string; input: string; timeoutMs: number; maxBuffer: number }) => Promise<Ran>; home?: string; /** Who it is and its settings, for what it says when it can't run (the query agent uses this too). */ who?: { name: string; profileVar: string; modelVar: string } }): Crawler {
-  const dir = join(o.home ?? homedir(), ".omp", "profiles", o.profile, "agent");
-  const who = o.who ?? { name: "The crawler", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" };
-  const why = () => {
-    if (!o.omp) return `${who.name} needs omp (OMP_BIN, or omp on the PATH).`;
-    if (!PROFILE_NAME.test(o.profile)) return `${who.profileVar} isn't a profile name.`;
-    if (!/^github-copilot\/[\w.:-]{1,80}$/.test(o.model)) return `${who.name} runs only on a Copilot model (github-copilot/…); ${who.modelVar} is ${o.model || "empty"}.`;
-    if (!existsSync(dir)) return `Set up the omp profile ${o.profile} once: run \`omp --profile ${o.profile}\` and sign in to GitHub Copilot (/login), then quit.`;
-    if (existsSync(join(dir, "mcp.json"))) return `The omp profile ${o.profile} has MCP servers (${join(dir, "mcp.json")}): it must have none, so nothing it reads can reach a tool. Remove that file.`;
-    return undefined;
-  };
-  return {
-    model: o.model,
-    profile: o.profile,
-    why,
-    async ask(prompt, opts = {}) {
-      const no = why();
-      if (no) throw new Error(no);
-      const args = ["-p", "--mode", "json", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-rules", "--no-lsp", "--approval-mode", "always-ask", "--profile", o.profile, "--model", o.model, ...(opts.system ? ["--system-prompt", opts.system] : [])];
-      const r = await o.run(o.omp!.bin, [...o.omp!.pre, ...args], { cwd: o.cwd, input: prompt, timeoutMs: 10 * 60_000, maxBuffer: 16 * 1024 * 1024 });
-      return answerOf(r);
-    },
-  };
-}
-
-/** The assistant's text from omp's JSON stream; refused if a tool was called or the model isn't Copilot's. */
-export function answerOf(r: Ran): string {
-  let text = "";
-  for (const line of r.stdout.split("\n")) {
-    if (!line.startsWith("{")) continue;
-    let j: any;
-    try {
-      j = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (j.type === "tool_execution_start") throw new Error(`The crawler's model tried a tool (${String(j.toolName ?? "?").slice(0, 60)}): run thrown away.`);
-    if (j.type !== "message_end" || j.message?.role !== "assistant") continue;
-    const provider = j.message.provider ?? j.message.api;
-    if (typeof provider === "string" && !/copilot/i.test(provider)) throw new Error(`The crawler answered through ${provider.slice(0, 40)}, not Copilot: run thrown away.`);
-    for (const b of Array.isArray(j.message.content) ? j.message.content : []) {
-      if (b?.type === "toolCall") throw new Error("The crawler's model tried a tool: run thrown away.");
-      if (b?.type === "text" && typeof b.text === "string") text += b.text;
-    }
-  }
-  if (r.code !== 0 && !text) throw new Error(`omp ended with ${r.code}: ${r.stderr.trim().split("\n").pop()?.slice(0, 200) ?? ""}`);
-  return text;
-}
+/** The crawler asks through omp, on Copilot only, with no tools (src/ai/omp.ts). */
+export type Crawler = OmpAsker;
+export const CRAWLER_WHO: AskerWho = { name: "The crawler", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" };
 
 export type Batch = { prompt: string; refs: Map<string, StoredMessage>; upto: string; count: number };
 

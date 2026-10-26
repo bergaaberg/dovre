@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Ran, runOff } from "../../../../spawn.ts";
 import type { Tool } from "../../../../tools.ts";
-import type { Crawler } from "../../../../teams/crawl.ts";
+import type { OmpAsker } from "../../../../ai/omp.ts";
 import { agyCli, codexCli } from "../../../../ai/llm.ts";
 import { type ApiKeyOpts, apiKeyRouteOf, type CfGatewayOpts, gatewayRouteOf, type OpenRouterOpts, openRouterRouteOf } from "./gateway.ts";
 
@@ -92,7 +92,7 @@ type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: numbe
  * `copilot`: the omp route, a Copilot model with no tools, no MCP and no session (src/teams/crawl.ts);
  * it talks and keeps memory with the model it was made with.
  */
-export function routeOf(o: { via: BinoVia; claude?: Tool; copilot?: Crawler; copilotCli?: Ask; copilotCliModel?: string; agy?: Tool; codex?: Tool; apiKey?: ApiKeyOpts; cfGateway?: CfGatewayOpts; openRouter?: OpenRouterOpts; model?: string; reflectModel?: string; run?: Run; log?: (line: string) => void }): Route {
+export function routeOf(o: { via: BinoVia; claude?: Tool; copilot?: OmpAsker; copilotCli?: Ask; copilotCliModel?: string; agy?: Tool; codex?: Tool; apiKey?: ApiKeyOpts; cfGateway?: CfGatewayOpts; openRouter?: OpenRouterOpts; model?: string; reflectModel?: string; run?: Run; log?: (line: string) => void }): Route {
   const model = o.model || "sonnet";
   const reflectModel = o.reflectModel || "haiku";
   const base = { via: o.via, model, reflectModel };

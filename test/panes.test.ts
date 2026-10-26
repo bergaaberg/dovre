@@ -173,7 +173,7 @@ test("without Claude Code, Bino and summaries talk to Copilot through omp: no to
   const { mkdirSync, mkdtempSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { ompCrawler } = await import("../src/teams/crawl.ts");
+  const { ompAsker } = await import("../src/ai/omp.ts");
   const { copilotComplete } = await import("../src/ai/llm.ts");
   const { routeOf, viaOf } = await import("../src/packs/core/assistant/bino/route.ts");
   const { summariesVia } = await import("../src/tools.ts");
@@ -185,7 +185,7 @@ test("without Claude Code, Bino and summaries talk to Copilot through omp: no to
   const home = mkdtempSync(join(tmpdir(), "dovre-copilot-"));
   const seen: string[][] = [];
   const said = (text: string) => JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "github-copilot", content: [{ type: "text", text }] } });
-  const copilot = ompCrawler({ omp: { bin: "omp", pre: [] }, profile: "dovre-copilot", model: "github-copilot/gpt-6-luna:medium", cwd: home, home, run: async (_b, args, o) => (seen.push([...args, `<stdin>${o.input}`]), { code: 0, stdout: said(" Hei. "), stderr: "" }) });
+  const copilot = ompAsker({ omp: { bin: "omp", pre: [] }, profile: "dovre-copilot", model: "github-copilot/gpt-6-luna:medium", cwd: home, home, who: { name: "Copilot through omp", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" }, run: async (_b, args, o) => (seen.push([...args, `<stdin>${o.input}`]), { code: 0, stdout: said(" Hei. "), stderr: "" }) });
   const notYet = routeOf({ via: "omp", copilot });
   assert.equal(notYet.ready, false);
   assert.match(notYet.why ?? "", /omp --profile dovre-copilot/, "says how to set the profile up");
