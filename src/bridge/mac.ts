@@ -48,6 +48,8 @@ export type BridgeOpts = {
   /** For tests: how a socket is opened. */
   dial?: (url: string, headers: Record<string, string>) => BridgeSocket;
   log?: (line: string) => void;
+  /** The hub closed the socket as revoked (4004: the machine was unpaired): the bridge has stopped. */
+  onRevoked?: () => void;
   /** For tests: shorter waits. */
   timing?: Partial<typeof TIMING>;
 };
@@ -211,6 +213,13 @@ export function startBridge(o: BridgeOpts): Bridge {
     sock.onclose = (ev) => {
       if (ws !== sock) return;
       log(`bridge: closed${ev?.code ? ` (${ev.code}${ev.reason ? ` ${ev.reason}` : ""})` : ""}`);
+      // Unpaired: dialling again would only be refused again.
+      if (ev?.code === 4004) {
+        stopped = true;
+        cleanup();
+        ws = undefined;
+        return o.onRevoked?.();
+      }
       again();
     };
     sock.onerror = () => {};

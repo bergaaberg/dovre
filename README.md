@@ -52,6 +52,19 @@ pnpm instance provision ../my-dovre --deploy
 pnpm bridge
 ```
 
+### The bridge for hosted Dovre (`dovre bridge`)
+
+On dovre.dev, a machine is paired instead of configured. The `dovre` launcher pairs it, runs it on a pinned Node (downloaded once and checked by sha256), and starts it at login on macOS (launchd), Linux (a systemd user unit) or Windows (the Run key):
+
+```sh
+dovre bridge login <handle>   # type the code it prints at <handle>.dovre.dev/cloud/bridge
+dovre bridge install          # start at login, and now
+dovre bridge status           # paired with what, running, the log's last lines
+dovre bridge uninstall        # stop, and don't start at login
+```
+
+Its sign-in, data, Node and log live in the user config folder (`~/Library/Application Support/dovre`, `~/.config/dovre`, `%AppData%\dovre`; `DOVRE_BRIDGE_HOME` moves them). The bridge's code is a bundle beside the binary (`bridge/main.mjs`, built with `pnpm build:bridge`); in a checkout it falls back to `dist/bridge` or `src/bridge/main.ts`.
+
 ---
 
 ## Pluggable Packs (`PACK_API = 1`)

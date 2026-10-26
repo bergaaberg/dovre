@@ -90,3 +90,29 @@ export function summariesVia(setting: string | undefined, claudeFound: boolean, 
   return claudeFound ? "claude" : ompFound ? "omp" : copilotFound ? "copilot" : "off";
 }
 export const summariesWanted = (claudeFound: boolean, setting?: string) => claudeFound && (setting ? !/^(off|no|false|0)$/i.test(setting.trim()) : true);
+
+/**
+ * PATH with the folders agent CLIs install to (H8). A bridge started at login (launchd, systemd,
+ * Task Scheduler) gets the system's PATH, not the shell's, so a `claude` in ~/.local/bin isn't
+ * found. Only folders that exist are added, after what's there already.
+ */
+export function withToolDirs(path: string | undefined, o: { platform: NodeJS.Platform; home: string; env: { APPDATA?: string }; exists?: (p: string) => boolean }): string {
+  const exists = o.exists ?? existsSync;
+  const win = o.platform === "win32";
+  const sep = win ? ";" : ":";
+  const j = (...p: string[]) => p.join(win ? "\\" : "/");
+  const dirs = [
+    j(o.home, ".local", "bin"),
+    j(o.home, ".claude", "local"),
+    j(o.home, ".bun", "bin"),
+    j(o.home, ".volta", "bin"),
+    ...(win
+      ? [o.env.APPDATA && j(o.env.APPDATA, "npm")]
+      : [j(o.home, ".npm-global", "bin"), "/usr/local/bin", ...(o.platform === "darwin" ? ["/opt/homebrew/bin"] : [])]),
+  ].filter((d): d is string => !!d);
+  const have = (path ?? "").split(sep).filter(Boolean);
+  const norm = (d: string) => (win ? d.toLowerCase().replace(/[\\/]+$/, "") : d.replace(/\/+$/, ""));
+  const seen = new Set(have.map(norm));
+  for (const d of dirs) if (!seen.has(norm(d)) && exists(d)) (have.push(d), seen.add(norm(d)));
+  return have.join(sep);
+}

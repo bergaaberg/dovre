@@ -1,5 +1,6 @@
 #!/bin/sh
-# The Mac's bridge (PLAN D24, WP-N10) as a launchd agent: started at login, and again if it stops.
+# The self-hosted Mac's bridge (PLAN D24, WP-N10) as a launchd agent: started at login, and again if
+# it stops. For hosted Dovre, pair with `dovre bridge login <handle>` and `dovre bridge install` instead.
 # It runs a fixed copy of one commit, not this checkout, so switching branches or editing here never
 # changes what the bridge runs. Run this again to move it to a newer commit.
 #   sh scripts/install-bridge.sh            install (or update to) origin/main and start
@@ -13,10 +14,17 @@
 # names the commit: "dovre bridge: <sha>; claude, omp, agy; dialling …".
 set -eu
 
-label="dev.dovre.bridge"
+label="dev.dovre.bridge.selfhosted"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 domain="gui/$(id -u)"
 root="$HOME/Library/Application Support/dovre/bridge"
+
+# Before, this used dev.dovre.bridge, which is now `dovre bridge install`'s: an old one of ours goes.
+old="$HOME/Library/LaunchAgents/dev.dovre.bridge.plist"
+if [ -f "$old" ] && grep -q "src/bridge/main.ts" "$old"; then
+  launchctl bootout "$domain/dev.dovre.bridge" 2>/dev/null || true
+  rm -f "$old"
+fi
 
 if [ "${1:-}" = "--remove" ]; then
   launchctl bootout "$domain/$label" 2>/dev/null || true

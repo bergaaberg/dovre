@@ -10,6 +10,7 @@
 //	dovre agent-host     runs one agent turn apart from the server, keeping only what Dovre shows (agenthost.go)
 //	dovre pty-host       one terminal (ConPTY) for Dovre's terminal page, over stdio frames (pty.go)
 //	dovre docker-pipe    Docker Engine's pipe on its own; the supervisor serves it too (docker.go)
+//	dovre bridge …       this machine's agents in hosted Dovre: login, run, install, uninstall, status (bridge.go)
 //
 // It's also the handler for dovre://open/<path> links. Built twice from this source
 // (scripts/install.ps1): bin/dovre.exe for terminals and bin/dovrew.exe, without a console
@@ -90,8 +91,10 @@ func run(p Paths, verb, arg string) error {
 		return ptyHost(os.Args[2:])
 	case "docker-pipe":
 		return dockerPipe(p)
+	case "bridge":
+		return bridge(p, os.Args[2:])
 	default:
-		fmt.Println("dovre [open [path]|status|restart|stop|logs]")
+		fmt.Println("dovre [open [path]|status|restart|stop|logs|bridge]")
 		return nil
 	}
 }

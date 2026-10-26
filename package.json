@@ -14,6 +14,7 @@
     "start": "node src/index.ts",
     "dev": "node --watch src/index.ts",
     "bridge": "node src/bridge/main.ts",
+    "build:bridge": "esbuild src/bridge/main.ts src/spawn-worker.ts --bundle --platform=node --format=esm --target=node24 --outdir=dist/bridge --entry-names=[name] --out-extension:.js=.mjs --log-level=warning \"--banner:js=import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
     "packs": "node src/packs/new.ts",
     "instance": "node src/instance-new.ts",
     "typecheck": "tsc --noEmit",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "esbuild": "~0.25.12",
     "typescript": "^7.0.2"
   },
   "optionalDependencies": {
