@@ -73,10 +73,12 @@ import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
-import { viewingAs } from "./viewer.ts";
+import { currentViewer, viewingAs } from "./viewer.ts";
 import { createStacks } from "./sources/stacks.ts";
 import { stacksPage } from "./pages/stacks.ts";
 import { dependabotPage, type Job as BotJob } from "./pages/dependabot.ts";
+import { DEFAULT_KEYS, KEY_GROUPS, keyPrefsStore } from "./keys.ts";
+import { keysPanel } from "./pages/keys.ts";
 import { addGroups, combine, loadQueue } from "./actions/dependabot.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
@@ -296,6 +298,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
 
   // Which writes take one click (dovre#104), for the page being drawn: Confirm reads it (src/writes.ts).
   const clicks = writeClicksStore(env.DB);
+  const keyPrefs = keyPrefsStore(env.DB);
   app.use(async (c, next) => {
     if (c.req.method === "GET") c.set("clicks", await clicks.get().catch(() => new Map()));
     await next();
@@ -446,7 +449,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
     if (!got) throw new Pending();
-    return { s: got, frame: frameOf(got, o.path ?? tryGetContext()?.req.path) };
+    const keys = await keyPrefs.get(currentViewer()).catch(() => undefined);
+    return { s: got, frame: { ...frameOf(got, o.path ?? tryGetContext()?.req.path), keys } };
   };
 
   app.get("/", async (c) => {
@@ -914,9 +918,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     saved = false;
     settingsBad = undefined;
     if (made) c.header("Cache-Control", "no-store");
-    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)), writes: writesPanel(await clicks.get().catch(() => new Map())) }));
+    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)), writes: writesPanel(await clicks.get().catch(() => new Map())), keys: keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer()) }));
   };
   app.get("/settings", (c) => showSettings(c));
+  app.post("/settings/keys", async (c) => {
+    const f = await c.req.parseBody({ all: true });
+    const on = ([] as unknown[]).concat(f.on ?? []);
+    await keyPrefs.set(currentViewer(), { scroll: f.scroll, off: KEY_GROUPS.map((g) => g.id).filter((id) => !on.includes(id)) });
+    saved = true;
+    return c.redirect("/settings#keys", 303);
+  });
   app.post("/settings/writes", async (c) => {
     const f = await c.req.parseBody({ all: true });
     const once = ([] as unknown[]).concat(f.once ?? []).filter((v): v is string => typeof v === "string");

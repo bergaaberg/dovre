@@ -145,7 +145,7 @@ function appPanel(info: { version: string; startedAt: number } | undefined, canR
   });
 }
 
-export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html; /** Settings → Writes (src/pages/writes.ts). */ writes?: Html }) {
+export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html; /** Settings → Writes (src/pages/writes.ts). */ writes?: Html; /** Settings → Keys (src/pages/keys.ts). */ keys?: Html }) {
   const p = opts.policy;
   const form = html`<form method="post" action="/settings/notify">
 <div class="field"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...(opts.rings ?? [])].map(
@@ -176,6 +176,7 @@ ${opts.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${opts.bad.
 ${appPanel(opts.info, !!opts.canRestart, frame.tz ?? currentTz())}
 ${opts.layout ?? ""}
 ${opts.writes ?? ""}
+${opts.keys ?? ""}
 ${opts.setup ? setupPanel(opts.setup) : ""}
 ${opts.panes ? panesPanel(opts.panes, !!opts.canRestart) : ""}
 ${opts.panes ? workPanel(opts.panes, !!opts.canRestart, opts.teams) : ""}
