@@ -1128,8 +1128,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
 
   // Packs' routes last, each under its own /<id> on its own sub-app: none can shadow a core route,
   // another pack's, or add middleware in front of anything but its own paths.
-  // (A pack's /<id>/callback, mounted before the guard above, is its own, not the core's.)
-  const callbacks = new Set((deps.packs?.on ?? []).filter((x) => x.callback).map((x) => `/${x.manifest.id}/callback`));
+  // (A pack's /<id>/callback and /<id>/ingest/*, mounted before the guard above, are its own, not the core's.)
+  const callbacks = new Set([
+    ...(deps.packs?.on ?? []).filter((x) => x.callback).map((x) => `/${x.manifest.id}/callback`),
+    ...(deps.packs?.on ?? []).filter((x) => x.ingest).map((x) => `/${x.manifest.id}/ingest/*`),
+  ]);
   const corePaths = new Set(app.routes.filter((r) => !callbacks.has(r.path)).map((r) => r.path.split("/")[1]));
   /** Top-level paths a pack already holds: none may take another's. */
   const claimed = new Set<string>();
