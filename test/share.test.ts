@@ -168,7 +168,7 @@ test("Settings → Setup says what's on, and how to turn on what's off", async (
   assert.equal(by.GHE!.on, true);
   assert.match(by["Claude Code"]!.fix ?? "", /CLAUDE_BIN/);
   assert.equal(by["PowerShell 7"], undefined, "PowerShell is the Teams pack's business, not core's");
-  assert.match(by.db!.fix ?? "", /Data tab/);
+  assert.equal(by.db, undefined, "db is the Data pack's business, not core's");
   assert.equal(by.omp!.on, true);
   assert.match(by["Code folder"]!.fix ?? "", /directly in it/);
   assert.match(by["Copilot CLI"]!.fix ?? "", /winget/);

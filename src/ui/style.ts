@@ -593,7 +593,7 @@ table.data { width: 100%; border-collapse: collapse; font-size: var(--fs-s); }
 table.data th { text-align: left; font: 600 11px/1.2 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding: .5rem .6rem; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 table.data td { padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.data tr:last-child td { border-bottom: 0; }
-/* The Data tab: tables that scroll inside the page, query results as monospace cells. */
+/* Tables that scroll inside the page, query results as monospace cells (a pack's: Data). */
 .sheet { overflow: auto; max-height: 70vh; }
 table.data.cells td { font: var(--fs-xs)/1.45 var(--mono); white-space: pre; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
 table.data.cells thead th { position: sticky; top: 0; background: var(--surface); }
@@ -604,14 +604,8 @@ form.query textarea { font-family: var(--mono); font-size: var(--fs-s); }
 .sqlc li:hover { background: var(--hover); color: var(--ink); }
 .sqlc li.on { background: var(--accent-soft); color: var(--accent); }
 .sqlc .k { margin-left: 6px; color: var(--ink-3); }
-.ask-review { white-space: pre-wrap; overflow-wrap: anywhere; }
 form.find { display: flex; gap: .75rem; align-items: flex-end; margin: 0 0 22px; }
 form.find .field { flex: 1; margin: 0; }
-.tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 2px 1rem; list-style: none; margin: 0 0 8px; padding: 0; }
-.tgrid a { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; padding: .4rem .5rem; border-radius: 6px; text-decoration: none; color: inherit; min-width: 0; }
-.tgrid a > span:first-child { overflow-wrap: anywhere; min-width: 0; }
-.tgrid a:hover { background: var(--hover); color: var(--accent); }
-.tgrid .n { color: var(--ink-3); font-size: var(--fs-xs); white-space: nowrap; }
 td.num, th.num, table.data .num { text-align: right; white-space: nowrap; }
 pre.code, pre.output { font: var(--fs-xs)/1.55 var(--mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-s); padding: .7rem .9rem; margin: .5rem 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 pre.docker-logs { margin: 0; border: 0; border-radius: 0; min-height: 12rem; max-height: 70vh; overflow-y: auto; }

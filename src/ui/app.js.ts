@@ -1411,8 +1411,8 @@ function showOutline() {
   railBuild();
 }
 
-// ── SQL completion in the Data tab's query box (textarea[data-schema]): tables and columns from the
-// database's schema (names only, src/data/schema.ts), fetched once when the box is first focused. A
+// ── SQL completion in a query box (textarea[data-schema], a pack's: Data): tables and columns from the
+// database's schema (names only) at the URL the box names, fetched once when the box is first focused. A
 // strip under the box: Tab or Enter takes the marked one, Up and Down move the mark, Esc closes. ──
 const SQL_WORDS = ["SELECT", "FROM", "WHERE", "JOIN", "LEFT JOIN", "INNER JOIN", "ON", "AND", "OR", "NOT", "NULL", "IS NULL", "IS NOT NULL", "LIKE", "IN", "BETWEEN", "AS", "GROUP BY", "ORDER BY", "HAVING", "DISTINCT", "TOP", "COUNT(*)", "DESC", "ASC", "UNION", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END"];
 const sqlSchemas = new Map();

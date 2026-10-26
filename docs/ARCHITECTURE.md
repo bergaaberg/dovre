@@ -90,7 +90,9 @@ It keeps core's safety boundary intact:
 - `snapshot()` and `gathered()`: what the gather fetched from the forge (GitHub, or a pack's);
 - `fill(slot, arg)` to host other packs' slots on its own pages;
 - `page()` and `dockPage()` to draw inside Dovre's shell;
-- `log()`, and `ring()` for a one-off notification.
+- `log()`, and `ring()` for a one-off notification;
+- `ask()` to put a question in the bar at the top of every page and wait for my answer (an MCP
+  server's, such as a database CLI's before it opens production; local only), and `asking()`.
 
 **What a pack answers**, grouped by where it lands:
 
@@ -194,10 +196,11 @@ deploy.prod, todo.proposals and actions.where. In this write-up (WP-X1), "Start 
 core's search actions for the agents pack: `finds` can now put rows in search's "Do" group
 (`kind: "actions"`).
 
-**Moving out (H9f):** Teams (with mail and channels) is an instance's pack now (2026-10-26). For it,
-the contract grew three additive things: a dock's `key` (Teams' T), the `actions.what` slot (what a
-pack's log entry was, in words), and the manifest's `private`. test/boundary.test.ts fails if Teams'
-code, panes, settings, routes or styles come back to core. Data is next, then DROPS (rebuilt).
+**Moved out (H9f):** Teams (with mail and channels) and Data are an instance's packs now
+(2026-10-26). For them the contract grew four additive things: a dock's `key` (Teams' T), the
+`actions.what` slot (what a pack's log entry was, in words), the manifest's `private`, and
+`ctx.ask` / `ctx.asking` (Data's production questions in the bar). test/boundary.test.ts fails if
+their code, panes, settings, routes or styles come back to core. DROPS is next (rebuilt).
 
 **Open points:**
 

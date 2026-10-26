@@ -33,17 +33,12 @@ import type { Runner } from "./agents/runner.ts";
 import { SID, findSession, modelOf } from "./agents/desk.ts";
 import { createStats, type Stats } from "./stats/stats.ts";
 import { statsPage } from "./pages/stats.ts";
-import { type Data, setDataNames, TABLE, targetOk } from "./data/db.ts";
-import { type Prod, prodOk } from "./data/prod.ts";
-import { createSchemas, schemaSource } from "./data/schema.ts";
 import { actionsCard, actionsPage } from "./pages/actions.ts";
-import { acrossHref, acrossPage, askHref, askPage, dataGate, dataHome, dataResult, dataTable, dataTarget, dbHref } from "./pages/data.ts";
-import { type Asker, createDataAgent } from "./data/agent.ts";
 import { pagesOf, parseQuery, type Row as SearchRow, search } from "./search/search.ts";
 import { createGheSearch } from "./search/ghe.ts";
 import { searchList, searchPage } from "./pages/search.ts";
 import { createIssueRoutes } from "./pages/issues.ts";
-import { type Asks, createAsks } from "./relay/asks.ts";
+import { type Asks, askInBar, createAsks } from "./relay/asks.ts";
 import { type Bino, createBino } from "./packs/core/assistant/bino/bino.ts";
 import { appsOf, contextOf } from "./packs/core/assistant/bino/context.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
@@ -79,7 +74,6 @@ import { stacksPage } from "./pages/stacks.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
-  ["data", /^\/data(\/|$)/],
   ["bino", /^\/bino(\/|$)/],
   ["stats", /^\/stats(\/|$)/],
   ["reviews", /^\/prs\/(agent|draft)(\/|$)/],
@@ -105,7 +99,7 @@ function pendingPage(path: string, frame: Frame): string {
 /** Nothing gathered yet: what the frame is drawn from on the "Gathering" page. */
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
-export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino?: boolean; data?: boolean; /** Shown unless switched off. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
+export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino?: boolean; /** Shown unless switched off. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
   const deploys = s.deploys.ok ? s.deploys.value.length : 0;
   const prs = s.prs.ok ? s.prs.value.mine.length + s.prs.value.review.length : 0;
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
@@ -119,7 +113,6 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
     !!opts.bino && { href: "/bino", title: "Bino", icon: "chat", group: "Agents", order: 20 },
     !opts.hosted && { href: "/todo", title: "My list", icon: "list", group: "Plan" },
     !opts.hosted && opts.issues !== false && { href: "/issues/new", title: "New work", icon: "plus", group: "Plan" },
-    !!opts.data && { href: "/data", title: "Data", icon: "db", group: "Ops" },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
     !opts.hosted && !!opts.lab && { href: "/lab", title: "Lab", icon: "flask", group: "You" },
@@ -131,8 +124,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** What the packs tell the avatar (avatarFrom), and whether anything has it at work (a pack's thing working, or Bino answering). */ feeds: () => AvatarFeeds & { busy: boolean }; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Data tab: test databases through db-cli (src/data/db.ts). */ data?: Data; /** …and production through db mcp, after db asks me (src/data/prod.ts). */ prod?: Prod; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Where databases' schemas are kept (names only; src/data/schema.ts). */ schemaDir?: string; /** The query agent's model: a Copilot one through omp, never Claude (src/data/agent.ts). */ dataAsker?: Asker; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
-  setDataNames({ prefix: env.DATA_PREFIX, db2: env.DATA_DB2 });
+export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
@@ -304,6 +296,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const packs = { env: {}, ...deps.packs, on: [...(deps.packs?.on ?? [])], off: [...(deps.packs?.off ?? [])] };
   const packLog = (id: string) => (line: string) => console.log(`pack ${id}: ${line}`);
   const contexts = new Map<string, PackContext>();
+  /** Each pack's questions in the bar, by id (`asking`). */
+  const asked = new Map<string, Set<string>>();
+  const askedBy = (id: string) => asked.get(id) ?? asked.set(id, new Set()).get(id)!;
   const ctxOf = (c: Pack): PackContext => {
     let ctx = contexts.get(c.manifest.id);
     if (!ctx)
@@ -327,6 +322,21 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
           ring: (n) => {
             const note = noteFrom(c.manifest.id, n, packRings);
             if (note && deps.notify && rings(deps.notify.policy(), note.kind)) deps.notify.ring?.([note]);
+          },
+          // Its questions go to the bar, as the relay's do (only a person answers there); hosted, none.
+          ask: async (q) => {
+            if (hosted) return { action: "cancel" as const };
+            const mine = askedBy(c.manifest.id);
+            let id: string | undefined;
+            try {
+              return await askInBar(asks, q.from, undefined, undefined, (x) => mine.add((id = x)))(q.message, q.schema);
+            } finally {
+              if (id) mine.delete(id);
+            }
+          },
+          asking: () => {
+            const mine = askedBy(c.manifest.id);
+            return mine.size > 0 && asks.list().some((x) => mine.has(x.id));
           },
         }),
       );
@@ -393,7 +403,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
    * start), a page waits a little, then shows "Gathering…" and swaps itself in when it lands.
    */
   /** Every page's frame: menu, docks, styles, sync state. */
-  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, data: !!deps.data, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
@@ -482,150 +492,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   };
   /** The agent-review block on each PR card: nothing while reviews are switched off. */
   const reviewViews = (s: Snapshot) => (off("reviews") ? Promise.resolve(() => "" as const) : agentViews(reviewDeps, s));
-  // ── The Data tab (src/data/db.ts, src/data/prod.ts): read-only; results on the response only ──
-  // Test databases through the db CLI; production through `db mcp`, each database after db's own
-  // question is answered in the bar. A production page that isn't open is a gate and calls nothing.
-  const msg = (e: unknown) => String((e as Error)?.message ?? e);
-  const dataOff = "db (db-cli) isn't on this machine's PATH. Install it, then restart Dovre.";
-  /** What a query showed isn't kept by the browser either. */
+  /** What a live response showed isn't kept by the browser either. */
   const noStore = (res: Response) => (res.headers.set("Cache-Control", "no-store"), res);
-  const prod = deps.prod;
-  /** The source for a target: the CLI for local and at, db mcp for an open production database. */
-  const sourceOf = (t: unknown): { src: Data | Prod; prod: boolean } | undefined =>
-    targetOk(t) && deps.data ? { src: deps.data, prod: false } : prod && prodOk(t) ? { src: prod, prod: true } : undefined;
-  const notHere = "That isn't a database that opens here: local, at, or production after you allow it.";
-  /** A production database that isn't open: what to press, or what's being waited for. */
-  const gate = (frame: Frame, t: string) => noStore(new Response(String(dataGate(frame, { t, ...prod!.state(t), asking: asks.list().some((q) => q.server === "db") })), { headers: { "content-type": "text/html; charset=UTF-8" } }));
-  app.get("/data", async (c) => {
-    const { frame } = await page();
-    if (!deps.data) return c.html(dataHome(frame, { targets: [], off: dataOff }));
-    return c.html(dataHome(frame, { ...(await deps.data.targets()), agent: agentFor(), prod: prod ? { opened: prod.opened(), asking: prod.asking() } : undefined }));
-  });
-  app.get("/data/db", async (c) => {
-    const { frame } = await page();
-    const t = c.req.query("t");
-    if (!deps.data) return c.html(dataHome(frame, { targets: [], off: dataOff }));
-    const s = sourceOf(t);
-    if (!s || typeof t !== "string") return c.html(dataHome(frame, { targets: [], off: notHere }), 400);
-    if (s.prod && prod!.state(t).state !== "open") return gate(frame, t);
-    const find = (c.req.query("find") ?? "").trim();
-    const [tables, found] = await Promise.all([s.src.tables(t).then((v) => ({ v }), (e) => ({ e: msg(e) })), find ? s.src.find(t, find).then((v) => ({ v }), (e) => ({ e: msg(e) })) : Promise.resolve(undefined)]);
-    const error = ("e" in tables ? tables.e : undefined) ?? (found && "e" in found ? found.e : undefined);
-    return noStore(await c.html(dataTarget(frame, { t, prod: s.prod, agent: agentFor(), tables: "v" in tables ? tables.v : undefined, found: found && "v" in found ? found.v : undefined, find: find || undefined, error })));
-  });
-  app.get("/data/table", async (c) => {
-    const { frame } = await page();
-    const t = c.req.query("t");
-    const table = c.req.query("n") ?? "";
-    if (!deps.data) return c.html(dataHome(frame, { targets: [], off: dataOff }));
-    const s = sourceOf(t);
-    if (!s || typeof t !== "string" || !TABLE.test(table)) return c.html(dataHome(frame, { targets: [], off: notHere }), 400);
-    if (s.prod && prod!.state(t).state !== "open") return gate(frame, t);
-    const [cols, peek] = await Promise.all([s.src.cols(t, table).then((v) => ({ v }), (e) => ({ e: msg(e) })), s.src.peek(t, table, 50).then((v) => ({ v }), (e) => ({ e: msg(e) }))]);
-    const error = "e" in cols ? cols.e : "e" in peek ? peek.e : undefined;
-    return noStore(await c.html(dataTable(frame, { t, prod: s.prod, agent: agentFor(), table, cols: "v" in cols ? cols.v : undefined, peek: "v" in peek ? peek.v : undefined, error })));
-  });
-  app.post("/data/q", async (c) => {
-    const { frame } = await page();
-    const form = await c.req.parseBody();
-    const t = form.t;
-    const sql = typeof form.sql === "string" ? form.sql : "";
-    if (!deps.data) return c.html(dataHome(frame, { targets: [], off: dataOff }));
-    const s = sourceOf(t);
-    if (!s || typeof t !== "string") return c.html(dataHome(frame, { targets: [], off: notHere }), 400);
-    if (s.prod && prod!.state(t).state !== "open") return gate(frame, t);
-    const out = await s.src.query(t, sql).then((rows) => ({ rows }), (e) => ({ error: msg(e) }));
-    const ask = typeof form.ask === "string" && dataAgent?.get(form.ask)?.t === t ? form.ask : undefined;
-    return noStore(await c.html(dataResult(frame, { t, prod: s.prod, sql: sql.slice(0, 20_000), ask, ...out }), "error" in out ? 400 : 200));
-  });
-  /** I asked to open production databases (one, or several ticked): db puts a question for each in the bar. Only the targets are logged. */
-  app.post("/data/prod/open", async (c) => {
-    const raw = (await c.req.parseBody({ all: true })).t;
-    const ts = [...new Set((Array.isArray(raw) ? raw : [raw]).filter(prodOk))].slice(0, 12);
-    if (!prod) return c.notFound();
-    // Nothing ticked: back to Data. Something that isn't a production database: refused.
-    if (!ts.length) return raw === undefined ? c.redirect("/data", 303) : c.notFound();
-    for (const t of ts)
-      if (prod.state(t).state === "closed") {
-        await logAction(env.DB, { kind: "data.prod.open", target: t, ok: true });
-        prod.open(t);
-      }
-    return c.redirect(ts.length === 1 ? dbHref(ts[0]!) : "/data", 303);
-  });
-  /** A database's tables and columns for the query box (names only; a production database's from its app's at). */
-  const schemas = deps.data ? createSchemas({ read: (t) => deps.data!.schemaText(t), dir: deps.schemaDir }) : undefined;
-  // The query agent: a Copilot model writes the query from the names; I run it. Questions and reviews in memory only.
-  const dataAgent = deps.data ? createDataAgent({ asker: deps.dataAsker, schemas, onChange: (id) => deps.hub?.publish([`data-ask:${id}`]) }) : undefined;
-  const agentFor = () => (dataAgent ? { why: dataAgent.why() } : undefined);
-  app.post("/data/ask", async (c) => {
-    const form = await c.req.parseBody();
-    const t = form.t;
-    if (!dataAgent || !(targetOk(t) || prodOk(t)) || typeof t !== "string") return c.notFound();
-    const more = typeof form.more === "string" ? form.more.trim() : "";
-    const question = `${typeof form.question === "string" ? form.question : ""}${more ? `\n\nTo the agent's question: ${more}` : ""}`;
-    if (!question.trim()) return c.redirect(dbHref(t), 303);
-    // The log holds which database; never the question.
-    await logAction(env.DB, { kind: "data.ask", target: t, ok: true });
-    return c.redirect(askHref(dataAgent.start(t, question).id), 303);
-  });
-  app.get("/data/ask/:id", async (c) => {
-    const j = dataAgent?.get(c.req.param("id"));
-    if (!j) return c.notFound();
-    const { frame } = await page();
-    return noStore(await c.html(askPage(frame, j, { prod: prodOk(j.t), model: dataAgent!.model })));
-  });
-  /** One question across databases (WP-A21): the agent picks where from each app's table names, then writes a card per pick. */
-  app.post("/data/across", async (c) => {
-    const form = await c.req.parseBody();
-    if (!dataAgent || !deps.data) return c.notFound();
-    const more = typeof form.more === "string" ? form.more.trim() : "";
-    const question = `${typeof form.question === "string" ? form.question : ""}${more ? `\n\nTo the agent's question: ${more}` : ""}`;
-    if (!question.trim()) return c.redirect("/data", 303);
-    const apps = (await deps.data.targets()).targets.filter((x) => x.kind === "at").map((x) => x.id.replace(/:at$/, ""));
-    // The log holds that it was asked; never the question. Each card's database shows on its page.
-    await logAction(env.DB, { kind: "data.ask-across", target: `${apps.length} databases`, ok: true });
-    return c.redirect(acrossHref(dataAgent.across(question, { apps, envs: prod ? ["at", "prod"] : ["at"] }).id), 303);
-  });
-  app.get("/data/across/:id", async (c) => {
-    const a = dataAgent?.getAcross(c.req.param("id"));
-    if (!a) return c.notFound();
-    const { frame } = await page();
-    return noStore(await c.html(acrossPage(frame, a, (id) => dataAgent!.get(id), { model: dataAgent!.model })));
-  });
-  /** "Review this result": the query runs again, and only its rows go to the agent's model. */
-  app.post("/data/ask/:id/review", async (c) => {
-    const j = dataAgent?.get(c.req.param("id"));
-    const form = await c.req.parseBody();
-    const t = form.t;
-    const sql = typeof form.sql === "string" ? form.sql : "";
-    if (!j || t !== j.t || typeof t !== "string") return c.notFound();
-    const s = sourceOf(t);
-    if (!s) return c.notFound();
-    const { frame } = await page();
-    if (s.prod && prod!.state(t).state !== "open") return gate(frame, t);
-    try {
-      const rows = await s.src.query(t, sql);
-      await logAction(env.DB, { kind: "data.review", target: t, ok: true });
-      dataAgent!.review(j.id, sql, rows);
-    } catch (e) {
-      return noStore(await c.html(dataResult(frame, { t, prod: s.prod, sql: sql.slice(0, 20_000), ask: j.id, error: msg(e) }), 400));
-    }
-    return c.redirect(`${askHref(j.id)}#review`, 303);
-  });
-  app.get("/data/schema", async (c) => {
-    const t = c.req.query("t") ?? "";
-    if (!schemas || !(targetOk(t) || prodOk(t)) || !schemaSource(t)) return c.json({ error: "No schema for that database." }, 404);
-    try {
-      const s = await schemas.get(t);
-      return c.json({ from: s.from, at: s.at, tables: s.tables.map((x) => [x.name, x.cols]) });
-    } catch (e) {
-      return c.json({ error: msg(e).slice(0, 300) }, 502);
-    }
-  });
-  app.post("/data/prod/close", async (c) => {
-    prod?.close();
-    return c.redirect("/data", 303);
-  });
 
   // ── Search (src/search/search.ts): /search as a page; with frag=1, just the list the palette swaps in ──
   const gheSearch = createGheSearch(ghe, ownersIn(env));
@@ -643,7 +511,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.get("/search", async (c) => {
     const { s, frame } = await page();
     const raw = (c.req.query("q") ?? "").slice(0, 200);
-    const pages = pagesOf({ data: !!deps.data, bino: !!bino?.route.ready, lab: hasLab(), stats: !off("stats") }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages());
+    const pages = pagesOf({ bino: !!bino?.route.ready, lab: hasLab(), stats: !off("stats") }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages());
     // GHE's own search too: on the page, and in the palette once typing pauses (remote=1). At most 3.5 s.
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
@@ -782,7 +650,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       omp: found.paths?.omp,
       copilot: found.copilot,
       copilotCli: found.paths?.copilot,
-      db: found.paths?.db,
       edge: edgePath(),
       codeDir: env.CODE_DIR,
       repos: listRepos(env.CODE_DIR).length,

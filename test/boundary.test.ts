@@ -1,7 +1,8 @@
 /**
- * What moved out of core stays out (WP-H9f). Teams (with mail and the channels it follows) is a pack
- * in an instance now: core has none of its code, panes, settings, routes or styles, and Bino isn't
- * told it can send a Teams message. A pack brings all of that back through the Pack API.
+ * What moved out of core stays out (WP-H9f). Teams (with mail and the channels it follows) and Data
+ * (databases through a CLI, production after a question in the bar) are packs in an instance now:
+ * core has none of their code, panes, settings, routes or styles, and Bino isn't told it can send a
+ * Teams message. A pack brings all of that back through the Pack API.
  */
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -37,4 +38,20 @@ test("Teams is a pack: core has none of its code, panes, settings, routes, style
 
   for (const cls of ["tchat", "tmsg", "treact", "tdl", "cposts", "teams-proposals"]) assert.doesNotMatch(STYLE, new RegExp(`\\.${cls}(?![a-z0-9-])`), cls);
   assert.doesNotMatch(ACTS, /"kind": "teams"|Teams message/);
+});
+
+test("Data is a pack: core has none of its code, panes, settings, routes or styles", async () => {
+  for (const gone of ["src/data", "src/pages/data.ts"]) assert.ok(!existsSync(join(root, gone)), gone);
+  const imports = sources(join(root, "src")).flatMap((file) =>
+    [...readFileSync(file, "utf8").matchAll(/(?:from|import)\s*\(?\s*"([^"]+)"/g)].map((m) => m[1]!).filter((p) => /(^|\/)data\/|pages\/data\.ts$/.test(p)).map((p) => `${file}: ${p}`),
+  );
+  assert.deepEqual(imports, []);
+  assert.ok(!PANE_IDS.some((id) => id === ("data" as string)));
+  for (const p of PANES) for (const key of [p.key, ...p.options.map((o) => o.key)]) assert.doesNotMatch(key, /^DATA/, key);
+  const env = loadEnv({ DATA: "on", DATA_AGENT: "on", DATA_PREFIX: "x-", DATA_DB2: "y" }) as Record<string, unknown>;
+  for (const key of Object.keys(env)) assert.doesNotMatch(key, /^DATA/, key);
+  const { app, get } = signedIn(snapshot());
+  assert.deepEqual(app.routes.map((r) => r.path).filter((p) => /^\/data(\/|$)/.test(p)), [], "no Data route");
+  assert.equal((await get("/data")).status, 404);
+  for (const cls of ["tgrid", "ask-review"]) assert.doesNotMatch(STYLE, new RegExp(`\\.${cls}(?![a-z0-9-])`), cls);
 });

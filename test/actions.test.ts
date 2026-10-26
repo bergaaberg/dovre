@@ -20,12 +20,12 @@ test("Today's Actions card says what was done in words; Deploys shows deploy dec
   await logAction(db.DB, { kind: "deploy.approved", target: "ACME/people run 10", ok: true });
   await logAction(db.DB, { kind: "notes.post", target: "thread t-1", detail: "12 characters", ok: true });
   await logAction(db.DB, { kind: "task.create", target: `ACME/x#13 ${H}`, ok: false, error: `GHE said no ${H}` });
-  await logAction(db.DB, { kind: "data.prod.open", target: "ledger:prod", ok: true });
+  await logAction(db.DB, { kind: "relay.answer", target: "db", ok: true });
 
   const today = await (await get("/")).text();
   assertInert("today", today);
   const card = today.slice(today.indexOf('id="actions-card"'), today.indexOf("</section>", today.indexOf('id="actions-card"')));
-  for (const words of ["Approved a deploy", "Posted a note", "Created a dev task", "Asked to open production", "the design thread", "GHE said no"]) assert.ok(card.includes(words), words);
+  for (const words of ["Approved a deploy", "Posted a note", "Created a dev task", "Answered a question", "the design thread", "GHE said no"]) assert.ok(card.includes(words), words);
   assert.doesNotMatch(card, /thread t-1/, "where, as the pack names it");
 
   const deploys = await (await get("/deploys")).text();

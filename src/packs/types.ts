@@ -13,6 +13,7 @@ import type { NavItem } from "../html.ts";
 import type { Page } from "../search/search.ts";
 import type { Session } from "../sources/claude.ts";
 import type { Html } from "../ui/kit.ts";
+import type { Answer } from "../relay/asks.ts";
 
 /** The contract's version: a pack built for another is off, saying so. Bump on a breaking change. */
 export const PACK_API = 1;
@@ -221,6 +222,17 @@ export type PackContext = {
    * same tag replaces the last. Nothing happens where nothing rings (hosted, tests).
    */
   ring(note: PackNote): void;
+  /**
+   * Puts a question in the bar at the top of every page, as `from` asks it (an MCP server the pack
+   * talks to: db asking before it opens a production database), and waits for my answer: ten
+   * minutes at most, then it's `cancel`, which a careful asker reads as no. Only a person answers it,
+   * in the bar: the safe choice in one click, any other behind a second. The schema is read as the
+   * relay reads one (one field of named choices, or yes/no); anything else can only be declined.
+   * Hosted, it's `cancel` at once.
+   */
+  ask(q: { from: string; message: string; schema: unknown }): Promise<Answer>;
+  /** One of its questions is waiting in the bar now. */
+  asking(): boolean;
 };
 
 /** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */

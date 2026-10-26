@@ -38,7 +38,7 @@ test("the page I'm on, as Bino hears it: names and states, never a body, a promp
   // A private pack (Teams: chats, mail): named, never described, whatever its `about` would say, and never its path.
   const chats = { id: "chats", name: "Chats", paths: ["inbox"], private: true, about: () => "the chat with Kari: «secret»" };
   for (const path of ["/chats/c/19%3Aabc%40thread.v2", "/chats", "/inbox/m/7"]) assert.equal(viewOf(path, S, [chats]), "a page of their app Chats. What it shows is kept from you: don't guess at it.", path);
-  for (const [path, name] of [["/data/table?db=ledger:prod&t=Kunde", "Data"], ["/terminal/3", "Terminal"], ["/lab/x.html", "Lab"]] as const) {
+  for (const [path, name] of [["/terminal/3", "Terminal"], ["/lab/x.html", "Lab"]] as const) {
     const v = viewOf(path, S);
     assert.equal(v, `the ${name} page. What it shows is kept from you: don't guess at it.`, path);
   }
@@ -88,11 +88,11 @@ test("asking from the pane: the page goes with it, as Bino may hear it; a conver
   await s.until(() => !/thinking/.test(JSON.stringify(s.asked)));
   await new Promise((r) => setTimeout(r, 30));
   const n = s.asked.length;
-  assert.equal((await s.req(`/bino/c/${id}/say`, { text: "Og her?", dock: "1", view: "/data/table?db=ledger:prod&t=Kunde" })).headers.get("location"), at);
+  assert.equal((await s.req(`/bino/c/${id}/say`, { text: "Og her?", dock: "1", view: "/terminal/3?repo=secret-repo" })).headers.get("location"), at);
   await s.until(() => s.asked.length > n);
   const last = s.asked.at(-1)!.user;
-  assert.match(last, /\[Looking at the Data page\. What it shows is kept from you/);
-  assert.doesNotMatch(last, /Kunde|ledger:prod/, "not even the table's address");
+  assert.match(last, /\[Looking at the Terminal page\. What it shows is kept from you/);
+  assert.doesNotMatch(last, /secret-repo|\/terminal\/3/, "not even the page's address");
 
   // From the full page there's no view, whatever is posted.
   const full = await s.req("/bino/new", { text: "x", view: "/prs/ACME/shop-api/7" });

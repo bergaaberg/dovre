@@ -85,12 +85,7 @@ export type Env = {
   /** Copilot through omp, for Bino and summaries without Claude Code (src/ai/omp.ts): its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
   COPILOT_PROFILE?: string;
   COPILOT_MODEL?: string;
-  /** The Data tab's query agent: on (default) or off. Its omp profile and Copilot model default to COPILOT_PROFILE's and COPILOT_MODEL's. */
-  DATA_AGENT?: string;
-  DATA_AGENT_PROFILE?: string;
-  DATA_AGENT_MODEL?: string;
   /** Panes switched on Settings (src/config.ts): `off` turns one off; unset is on. */
-  DATA?: string;
   TERMINAL?: string;
   STATS?: string;
   REVIEWS?: string;
@@ -115,10 +110,6 @@ export type Env = {
   CF_GATEWAY_NAME?: string;
   CF_AIG_TOKEN?: string;
   ALLOWED_EMAILS?: string;
-  /** The Data tab: what `db ls at` names a test database, before `<app>-at` (e.g. org-sqldb-). */
-  DATA_PREFIX?: string;
-  /** The Data tab: a DB2 production database with no test copy, asked for beside the apps'. Unset: none. */
-  DATA_DB2?: string;
   /** Set when the first-run page was answered (src/pages/welcome.ts). */
   SETUP_DONE?: string;
 };
@@ -219,10 +210,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     DOCKER_PIPE: v.DOCKER_PIPE || undefined,
     COPILOT_PROFILE: v.COPILOT_PROFILE || undefined,
     COPILOT_MODEL: v.COPILOT_MODEL || undefined,
-    DATA_AGENT: v.DATA_AGENT || undefined,
-    DATA_AGENT_PROFILE: v.DATA_AGENT_PROFILE || undefined,
-    DATA_AGENT_MODEL: v.DATA_AGENT_MODEL || undefined,
-    DATA: v.DATA || undefined,
     TERMINAL: v.TERMINAL || undefined,
     STATS: v.STATS || undefined,
     REVIEWS: v.REVIEWS || undefined,
@@ -232,8 +219,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     REVIEW_SKILL: v.REVIEW_SKILL || undefined,
     TRIAGE_SKILL: v.TRIAGE_SKILL || undefined,
     FORM_SKILL: v.FORM_SKILL || undefined,
-    DATA_PREFIX: v.DATA_PREFIX || undefined,
-    DATA_DB2: v.DATA_DB2 || undefined,
     SETUP_DONE: v.SETUP_DONE || undefined,
   };
 }

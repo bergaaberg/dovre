@@ -19,11 +19,11 @@ export type Field =
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "number"; min: number; max: number }
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "text"; pattern: RegExp };
 
-export const PANE_IDS = ["data", "bino", "terminal", "docker", "stats", "reviews", "summaries", "lab"] as const;
+export const PANE_IDS = ["bino", "terminal", "docker", "stats", "reviews", "summaries", "lab"] as const;
 export type PaneId = (typeof PANE_IDS)[number];
 
 /** What this machine has: a pane that needs something missing can't run, whatever its switch says. */
-export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/ai/omp.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh?: boolean; db: boolean; terminals: boolean; /** This is Windows: Docker (WSL) needs it. Unset: yes, for tests and old callers. */ windows?: boolean; /** Unix socket for Docker Engine on macOS/Linux. */ dockerSocket?: string };
+export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/ai/omp.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh?: boolean; db?: boolean; terminals: boolean; /** This is Windows: Docker (WSL) needs it. Unset: yes, for tests and old callers. */ windows?: boolean; /** Unix socket for Docker Engine on macOS/Linux. */ dockerSocket?: string };
 
 export type Pane = {
   id: PaneId;
@@ -40,14 +40,6 @@ const ON: Choice[] = [{ value: "on", label: "On" }];
 const LIST = /^[\w.\-]+(\s*,\s*[\w.\-]+)*$/;
 
 export const PANES: Pane[] = [
-  {
-    id: "data",
-    name: "Data",
-    what: "Test databases through db-cli, and production after you allow it",
-    key: "DATA",
-    on: ON,
-    options: [{ key: "DATA_AGENT", label: "Query agent", hint: "A Copilot model writes a query from the question and the table names", kind: "choice", choices: [{ value: "on", label: "On" }, { value: "off", label: "Off" }] }],
-  },
   {
     id: "bino",
     name: "Bino",
@@ -140,7 +132,6 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
   const sumVia = summariesVia(v.SUMMARIES, f.claude, f.omp, cli, !!f.agy);
   const sumCan = sumVia === "claude" ? f.claude : sumVia === "omp" ? copilot : sumVia === "copilot" ? cli : sumVia === "agy" ? !!f.agy : sumVia === "codex" ? !!f.codex : false;
   return {
-    data: simple("data", "DATA", f.db, "Needs db-cli (`db`) on the PATH."),
     bino: {
       id: "bino",
       wanted: binoVia !== "off",

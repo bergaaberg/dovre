@@ -633,6 +633,28 @@ test("actions.what: the first pack that names a kind it logged says what it was,
   assert.equal(whatFrom(fillOf(() => [], () => testContext(), () => {}), "x"), undefined);
 });
 
+test("ask: a pack's question goes in the bar on every page as its asker; only an answer there resolves it; a test's context says no", async () => {
+  const db = pack({ id: "db-ish" });
+  const { app, get, post } = signedIn(snapshot(), {}, { packs: [db] });
+  const ctx = packsOf(app)!.ctxOf(db);
+  assert.equal(ctx.asking(), false);
+  const schema = { type: "object", required: ["decision"], properties: { decision: { type: "string", enum: ["deny", "allow"] } } };
+  const answer = ctx.ask({ from: `db ${H}`, message: `Open PRODUCTION ledger:prod? ${H}`, schema });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(ctx.asking(), true, "its question waits");
+  const page = await (await get("/prs")).text();
+  assertInert("a pack's question in the bar", page);
+  assert.match(page, /db &lt;script&gt;x&lt;\/script&gt;[^<]*asks for your OK/, "as its asker, escaped");
+  const id = /\/relay\/ask\/([0-9a-f-]{36})\/answer/.exec(page)?.[1];
+  assert.ok(id, "answered in the bar");
+  assert.equal((await post(`/relay/ask/${id}/answer`, { choice: "allow" }, { origin: "http://evil.example" })).status, 403, "only this app's own form answers");
+  await post(`/relay/ask/${id}/answer`, { choice: "allow" });
+  assert.deepEqual(await answer, { action: "accept", content: { decision: "allow" } });
+  assert.equal(ctx.asking(), false);
+  const hosted = testContext();
+  assert.deepEqual(await hosted.ask({ from: "db", message: "x", schema }), { action: "cancel" }, "a test's context says no");
+});
+
 test("callback: a pack's sign-in return answers before the sign-in check, on this machine only; a hidden, throwing or hosted one doesn't", async () => {
   const seen: boolean[] = [];
   const sso = pack(

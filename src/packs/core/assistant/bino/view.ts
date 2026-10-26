@@ -2,15 +2,14 @@
  * What I'm looking at when I ask Bino from its pane: the page's address, turned here into a line of
  * names and states from what's gathered, under the same rule as the rest of Bino's context
  * (src/packs/core/assistant/bino/context.ts): never a PR body, an agent's prompt or recap, a tool result, or anything a
- * private page shows. Data, Terminal and the Lab are named, never described, and so is a private
- * pack's page (manifest `private`: Teams). Another pack's page is described by the pack (`about`),
+ * private page shows. Terminal and the Lab are named, never described, and so is a private
+ * pack's page (manifest `private`: chats, mail, query results). Another pack's page is described by the pack (`about`),
  * under the same rule.
  */
 import type { Snapshot } from "../../../../gather.ts";
 
-/** Pages whose content never reaches Bino: query results, shells, artifacts (and private packs' pages, below). */
+/** Pages whose content never reaches Bino: shells, artifacts (and private packs' pages, below). */
 const PRIVATE: [string, string][] = [
-  ["/data", "Data"],
   ["/terminal", "Terminal"],
   ["/lab", "Lab"],
 ];

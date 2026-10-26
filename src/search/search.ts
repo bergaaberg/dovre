@@ -52,8 +52,8 @@ export function score(r: Pick<Row, "title" | "also">, q: string): number | null 
 /** A page Dovre has, and the other names it answers to. */
 export type Page = { title: string; href: string; icon: string; about: string; also: string[] };
 
-/** Every page, in menu order. `on` leaves out the ones this machine hasn't got (Data, Bino, Lab). */
-export function pagesOf(on: { data?: boolean; bino?: boolean; lab?: boolean; /** Offered unless switched off. */ stats?: boolean } = {}): Page[] {
+/** Every page, in menu order. `on` leaves out the ones this machine hasn't got (Bino, Lab). */
+export function pagesOf(on: { bino?: boolean; lab?: boolean; /** Offered unless switched off. */ stats?: boolean } = {}): Page[] {
   const all: (Page & { need?: keyof typeof on; unless?: keyof typeof on })[] = [
     { title: "Today", href: "/", icon: "◐", about: "What needs you, the last 24 hours", also: ["home", "morning", "i dag", "oversikt", "feed"] },
     { title: "Stats", href: "/stats", icon: "▥", about: "Twelve weeks in numbers and charts", also: ["statistics", "statistikk", "charts", "metrics", "numbers", "spend", "cost"], unless: "stats" },
@@ -62,7 +62,6 @@ export function pagesOf(on: { data?: boolean; bino?: boolean; lab?: boolean; /**
     { title: "Deploys", href: "/deploys", icon: "⇡", about: "Waiting for prod, and what ships", also: ["release", "prod", "approve", "ship", "utrulling"] },
     { title: "My list", href: "/todo", icon: "☐", about: "Your own list, with dates", also: ["todo", "tasks", "liste", "huskeliste"] },
     { title: "Actions", href: "/actions", icon: "✓", about: "What Dovre did for you: deploys, messages, issues, production", also: ["log", "history", "decided", "logg", "historikk"] },
-    { title: "Data", href: "/data", icon: "▦", about: "Test databases, read-only", also: ["database", "sql", "db", "query", "tables", "spørring"], need: "data" },
     { title: "New work", href: "/issues/new", icon: "+", about: "A dev task, or an issue", also: ["issue", "dev task", "create", "ny sak", "new"] },
     { title: "Moved", href: "/movement", icon: "↯", about: "What people did in the org, 24 h", also: ["movement", "activity", "people", "team", "timeline"] },
     { title: "Code", href: "/code", icon: "{}", about: "Your checkouts at any commit", also: ["browse", "explorer", "files", "source", "kode"] },

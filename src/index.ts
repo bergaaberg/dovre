@@ -17,14 +17,11 @@ import { loadConfig, panesOf, runningOf, saveConfig } from "./config.ts";
 import { setWhen } from "./when.ts";
 import { ompAsker } from "./ai/omp.ts";
 import { runOff } from "./spawn.ts";
-import { createData } from "./data/db.ts";
 import { createGatherer, SNAPSHOT_SHAPE, type Snapshot, snapshotStore } from "./gather.ts";
 import { keptFile } from "./issues/templates.ts";
 import { logAction } from "./actions/deploys.ts";
-import { askInBar, createAsks } from "./relay/asks.ts";
+import { createAsks } from "./relay/asks.ts";
 import { createQueue } from "./agents/queue.ts";
-import { createDbMcp } from "./data/mcp.ts";
-import { createProd } from "./data/prod.ts";
 import { createSpend } from "./stats/spend.ts";
 import { createStats } from "./stats/stats.ts";
 import { ompAgentDirs } from "./sources/omp.ts";
@@ -179,8 +176,6 @@ found.harnesses = [...(claude && harnessOn("claude") ? (["claude"] as const) : [
 // Copilot CLI: Bino and summaries can ask through it (src/ai/copilotcli.ts); its sessions are read whether or not.
 const copilotTool = findTool("copilot", env.COPILOT_BIN);
 found.paths = { claude: claude?.path, omp: omp?.path, copilot: copilotTool?.path, agy: agy?.path, codex: codex?.path };
-const dbTool = findTool("db");
-found.paths = { ...found.paths, db: dbTool?.path };
 const hostExe = fileURLToPath(new URL(`../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
 // Which panes run (Settings, src/config.ts): one that's off, or can't run here, never starts its work.
 // Copilot through omp, for whoever has no Claude Code: Bino and summaries talk through it
@@ -192,7 +187,7 @@ found.copilot = copilot ? (copilot.why() ?? "ready") : undefined;
 const copilotAsk = copilotTool ? copilotCli(copilotTool, { model: env.COPILOT_CLI_MODEL, log: (l) => console.log(l) }) : undefined;
 const isWin = process.platform === "win32";
 const dockerSocket = isWin ? undefined : findEngineSocket(env, homedir());
-const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, db: !!dbTool, terminals: existsSync(hostExe), windows: isWin, dockerSocket });
+const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, terminals: existsSync(hostExe), windows: isWin, dockerSocket });
 const on = runningOf(panes);
 console.log(`agents: ${found.harnesses.join(", ") || "none found"}; panes off: ${Object.entries(on).filter(([, v]) => !v).map(([k]) => k).join(", ") || "none"}`);
 // Bino, the assistant: talks through BINO_VIA / ASSISTANT_VIA (Claude Code's CLI by default), remembers with memlet when it's installed.
@@ -365,25 +360,6 @@ const corePacks = [
     : []),
 ];
 
-// The Data tab's query agent: a Copilot model through omp, like the crawler (never Claude), in its own empty folder.
-const dataAgentDir = join(dataDir, "data-agent");
-mkdirSync(dataAgentDir, { recursive: true });
-const dataAsker =
-  !on.data || env.DATA_AGENT === "off"
-    ? undefined
-    : ompAsker({
-        omp: omp ? { bin: omp.bin, pre: omp.pre } : undefined,
-        profile: env.DATA_AGENT_PROFILE || env.COPILOT_PROFILE || "dovre-copilot",
-        model: env.DATA_AGENT_MODEL || env.COPILOT_MODEL || "github-copilot/gpt-6-luna:medium",
-        cwd: dataAgentDir,
-        run: runOff,
-        who: { name: "The query agent", profileVar: "DATA_AGENT_PROFILE", modelVar: "DATA_AGENT_MODEL" },
-      });
-// The Data tab: test databases through db-cli, which only reads (src/data/db.ts). Off without `db`.
-const data = on.data && dbTool ? createData({ bin: dbTool.bin, pre: dbTool.pre, run: runOff }) : undefined;
-// Production through `db mcp`: db asks before each database, and the question goes to the bar.
-// It waits up to ten minutes for my answer; unanswered is a no.
-const askMe = askInBar(asks, "db");
 // Stats: GHE history every six hours (kept in data/stats.json), spend from the transcripts here.
 const stats = !on.stats ? undefined : createStats({ ghe, org: ownersIn(env), login: () => gatherer.peek()?.login, spend: createSpend({ claudeDir: env.CLAUDE_DIR, ompDirs: ompAgentDirs().map((d) => d.dir) }), file: join(dataDir, "stats.json"), onChange: () => hub.publish(["stats"]) });
 if (stats) {
@@ -391,7 +367,6 @@ if (stats) {
   setTimeout(() => stats.refresh(), 90e3).unref();
 }
 
-const prod = data && dbTool ? createProd({ mcp: (onClose) => createDbMcp({ bin: dbTool.bin, pre: dbTool.pre, ask: askMe, onClose }), onChange: () => hub.publish(["prod"]) }) : undefined;
 
 // Packs (PLAN D23): those PACKS loaded above that can run here, after the core's.
 const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, hosted: false, which: (b) => which(b) }), env: packEnv, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars" };
@@ -400,8 +375,6 @@ for (const o of packSet.off) console.log(`pack ${o.id}: off, ${o.why}`);
 
 const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   packs: packSet,
-  data,
-  prod,
   stats,
   gatherer,
   ghe,
@@ -412,8 +385,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   notify,
   info: { version, startedAt: Date.now() },
   kept: keptAnswers,
-  schemaDir: join(dataDir, "schemas"),
-  dataAsker,
   bino: { route: binoRoute, memory: binoMemory, file: join(dataDir, "bino.json"), log: (l) => console.log(l) },
   asks,
   prewarm: true,
@@ -424,8 +395,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
     refresher.stop();
     // Agent turns run apart from the server (the agent host) and carry on; they show again after the restart.
     if (!existsSync(hostExe)) for (const r of runner.list()) if (r.status === "running") runner.stop(r.id);
-    // Production closes with the server: db asks again after a restart.
-    prod?.close();
     process.exit(75);
   },
 });
@@ -464,7 +433,5 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
     refresher.stop();
     // Agent turns run apart from the server (the agent host) and carry on; they show again after the restart.
     if (!existsSync(hostExe)) for (const r of runner.list()) if (r.status === "running") runner.stop(r.id);
-    // Production closes with the server: db asks again after a restart.
-    prod?.close();
     process.exit(0);
   });

@@ -1,6 +1,6 @@
 /**
  * What Dovre did for me (the `actions` table, src/actions/deploys.ts): deploys decided, issues and
- * tasks created, production asked for, questions answered, and what packs did in their apps. A card
+ * tasks created, questions answered, and what packs did in their apps. A card
  * on Today and /actions. The log holds what and where, never what was said or what came back; a
  * pack names its own entries ("actions.what", "actions.where": Teams, a chat by its name). On a
  * hosted team, each entry names who made it.
@@ -21,10 +21,6 @@ const WHAT: Record<string, string> = {
   "pr.review": "Posted an agent's review",
   "pr.replies": "Posted replies on a pull request",
   "relay.answer": "Answered a question",
-  "data.prod.open": "Asked to open production",
-  "data.ask": "Asked the query agent",
-  "data.ask-across": "Asked across databases",
-  "data.review": "Had a result reviewed",
 };
 /** What a pack calls a kind of entry it logged ("actions.what"); undefined: none says. */
 export type Said = (kind: string) => string | undefined;
