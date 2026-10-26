@@ -352,6 +352,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       );
     return ctx;
   };
+  // A pack may say it can't run here (`available`, after the manifest's checks): it's off, saying so,
+  // before anything of it is mounted, styled or asked. One that throws is off too.
+  for (const c of [...packs.on]) {
+    if (!c.available) continue;
+    if (safely(() => c.available!(ctxOf(c)) !== false, false, (e) => packLog(c.manifest.id)(`available: ${(e as Error)?.message ?? e}`))) continue;
+    packs.on.splice(packs.on.indexOf(c), 1);
+    packs.off.push({ id: c.manifest.id, name: c.manifest.name, why: "can't run here (the pack says so)", manifest: c.manifest });
+  }
   // Settings → Layout: packs I've hidden, and packs whose events stay out of the feed (src/layout.ts).
   const layout = deps.layout ?? layoutStore(env.DB);
   const hidden = (id: string) => !!layout.get().packsOff?.includes(id);

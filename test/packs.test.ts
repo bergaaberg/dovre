@@ -609,6 +609,31 @@ test("dock: a pack's button beside Bino's on every page but its own, cut to size
   assert.match((await get("/agents/dock")).headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/, "nor a pack's without a dock");
 });
 
+test("available: a pack that says it can't run here, or throws asking, is off with why; its routes, nav and init never run", async () => {
+  const started: string[] = [];
+  const hooks = (id: string, available: () => boolean) => ({
+    available,
+    init: () => void started.push(id),
+    nav: () => [{ href: `/${id}`, title: `The ${id} page` }],
+    routes: (app: Parameters<NonNullable<Pack["routes"]>>[0], ctx: Parameters<NonNullable<Pack["routes"]>>[1]) => app.get(`/${id}`, (c) => ctx.page(c, { title: id, body: id })),
+  });
+  const yes = pack({ id: "yes" }, hooks("yes", () => true));
+  const no = pack({ id: "no" }, hooks("no", () => false));
+  const boom = pack({ id: "boom" }, hooks("boom", () => { throw new Error("can't tell"); }));
+  const { app, get } = signedIn(snapshot(), {}, { packs: [yes, no, boom] });
+  const set = packsOf(app)!;
+  assert.deepEqual(set.on.filter((c) => ["yes", "no", "boom"].includes(c.manifest.id)).map((c) => c.manifest.id), ["yes"]);
+  assert.deepEqual(set.off.filter((o) => o.id === "no" || o.id === "boom").map((o) => [o.id, o.why]), [["no", "can't run here (the pack says so)"], ["boom", "can't run here (the pack says so)"]]);
+  assert.equal((await get("/yes")).status, 200);
+  for (const path of ["/no", "/boom"]) assert.equal((await get(path)).status, 404, path);
+  const page = await (await get("/prs")).text();
+  assert.match(page, /The yes page/);
+  assert.doesNotMatch(page, /The no page|The boom page/);
+  const { initAll } = await import("../src/packs/registry.ts");
+  await initAll(set, set.ctxOf, () => {});
+  assert.deepEqual(started, ["yes"]);
+});
+
 test("callback: a pack's sign-in return answers before the sign-in check, on this machine only; a hidden, throwing or hosted one doesn't", async () => {
   const seen: boolean[] = [];
   const sso = pack(
