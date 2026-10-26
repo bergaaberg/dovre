@@ -103,3 +103,22 @@ test("done things fold away after a few days; the card shows what's doing and wh
   assert.match(card, /Due tomorrow/);
   assert.doesNotMatch(card, /Someday/);
 });
+
+test("adding with details: notes, where it stands and a due date in one form; ?add opens them (dovre#86)", async () => {
+  const { get, post, db } = signedIn(snapshot());
+  const plain = await (await get("/todo")).text();
+  assert.match(plain, /<details class="todo-add-more" id="todo-add-more"><summary>With details/, "folded by default");
+  assert.doesNotMatch(plain, /id="todo-q"[^>]*autofocus/);
+  const adding = await (await get("/todo?add")).text();
+  assert.match(adding, /<details class="todo-add-more" id="todo-add-more" open>/);
+  assert.match(adding, /id="todo-q"[^>]*autofocus/);
+  assert.doesNotMatch(adding, /<option value="done"/, "not added as done");
+
+  await post("/todo/add", { q: "Write the release notes fre", notes: `Line one\r\n${H}\r\n`, state: "waiting", due: "2026-12-24" });
+  await post("/todo/add", { q: "Only text fre", notes: "", state: "done", due: "" });
+  const [a, b] = await listTodos(db.DB);
+  assert.deepEqual([a!.title, a!.notes, a!.state, a!.due], ["Write the release notes", `Line one\n${H}`, "waiting", "2026-12-24"], "the date field wins over one in the text");
+  assert.deepEqual([b!.title, b!.notes, b!.state], ["Only text", "", "next"], "done isn't a state to add in");
+  assert.notEqual(b!.due, null, "without a date field, the text's date stays");
+  assertInert("/todo", await (await get("/todo")).text());
+});

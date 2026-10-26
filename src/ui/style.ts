@@ -840,7 +840,10 @@ button.link:hover { color: var(--ink); }
 .approval-list { margin: 0; padding-left: 1.2em; color: var(--ink); overflow-wrap: anywhere; }
 
 /* ── My list (/todo, and its card on Today) ── */
-.todo-add { display: flex; gap: 8px; margin: 0 0 18px; }
+.todo-add { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+.todo-add-more { flex-basis: 100%; }
+.todo-add-more > summary { cursor: pointer; font-size: var(--fs-s); color: var(--ink-3); width: max-content; }
+.todo-add-more[open] > summary { margin-bottom: 8px; }
 .todo-add input { flex: 1; min-width: 0; }
 .card .todo-add { margin: 12px 0 0; }
 .todo-group { margin: 0 0 22px; }

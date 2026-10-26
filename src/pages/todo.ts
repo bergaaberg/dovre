@@ -99,13 +99,21 @@ ${editor(t, ctx, back, false, bino)}
 </div></li>`;
 }
 
-const quickAdd = (back: string, id: string, label = "Add to my list", bino = false) =>
-  html`<form method="post" action="/todo/add" class="todo-add"><input type="hidden" name="back" value="${back}"><input type="text" id="${id}" name="q" maxlength="${MAX_TITLE + 40}" placeholder="Add something… end it with fre, i morgen, 30.10 or ! to give it a date" aria-label="${label}" required><button type="submit" class="primary">Add</button>${
+/** Notes, where it stands and a due date, folded under the quick add (dovre#86): one form takes them all. */
+const addDetails = (open: boolean) =>
+  html`<details class="todo-add-more" id="todo-add-more"${open ? html` open` : ""}><summary>With details</summary>
+<label class="field"><span class="label">Notes</span><textarea name="notes" rows="4" maxlength="${MAX_NOTES}" placeholder="Markdown. Links, repo#12, DEV-12 and agent session ids turn into links."></textarea></label>
+<div class="fields"><label class="field"><span class="label">Where it stands</span><select name="state">${STATES.filter((s) => s !== "done").map((s) => html`<option value="${s}"${s === "next" ? html` selected` : ""}>${LABEL[s]}</option>`)}</select></label>
+<label class="field"><span class="label">Due</span><input type="date" name="due"></label></div>
+</details>`;
+
+const quickAdd = (back: string, id: string, label = "Add to my list", bino = false, details?: { open: boolean }) =>
+  html`<form method="post" action="/todo/add" class="todo-add"><input type="hidden" name="back" value="${back}"><input type="text" id="${id}" name="q" maxlength="${MAX_TITLE + 40}" placeholder="Add something… end it with fre, i morgen, 30.10 or ! to give it a date" aria-label="${label}" required${details?.open ? html` autofocus` : ""}><button type="submit" class="primary">Add</button>${
     bino ? html`<button type="submit" formaction="/bino/new" class="ghost" data-busy="Asking Bino" title="Think it through with Bino first: how to group it, how to break it down">Talk it through with Bino</button>` : ""
-  }</form>`;
+  }${details ? addDetails(details.open) : ""}</form>`;
 
 /** The page: quick add, then Doing, Next, Waiting and recent Done; older done things folded away. */
-export function todoPage(frame: Frame, all: Todo[], ctx: LinkCtx, opts: { now?: number; bino?: boolean; /** Proposals from elsewhere (Teams' crawler), above the list. */ proposals?: Html | "" } = {}): Html {
+export function todoPage(frame: Frame, all: Todo[], ctx: LinkCtx, opts: { now?: number; bino?: boolean; /** Proposals from elsewhere (Teams' crawler), above the list. */ proposals?: Html | ""; /** Came here to add something with details (the a key, ?add): open them. */ adding?: boolean } = {}): Html {
   const now = opts.now ?? Date.now();
   const today = osloDate(now);
   const trees = treeOf(all);
@@ -118,7 +126,7 @@ export function todoPage(frame: Frame, all: Todo[], ctx: LinkCtx, opts: { now?: 
   const group = (s: State, list: Tree[]) =>
     list.length ? html`<section class="todo-group" aria-labelledby="g-${s}"><h2 id="g-${s}">${LABEL[s]} <span class="t3">${list.length}</span></h2><ul class="todo-list">${list.map((t) => row(t, ctx, today, back, opts.bino))}</ul></section>` : "";
   const body = html`${PageHeader({ title: "My list", sub: html`Small things and small initiatives that live nowhere else. Kept on this machine only.` })}
-${quickAdd(back, "todo-q", "Add to my list", opts.bino)}
+${quickAdd(back, "todo-q", "Add to my list", opts.bino, { open: !!opts.adding })}
 <div data-live id="todo">
 ${opts.proposals ?? ""}
 ${open || recent.length ? "" : html`<div class="empty"><strong>Nothing on your list</strong><p>Write it above and press Enter. An item gets steps under it once you add them.</p></div>`}
@@ -163,13 +171,17 @@ export function createTodoRoutes(env: Env, deps: { page: () => Promise<{ s: Snap
 
   app.get("/todo", async (c) => {
     const { s, frame } = await deps.page();
-    return c.html(todoPage(frame, await listTodos(db), linkCtxOf(env, s, deps.rules?.()), { now: now(), bino: deps.bino, proposals: deps.proposals ? await deps.proposals().catch(() => "" as const) : "" }));
+    return c.html(todoPage(frame, await listTodos(db), linkCtxOf(env, s, deps.rules?.()), { now: now(), bino: deps.bino, adding: c.req.query("add") !== undefined, proposals: deps.proposals ? await deps.proposals().catch(() => "" as const) : "" }));
   });
   app.post("/todo/add", async (c) => {
     const form = await c.req.parseBody();
     const q = parseQuick(first(form.q), osloDate(now()));
     const parent = idOf(first(form.parent)) ?? null;
-    const t = q.title ? await addTodo(db, { title: q.title, due: q.due, parent }, now()) : undefined;
+    // With details (dovre#86): notes, where it stands, and a due date that wins over one in the text.
+    const state = first(form.state);
+    const t = q.title
+      ? await addTodo(db, { title: q.title, due: first(form.due) || q.due, parent, notes: typeof form.notes === "string" ? form.notes.replace(/\r\n/g, "\n").trim() : undefined, state: isState(state) && state !== "done" ? state : undefined }, now())
+      : undefined;
     if (t) changed();
     return c.redirect(backTo(form, t?.parent ?? t?.id), 303);
   });
