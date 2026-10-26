@@ -19,8 +19,9 @@ export type { Changelog, Deploy, Issue, IssueAct, IssueSets, Move, Note, Pr, PrR
  * - `search`: issues and PRs in Ctrl K
  * - `deployApproval`: approving or rejecting a waiting deploy
  * - `stacks`: stacked PRs and retargeting them
+ * - `dependabot`: the Dependabot queue and combining a repo's bumps into one PR
  */
-export const FORGE_CAN = ["issues", "reviews", "viewer", "stats", "search", "deployApproval", "stacks"] as const;
+export const FORGE_CAN = ["issues", "reviews", "viewer", "stats", "search", "deployApproval", "stacks", "dependabot"] as const;
 export type ForgeCan = (typeof FORGE_CAN)[number];
 
 export type Forge = {

@@ -74,6 +74,8 @@ import { createViewerRoutes } from "./pages/viewer.ts";
 import { viewingAs } from "./viewer.ts";
 import { createStacks } from "./sources/stacks.ts";
 import { stacksPage } from "./pages/stacks.ts";
+import { dependabotPage, type Job as BotJob } from "./pages/dependabot.ts";
+import { combine, loadQueue } from "./actions/dependabot.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
@@ -88,6 +90,7 @@ const FORGE_PATHS: [ForgeCan, RegExp][] = [
   ["issues", /^\/issues(\/|$)/],
   ["viewer", /^\/prs\/[^/]+\/[^/]+\/\d+(\/files)?$/],
   ["stacks", /^\/prs\/stacks(\/|$)/],
+  ["dependabot", /^\/prs\/dependabot(\/|$)/],
   ["deployApproval", /^\/deploys\/(approve|reject|reject-superseded)$/],
 ];
 
@@ -601,6 +604,50 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     stackFlash = repo && number && from ? await retarget(ghe, env.DB, repo, number, from) : { ok: false, message: "That isn't a PR in the org." };
     if (stackFlash.ok) void gatherer.get().then((s) => stackSource.load(s.login, { fresh: true })).catch(() => undefined);
     return c.redirect("/prs/stacks", 303);
+  });
+  // ── Dependabot (dovre#108): the queue across repos, and combining a repo's bumps into one PR ──
+  let botQueue: { at: number; value: Awaited<ReturnType<typeof loadQueue>> } | undefined;
+  let botLoading: Promise<Awaited<ReturnType<typeof loadQueue>>> | undefined;
+  const loadBots = (fresh = false) => {
+    if (!fresh && botQueue && Date.now() - botQueue.at < 2 * 60_000) return Promise.resolve(botQueue.value);
+    botLoading ??= loadQueue(ghe, ownersIn(env))
+      .then((value) => ((botQueue = { at: Date.now(), value }), value))
+      .finally(() => (botLoading = undefined));
+    return botLoading;
+  };
+  /** Combining runs after the redirect; the page shows it running, then what happened, once. */
+  const botJobs = new Map<string, BotJob>();
+  app.get("/prs/dependabot", async (c) => {
+    const { frame } = await page();
+    const jobs = [...botJobs.values()];
+    for (const j of jobs) if (j.state === "done") botJobs.delete(j.repo);
+    const got = await Promise.race([loadBots().then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) })), new Promise<undefined>((res) => setTimeout(res, 1500))]);
+    if (!got) return c.html(dependabotPage(frame, { org: env.GHE_ORG, pending: true, jobs }));
+    return c.html(dependabotPage(frame, { org: env.GHE_ORG, jobs, ...(got.ok ? got.value : { error: got.error }) }));
+  });
+  app.post("/prs/dependabot/combine", async (c) => {
+    const form = await c.req.parseBody();
+    const repo = repoIn(ownersIn(env), form.repo);
+    if (!repo) {
+      botJobs.set("?", { repo: String(form.repo ?? "").slice(0, 100), state: "done", ok: false, message: "That isn't a repo of the owners." });
+      return c.redirect("/prs/dependabot", 303);
+    }
+    if (botJobs.get(repo)?.state !== "running") {
+      const security = botQueue?.value.repos.find((r) => r.repo === repo)?.prs.filter((p) => p.security).map((p) => p.number) ?? [];
+      botJobs.set(repo, { repo, state: "running" });
+      const job = combine(ghe, env.DB, repo, { security })
+        .then((r) => botJobs.set(repo, { repo, state: "done", ok: r.ok, message: r.message, url: r.url }))
+        .catch((e) => botJobs.set(repo, { repo, state: "done", ok: false, message: String((e as Error)?.message ?? e) }))
+        .then(() => loadBots(true).catch(() => undefined))
+        .finally(() => {
+          gatherer.stale();
+          deps.hub?.publish(["dependabot", "snapshot"]);
+        });
+      try {
+        c.executionCtx.waitUntil(job);
+      } catch {}
+    }
+    return c.redirect("/prs/dependabot", 303);
   });
   app.get("/movement", async (c) => {
     const { s, frame } = await page();

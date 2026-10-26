@@ -4,14 +4,17 @@ import { since } from "../format.ts";
 import type { Result, Snapshot } from "../gather.ts";
 import type { Session } from "../sources/claude.ts";
 import { type Pr, type PrRef, prKeyOfUrl } from "../sources/ghe.ts";
-import { type Child, type Html, Item, newTab, Notice, Pill, Tabs } from "../ui/kit.ts";
+import { type Child, type Html, Item, newTab, Notice, Pill, type Tab, Tabs } from "../ui/kit.ts";
 
 /** The AI harness an agent runs in, by name. */
 /** Pull requests' two views: the list, and the stacks (PRs built on other PRs). */
 /** The PR pages' tabs; none when the forge has no stacks (one tab is no choice). */
-export function prTabs(current: "list" | "stacks", stacks = true): Html | "" {
-  if (!stacks) return "";
-  return Tabs({ label: "Pull requests", items: [{ href: "/prs", label: "Open", current: current === "list" }, { href: "/prs/stacks", label: "Stacks", current: current === "stacks" }] });
+export function prTabs(current: "list" | "stacks" | "dependabot", stacks = true, dependabot = true): Html | "" {
+  if (!stacks && !dependabot) return "";
+  const items: Tab[] = [{ href: "/prs", label: "Open", current: current === "list" }];
+  if (stacks) items.push({ href: "/prs/stacks", label: "Stacks", current: current === "stacks" });
+  if (dependabot) items.push({ href: "/prs/dependabot", label: "Dependabot", current: current === "dependabot" });
+  return Tabs({ label: "Pull requests", items });
 }
 
 export const HARNESS_NAME = { claude: "Claude Code", omp: "Copilot · omp", copilot: "Copilot CLI", agy: "Antigravity · agy", codex: "Codex" } as const;

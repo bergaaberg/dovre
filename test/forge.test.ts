@@ -57,7 +57,7 @@ test("FORGE naming a forge no pack brings, or one that won't start, fails every 
 test("GitHub as a forge: every ability, its host, and GitHub's PR links", () => {
   const f = githubForge(fakeGhe({}).ghe);
   assert.equal(f.id, "github");
-  assert.equal(f.can.length, 7);
+  assert.equal(f.can.length, 8);
   assert.equal(f.prKeyOfUrl("https://acme.ghe.com/ACME/shop-api/pull/5"), "ACME/shop-api#5");
   assert.equal(f.prKeyOfUrl("https://git.example.com/northwind/shop/-/merge_requests/3"), undefined);
 });
