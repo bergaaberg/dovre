@@ -18,18 +18,19 @@ import { createRunner } from "../src/agents/runner.ts";
 import { remoteDesk } from "../src/bridge/remote.ts";
 import { answerCall, stateOf } from "../src/bridge/serve.ts";
 import type { MacAnswer, MacView } from "../src/hosted/hub.ts";
+import type { MacState } from "../src/bridge/wire.ts";
 import { assertInert, H, session, signedIn, snapshot } from "./helpers.ts";
 
 const SESSION = "5a1e7c2b-0d3f-4e6a-9b8c-1d2e3f4a5b6c";
 const OLD = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0";
 
-function fakeSpawn() {
+function fakeSpawn(sid = SESSION) {
   return () => {
     const child = new EventEmitter() as ChildProcess;
     const stdout = new PassThrough();
     Object.assign(child, { stdout, stderr: new PassThrough(), stdin: new PassThrough(), pid: 1, kill: () => true });
     setTimeout(() => {
-      stdout.write(`${JSON.stringify({ type: "system", subtype: "init", session_id: SESSION })}\n`);
+      stdout.write(`${JSON.stringify({ type: "system", subtype: "init", session_id: sid })}\n`);
       stdout.write(`${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: `the plan ${H}` }] } })}\n`);
       stdout.write(`${JSON.stringify({ type: "result", result: "planned", total_cost_usd: 0 })}\n`);
       stdout.end();
@@ -39,39 +40,49 @@ function fakeSpawn() {
   };
 }
 
-/** The Mac (its desk) and the hub between, online or not: the hub keeps the last state either way. */
-function setup() {
+/** One machine: its own code folder (with `repo`), transcript and desk, online or not. */
+function machine(o: { id: string; name?: string; repo: string; sid: string; old: string }) {
   const code = mkdtempSync(join(tmpdir(), "code-"));
-  mkdirSync(join(code, "shop-api", ".git"), { recursive: true });
+  mkdirSync(join(code, o.repo, ".git"), { recursive: true });
   const env = { CODE_DIR: code, CLAUDE_DIR: mkdtempSync(join(tmpdir(), "claude-")), AGENT_DIR: join(code, "agents") };
-  // The transcript Claude Code writes on the Mac: where a session's page reads what was said.
-  mkdirSync(join(env.CLAUDE_DIR, "projects", "shop-api"), { recursive: true });
-  const say = (o: unknown) => JSON.stringify(o);
+  // The transcript Claude Code writes on the machine: where a session's page reads what was said.
+  mkdirSync(join(env.CLAUDE_DIR, "projects", o.repo), { recursive: true });
+  const say = (x: unknown) => JSON.stringify(x);
   writeFileSync(
-    join(env.CLAUDE_DIR, "projects", "shop-api", `${SESSION}.jsonl`),
-    [say({ type: "user", message: { content: "make a plan" }, timestamp: "2026-10-24T10:00:00Z", cwd: join(code, "shop-api") }), say({ type: "assistant", message: { content: [{ type: "text", text: `the plan ${H}` }] }, timestamp: "2026-10-24T10:00:05Z" })].join("\n") + "\n",
+    join(env.CLAUDE_DIR, "projects", o.repo, `${o.sid}.jsonl`),
+    [say({ type: "user", message: { content: "make a plan" }, timestamp: "2026-10-24T10:00:00Z", cwd: join(code, o.repo) }), say({ type: "assistant", message: { content: [{ type: "text", text: `the plan ${H}` }] }, timestamp: "2026-10-24T10:00:05Z" })].join("\n") + "\n",
   );
-  const runner = createRunner({ spawnFn: fakeSpawn() });
-  const recent = [session({ sessionId: OLD, live: false, title: `Old ${H}`, repo: "shop-api", cwd: join(code, "shop-api") })];
+  const runner = createRunner({ spawnFn: fakeSpawn(o.sid) });
+  const recent = [session({ sessionId: o.old, live: false, title: `Old ${H}`, repo: o.repo, cwd: join(code, o.repo) })];
   const sessions = async () => ({ live: [], recent });
-  const mac = localDesk({ env, runner, queue: createQueue(), sessions });
-  const box = { online: true, last: undefined as MacView["state"] };
+  const desk = localDesk({ env, runner, queue: createQueue(), sessions });
+  return { id: o.id, name: o.name, desk, sessions, runner, online: true, last: undefined as MacState | undefined, calls: 0 };
+}
+type Machine = ReturnType<typeof machine>;
+
+/** The machines (their desks) and the hub between, online or not: the hub keeps each one's last state either way. */
+function setup(machines: Machine[] = [machine({ id: "mac", repo: "shop-api", sid: SESSION, old: OLD })]) {
   const hub = {
     async mac(): Promise<MacView> {
-      if (box.online) box.last = stateOf(mac, await sessions());
-      return { online: box.online, seen: Date.now() - 5 * 60_000, watching: false, state: box.last };
+      for (const m of machines) if (m.online) m.last = { ...stateOf(m.desk, await m.sessions()), ...(m.name ? { name: m.name } : {}) };
+      return { watching: false, machines: machines.map((m) => ({ id: m.id, name: m.name, online: m.online, seen: Date.now() - 5 * 60_000, state: m.last })) };
     },
-    async call(c: Parameters<typeof answerCall>[1]): Promise<MacAnswer> {
-      if (!box.online) return { ok: false, error: "Your Mac is offline.", offline: true };
+    async call(c: Parameters<typeof answerCall>[1], _ms?: number, id?: string): Promise<MacAnswer> {
+      const on = machines.filter((m) => m.online);
+      const m = id ? machines.find((x) => x.id === id) : on.length === 1 ? on[0] : undefined;
+      if (!m && !id && on.length > 1) return { ok: false, error: "Say which machine." };
+      if (!m?.online) return { ok: false, error: "Your Mac is offline.", offline: true };
+      m.calls++;
       // As it crosses the wire: JSON both ways.
-      return answerCall(mac, JSON.parse(JSON.stringify(c))).then(
+      return answerCall(m.desk, JSON.parse(JSON.stringify(c))).then(
         (v) => ({ ok: true, value: JSON.parse(JSON.stringify(v ?? null)) }),
         (e) => ({ ok: false, error: String(e.message) }),
       );
     },
   };
   const { get, post } = signedIn(snapshot(), {}, { desk: remoteDesk(hub, { ttlMs: 0 }) });
-  return { get, post, box, runner };
+  const first = machines[0]!;
+  return { get, post, machines, box: first, runner: first.runner };
 }
 
 const until = async (ok: () => boolean) => {
@@ -131,4 +142,55 @@ test("hosted agents, Mac offline: what it last said, and saying so; no forms tha
   const reply = await post(`/agents/s/${SESSION}/reply`, { prompt: "and then?" });
   assert.equal(reply.status, 303);
   assert.match(await (await get(`/agents/s/${SESSION}`)).text(), /Your Mac is offline\./);
+});
+
+test("hosted agents, two machines: both listed and named, a turn starts on the one picked, a session's actions go to its own", async () => {
+  const LAPTOP_SID = "7c1e7c2b-0d3f-4e6a-9b8c-1d2e3f4a5b6c";
+  const LAPTOP_OLD = "1b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0";
+  const desktop = machine({ id: "0123456789abcdef", name: `desk ${H}`, repo: "shop-api", sid: SESSION, old: OLD });
+  const laptop = machine({ id: "fedcba9876543210", name: "laptop", repo: "web", sid: LAPTOP_SID, old: LAPTOP_OLD });
+  const { get, post } = setup([desktop, laptop]);
+
+  const list = await (await get("/agents")).text();
+  assert.match(list, /desk &lt;script&gt;/, "each row says its machine, escaped");
+  assert.match(list, />laptop</);
+  assertInert("/agents two machines", list);
+
+  const form = await (await get("/agents/new")).text();
+  assert.match(form, /<select name="machine"/);
+  assert.match(form, /<option value="fedcba9876543210">laptop</);
+  assert.match(form, /<option value="web"/, "every machine's checkouts");
+  assert.match(form, /<option value="shop-api"/);
+  assertInert("/agents/new two machines", form);
+
+  // Not saying which: refused, the form again.
+  const unsaid = await post("/agents/new", { repo: "web", prompt: "x", harness: "claude" });
+  assert.equal(unsaid.status, 400);
+  assert.match(await unsaid.text(), /Pick the machine to run it on/);
+
+  const started = await post("/agents/new", { machine: laptop.id, repo: "web", prompt: "make a plan", harness: "claude", mode: "default" });
+  assert.equal(started.headers.get("location"), `/agents/s/${LAPTOP_SID}`);
+  await until(() => laptop.runner.list()[0]?.status === "done");
+  assert.equal(desktop.runner.list().length, 0, "nothing ran on the other machine");
+
+  // The laptop's session: read from the laptop, and a reply goes there too.
+  await get("/agents");
+  const before = desktop.calls;
+  assert.match(await (await get(`/agents/s/${LAPTOP_SID}`)).text(), /the plan &lt;script&gt;/);
+  await post(`/agents/s/${LAPTOP_SID}/reply`, { prompt: "and then?" });
+  assert.equal(desktop.calls, before, "the desktop wasn't asked");
+
+  // The laptop goes offline: the page says that one is, by name; the other still works.
+  laptop.online = false;
+  const off = await (await get("/agents")).text();
+  assert.match(off, /laptop is offline, last seen 5 min ago/);
+  assert.doesNotMatch(off, /None of your machines/);
+  const page = await (await get(`/agents/s/${LAPTOP_SID}`)).text();
+  assert.match(page, /laptop is offline/);
+  assert.doesNotMatch(page, new RegExp(`action="/agents/s/${LAPTOP_SID}/reply"`));
+  const one = await (await get("/agents/new")).text();
+  assert.doesNotMatch(one, /<select name="machine"/, "one online: nothing to pick");
+
+  desktop.online = false;
+  assert.match(await (await get("/agents")).text(), /None of your machines is online/);
 });

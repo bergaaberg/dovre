@@ -66,6 +66,8 @@ export type Run = {
   /** Text streaming in for the message being written now. */
   partial: string;
   cost: number;
+  /** Hosted, with several machines: the one it ran on (H7). */
+  machine?: string;
 };
 
 export type StartOpts = { harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[] };

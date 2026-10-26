@@ -33,8 +33,14 @@ export type BridgeOpts = {
   /** wss://<hosted>/bridge */
   url: string;
   key: string;
-  /** The Access service token's headers (CF-Access-Client-Id, CF-Access-Client-Secret). */
-  headers: Record<string, string>;
+  /**
+   * What it signs in with, asked again on every dial: the Access service token's headers
+   * (CF-Access-Client-Id, CF-Access-Client-Secret), or a fresh issuer JWT (H6) in
+   * Cf-Access-Jwt-Assertion. A failure is a dial that failed: tried again, backing off.
+   */
+  headers: Record<string, string> | (() => Promise<Record<string, string>>);
+  /** This machine's name for itself (its hostname), for pages to tell machines apart. */
+  name?: string;
   desk: Desk;
   /** The agents' sessions, read again (metadata, as the snapshot holds them). */
   sessions: () => Promise<{ live: Session[]; recent: Session[] }>;
@@ -88,7 +94,7 @@ export function startBridge(o: BridgeOpts): Bridge {
 
   const pushState = async (force = false) => {
     if (!ch) return;
-    const state = stateOf(o.desk, await o.sessions().catch(() => ({ live: [], recent: [] })), { version: o.version });
+    const state = stateOf(o.desk, await o.sessions().catch(() => ({ live: [], recent: [] })), { version: o.version, name: o.name });
     const key = JSON.stringify({ ...state, at: 0 });
     if (!force && key === lastState) return;
     lastState = key;
@@ -133,7 +139,7 @@ export function startBridge(o: BridgeOpts): Bridge {
     backoff = Math.min(backoff * 2, t.maxBackoffMs);
     reconnectT = setTimeout(() => {
       reconnectT = undefined;
-      connect();
+      void connect();
     }, wait);
   };
 
@@ -177,11 +183,13 @@ export function startBridge(o: BridgeOpts): Bridge {
     }
   };
 
-  function connect() {
+  async function connect() {
     if (stopped) return;
     let sock: BridgeSocket;
     try {
-      sock = dial(o.url, o.headers);
+      const headers = typeof o.headers === "function" ? await o.headers() : o.headers;
+      if (stopped) return;
+      sock = dial(o.url, headers);
     } catch (e) {
       log(`bridge: couldn't dial: ${(e as Error)?.message ?? e}`);
       return again();
@@ -208,7 +216,7 @@ export function startBridge(o: BridgeOpts): Bridge {
     sock.onerror = () => {};
   }
 
-  connect();
+  void connect();
 
   return {
     changed(run) {

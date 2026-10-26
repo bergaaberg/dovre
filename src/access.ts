@@ -8,6 +8,7 @@
  *   nobody gets in.
  */
 import { timingSafeEqual } from "node:crypto";
+import { MACHINE_ID } from "./bridge/wire.ts";
 
 export const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 export const COOKIE = "u_tk";
@@ -20,6 +21,8 @@ export type CfAccessPayload = {
   iss?: string;
   sub?: string;
   type?: string;
+  /** A paired machine's id (H6), in a token an issuer signed for the bridge. */
+  service?: unknown;
   /** A service token's client id (Access puts it here instead of an email). */
   common_name?: string;
 };
@@ -128,8 +131,12 @@ function endpointsOf(cfg: AccessConfig): { issuer: string; certs: string } | und
   return { issuer: `https://${host}`, certs: `https://${host}/cdn-cgi/access/certs` };
 }
 
-/** A person (their email), or a service token (its client id): never both. Pages take only a person; /bridge only the bridge's token. */
-export type Verified = { email: string; service?: undefined } | { service: string; email?: undefined };
+/**
+ * A person (their email), or a service: never both. Pages take only a person; /bridge only a service.
+ * A service is an Access service token (its client id), or a machine an issuer names in its
+ * `service` claim (H6: a paired bridge), which says `machine`.
+ */
+export type Verified = { email: string; service?: undefined; machine?: undefined } | { service: string; email?: undefined; machine?: boolean };
 /** Checks a hosted request: who it is, or undefined (refused). */
 export type AccessVerifier = (request: Request) => Promise<Verified | undefined>;
 
@@ -221,6 +228,8 @@ export function createAccessVerifier(cfg: AccessConfig): AccessVerifier {
       if (p.iss !== issuer) return undefined;
       const auds = Array.isArray(p.aud) ? p.aud : p.aud ? [p.aud] : [];
       if (!auds.includes(cfg.aud)) return undefined;
+      // A machine's token names it and nobody else: it never passes as a person.
+      if (p.service !== undefined) return typeof p.service === "string" && MACHINE_ID.test(p.service) ? { service: p.service, machine: true } : undefined;
       const email = typeof p.email === "string" && p.email.includes("@") ? p.email.toLowerCase() : undefined;
       if (email) return emails && !emails.has(email) ? undefined : { email };
       const service = typeof p.common_name === "string" && p.common_name.trim() ? p.common_name.trim() : undefined;

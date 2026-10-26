@@ -35,7 +35,7 @@ function runItem(r: Run, all: Run[]) {
   return Item({
     lead: html`<span class="dot${tone ? ` ${tone}` : ""}" aria-hidden="true"></span>`,
     title: html`<a class="name" href="${href}"><strong>${r.prompt.split("\n")[0]!.slice(0, 120)}</strong></a> ${Pill({ tone, children: label })}`,
-    line: html`${harnessTag(r.harness, r.model)} ${r.repo} · ${r.mode}${r.forked ? " · copy" : ""}`,
+    line: html`${harnessTag(r.harness, r.model)} ${r.machine ? html`<span class="t3">${r.machine}</span> · ` : ""}${r.repo} · ${r.mode}${r.forked ? " · copy" : ""}`,
     more: html`<span class="actions">${act}</span>`,
     trail: html`${Ago(r.startedAt)}${cost ? html`<span class="t3">$${cost.toFixed(2)}</span>` : ""}`,
     quiet: r.status !== "running" && !denied,
@@ -47,7 +47,7 @@ function clearAll(n: number) {
   return Confirm({ action: "/agents/clear", label: "Clear finished", question: html`Clear away ${n} finished ${n === 1 ? "session" : "sessions"} started here, those waiting for your OK included? Their transcripts stay; replying to one brings it back.` });
 }
 
-export function agentsPage(s: Snapshot, sessions: Sessions, all: Run[] = [], o: { workDir?: string; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** Packs' panels after "Started here" ("agents.panel"). */ panels?: (Html | "")[]; /** Packs' ways to pick an ended session up ("session.resume"). */ resume?: (s: Session) => (Html | "")[] } = {}): PageOpts {
+export function agentsPage(s: Snapshot, sessions: Sessions, all: Run[] = [], o: { workDir?: string; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Packs' panels after "Started here" ("agents.panel"). */ panels?: (Html | "")[]; /** Packs' ways to pick an ended session up ("session.resume"). */ resume?: (s: Session) => (Html | "")[] } = {}): PageOpts {
   const runs = latestRuns(all);
   const here = (a: { cwd?: string }) => !!o.workDir && inWorkDir(o.workDir, a.cwd);
   const ctx = { org: s.org, mine: mineByKey(s), refs: s.refs, prs: 8, resume: o.resume, here, discard: (a: { sessionId: string; cwd?: string }) => here(a) || runs.some((r) => r.sessionId === a.sessionId) };

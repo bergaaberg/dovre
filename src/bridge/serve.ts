@@ -25,9 +25,9 @@ export function runMeta(r: Run): Run {
   };
 }
 
-export function stateOf(desk: Desk, sessions: { live: Session[]; recent: Session[] }, o: { at?: number; version?: string } = {}): MacState {
+export function stateOf(desk: Desk, sessions: { live: Session[]; recent: Session[] }, o: { at?: number; version?: string; name?: string } = {}): MacState {
   const v = desk.view();
-  return { at: o.at ?? Date.now(), version: o.version, harnesses: v.harnesses, runs: v.runs.map(runMeta), sessions, workDir: v.workDir };
+  return { at: o.at ?? Date.now(), version: o.version, ...(o.name ? { name: o.name } : {}), harnesses: v.harnesses, runs: v.runs.map(runMeta), sessions, workDir: v.workDir };
 }
 
 /** Leaves room for the frame around an answer. */

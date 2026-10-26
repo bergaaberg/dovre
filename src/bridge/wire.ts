@@ -46,6 +46,22 @@ const NONCE = /^[0-9a-f]{32}$/;
 /** BRIDGE_KEY must be long enough to be a key, not a password. */
 export const keyOk = (k: string | undefined): k is string => typeof k === "string" && k.trim().length >= 32;
 
+/**
+ * Machines (H7). The one the Access service token signs in as is `mac` and signs with BRIDGE_KEY
+ * itself, as before. Each machine an issuer names (H6, a JWT's `service` claim) has an id of
+ * 16–32 hex characters and its own key, derived from BRIDGE_KEY: the hub works it out, whoever
+ * paired the machine handed it over, and nothing stores one per machine.
+ */
+export const LEGACY_MACHINE = "mac";
+export const MACHINE_ID = /^[0-9a-f]{16,32}$/;
+export const machineOk = (id: unknown): id is string => id === LEGACY_MACHINE || (typeof id === "string" && MACHINE_ID.test(id));
+
+/** The key a machine's frames are signed with: BRIDGE_KEY for `mac`, else derived from it (64 hex characters). */
+export async function machineKey(key: string, machine: string): Promise<string> {
+  if (machine === LEGACY_MACHINE) return key;
+  return sign(await hmacKey(key), `${PROTOCOL}|machine|${machine}`);
+}
+
 const helloText = (hub: string, mac: string, at: number) => `${PROTOCOL}|hello|${hub}|${mac}|${at}`;
 const sessionText = (hub: string, mac: string) => `${PROTOCOL}|session|${hub}|${mac}`;
 
@@ -145,7 +161,7 @@ export async function channel(o: { key: string; send: Dir; sent?: number; got?: 
 /** A call the Worker makes of the Mac's desk: an op name and its arguments (src/agents/desk.ts checks them). */
 export type Call = { op: string; [k: string]: unknown };
 /** What the Mac keeps the hub told of (metadata only: never what a turn says). */
-export type MacState = { at: number; version?: string; harnesses: string[]; runs: unknown[]; sessions: { live: unknown[]; recent: unknown[] }; workDir?: string };
+export type MacState = { at: number; version?: string; /** The machine's own name for itself (its hostname). */ name?: string; harnesses: string[]; runs: unknown[]; sessions: { live: unknown[]; recent: unknown[] }; workDir?: string };
 
 export type Up =
   | { t: "state"; state: MacState }
@@ -183,7 +199,8 @@ export function parseUp(v: unknown): Up | undefined {
     const recent = arr(ss?.recent, 200);
     if (!harnesses || !runs || !live || !recent) return undefined;
     const workDir = typeof s.workDir === "string" && s.workDir.length <= 500 ? s.workDir : undefined;
-    return { t: "state", state: { at: s.at, version: typeof s.version === "string" ? s.version.slice(0, 40) : undefined, harnesses, runs, sessions: { live, recent }, ...(workDir ? { workDir } : {}) } };
+    const name = typeof s.name === "string" ? s.name.replace(/[^\w .'-]/g, "").trim().slice(0, 60) : "";
+    return { t: "state", state: { at: s.at, version: typeof s.version === "string" ? s.version.slice(0, 40) : undefined, ...(name ? { name } : {}), harnesses, runs, sessions: { live, recent }, ...(workDir ? { workDir } : {}) } };
   }
   return undefined;
 }
