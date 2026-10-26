@@ -1,6 +1,6 @@
 /**
  * Today (design C, the morning view): a briefing, the horizon of the last 24 hours, then two
- * columns of cards (ready to ship, my list; my pull requests, operations, Teams, mail; the packs', agents among them)
+ * columns of cards (ready to ship, my list; my pull requests, operations; the packs', agents among them)
  * beside a live log of what's moving, docked at the right (src/home/feed.ts). Lists are short: what
  * needs me first, the rest counted and a link away. Every row opens in place.
  */
@@ -188,14 +188,12 @@ export const CORE_CARDS = [
   { id: "todo", label: "My list", col: "left", order: 30 },
   { id: "actions", label: "What Dovre did", col: "left", order: 40 },
   { id: "prs", label: "Pull requests", col: "right", order: 10 },
-  { id: "teams", label: "Teams", col: "right", order: 30 },
-  { id: "mail", label: "Mail", col: "right", order: 40 },
 ] as const satisfies readonly { id: string; label: string; col: Column; order: number }[];
 type CoreCard = (typeof CORE_CARDS)[number]["id"];
 /** A pack card's place by default: after the core's, in the packs' own order. */
 export const packOrder = (order: number | undefined) => Math.min(999, 100 + Math.max(0, order ?? 100));
 
-export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** My list's card (src/pages/todo.ts). */ todo?: Html; /** Teams' card: what's new in my chats (src/pages/teams.ts). */ teams?: Html | ""; /** Outlook's card: unread mail (src/pages/outlook.ts). */ mail?: Html | ""; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (the avatar in its scene). */ avatar?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"] } = {}) {
+export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** My list's card (src/pages/todo.ts). */ todo?: Html; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (the avatar in its scene). */ avatar?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"] } = {}) {
   const now = opts.now ?? Date.now();
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
@@ -205,8 +203,6 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
     todo: opts.todo,
     actions: opts.actions,
     prs: prsCard(s, summary, opts.agent, opts.forge),
-    teams: opts.teams,
-    mail: opts.mail,
   };
   const slots: Slot<Html>[] = [
     ...CORE_CARDS.flatMap((c) => (core[c.id] ? [{ ...c, render: core[c.id] as Html }] : [])),

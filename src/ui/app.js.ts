@@ -40,7 +40,7 @@ window.addEventListener("orientationchange", () => { tallest = 0; setTimeout(kbC
 document.addEventListener("focusin", () => setTimeout(kbCheck, 250));
 document.addEventListener("focusout", () => setTimeout(kbCheck, 50));
 kbCheck();
-// Inside the Teams dock (a frame of /teams/dock on another of this app's pages).
+// Inside a dock (a frame of a /…/dock page on another of this app's pages).
 const framed = window.top !== window;
 // A dock's page has no frame of its own to say light or dark: it takes its page's (Settings → Layout).
 if (framed) try {
@@ -279,9 +279,10 @@ document.addEventListener("submit", (e) => {
   setTimeout(() => (b.disabled = true), 0);
 });
 
-// ── Teams: a message goes out in the background. The box clears at once and the message shows,
-// dimmed, until Teams has it and the chat swaps in the real one. If the post itself fails, the
-// text comes back to the box; if Teams refuses it, the chat says so (with the text) when it swaps. ──
+// ── A chat's box (form[data-send], a pack's chat page: Teams): a message goes out in the background.
+// The box clears at once and the message shows, dimmed (.tchat > .tmsg.mine.pending, styled by the
+// pack), until the chat swaps in the real one. If the post itself fails, the text comes back to the
+// box; if the app refuses it, the chat says so (with the text) when it swaps. ──
 async function sendQuiet(e, form) {
   e.preventDefault();
   const box = form.querySelector("textarea");
@@ -752,7 +753,7 @@ const KEYS = [
   ["Hints", [["f", "Letters on everything clickable: type them to press it"], ["F", "The same, links open in a new window"], ["Backspace", "Take back a letter"], ["Esc", "Put the letters away"]]],
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
   ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["H / L", "Back / forward"]]],
-  ["This page", [["r", "Refresh the data"], ["T", "Teams: open or close the chat panel"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
+  ["This page", [["r", "Refresh the data"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
 ];
 let help = null;
 function showHelp() {
@@ -763,7 +764,10 @@ function showHelp() {
     title.textContent = "Keys";
     const groups = document.createElement("div");
     groups.className = "key-groups";
-    for (const [name, keys] of KEYS) {
+    // The packs' docks with a key of their own (Teams: T), beside Bino's.
+    const docked = DOCKS.filter((d) => d.letter).map((d) => [d.letter, d.title + ": open or close its panel"]);
+    for (const [name, listed] of KEYS) {
+      const keys = name === "This page" ? [...listed.slice(0, 1), ...docked, ...listed.slice(1)] : listed;
       const group = document.createElement("section");
       const h = document.createElement("h3");
       h.textContent = name;
@@ -963,7 +967,7 @@ document.addEventListener("keydown", (e) => {
   if (e.target.closest?.("dialog")) return;
   const k = e.key;
   if (k === "Escape" && (framed || openDock())) { dockOpen(openDock(), false, true); return; }
-  if (DOCK_KEYS[k]) { e.preventDefault(); dockKey(k); return; }
+  if (DOCK_KEYS[k] || (framed && /^[A-Z]$/.test(k) && !"FGHJKL".includes(k))) { e.preventDefault(); dockKey(k); return; }
   const was = prefix;
   prefix = "";
   clearTimeout(prefixTimer);
@@ -1407,8 +1411,8 @@ function showOutline() {
   railBuild();
 }
 
-// ── SQL completion in the Data tab's query box (textarea[data-schema]): tables and columns from the
-// database's schema (names only, src/data/schema.ts), fetched once when the box is first focused. A
+// ── SQL completion in a query box (textarea[data-schema], a pack's: Data): tables and columns from the
+// database's schema (names only) at the URL the box names, fetched once when the box is first focused. A
 // strip under the box: Tab or Enter takes the marked one, Up and Down move the mark, Esc closes. ──
 const SQL_WORDS = ["SELECT", "FROM", "WHERE", "JOIN", "LEFT JOIN", "INNER JOIN", "ON", "AND", "OR", "NOT", "NULL", "IS NULL", "IS NOT NULL", "LIKE", "IN", "BETWEEN", "AS", "GROUP BY", "ORDER BY", "HAVING", "DISTINCT", "TOP", "COUNT(*)", "DESC", "ASC", "UNION", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END"];
 const sqlSchemas = new Map();
@@ -1549,20 +1553,20 @@ document.addEventListener("focusin", (e) => {
   if (e.target.matches?.("textarea[data-schema]")) sqlComplete(e.target);
 });
 
-// ── The docks (src/html.ts): Teams and Bino, each a panel at the bottom right holding its /…/dock pages
+// ── The docks (src/html.ts): Bino's and the packs', each a panel at the bottom right holding its /…/dock pages
 // in a frame. Whether one is open, and on which page, lasts as long as this window (sessionStorage),
 // so it stays put while I move between pages. One is open at a time. ──
 /** A pack's dock (data-dock on the page, src/html.ts): its pages are /<id>/dock…, a plain path. */
-const packDock = (pack, title) => {
+const packDock = (pack, title, letter) => {
   const home = "/" + pack + "/dock";
-  return { id: "dock-" + pack, key: "u-dock-" + pack, title: title || pack, home, topic: pack, ok: { test: (src) => (src === home || src.startsWith(home + "/") || src.startsWith(home + "#")) && /^\/[\w\-./:@%]*(#[\w-]+)?$/.test(src) && !src.includes("..") && !src.includes("//") } };
+  return { id: "dock-" + pack, key: "u-dock-" + pack, title: title || pack, home, topic: pack, letter: /^[A-Z]$/.test(letter || "") ? letter : undefined, ok: { test: (src) => (src === home || src.startsWith(home + "/") || src.startsWith(home + "#")) && /^\/[\w\-./:@%]*(#[\w-]+)?$/.test(src) && !src.includes("..") && !src.includes("//") } };
 };
 const DOCKS = [
-  { id: "tdock", key: "u-dock", title: "Teams", home: "/teams/dock", ok: /^\/teams\/dock(\/c\/[^/?#]+)?(#end)?$/ },
   { id: "bdock", key: "u-bdock", title: "Bino", home: "/bino/dock", ok: /^\/bino\/dock(\/c\/[0-9a-f-]{36})?$/ },
-  ...[...document.querySelectorAll("[data-dock]")].map((el) => packDock(el.id.replace(/^dock-/, ""), el.dataset.dockTitle)),
+  ...[...document.querySelectorAll("[data-dock]")].map((el) => packDock(el.id.replace(/^dock-/, ""), el.dataset.dockTitle, el.dataset.dockKey)),
 ];
-const DOCK_KEYS = { T: "tdock", B: "bdock" };
+/** B for Bino's; a pack's dock its own letter (the server keeps it to one dock, and off the page's own keys). */
+const DOCK_KEYS = { B: "bdock", ...Object.fromEntries(DOCKS.filter((d) => d.letter && d.letter !== "B").map((d) => [d.letter, d.id])) };
 const dockOf = (id) => DOCKS.find((d) => d.id === id);
 function dockState(d) {
   try { return JSON.parse(sessionStorage.getItem(d.key) || "{}"); } catch { return {}; }
@@ -1619,16 +1623,16 @@ function dockChange(topics) {
     try { frame.contentWindow.dispatchEvent(new CustomEvent("u-change", { detail: topics })); } catch {}
   }
 }
-/** T or B: that dock open or closed; from inside a dock, its page asks the one around it. */
+/** B, or a pack dock's letter: that dock open or closed; from inside a dock, its page asks the one around it. */
 function dockKey(k) {
   if (framed) return parent.postMessage({ dock: "key", key: k }, location.origin);
   const d = dockOf(DOCK_KEYS[k]);
-  dockOpen(d, !dockIsOpen(d), true);
+  if (d) dockOpen(d, !dockIsOpen(d), true);
 }
 if (framed) {
   const own = /^\/([a-z][a-z0-9-]*)\/dock(\/|$)/.exec(location.pathname);
-  const mine = DOCKS.find((d) => location.pathname.startsWith(d.home)) || (own && own[1] !== "teams" && own[1] !== "bino" ? packDock(own[1]) : undefined);
-  if (mine) dockSave(mine, { src: location.pathname + (mine.id === "tdock" && location.pathname.includes("/c/") ? "#end" : mine.topic ? location.hash : "") });
+  const mine = DOCKS.find((d) => location.pathname.startsWith(d.home)) || (own && own[1] !== "bino" ? packDock(own[1]) : undefined);
+  if (mine) dockSave(mine, { src: location.pathname + (mine.topic ? location.hash : "") });
   addEventListener("u-change", (e) => {
     lastEvent = Date.now();
     const topics = Array.isArray(e.detail) ? e.detail : [];

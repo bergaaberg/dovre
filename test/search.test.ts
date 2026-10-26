@@ -42,9 +42,8 @@ const kinds = {
 };
 
 test("finds pages by their other names, PRs by number, branch and repo, the packs' rows by kind, My list, and things to do", () => {
-  const src = { s: world(), kinds, todos: [todo({ id: 7, title: "Ring Per om stacken" }), todo({ id: 8, title: "Gammel", state: "done" })], repos: ["shop-api", "shop-api-pr863", "ledger"], pages: pagesOf({ data: true }) };
+  const src = { s: world(), kinds, todos: [todo({ id: 7, title: "Ring Per om stacken" }), todo({ id: 8, title: "Gammel", state: "done" })], repos: ["shop-api", "shop-api-pr863", "ledger"], pages: pagesOf() };
   const first = (q: string) => search(src, q).groups[0]?.rows[0];
-  assert.equal(first("sql")?.href, "/data", "sql finds Data");
   assert.equal(search(src, "863").groups.find((g) => g.id === "prs")?.rows[0]?.href, "/prs/ACME/shop-api/863");
   assert.equal(search(src, "#863").groups.find((g) => g.id === "prs")?.rows.length, 1);
   assert.equal(search(src, "feat/helse").groups.find((g) => g.id === "code")?.rows[0]?.title, "shop-api-pr863");
@@ -58,7 +57,7 @@ test("finds pages by their other names, PRs by number, branch and repo, the pack
   assert.ok(!corpus(src).actions.some((r) => r.href === "/agents/new"), "core names no pack's action");
   const code = corpus(src).code.map((r) => r.title);
   assert.deepEqual(code, ["shop-api-pr863", "shop-api", "ledger"], "a worktree once, checkouts beside it");
-  assert.ok(!pagesOf().some((p) => p.href === "/data"), "pages this machine hasn't got aren't offered");
+  assert.ok(!pagesOf().some((p) => p.href === "/bino"), "pages this machine hasn't got aren't offered");
   assert.ok(!pagesOf().some((p) => /teams/i.test(p.href)), "never Teams");
 });
 

@@ -35,7 +35,10 @@ test("the page I'm on, as Bino hears it: names and states, never a body, a promp
   assert.equal(viewOf("/notes/2", S, [notes]), "a page of their app Notes (/notes/2).");
   assert.equal(viewOf("/notes/2", S, [{ ...notes, own: true }]), "a page of Dovre's Notes (/notes/2).");
   assert.equal(viewOf("/agents/s/s-9", S), "a page in Dovre.", "the core knows nothing of agents");
-  for (const [path, name] of [["/teams/c/19%3Aabc%40thread.v2", "Teams"], ["/teams", "Teams"], ["/outlook", "Outlook"], ["/data/table?db=ledger:prod&t=Kunde", "Data"], ["/terminal/3", "Terminal"], ["/lab/x.html", "Lab"]] as const) {
+  // A private pack (Teams: chats, mail): named, never described, whatever its `about` would say, and never its path.
+  const chats = { id: "chats", name: "Chats", paths: ["inbox"], private: true, about: () => "the chat with Kari: «secret»" };
+  for (const path of ["/chats/c/19%3Aabc%40thread.v2", "/chats", "/inbox/m/7"]) assert.equal(viewOf(path, S, [chats]), "a page of their app Chats. What it shows is kept from you: don't guess at it.", path);
+  for (const [path, name] of [["/terminal/3", "Terminal"], ["/lab/x.html", "Lab"]] as const) {
     const v = viewOf(path, S);
     assert.equal(v, `the ${name} page. What it shows is kept from you: don't guess at it.`, path);
   }
@@ -85,11 +88,11 @@ test("asking from the pane: the page goes with it, as Bino may hear it; a conver
   await s.until(() => !/thinking/.test(JSON.stringify(s.asked)));
   await new Promise((r) => setTimeout(r, 30));
   const n = s.asked.length;
-  assert.equal((await s.req(`/bino/c/${id}/say`, { text: "Og her?", dock: "1", view: "/teams/c/19%3Asecret%40thread.v2" })).headers.get("location"), at);
+  assert.equal((await s.req(`/bino/c/${id}/say`, { text: "Og her?", dock: "1", view: "/terminal/3?repo=secret-repo" })).headers.get("location"), at);
   await s.until(() => s.asked.length > n);
   const last = s.asked.at(-1)!.user;
-  assert.match(last, /\[Looking at the Teams page\. What it shows is kept from you/);
-  assert.doesNotMatch(last, /19:secret|secret@thread/, "not even the chat's address");
+  assert.match(last, /\[Looking at the Terminal page\. What it shows is kept from you/);
+  assert.doesNotMatch(last, /secret-repo|\/terminal\/3/, "not even the page's address");
 
   // From the full page there's no view, whatever is posted.
   const full = await s.req("/bino/new", { text: "x", view: "/prs/ACME/shop-api/7" });

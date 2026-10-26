@@ -20,6 +20,8 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     dockPage: () => new Response(),
     log: () => {},
     ring: () => {},
+    ask: async () => ({ action: "cancel" }),
+    asking: () => false,
     ...over,
   };
 }

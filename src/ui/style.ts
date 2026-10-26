@@ -593,7 +593,7 @@ table.data { width: 100%; border-collapse: collapse; font-size: var(--fs-s); }
 table.data th { text-align: left; font: 600 11px/1.2 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding: .5rem .6rem; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 table.data td { padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.data tr:last-child td { border-bottom: 0; }
-/* The Data tab: tables that scroll inside the page, query results as monospace cells. */
+/* Tables that scroll inside the page, query results as monospace cells (a pack's: Data). */
 .sheet { overflow: auto; max-height: 70vh; }
 table.data.cells td { font: var(--fs-xs)/1.45 var(--mono); white-space: pre; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
 table.data.cells thead th { position: sticky; top: 0; background: var(--surface); }
@@ -604,14 +604,8 @@ form.query textarea { font-family: var(--mono); font-size: var(--fs-s); }
 .sqlc li:hover { background: var(--hover); color: var(--ink); }
 .sqlc li.on { background: var(--accent-soft); color: var(--accent); }
 .sqlc .k { margin-left: 6px; color: var(--ink-3); }
-.ask-review { white-space: pre-wrap; overflow-wrap: anywhere; }
 form.find { display: flex; gap: .75rem; align-items: flex-end; margin: 0 0 22px; }
 form.find .field { flex: 1; margin: 0; }
-.tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 2px 1rem; list-style: none; margin: 0 0 8px; padding: 0; }
-.tgrid a { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; padding: .4rem .5rem; border-radius: 6px; text-decoration: none; color: inherit; min-width: 0; }
-.tgrid a > span:first-child { overflow-wrap: anywhere; min-width: 0; }
-.tgrid a:hover { background: var(--hover); color: var(--accent); }
-.tgrid .n { color: var(--ink-3); font-size: var(--fs-xs); white-space: nowrap; }
 td.num, th.num, table.data .num { text-align: right; white-space: nowrap; }
 pre.code, pre.output { font: var(--fs-xs)/1.55 var(--mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-s); padding: .7rem .9rem; margin: .5rem 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 pre.docker-logs { margin: 0; border: 0; border-radius: 0; min-height: 12rem; max-height: 70vh; overflow-y: auto; }
@@ -873,57 +867,8 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .bino-thinking { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--ink-3); }
 .bino-thinking .spinner { width: 16px; height: 16px; }
 .mylist { display: flex; margin: 0 0 .8rem; }
-/* Teams: a chat as a thread, newest at the bottom; runs of one sender share a header; reactions small. */
-.tthread { max-width: 52rem; }
-.tchat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.tday { align-self: stretch; display: flex; align-items: center; gap: 10px; margin: 16px 0 8px; font-size: var(--fs-xs); color: var(--ink-3); }
-.tday::before, .tday::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-.tmsg { position: relative; width: fit-content; max-width: min(40rem, 82%); padding: 6px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); margin-top: 8px; }
-.tmsg.cont { margin-top: 0; }
-.tmsg.mine { align-self: flex-end; background: var(--accent-soft); border-color: var(--accent-line); }
-.tmsg.pending { opacity: .55; }
-.tfail-t { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
-.tmsg.mention { box-shadow: inset 3px 0 0 var(--hint-line); }
-.tmsg:target { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tmsg-h { margin: 0 0 1px; font-size: var(--fs-xs); color: var(--ink-3); }
-.tmsg-h strong { color: var(--ink-2); }
-.tmention { color: var(--warn); }
-.tmsg-t { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
-.tmsg-t a { color: var(--accent); }
-.tmsg-r { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 3px; font-size: var(--fs-xs); }
-.tmsg-r:empty { display: none; }
-/* With no reactions yet, the ☺ waits beside the bubble rather than in a row of its own. */
-.tmsg-r:not(:has(.treact)) { margin-top: 0; }
-.tmsg-r:not(:has(.treact)) .treact-pick:not([open]) { position: absolute; bottom: 4px; right: -26px; }
-.tmsg.mine .tmsg-r:not(:has(.treact)) .treact-pick:not([open]) { right: auto; left: -26px; }
-.treact { border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; color: var(--ink-2); line-height: 18px; }
-.treact.mine { border-color: var(--accent); color: var(--accent); }
-.treact-pick { opacity: 0; transition: opacity .12s; }
-.tmsg:hover .treact-pick, .tmsg:focus-within .treact-pick, .treact-pick[open] { opacity: 1; }
-.treact-pick > summary { list-style: none; cursor: pointer; color: var(--ink-3); padding: 0 4px; border-radius: 999px; }
-.treact-pick > summary::-webkit-details-marker { display: none; }
-.treact-pick > summary:hover { color: var(--accent); }
-.treact-pick form { display: inline-flex; gap: 2px; margin-left: 4px; }
-.treact-pick button { padding: 1px 5px; font-size: 14px; border-radius: 999px; }
-.treact-pick button.on { border-color: var(--accent); background: var(--accent-soft); }
-/* Team channels: a post with its replies indented under it; picking channels team by team. */
-.cposts { list-style: none; margin: 0; padding: 0; max-width: 52rem; }
-.cpost { padding: 12px 0 10px; border-top: 1px solid var(--line); }
-.cpost-s { font: 600 var(--fs-m)/1.3 var(--sans); margin: 0 0 4px; }
-.tmsg.creply { margin-left: 28px; max-width: min(38rem, 78%); }
-.pick { list-style: none; margin: 0; padding: 0; max-width: 44rem; }
-.pick-team { border-top: 1px solid var(--line); padding: 8px 0; }
-.pick-h { margin: 0; }
-.pick-h a { text-decoration: none; }
-.pick-ch { list-style: none; margin: 6px 0 4px; padding: 0 0 0 16px; }
-.pick-ch li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; }
-.pick-ch form { margin: 0; }
 #end { display: block; scroll-margin-bottom: 140px; }
-.tcompose { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; padding: 10px 0 12px; background: var(--bg); }
-.tcompose textarea { flex: 1; min-height: 2.6em; }
-.tsend { flex: none; }
-@media (hover: none) { .treact-pick { opacity: 1; } }
-/* The Teams dock: a button at the bottom right of every page; open, a chat panel above it (a frame of /teams/dock). */
+/* Docks: Bino's and the packs' buttons at the bottom right of every page; open, a panel above one (a frame of its /…/dock page). */
 .docks { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: flex; align-items: flex-end; gap: 8px; pointer-events: none; }
 .tdock { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
 .tdock > * { pointer-events: auto; }
@@ -958,19 +903,7 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .dock-i:hover { background: var(--hover); color: var(--ink); }
 .dock-b { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 12px 12px; }
 .dock-b #end { scroll-margin-bottom: 0; }
-.dock-b .tmsg { max-width: 88%; }
 .dock-compose { flex: none; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--line); }
-.dock-compose .tsend { align-self: flex-end; }
-.dock-why { flex: none; margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); }
-.tdl { list-style: none; margin: 0 -12px; padding: 0; }
-.tdl a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--ink-2); }
-.tdl a:hover { background: var(--hover); color: var(--ink); }
-.tdl-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tdl-t { font-size: var(--fs-xs); color: var(--ink-3); }
-.tdl-l { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tdl li.new .tdl-n { font-weight: 700; color: var(--ink); }
-.tdl li.new .tdl-l { color: var(--ink-2); }
-.teams-proposals { border: 1px dashed var(--accent-line); border-radius: var(--r); padding: 4px 14px 8px; margin-bottom: 18px; }
 .todo-item.proposal { align-items: center; }
 .todo-item.proposal .notes { margin: 2px 0 0; }
 .bino-hub { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 22px; align-items: start; }

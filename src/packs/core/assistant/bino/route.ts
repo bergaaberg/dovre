@@ -89,7 +89,7 @@ export function parseReply(r: Ran): { text: string; cost: number } {
 type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string }) => Promise<Ran>;
 
 /**
- * `copilot`: the omp route, a Copilot model with no tools, no MCP and no session (src/teams/crawl.ts);
+ * `copilot`: the omp route, a Copilot model with no tools, no MCP and no session (src/ai/omp.ts);
  * it talks and keeps memory with the model it was made with.
  */
 export function routeOf(o: { via: BinoVia; claude?: Tool; copilot?: OmpAsker; copilotCli?: Ask; copilotCliModel?: string; agy?: Tool; codex?: Tool; apiKey?: ApiKeyOpts; cfGateway?: CfGatewayOpts; openRouter?: OpenRouterOpts; model?: string; reflectModel?: string; run?: Run; log?: (line: string) => void }): Route {
