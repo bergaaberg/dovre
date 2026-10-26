@@ -7,6 +7,7 @@ package main
 //	dovre bridge install          start it at login (launchd, systemd --user, or the Run key) and now
 //	dovre bridge uninstall        stop it and don't start it at login
 //	dovre bridge status           paired with what, started at login, running
+//	dovre bridge restart          restart the login item (after an update)
 //
 // Pairing is a device-code flow against dovre.dev (like `gh auth login`): the code is typed on
 // the cockpit's page while signed in, never put in a link. What it hands back (a refresh token
@@ -95,8 +96,10 @@ func bridge(p Paths, args []string) error {
 		return bridgeUninstall(h)
 	case "status":
 		return bridgeStatus(h)
+	case "restart":
+		return bridgeRestart(h)
 	default:
-		fmt.Println("dovre bridge login <handle> | run | install | uninstall | status")
+		fmt.Println("dovre bridge login <handle> | run | install | uninstall | status | restart")
 		return nil
 	}
 }
@@ -285,6 +288,10 @@ func findBundle(p Paths) (string, error) {
 		return b, nil
 	}
 	exe, _ := os.Executable()
+	// install.sh may link it into ~/.local/bin; the bundle is beside the real file.
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
 	for _, b := range []string{
 		filepath.Join(filepath.Dir(exe), "bridge", "main.mjs"),
 		filepath.Join(p.Root, "dist", "bridge", "main.mjs"),
@@ -456,6 +463,19 @@ func bridgeUninstall(h BridgeHome) error {
 		stopBridge(pid)
 	}
 	fmt.Println("The bridge is stopped and won't start at login. Still paired: `dovre bridge install` starts it again.")
+	return nil
+}
+
+// bridgeRestart: after an update (install.sh, install.ps1), the login item runs the new files.
+func bridgeRestart(h BridgeHome) error {
+	if !serviceInstalled() {
+		fmt.Println("The bridge doesn't start at login here, so there's nothing to restart.")
+		return nil
+	}
+	if err := serviceRestart(h); err != nil {
+		return err
+	}
+	fmt.Println("The bridge restarted.")
 	return nil
 }
 
