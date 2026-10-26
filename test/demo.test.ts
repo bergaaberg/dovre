@@ -43,9 +43,44 @@ test("demo: every write is refused before the app, and the bridge isn't there", 
   ] as const) {
     const res = await w.fetch(at(path, { method, headers: { origin: "https://demo.dovre.dev" } }));
     assert.equal(res.status, 403, `${method} ${path}`);
-    assert.match(await res.text(), /read-only/);
+    assert.match(await res.text(), /Read-only demo/);
   }
   assert.equal((await w.fetch(at("/bridge", { headers: { upgrade: "websocket" } }))).status, 404);
+});
+
+test("demo: a refused button explains itself inside the demo's page, with the way back", async () => {
+  const w = createDemoWorker();
+  const post = (path: string, referer?: string) => w.fetch(at(path, { method: "POST", headers: { origin: "https://demo.dovre.dev", ...(referer ? { referer } : {}) } }));
+  for (const [path, why] of [
+    ["/refresh", /nothing new to read/],
+    ["/stats/refresh", /nothing new to read/],
+    ["/deploys/approve", /second click to confirm/],
+    ["/deploys/reject", /second click to confirm/],
+    ["/todo/add", /Your list is saved/],
+    ["/avatar/today", /The avatar.{1,6}s settings are saved/],
+    ["/settings/layout/reset", /Settings are saved/],
+    ["/settings/notify/test", /Settings are saved/],
+    ["/agents/s/d0e0a001-0000-4000-8000-000000000002/reply", /ask Bino instead/],
+    ["/somewhere/else", /buttons that would change something stop here/],
+  ] as const) {
+    const res = await post(path, "https://demo.dovre.dev/deploys?x=1");
+    assert.equal(res.status, 403, path);
+    assert.equal(res.headers.get("x-robots-tag"), "noindex", path);
+    const page = await res.text();
+    assert.match(page, why, path);
+    assert.match(page, /This is a demo\./, path);
+    assert.match(page, /<a href="\/deploys\?x=1">Back to the demo<\/a>/, path);
+  }
+  // Back only to a page of the demo's own.
+  for (const ref of ["https://evil.example/x", "not a url", undefined]) {
+    assert.match(await (await post("/todo/add", ref)).text(), /<a href="\/">Back to the demo<\/a>/, String(ref));
+  }
+  // Hostile query on the page itself stays inert.
+  for (const hostile of ["<script>alert(1)</script>", "javascript:alert(1)", "//evil.example"]) {
+    const page = await (await w.fetch(at(`/read-only?did=${encodeURIComponent(hostile)}&back=${encodeURIComponent(hostile)}`))).text();
+    assertInert(page, hostile);
+    assert.match(page, /<a href="\/">Back to the demo<\/a>/);
+  }
 });
 
 test("demo: it reads no bindings, so a token or Access set on it changes nothing and never shows", async () => {
@@ -302,7 +337,7 @@ test("demo: createDemoWorker accepts custom fixtures, packs, allowWrite, and lay
   // AllowWrite hook: non-permitted write returns 403 read-only
   const deniedRes = await w.fetch(at("/kiosk/other", { method: "POST" }));
   assert.equal(deniedRes.status, 403);
-  assert.match(await deniedRes.text(), /read-only/);
+  assert.match(await deniedRes.text(), /Read-only demo/);
 
   // Hostile input in custom pack stays inert
   for (const hostile of ["<script>alert(1)</script>", "javascript:alert(1)"]) {
