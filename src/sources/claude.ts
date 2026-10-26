@@ -13,6 +13,8 @@ import { repoOf } from "../format.ts";
 
 export type Session = {
   sessionId: string;
+  /** Hosted, with several machines: the one it's on (H7). */
+  machine?: string;
   /** Which agent CLI the session belongs to; Claude Code unless set. */
   harness?: "claude" | "omp" | "copilot" | "agy" | "codex";
   /** omp: the profile the session ran under (`omp --profile <name>`); unset for the default one. */

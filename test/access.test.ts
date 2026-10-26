@@ -373,7 +373,7 @@ test("a service token is never a person: pages refuse it, /bridge takes only the
     get: () => ({
       fetch: async (r: Request | string) => {
         const q = new Request(r);
-        if (new URL(q.url).pathname === "/mac") return Response.json({ online: false, seen: Date.now() - 3 * 3600e3, watching: false });
+        if (new URL(q.url).pathname === "/mac") return Response.json({ watching: false, machines: [{ id: "mac", online: false, seen: Date.now() - 3 * 3600e3 }] });
         handed.push(q);
         return new Response("to the hub");
       },
@@ -395,15 +395,52 @@ test("a service token is never a person: pages refuse it, /bridge takes only the
       assert.equal((await worker.fetch(upgrade(await token("abc123.access")), { ...bindings, ...off })).status, 404, `not set up: ${JSON.stringify(off)}`);
     }
     resetHostedApp();
-    assert.equal(await (await worker.fetch(upgrade(await token("abc123.access")), bindings)).text(), "to the hub");
+    assert.equal(await (await worker.fetch(upgrade(await token("abc123.access"), { upgrade: "websocket", "x-dovre-machine": "0123456789abcdef" }), bindings)).text(), "to the hub");
     assert.equal(handed.length, 1);
     assert.equal(new URL(handed[0]!.url).pathname, "/bridge");
     assert.equal(handed[0]!.headers.get("upgrade"), "websocket");
+    assert.equal(handed[0]!.headers.get("x-dovre-machine"), "mac", "Access's token is the Mac; what the request said is replaced");
 
     // A person's page: the agents are the Mac's, and it says when the Mac is away.
     const agents = await worker.fetch(new Request("https://dovre.example.dev/agents", { headers: { "cf-access-jwt-assertion": person } }), bindings);
     assert.equal(agents.status, 200);
     assert.match(await agents.text(), /Your Mac is offline, last seen 3 h ago/);
+  } finally {
+    globalThis.fetch = realFetch;
+    resetHostedApp();
+  }
+});
+
+test("H6: a machine an issuer names (its `service` claim) is never a person, and /bridge takes it as that machine", async () => {
+  const iss = "https://dovre.example.dev";
+  const k = await keyPair("d1");
+  const { fetchFn } = certsServer(() => [k.jwk]);
+  const verify = createAccessVerifier({ issuer: iss, aud: "t-alice", allowedEmails: ["me@example.dev"], fetchFn, now });
+  const machine = { iss, aud: "t-alice", service: "0123456789abcdef", exp: NOW + 600 };
+  assert.deepEqual(await verify(req(await k.sign(machine))), { service: "0123456789abcdef", machine: true });
+  assert.deepEqual(await verify(req(await k.sign({ ...machine, email: "me@example.dev" }))), { service: "0123456789abcdef", machine: true }, "a machine's token is a machine's, whatever else it says");
+  for (const bad of ["mac", "../x", "0123", "0123456789ABCDEF", 42, ""]) assert.equal(await verify(req(await k.sign({ ...machine, service: bad }))), undefined, `service ${JSON.stringify(bad)}`);
+  assert.equal(await verify(req(await k.sign({ ...machine, aud: "t-bob" }))), undefined, "another tenant's machine");
+
+  resetHostedApp();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${iss}/.well-known/jwks.json` ? new Response(JSON.stringify({ keys: [k.jwk] })) : realFetch(url)) as typeof fetch;
+  const handed: Request[] = [];
+  const HUB = { idFromName: () => "hub", get: () => ({ fetch: async (r: Request | string) => (handed.push(new Request(r)), new Response("to the hub")) }) };
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const bindings = { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", AUTH_ISSUER: iss, AUTH_AUD: "t-alice", ALLOWED_EMAILS: "me@example.dev", HUB, BRIDGE_KEY: "k".repeat(40) };
+  const jwt = await k.sign({ ...machine, exp });
+  const upgrade = (j: string) => new Request("https://alice.example.dev/bridge", { headers: { "cf-access-jwt-assertion": j, upgrade: "websocket", "x-dovre-machine": "mac" } });
+  try {
+    assert.equal((await worker.fetch(new Request("https://alice.example.dev/todo", { headers: { "cf-access-jwt-assertion": jwt } }), bindings)).status, 404, "a machine opens no page");
+    assert.equal((await worker.fetch(upgrade(jwt), bindings)).status, 200);
+    assert.equal(handed[0]?.headers.get("x-dovre-machine"), "0123456789abcdef", "the machine its token names, not the one it said");
+    resetHostedApp();
+    assert.equal((await worker.fetch(upgrade(jwt), { ...bindings, BRIDGE_KEY: undefined })).status, 404, "no BRIDGE_KEY: no bridge");
+    resetHostedApp();
+    assert.equal((await worker.fetch(upgrade(await k.sign({ iss, aud: "t-alice", email: "me@example.dev", exp })), bindings)).status, 404, "a person isn't a machine");
+    assert.equal(handed.length, 1);
   } finally {
     globalThis.fetch = realFetch;
     resetHostedApp();

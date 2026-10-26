@@ -13,12 +13,13 @@
  *   What Bino knows comes with each message from the Worker (it has the packs and my list) and
  *   stays in memory for that one answer. Memory is memlet on the shared D1.
  *
- * - The Mac's bridge (PLAN D24, WP-N10): one WebSocket the Mac opens (src/bridge/wire.ts), taken
+ * - The bridge (PLAN D24, WP-N10, H7): a WebSocket each machine opens (src/bridge/wire.ts), taken
  *   with the hibernation API so an idle socket costs nothing (keep-alive pings are answered
- *   without waking the object). The object keeps only the Mac's metadata (runs, sessions,
- *   harnesses, when it was last seen); calls the Worker makes go down the socket and their
- *   answers back to that request, never kept. It tells the bridge when a page is watching, so
- *   the Mac streams only then.
+ *   without waking the object). Each signs with its own key, derived from BRIDGE_KEY. The object
+ *   keeps only each machine's metadata (runs, sessions, harnesses, when it was last seen); calls
+ *   the Worker makes go down that machine's socket and their answers back to that request, never
+ *   kept. It tells the machines when a page is watching, so they stream only then. A machine
+ *   revoked (POST /mac/revoke) is shut out until its tokens run out.
  *
  * - Export (GET /export): every table it keeps, for a hosted cockpit's export of its data.
  *
@@ -30,7 +31,7 @@ import { createBino, type ConvStore, type Conv, type Engine } from "../packs/cor
 import { apiKeyRouteOf, gatewayRouteOf, openRouterRouteOf } from "../packs/core/assistant/bino/gateway.ts";
 import { loadMemory, noMemory } from "../packs/core/assistant/bino/memory.ts";
 import type { D1 } from "../db.ts";
-import { type Call, type Channel, channel, type Down, helloOk, keyOk, type MacState, nonce, parseUp, sessionKey } from "../bridge/wire.ts";
+import { type Call, type Channel, channel, type Down, helloOk, keyOk, LEGACY_MACHINE, machineKey, machineOk, type MacState, nonce, parseUp, sessionKey } from "../bridge/wire.ts";
 
 /** A hibernatable WebSocket, as much of one as this uses. */
 export type HubSocket = {
@@ -52,11 +53,16 @@ export type HubState = {
   setWebSocketAutoResponse?(pair?: unknown): void;
 };
 
-/** What a socket keeps across hibernation: its challenge, and once the hello passed, its key and counters. */
-type Attached = { challenge: string; key?: string; sent: number; got: number; since: number };
+/** What a socket keeps across hibernation: its machine and challenge, and once the hello passed, its key and counters. */
+type Attached = { challenge: string; machine?: string; key?: string; sent: number; got: number; since: number };
 
-/** The Mac as pages see it: online or when it was last, and its metadata. */
-export type MacView = { online: boolean; seen?: number; watching: boolean; state?: MacState };
+/** A machine as pages see it: online or when it was last, and its metadata. */
+export type MachineView = { id: string; name?: string; online: boolean; seen?: number; state?: MacState };
+/** The machines (H7), and whether a page is watching. */
+export type MacView = { watching: boolean; machines: MachineView[] };
+
+/** The worker names the machine on a /bridge upgrade it verified (src/worker.ts `bridgeIn`); only the worker reaches the hub. */
+export const MACHINE_HEADER = "x-dovre-machine";
 /** A call's answer: the Mac's, or why there isn't one. */
 export type MacAnswer = { ok: true; value: unknown } | { ok: false; error: string; offline?: boolean };
 
@@ -65,6 +71,8 @@ const MAC = "mac";
 const PAGE = "page";
 /** The most pages that may watch at once (tabs and phones): past it, the newest is turned away and falls back to /events. */
 const MAX_PAGES = 64;
+/** The longest a revoke holds a machine out (its last token's lifetime is far shorter). */
+const REVOKE_MAX_MS = 24 * 60 * 60_000;
 /** How long a call waits for the Mac (start a turn, read a session). */
 const CALL_MS = 10_000;
 /** The most a state may weigh here (sessions' and runs' metadata). */
@@ -161,7 +169,7 @@ export class DovreHub {
   /** The Mac's socket's channel, once its hello passed (rebuilt from the attachment after hibernation). */
   private chans = new WeakMap<HubSocket, Promise<Channel>>();
   /** Calls waiting on the Mac, by id: only while the request that made them is open. */
-  private waiting = new Map<string, (a: MacAnswer) => void>();
+  private waiting = new Map<string, { machine: string; done: (a: MacAnswer) => void }>();
   private macSql = false;
   /** For tests: the clock. */
   now: () => number = Date.now;
@@ -180,10 +188,16 @@ export class DovreHub {
     if (path === "/live") return this.liveUpgrade(req);
     if (req.method === "GET" && path === "/mac") return json(this.mac());
     if (req.method === "POST" && path === "/mac/call") {
-      const b = (await req.json().catch(() => ({}))) as { call?: unknown; ms?: unknown };
+      const b = (await req.json().catch(() => ({}))) as { call?: unknown; ms?: unknown; machine?: unknown };
       const c = b.call as Call | undefined;
       if (!c || typeof c !== "object" || typeof c.op !== "string") return json({ ok: false, error: "Not a call." } satisfies MacAnswer, 400);
-      return json(await this.call(c, typeof b.ms === "number" ? Math.min(Math.max(b.ms, 500), 25_000) : CALL_MS));
+      return json(await this.call(c, typeof b.ms === "number" ? Math.min(Math.max(b.ms, 500), 25_000) : CALL_MS, typeof b.machine === "string" ? b.machine : undefined));
+    }
+    if (req.method === "POST" && path === "/mac/revoke") {
+      const b = (await req.json().catch(() => ({}))) as { machine?: unknown; until?: unknown };
+      if (!machineOk(b.machine) || typeof b.until !== "number" || !Number.isFinite(b.until)) return json({ ok: false }, 400);
+      this.revoke(b.machine, b.until);
+      return json({ ok: true });
     }
     if (req.method === "GET" && path === "/events") return this.events();
     if (req.method === "POST" && path === "/publish") {
@@ -332,7 +346,7 @@ export class DovreHub {
     return null;
   }
 
-  // ── The Mac's bridge (src/bridge/wire.ts) ──
+  // ── The machines' bridge (src/bridge/wire.ts) ──
 
   private sql() {
     const sql = this.state.storage.sql;
@@ -349,36 +363,93 @@ export class DovreHub {
   private keep(k: string, v: string) {
     this.sql().exec("INSERT INTO mac (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", k, v);
   }
-
-  /** The Mac's socket, once it said hello. */
-  private live(): HubSocket | undefined {
-    return (this.state.getWebSockets?.(MAC) ?? []).find((ws) => !!(ws.deserializeAttachment() as Attached | null)?.key);
+  /** A machine's own row: `mac`'s are the rows from before there were several. */
+  private static k(what: "state" | "seen" | "revoked", machine: string) {
+    return machine === LEGACY_MACHINE ? what : `${what}:${machine}`;
   }
 
-  mac(): MacView {
-    let state: MacState | undefined;
+  /** Every socket a machine holds that said hello (one, but a new one may be taking over). */
+  private machineSockets(machine?: string): HubSocket[] {
+    return (this.state.getWebSockets?.(machine ? `${MAC}:${machine}` : MAC) ?? []).filter((ws) => !!(ws.deserializeAttachment() as Attached | null)?.key);
+  }
+  /** A machine's socket, once it said hello. */
+  private live(machine: string): HubSocket | undefined {
+    return this.machineSockets(machine)[0];
+  }
+  private static machineOf(a: Attached | null | undefined): string {
+    return a?.machine ?? LEGACY_MACHINE;
+  }
+
+  /** What a machine last said of itself. */
+  private stateOf(machine: string): MacState | undefined {
     try {
-      const v = this.kept("state");
-      state = v ? (JSON.parse(v) as MacState) : undefined;
-    } catch {}
-    const seen = Number(this.kept("seen")) || undefined;
-    return { online: !!this.live(), seen, watching: this.watching(), state };
+      const v = this.kept(DovreHub.k("state", machine));
+      return v ? (JSON.parse(v) as MacState) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** How a machine is named to people: `mac` is "Your Mac", another by its own name. */
+  private label(machine: string): string {
+    if (machine === LEGACY_MACHINE) return "Your Mac";
+    const name = this.stateOf(machine)?.name;
+    return name ? `"${name}"` : "That machine";
+  }
+
+  /** Every machine that has been here (and not revoked since), online first, then the most recently seen. */
+  mac(): MacView {
+    const ids = this.sql()
+      .exec("SELECT k FROM mac WHERE k = 'seen' OR k LIKE 'seen:%'")
+      .toArray()
+      .map((r) => (String(r.k) === "seen" ? LEGACY_MACHINE : String(r.k).slice("seen:".length)))
+      .filter(machineOk);
+    const machines = ids
+      .map((id): MachineView => {
+        const state = this.stateOf(id);
+        return { id, name: state?.name, online: !!this.live(id), seen: Number(this.kept(DovreHub.k("seen", id))) || undefined, state };
+      })
+      .sort((a, b) => Number(b.online) - Number(a.online) || (b.seen ?? 0) - (a.seen ?? 0));
+    return { watching: this.watching(), machines };
+  }
+
+  /** Whether a machine was revoked and its tokens may still be good. */
+  private revoked(machine: string): boolean {
+    const until = Number(this.kept(DovreHub.k("revoked", machine)));
+    if (!until) return false;
+    if (until > this.now()) return true;
+    this.sql().exec("DELETE FROM mac WHERE k = ?", DovreHub.k("revoked", machine));
+    return false;
+  }
+
+  /**
+   * A machine unpaired (POST /mac/revoke): its socket closes now, what it said goes, and it can't
+   * open another until `until` (when the last token it was given runs out).
+   */
+  revoke(machine: string, until: number): void {
+    if (!machineOk(machine)) return;
+    this.keep(DovreHub.k("revoked", machine), String(Math.min(Math.max(until, this.now()), this.now() + REVOKE_MAX_MS)));
+    this.sql().exec("DELETE FROM mac WHERE k = ? OR k = ?", DovreHub.k("state", machine), DovreHub.k("seen", machine));
+    for (const ws of this.state.getWebSockets?.(`${MAC}:${machine}`) ?? []) ws.close(4004, "revoked");
+    this.fail(machine, `${machine === LEGACY_MACHINE ? "Your Mac" : "That machine"} was removed.`);
+    this.publish(["mac", "snapshot"]);
   }
 
   private upgrade(req: Request): Response {
-    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !keyOk(this.env.BRIDGE_KEY) || !this.state.acceptWebSocket) return new Response("Not found", { status: 404 });
+    const machine = req.headers.get(MACHINE_HEADER) ?? "";
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !keyOk(this.env.BRIDGE_KEY) || !this.state.acceptWebSocket || !machineOk(machine) || this.revoked(machine)) return new Response("Not found", { status: 404 });
     const Pair = (globalThis as { WebSocketPair?: new () => Record<0 | 1, HubSocket> }).WebSocketPair;
     if (!Pair) return new Response("Not found", { status: 404 });
     const pair = new Pair();
-    this.accept(pair[1]);
+    this.accept(pair[1], machine);
     return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
   }
 
-  /** Takes the Mac's end of a new socket and challenges it. */
-  accept(ws: HubSocket): void {
-    this.state.acceptWebSocket!(ws, [MAC]);
+  /** Takes a machine's end of a new socket and challenges it. */
+  accept(ws: HubSocket, machine: string = LEGACY_MACHINE): void {
+    this.state.acceptWebSocket!(ws, [MAC, `${MAC}:${machine}`]);
     const challenge = nonce();
-    ws.serializeAttachment({ challenge, sent: 0, got: 0, since: this.now() } satisfies Attached);
+    ws.serializeAttachment({ challenge, machine, sent: 0, got: 0, since: this.now() } satisfies Attached);
     ws.send(JSON.stringify({ t: "challenge", nonce: challenge }));
   }
 
@@ -408,12 +479,12 @@ export class DovreHub {
       return false;
     }
   }
-  private tell(body: Down): Promise<boolean> {
-    const ws = this.live();
-    return ws ? this.send(ws, body) : Promise.resolve(false);
+  /** Tells every machine online (whether a page is watching). */
+  private async tell(body: Down): Promise<void> {
+    await Promise.all(this.machineSockets().map((ws) => this.send(ws, body)));
   }
 
-  /** The Mac's frames, one at a time: a hello is checked before the frame after it is read. */
+  /** The machines' frames, one at a time: a hello is checked before the frame after it is read. */
   private inbox: Promise<unknown> = Promise.resolve();
   webSocketMessage(ws: HubSocket, message: string | ArrayBuffer): Promise<void> {
     const p = this.inbox.then(() => this.onMessage(ws, message));
@@ -433,18 +504,21 @@ export class DovreHub {
     // A page says nothing but its keep-alive.
     if (a?.page) return;
     if (!a || typeof message !== "string") return ws.close(4002, "bad frame");
+    const machine = DovreHub.machineOf(a);
     if (!a.key) {
       let h: unknown;
       try {
         h = JSON.parse(message);
       } catch {}
-      const key = this.env.BRIDGE_KEY;
-      if (!keyOk(key) || !(await helloOk(key, a.challenge, h, this.now()))) return ws.close(4001, "bad hello");
-      const ready: Attached = { ...a, key: await sessionKey(key, a.challenge, (h as { nonce: string }).nonce) };
+      const root = this.env.BRIDGE_KEY;
+      if (!keyOk(root) || !machineOk(machine) || this.revoked(machine)) return ws.close(4001, "bad hello");
+      const key = await machineKey(root, machine);
+      if (!(await helloOk(key, a.challenge, h, this.now()))) return ws.close(4001, "bad hello");
+      const ready: Attached = { ...a, machine, key: await sessionKey(key, a.challenge, (h as { nonce: string }).nonce) };
       ws.serializeAttachment(ready);
-      // One Mac: a new hello takes over from the socket before it.
-      for (const other of this.state.getWebSockets?.(MAC) ?? []) if (other !== ws) other.close(4000, "replaced");
-      this.keep("seen", String(this.now()));
+      // One socket a machine: a new hello takes over from the one before.
+      for (const other of this.state.getWebSockets?.(`${MAC}:${machine}`) ?? []) if (other !== ws) other.close(4000, "replaced");
+      this.keep(DovreHub.k("seen", machine), String(this.now()));
       await this.send(ws, { t: "welcome", watching: this.watching() });
       this.publish(["mac", "snapshot"]);
       return;
@@ -454,13 +528,15 @@ export class DovreHub {
     if (!up) return ws.close(4002, "bad frame");
     this.save(ws, ws.deserializeAttachment() as Attached, ch);
     if (up.t === "reply") {
-      this.waiting.get(up.id)?.(up.ok ? { ok: true, value: up.value } : { ok: false, error: up.error });
+      const w = this.waiting.get(up.id);
+      // Only the machine the call went to answers it.
+      if (w?.machine === machine) w.done(up.ok ? { ok: true, value: up.value } : { ok: false, error: up.error });
     } else if (up.t === "topics") {
       this.publish(up.topics);
     } else if (up.t === "state") {
       const text = JSON.stringify(up.state);
-      if (text.length <= MAX_STATE) this.keep("state", text);
-      this.keep("seen", String(this.now()));
+      if (text.length <= MAX_STATE) this.keep(DovreHub.k("state", machine), text);
+      this.keep(DovreHub.k("seen", machine), String(this.now()));
       this.publish(["mac", "snapshot"]);
     }
   }
@@ -477,29 +553,51 @@ export class DovreHub {
       return;
     }
     if (!a?.key) return;
-    this.keep("seen", String(this.now()));
+    const machine = DovreHub.machineOf(a);
+    // Revoked: its rows are gone, and stay so.
+    if (!this.revoked(machine)) this.keep(DovreHub.k("seen", machine), String(this.now()));
     // A call waiting on this socket won't be answered now.
-    if (!this.live() || this.live() === ws) for (const [, done] of this.waiting) done({ ok: false, error: "Your Mac went offline.", offline: true });
+    const live = this.live(machine);
+    if (!live || live === ws) this.fail(machine, `${this.label(machine)} went offline.`);
     this.publish(["mac", "snapshot"]);
   }
   async webSocketError(ws: HubSocket): Promise<void> {
     await this.webSocketClose(ws);
   }
 
-  /** A call down to the Mac, and its answer (or why not) within `ms`. */
-  async call(c: Call, ms = CALL_MS): Promise<MacAnswer> {
-    const ws = this.live();
-    if (!ws) return { ok: false, error: "Your Mac is offline.", offline: true };
+  /** Every call waiting on `machine` ends, saying why. */
+  private fail(machine: string, error: string) {
+    for (const [, w] of this.waiting) if (w.machine === machine) w.done({ ok: false, error, offline: true });
+  }
+
+  /**
+   * A call down to a machine, and its answer (or why not) within `ms`. Without `machine`, the one
+   * online, when only one is.
+   */
+  async call(c: Call, ms = CALL_MS, machine?: string): Promise<MacAnswer> {
+    if (machine === undefined) {
+      const online = this.mac().machines.filter((m) => m.online);
+      if (online.length > 1) return { ok: false, error: "Say which machine." };
+      machine = online[0]?.id;
+      if (!machine) {
+        const known = this.mac().machines;
+        return { ok: false, error: known.length === 1 ? `${this.label(known[0]!.id)} is offline.` : "No machine is online.", offline: true };
+      }
+    }
+    if (!machineOk(machine)) return { ok: false, error: "No such machine." };
+    const ws = this.live(machine);
+    if (!ws) return { ok: false, error: `${this.label(machine)} is offline.`, offline: true };
     const id = crypto.randomUUID();
     let t: ReturnType<typeof setTimeout> | undefined;
+    const label = this.label(machine);
     const answer = new Promise<MacAnswer>((res) => {
-      this.waiting.set(id, res);
-      t = setTimeout(() => res({ ok: false, error: "Your Mac didn't answer in time." }), ms);
+      this.waiting.set(id, { machine: machine!, done: res });
+      t = setTimeout(() => res({ ok: false, error: `${label} didn't answer in time.` }), ms);
     });
     if (!(await this.send(ws, { t: "call", id, call: c }))) {
       this.waiting.delete(id);
       clearTimeout(t);
-      return { ok: false, error: "That was too big to send to your Mac." };
+      return { ok: false, error: `That was too big to send to ${label === "Your Mac" ? "your Mac" : label}.` };
     }
     try {
       return await answer;

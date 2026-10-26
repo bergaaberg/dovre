@@ -123,7 +123,8 @@ health:
 | `IS_HOSTED` | `1` on Cloudflare Workers (enforces the RS256 JWT check: Cloudflare Access or `AUTH_ISSUER`) | `0` (local loopback) |
 | `CF_ACCESS_TEAM`, `CF_ACCESS_AUD` | Cloudflare Zero Trust team name and application Audience (AUD) tag | required when `IS_HOSTED=1`, unless `AUTH_ISSUER` is set |
 | `AUTH_ISSUER`, `AUTH_AUD`, `AUTH_JWKS_URL` | Instead of Access: any issuer that signs RS256 JWTs (sent in `Cf-Access-Jwt-Assertion`). Its exact `iss` (https), the expected `aud`, and its keys. When set, it wins; a bad value lets nobody in | JWKS: `<issuer>/.well-known/jwks.json` |
-| `BRIDGE_URL`, `BRIDGE_KEY` | Outbound Mac Bridge WebSocket URL (`wss://<host>/bridge`) and shared HMAC secret | optional |
+| `BRIDGE_URL`, `BRIDGE_KEY` | Outbound bridge WebSocket URL (`wss://<host>/bridge`) and the root HMAC secret. Without `BRIDGE_KEY`, `/bridge` is closed | optional |
+| `BRIDGE_CLIENT_ID` | The Access service token the one machine `mac` signs in with (it signs frames with `BRIDGE_KEY` itself). Machines an issuer names in a JWT's `service` claim (16–32 hex) need no setting: each signs with its own key, `HMAC(BRIDGE_KEY, "dovre-bridge/1\|machine\|<id>")`, and several can be online at once | optional |
 | `CRON_KEY` | Hosts without cron triggers: `POST /_dovre/scheduled` with `Authorization: Bearer <CRON_KEY>` (32+ characters) runs the cron and answers `204`. Unset, the route is a `404` | optional |
 
 ---

@@ -106,7 +106,8 @@ export function sessionItem(s: Session, ctx: { org: string; mine: Map<string, Pr
     : { tone: undefined, label: "ended" };
   const prs = s.prs.slice(-(ctx.prs ?? 4));
   const line: Child[] = [];
-  if (s.repo) line.push(s.repo);
+  if (s.machine) line.push(html`<span class="t3">${s.machine}</span>`);
+  if (s.repo) line.push(line.length ? html` · ${s.repo}` : s.repo);
   if (s.branch) line.push(html` · ${s.branch}`);
   if (s.subagentsRunning) line.push(html` · ${s.subagentsRunning} subagent${s.subagentsRunning === 1 ? "" : "s"} running`);
   return Item({
@@ -132,18 +133,34 @@ export function failed(name: string, r: Result<unknown> | { ok: false; error: st
 }
 
 
-/** Hosted: whether the Mac's agents are reachable (PLAN D24). Locally there's no such thing. */
-export type MacStatus = { online: boolean; seen?: number };
+/**
+ * Hosted: whether the machines' agents are reachable (PLAN D24, H7). Locally there's no such thing.
+ * `name`: the one machine meant ("Mac" is the one from before there were several); `machines`:
+ * every paired one, when a page shows them all.
+ */
+export type MacStatus = { online: boolean; seen?: number; name?: string; machines?: { name: string; online: boolean; seen?: number }[] };
 
 /**
- * The Mac offline, said where agents are shown: what's there is from when it was last seen,
- * never "nothing". A live region of its own, so it appears and goes as the Mac does.
+ * A machine offline, said where agents are shown: what's there is from when it was last seen,
+ * never "nothing". A live region of its own, so it appears and goes as the machines do.
  */
 export function macNotice(mac: MacStatus | undefined, now = Date.now()): Html | "" {
   if (!mac) return "";
-  const ago = mac.seen ? since(mac.seen, now) : undefined;
-  const seen = !ago ? "" : ago === "now" ? ", last seen just now" : `, last seen ${ago} ago`;
-  return html`<div data-live id="mac">${mac.online ? "" : Notice({ tone: "warn", children: html`<strong>Your Mac is offline${seen}.</strong> What's here is from then. Agents start and answer again when it's back.` })}</div>`;
+  const seenOf = (at: number | undefined) => {
+    const ago = at ? since(at, now) : undefined;
+    return !ago ? "" : ago === "now" ? ", last seen just now" : `, last seen ${ago} ago`;
+  };
+  const who = (name: string | undefined) => (!name || name === "Mac" ? "Your Mac" : name);
+  const all = mac.machines && mac.machines.length > 1 ? mac.machines : undefined;
+  const off = all ? all.filter((m) => !m.online) : mac.online ? [] : [{ name: mac.name ?? "Mac", seen: mac.seen }];
+  const say = !off.length
+    ? ""
+    : !all
+      ? html`<strong>${who(off[0]!.name)} is offline${seenOf(off[0]!.seen)}.</strong> What's here is from then. Agents start and answer again when it's back.`
+      : off.length === all.length
+        ? html`<strong>None of your machines is online.</strong> What's here is from when each was last seen. Agents start and answer again when one is back.`
+        : html`${off.map((m, i) => html`${i ? " " : ""}<strong>${who(m.name)} is offline${seenOf(m.seen)}.</strong>`)} Its agents are as it last said.`;
+  return html`<div data-live id="mac">${say ? Notice({ tone: "warn", children: say }) : ""}</div>`;
 }
 
 /** My open PRs by key (org/repo#n), to say a linked PR's state. */

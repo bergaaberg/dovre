@@ -42,11 +42,19 @@ function backTo(c: C, to: string): string {
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 
 export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here }: { desk: Desk; dismissed: Dismissed; here?: Here }) {
-  /** Hosted: the Mac online or when it was last; locally nothing to say. */
-  const macOf = (): MacStatus | undefined => {
+  /**
+   * Hosted: the machines online or when each was last; with `id`, the one that session or run is
+   * on (its page's forms go there). Locally nothing to say.
+   */
+  const macOf = (id?: string): MacStatus | undefined => {
     const v = desk.view();
-    return v.remote ? { online: v.online, seen: v.seen } : undefined;
+    if (!v.remote) return undefined;
+    const m = id ? desk.machineOf?.(id) : undefined;
+    if (m) return { online: m.online, seen: m.seen, name: m.name };
+    return { online: v.online, seen: v.seen, name: v.machines?.[0]?.name, machines: v.machines };
   };
+  /** Hosted, with several machines online: the ones a new session may start on. */
+  const machinesOf = () => desk.view().machines?.filter((m) => m.online);
   /** The snapshot the pages draw from (PRs, their states), once what I've cleared away is known. */
   const shown = async (): Promise<Snapshot | undefined> => {
     const s = await ctx.gathered();
@@ -78,21 +86,21 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
   });
   app.get("/agents/new", async (c) => {
     const v = desk.view();
-    return ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: c.req.query("repo"), prompt: c.req.query("prompt"), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), fields: (repo) => ctx.fill("agents.new", { repo }) }));
+    return ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: c.req.query("repo"), prompt: c.req.query("prompt"), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), fields: (repo) => ctx.fill("agents.new", { repo }) }));
   });
   app.post("/agents/new", async (c) => {
     const form = await c.req.parseBody();
-    const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model });
+    const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model, machine: form.machine });
     if ("to" in r) return c.redirect(r.to, 303);
     const v = desk.view();
-    const res = await ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: String(form.repo ?? ""), prompt: String(form.prompt ?? ""), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), error: r.error, fields: (repo) => ctx.fill("agents.new", { repo }) }));
+    const res = await ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: String(form.repo ?? ""), prompt: String(form.prompt ?? ""), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: typeof form.machine === "string" ? form.machine : undefined, error: r.error, fields: (repo) => ctx.fill("agents.new", { repo }) }));
     return new Response(res.body, { status: 400, headers: res.headers });
   });
   app.get("/agents/r/:run", async (c) => {
     const run = await desk.run(c.req.param("run"));
     if (!run) return c.notFound();
     if (run.sessionId) return c.redirect(`/agents/s/${run.sessionId}`, 303);
-    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, mac: macOf() }));
+    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, mac: macOf(run.id) }));
   });
   app.get("/agents/s/:sid", async (c) => {
     const sid = c.req.param("sid");
@@ -101,7 +109,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     if (!v) return c.notFound();
     const flash = flashes.get(sid);
     flashes.delete(sid);
-    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, queued: v.queued, mac: macOf(), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf }));
+    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf }));
   });
   /** Answers to the agent's newest question (AskUserQuestion), as its next message. Only offered choices count. */
   app.post("/agents/s/:sid/answer", async (c) => {

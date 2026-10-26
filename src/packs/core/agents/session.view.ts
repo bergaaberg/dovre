@@ -147,7 +147,7 @@ ${Panel({
   return { title: `${title} · Agents`, current: "/agents", body, head: html`<meta name="u-topics" content="snapshot run:${sessionId}${run && run.sessionId !== sessionId ? ` run:${run.id}` : ""}">` };
 }
 
-export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: atlas's components). */ fields?: (repo: string) => Child[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus }): PageOpts {
+export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: atlas's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string }): PageOpts {
   const harnesses = opts.harnesses ?? (["claude"] as HarnessId[]);
   // Hosted with the Mac offline: no form, nothing would take it.
   if (opts.mac?.online === false)
@@ -171,6 +171,7 @@ export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: st
 ${opts.error ? Notice({ tone: "bad", children: opts.error }) : ""}
 ${Panel({
   children: html`<form method="post" action="/agents/new">
+${opts.machines && opts.machines.length > 1 ? html`<label class="field"><span class="label">On</span><select name="machine" required>${opts.machines.map((m) => html`<option value="${m.id}"${m.id === opts.machine ? html` selected` : ""}>${m.name}</option>`)}</select><span class="hint">The machine it runs on: the checkout must be there.</span></label>` : ""}
 <label class="field"><span class="label">Runs in</span><select name="repo" required><option value="${WORK}"${repo === WORK ? html` selected` : ""}>${WORK_LABEL}</option><optgroup label="Checkouts">${opts.repos.map((r) => html`<option value="${r}"${r === repo ? html` selected` : ""}>${r}</option>`)}</optgroup></select><span class="hint">Dovre's own folder${opts.workDir ? html` (<code>${opts.workDir}</code>)` : ""} is for work that isn't in one repo, and keeps it out of your checkouts. Or a git checkout in your code folder, worktrees included.</span></label>
 ${componentChips}
 <label class="field"><span class="label">What should it do?</span><textarea name="prompt" rows="8" required placeholder="Skills work as usual: /some-skill …, or say what to do">${opts.prompt ?? ""}</textarea></label>

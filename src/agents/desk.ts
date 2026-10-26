@@ -37,9 +37,14 @@ export type DeskView = {
   workDir: string;
   /** Hosted: the desk is the Mac's, reached over the bridge (pages say when it's offline). */
   remote?: boolean;
-  /** Hosted: the Mac's sessions, as it last said (locally they're in the snapshot). */
+  /** Hosted: the machines' sessions, as they last said (locally they're in the snapshot). */
   sessions?: { live: Session[]; recent: Session[] };
+  /** Hosted: every paired machine (H7), online first. */
+  machines?: MachineStatus[];
 };
+
+/** Hosted: a paired machine, as pages name it. */
+export type MachineStatus = { id: string; name: string; online: boolean; seen?: number };
 
 /** A copy made of a session from here (a fork): its own session once the agent says which. */
 export type Copy = { sid?: string; run: string; startedAt: number; status: Run["status"] };
@@ -61,10 +66,14 @@ export type Desk = {
   view(): DeskView;
   /** Hosted: reads what the Mac last said again, before a page is drawn (the app calls it after its guard). */
   refresh?(): Promise<void>;
-  repos(): Promise<string[]>;
+  /** The checkouts agents may start in: on `machine` (hosted), else all of them. */
+  repos(machine?: string): Promise<string[]>;
+  /** Hosted: the machine a session or run is on. */
+  machineOf?(id: string): MachineStatus | undefined;
   run(id: string): Promise<Run | undefined>;
   session(sid: string): Promise<SessionView | undefined>;
-  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown }): Promise<{ to: string } | { error: string }>;
+  /** `machine`: hosted, the machine to start on (the one online when there's one). */
+  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; machine?: unknown }): Promise<{ to: string } | { error: string }>;
   reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown }): Promise<Done>;
   /** Answers to the agent's newest question (AskUserQuestion): the form as posted. */
   answer(sid: string, form: Record<string, unknown>): Promise<Done>;

@@ -7,7 +7,7 @@
 import { type Actor, actingAs, currentActor } from "./actor.ts";
 import { ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
-import { keyOk } from "./bridge/wire.ts";
+import { keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
 import { packsOf, createApp } from "./app.ts";
 import { activePacks, initAll, refresher } from "./packs/registry.ts";
@@ -31,7 +31,7 @@ import type { AvatarFeeds } from "./packs/registry.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
 import { createQueue } from "./agents/queue.ts";
-import { type HubEnv, hostedBinoRoute } from "./hosted/hub.ts";
+import { type HubEnv, hostedBinoRoute, MACHINE_HEADER } from "./hosted/hub.ts";
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 
 export interface WorkerBindings {
@@ -62,7 +62,11 @@ export interface WorkerBindings {
   /** Bino through AI Gateway: the gateway's token, and its name (default "dovre"). */
   CF_AIG_TOKEN?: string;
   AI_GATEWAY?: string;
-  /** The Mac's bridge (PLAN D24): the Access service token's client id it signs in with, and the key its frames are signed with. Both, or /bridge is closed. */
+  /**
+   * The bridge (PLAN D24, H6, H7): the key machines' frames are signed with (each machine's derived
+   * from it), without which /bridge is closed; and the Access service token's client id the one
+   * machine `mac` signs in with, when it's Access (machines an issuer names need no setting).
+   */
   BRIDGE_CLIENT_ID?: string;
   BRIDGE_KEY?: string;
   /** Cron over HTTP, for hosts without native cron triggers: `POST /_dovre/scheduled` with this as the Bearer key (32+ characters). Unset, the route is a 404. */
@@ -149,17 +153,24 @@ export function createHostedGatherer(bindings: WorkerBindings, login: string, fo
 }
 
 /**
- * /bridge (PLAN D24): a WebSocket upgrade signed in with the bridge's Access service token (the
- * verified token's client id is BRIDGE_CLIENT_ID; a person's token isn't one), handed to the hub,
- * which then wants the signed hello. Anything else, or the bridge not set up, is a 404.
+ * /bridge (PLAN D24, H6, H7): a WebSocket upgrade from a machine, handed to the hub, which then
+ * wants the signed hello under that machine's key. Who may open one:
+ * - a machine the issuer named (a verified token's `service` claim): that machine;
+ * - the Access service token whose client id is BRIDGE_CLIENT_ID: the one machine `mac`.
+ * A person's token isn't one. Anything else, or no BRIDGE_KEY, is a 404.
  */
-async function bridgeIn(request: Request, bindings: WorkerBindings, h: Hosted): Promise<Response> {
-  const id = bindings.BRIDGE_CLIENT_ID?.trim();
-  if (!id || !keyOk(bindings.BRIDGE_KEY) || !h.hub || !h.verify) return new Response("Not found", { status: 404 });
-  if (request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Not found", { status: 404 });
+export async function bridgeIn(request: Request, bindings: Pick<WorkerBindings, "BRIDGE_CLIENT_ID" | "BRIDGE_KEY">, h: Pick<Hosted, "hub" | "verify">): Promise<Response> {
+  const nope = new Response("Not found", { status: 404 });
+  if (!keyOk(bindings.BRIDGE_KEY) || !h.hub || !h.verify) return nope;
+  if (request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return nope;
   const who = await h.verify(request);
-  if (!who?.service || who.service !== id) return new Response("Not found", { status: 404 });
-  return h.hub.bridge(request);
+  const id = bindings.BRIDGE_CLIENT_ID?.trim();
+  const machine = who?.machine ? who.service : who?.service && id && who.service === id ? LEGACY_MACHINE : undefined;
+  if (!machineOk(machine)) return nope;
+  // The hub takes the machine from us alone: whatever the request said is replaced.
+  const headers = new Headers(request.headers);
+  headers.set(MACHINE_HEADER, machine);
+  return h.hub.bridge(new Request(request, { headers }));
 }
 
 /**
@@ -244,9 +255,9 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // The hub, when the instance binds it: live pages, and Bino answering in the object.
     const hub = bindings.HUB ? hubClient(bindings.HUB) : undefined;
     const memory = memoryLater(loadMemory(bindings.DB));
-    // The agents desk is the Mac's, over the bridge (PLAN D24), when it's set up.
+    // The agents desk is the machines', over the bridge (PLAN D24, H7), when it's set up (a BRIDGE_KEY).
     // Without the bridge, a desk with nothing to run: the pages say so.
-    const desk = hub && keyOk(bindings.BRIDGE_KEY) && bindings.BRIDGE_CLIENT_ID?.trim() ? remoteDesk(hub) : localDesk({ env, queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
+    const desk = hub && keyOk(bindings.BRIDGE_KEY) ? remoteDesk(hub) : localDesk({ env, queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
     const dismissed = createDismissed(bindings.DB);
     // What the packs say works and waits, for the avatar: set once the app is built.
     let feeds = (): AvatarFeeds & { busy: boolean } => ({ working: 0, asking: 0, trouble: [], busy: false });

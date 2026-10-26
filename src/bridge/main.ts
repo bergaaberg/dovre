@@ -12,6 +12,7 @@
  * - CODE_DIR (the checkouts), CLAUDE_DIR as for the server
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localDesk } from "../agents/desk.ts";
@@ -89,7 +90,7 @@ const sessions = () => {
 };
 
 const desk = localDesk({ env, runner, queue, sessions });
-bridge = startBridge({ url: url!, key: key!, headers: { "CF-Access-Client-Id": id!, "CF-Access-Client-Secret": secret! }, desk, sessions, version: VERSION, log: (l) => console.log(l) });
+bridge = startBridge({ url: url!, key: key!, headers: { "CF-Access-Client-Id": id!, "CF-Access-Client-Secret": secret! }, desk, sessions, version: VERSION, name: hostname().replace(/\.local$/, ""), log: (l) => console.log(l) });
 console.log(`dovre bridge: ${revision}; ${runner.harnesses().join(", ") || "no agent CLIs found"}; dialling ${new URL(url!).host}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)

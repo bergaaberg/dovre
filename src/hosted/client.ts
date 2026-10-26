@@ -24,12 +24,14 @@ export type HubClient = Hub & {
   drain(): Promise<void>;
   /** A page's live socket (H5): its upgrade, handed to the object as it came. */
   live(req: Request): Promise<Response>;
-  /** The Mac's bridge (WP-N10): its socket's upgrade, handed to the object as it came. */
+  /** A machine's bridge (WP-N10): its socket's upgrade, handed to the object as the worker named it. */
   bridge(req: Request): Promise<Response>;
-  /** The Mac: online or last seen, and its metadata. */
+  /** The machines: each online or last seen, and its metadata. */
   mac(): Promise<MacView>;
-  /** A call of the Mac's desk, answered within `ms`. */
-  call(c: Call, ms?: number): Promise<MacAnswer>;
+  /** A call of a machine's desk, answered within `ms`; without `machine`, the one online. */
+  call(c: Call, ms?: number, machine?: string): Promise<MacAnswer>;
+  /** A machine unpaired: shut out until `until`, its socket closed now. */
+  revoke(machine: string, until: number): Promise<void>;
 };
 
 const BASE = "https://hub.internal";
@@ -73,9 +75,13 @@ export function hubClient(ns: HubNamespace): HubClient {
       if (!res.ok) throw new Error(`The hub answered ${res.status}`);
       return (await res.json()) as MacView;
     },
-    async call(c, ms) {
-      const res = await stub().fetch(`${BASE}/mac/call`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ call: c, ms }) });
+    async call(c, ms, machine) {
+      const res = await stub().fetch(`${BASE}/mac/call`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ call: c, ms, machine }) });
       return (await res.json().catch(() => ({ ok: false, error: `The hub answered ${res.status}` }))) as MacAnswer;
+    },
+    async revoke(machine, until) {
+      const res = await stub().fetch(`${BASE}/mac/revoke`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ machine, until }) });
+      if (!res.ok) throw new Error(`The hub answered ${res.status}`);
     },
   };
 }

@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { channel, hello, helloOk, HELLO_SKEW_MS, keyOk, parseDown, parseUp, sessionKey } from "../src/bridge/wire.ts";
+import { channel, hello, helloOk, HELLO_SKEW_MS, keyOk, machineKey, parseDown, parseUp, sessionKey } from "../src/bridge/wire.ts";
 import { DovreHub, type HubSocket, type HubState } from "../src/hosted/hub.ts";
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -20,6 +20,8 @@ import { createRunner } from "../src/agents/runner.ts";
 import { type BridgeSocket, startBridge } from "../src/bridge/mac.ts";
 
 const KEY = "a-bridge-key-that-is-long-enough-0123456789";
+/** The one machine (the tests before H7 had only the Mac). */
+const one = (hub: DovreHub) => hub.mac().machines[0] ?? { id: "", online: false, seen: undefined, state: undefined };
 
 test("wire: a hello only under the key, for this challenge, near now", async () => {
   const challenge = "0".repeat(32);
@@ -62,6 +64,8 @@ test("wire: frames in order, signed for their direction; tampered, replayed, ref
 });
 
 test("wire: bodies by shape", () => {
+  const named = parseUp({ t: "state", state: { at: 1, name: "<img src=x onerror=alert(1)>laptop.local", harnesses: [], runs: [], sessions: { live: [], recent: [] } } });
+  assert.equal(named?.t === "state" && named.state.name, "img srcx onerroralert1laptop.local", "a machine's name: letters, digits, spaces, dots, dashes only");
   assert.equal(parseUp({ t: "topics", topics: ["ok", "<script>"] })?.t, "topics");
   assert.deepEqual((parseUp({ t: "topics", topics: ["ok", "has space"] }) as { topics: string[] }).topics, ["ok"]);
   assert.equal(parseUp({ t: "topics", topics: ["bad topic"] }), undefined);
@@ -117,9 +121,9 @@ function fakeState() {
 }
 
 /** The Mac's side of one socket, by hand: answers the challenge, then speaks in signed frames. */
-async function mac(hub: DovreHub, key = KEY) {
+async function mac(hub: DovreHub, key = KEY, machine?: string) {
   const ws = new FakeSocket();
-  hub.accept(ws);
+  hub.accept(ws, machine);
   const challenge = JSON.parse(ws.out.shift()!) as { t: string; nonce: string };
   assert.equal(challenge.t, "challenge");
   const h = await hello(key, challenge.nonce, { now: hub.now() });
@@ -142,7 +146,7 @@ test("hub: no hello under the key, no socket; with one, the Mac is welcomed and 
   const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
   const bad = await mac(hub, "the-wrong-key-but-long-enough-0123456789");
   assert.deepEqual(bad.ws.closed, { code: 4001, reason: "bad hello" });
-  assert.equal(hub.mac().online, false);
+  assert.equal(one(hub).online, false);
 
   const noise = new FakeSocket();
   hub.accept(noise);
@@ -152,18 +156,18 @@ test("hub: no hello under the key, no socket; with one, the Mac is welcomed and 
   const m = await mac(hub);
   assert.equal(m.ws.closed, undefined);
   assert.deepEqual(await m.got(), [{ t: "welcome", watching: false }]);
-  assert.equal(hub.mac().online, true);
+  assert.equal(one(hub).online, true);
 });
 
 test("hub: the Mac's state is kept (and only it), topics reach open pages, calls go down and their answers back", async () => {
   const { state, db } = fakeState();
   const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
-  assert.deepEqual(await hub.call({ op: "session", sid: "x" }), { ok: false, error: "Your Mac is offline.", offline: true });
+  assert.deepEqual(await hub.call({ op: "session", sid: "x" }), { ok: false, error: "No machine is online.", offline: true });
   const m = await mac(hub);
   await m.got();
 
   await m.say({ t: "state", state: STATE });
-  assert.deepEqual(hub.mac().state?.sessions.recent, STATE.sessions.recent);
+  assert.deepEqual(one(hub).state?.sessions.recent, STATE.sessions.recent);
   assert.deepEqual(db.prepare("SELECT k FROM mac ORDER BY k").all().map((r) => r.k), ["seen", "state"], "the hub keeps the state and when it was seen, nothing else");
 
   // A page's stream opens: the Mac hears it's watched, and its topics reach the page.
@@ -215,7 +219,7 @@ test("hub: a replayed or forged frame closes the socket; a second Mac's hello ta
   b.ws.close(1006);
   await hub.webSocketClose(b.ws);
   assert.deepEqual(await waiting, { ok: false, error: "Your Mac went offline.", offline: true });
-  const view = hub.mac();
+  const view = one(hub);
   assert.equal(view.online, false);
   assert.equal(view.seen, 9000);
 });
@@ -229,8 +233,8 @@ test("hub: after hibernation (a new object, the same socket) the socket goes on 
 
   // Woken by the Mac's next frame: nothing in memory, the attachment holds the key and counters.
   const woken = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
-  assert.equal(woken.mac().online, true);
-  assert.deepEqual(woken.mac().state?.runs, STATE.runs);
+  assert.equal(one(woken).online, true);
+  assert.deepEqual(one(woken).state?.runs, STATE.runs);
   await m.say({ t: "topics", topics: ["run:s1"] }, woken);
   assert.equal(m.ws.closed, undefined);
   const answer = woken.call({ op: "runs" });
@@ -238,6 +242,111 @@ test("hub: after hibernation (a new object, the same socket) the socket goes on 
   const [call] = (await m.got()) as { id: string }[];
   await m.say({ t: "reply", id: call!.id, ok: false, error: "nope" }, woken);
   assert.deepEqual(await answer, { ok: false, error: "nope" });
+});
+
+const LAPTOP = "0123456789abcdef";
+const DESKTOP = "fedcba9876543210abcd";
+
+test("hub (H7): each machine signs with its own key; both online at once, each its own state", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const laptopKey = await machineKey(KEY, LAPTOP);
+  assert.match(laptopKey, /^[0-9a-f]{64}$/);
+  assert.notEqual(laptopKey, await machineKey(KEY, DESKTOP));
+  assert.equal(await machineKey(KEY, "mac"), KEY, "the Mac from before keeps BRIDGE_KEY");
+
+  // The root key, or another machine's, isn't this machine's.
+  assert.equal((await mac(hub, KEY, LAPTOP)).ws.closed?.code, 4001);
+  assert.equal((await mac(hub, await machineKey(KEY, DESKTOP), LAPTOP)).ws.closed?.code, 4001);
+
+  const laptop = await mac(hub, laptopKey, LAPTOP);
+  const desktop = await mac(hub, await machineKey(KEY, DESKTOP), DESKTOP);
+  const legacy = await mac(hub);
+  for (const m of [laptop, desktop, legacy]) assert.equal(m.ws.closed, undefined);
+  await laptop.say({ t: "state", state: { ...STATE, name: "laptop" } });
+  await desktop.say({ t: "state", state: { ...STATE, name: "desktop", harnesses: ["omp"] } });
+  const v = hub.mac();
+  assert.deepEqual(v.machines.map((m) => [m.id, m.online]).sort(), [[LAPTOP, true], [DESKTOP, true], ["mac", true]]);
+  assert.deepEqual(v.machines.find((m) => m.id === DESKTOP)?.state?.harnesses, ["omp"]);
+  assert.equal(v.machines.find((m) => m.id === LAPTOP)?.name, "laptop");
+
+  // A new socket for the laptop takes over from the laptop's only.
+  const again = await mac(hub, laptopKey, LAPTOP);
+  assert.deepEqual(laptop.ws.closed, { code: 4000, reason: "replaced" });
+  assert.equal(desktop.ws.closed, undefined);
+  assert.equal(again.ws.closed, undefined);
+});
+
+test("hub (H7): calls go to the machine named; another machine can't answer them; without a name, only when one is online", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const laptop = await mac(hub, await machineKey(KEY, LAPTOP), LAPTOP);
+  await laptop.got();
+  await laptop.say({ t: "state", state: { ...STATE, name: "laptop" } });
+  // One online: it's the one.
+  const only = hub.call({ op: "repos" });
+  await new Promise((r) => setTimeout(r, 5));
+  const [c0] = (await laptop.got()) as { id: string }[];
+  await laptop.say({ t: "reply", id: c0!.id, ok: true, value: ["web"] });
+  assert.deepEqual(await only, { ok: true, value: ["web"] });
+
+  const desktop = await mac(hub, await machineKey(KEY, DESKTOP), DESKTOP);
+  await desktop.got();
+  assert.deepEqual(await hub.call({ op: "repos" }), { ok: false, error: "Say which machine." });
+
+  const asked = hub.call({ op: "session", sid: "s1" }, 200, LAPTOP);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(await desktop.got(), [], "the desktop never hears the laptop's call");
+  const [call] = (await laptop.got()) as { id: string }[];
+  // The desktop guessing the call's id: ignored.
+  await desktop.say({ t: "reply", id: call!.id, ok: true, value: "forged" });
+  await laptop.say({ t: "reply", id: call!.id, ok: true, value: "real" });
+  assert.deepEqual(await asked, { ok: true, value: "real" });
+
+  // The laptop drops: its calls end, by its name; the desktop's don't.
+  const waitingLaptop = hub.call({ op: "session", sid: "s1" }, 500, LAPTOP);
+  const waitingDesktop = hub.call({ op: "session", sid: "s2" }, 50, DESKTOP);
+  await new Promise((r) => setTimeout(r, 5));
+  laptop.ws.close(1006);
+  await hub.webSocketClose(laptop.ws);
+  assert.deepEqual(await waitingLaptop, { ok: false, error: '"laptop" went offline.', offline: true });
+  assert.deepEqual(await waitingDesktop, { ok: false, error: "That machine didn't answer in time." });
+  assert.deepEqual(await hub.call({ op: "repos" }, 100, LAPTOP), { ok: false, error: '"laptop" is offline.', offline: true });
+  assert.deepEqual(await hub.call({ op: "repos" }, 100, "../../x"), { ok: false, error: "No such machine." });
+});
+
+test("hub (H7): a machine revoked is closed at once, forgotten, and can't come back until its tokens run out", async () => {
+  const { state, db } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  let t = 1_000_000;
+  hub.now = () => t;
+  const key = await machineKey(KEY, LAPTOP);
+  const laptop = await mac(hub, key, LAPTOP);
+  await laptop.got();
+  await laptop.say({ t: "state", state: { ...STATE, name: "laptop" } });
+  const waiting = hub.call({ op: "repos" }, 1000, LAPTOP);
+  await new Promise((r) => setTimeout(r, 5));
+
+  const res = await hub.fetch(new Request("https://hub.internal/mac/revoke", { method: "POST", body: JSON.stringify({ machine: LAPTOP, until: t + 600_000 }) }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(laptop.ws.closed, { code: 4004, reason: "revoked" });
+  assert.deepEqual(await waiting, { ok: false, error: "That machine was removed.", offline: true });
+  await hub.webSocketClose(laptop.ws);
+  assert.deepEqual(hub.mac().machines, [], "what it said is gone");
+  assert.equal(db.prepare("SELECT count(*) AS n FROM mac WHERE k LIKE 'state%' OR k LIKE 'seen%'").get()!.n, 0);
+
+  // Its token still good: no socket, no hello.
+  const up = (m: string) => hub.fetch(new Request("https://hub.internal/bridge", { headers: { upgrade: "websocket", "x-dovre-machine": m } }));
+  assert.equal((await up(LAPTOP)).status, 404);
+  assert.equal((await mac(hub, key, LAPTOP)).ws.closed?.code, 4001);
+  // Its tokens ran out: a machine paired again may come back.
+  t += 600_001;
+  assert.equal((await mac(hub, key, LAPTOP)).ws.closed, undefined);
+
+  // Nonsense is refused.
+  assert.equal((await hub.fetch(new Request("https://hub.internal/mac/revoke", { method: "POST", body: JSON.stringify({ machine: "../x", until: 1 }) }))).status, 400);
+  // No machine named on an upgrade (only the worker names one): 404.
+  assert.equal((await hub.fetch(new Request("https://hub.internal/bridge", { headers: { upgrade: "websocket" } }))).status, 404);
 });
 
 test("hub: no BRIDGE_KEY, no /bridge", async () => {
@@ -271,10 +380,10 @@ function fakeSpawn() {
 }
 
 /** The hub's socket and the Mac's, joined: what one sends, the other gets a moment later. */
-function joined(hub: DovreHub) {
-  const sockets: { server: FakeSocket; client: BridgeSocket }[] = [];
+function joined(hub: DovreHub, machine?: string) {
+  const sockets: { server: FakeSocket; client: BridgeSocket; headers: Record<string, string> }[] = [];
   const dial = (_url: string, headers: Record<string, string>): BridgeSocket => {
-    assert.equal(headers["CF-Access-Client-Id"], "id.access");
+    if (!machine) assert.equal(headers["CF-Access-Client-Id"], "id.access");
     const server = new FakeSocket();
     const client: BridgeSocket = {
       readyState: 0,
@@ -304,11 +413,11 @@ function joined(hub: DovreHub) {
       client.readyState = 3;
       setImmediate(() => client.onclose?.({ code, reason }));
     };
-    sockets.push({ server, client });
+    sockets.push({ server, client, headers });
     setImmediate(() => {
       client.readyState = 1;
       client.onopen?.({});
-      hub.accept(server);
+      hub.accept(server, machine);
     });
     return client;
   };
@@ -336,8 +445,8 @@ test("bridge: the Mac's desk through the hub: started, watched, answered; what t
   const link = joined(hub);
   bridge = startBridge({ url: "wss://dovre.example.dev/bridge", key: KEY, headers: { "CF-Access-Client-Id": "id.access", "CF-Access-Client-Secret": "s" }, desk, sessions, dial: link.dial, timing: { stateMs: 5, topicMs: 5, backoffMs: 20 } });
   try {
-    await until(() => hub.mac().online && !!hub.mac().state);
-    assert.deepEqual(hub.mac().state!.harnesses, ["claude"]);
+    await until(() => one(hub).online && !!one(hub).state);
+    assert.deepEqual(one(hub).state!.harnesses, ["claude"]);
     assert.equal(bridge.status().watching, false);
 
     // A page opens: the Mac is watched.
@@ -362,7 +471,7 @@ test("bridge: the Mac's desk through the hub: started, watched, answered; what t
     // While it works, its topic reaches the page.
     await until(() => heard.some((h) => h.includes(`run:${SESSION}`)));
     await until(() => runner.list()[0]?.status === "done");
-    await until(() => (hub.mac().state!.runs as { status: string }[])[0]?.status === "done");
+    await until(() => (one(hub).state!.runs as { status: string }[])[0]?.status === "done");
 
     // The session's page: what was said, in the answer only.
     const page = (await hub.call({ op: "session", sid: SESSION })) as { ok: true; value: { run: { events: { t: string }[] } } };
@@ -376,7 +485,7 @@ test("bridge: the Mac's desk through the hub: started, watched, answered; what t
 
     // The socket drops: the Mac dials again and is back.
     link.sockets[0]!.server.close(1006, "gone");
-    await until(() => link.sockets.length === 2 && hub.mac().online);
+    await until(() => link.sockets.length === 2 && one(hub).online);
     await reader.cancel();
   } finally {
     bridge.stop();
@@ -425,7 +534,7 @@ test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, 
   await new Promise((r) => setTimeout(r, 5));
   assert.deepEqual(await m.got(), [{ t: "watch", on: false }]);
   assert.equal(hub.mac().watching, false);
-  assert.equal(hub.mac().online, true, "a page closing isn't the Mac going offline");
+  assert.equal(one(hub).online, true, "a page closing isn't the Mac going offline");
 });
 
 test("hub: /live without an upgrade is a 404", async () => {
@@ -447,4 +556,27 @@ test("hub: /export dumps every table it keeps, not Cloudflare's or SQLite's own"
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { tables: { bino_convs: [{ id: "c1", at: 5, conv: '{"id":"c1"}' }], cfish: [], mac: [{ k: "seen", v: "7" }] } });
   assert.equal((await hub.fetch(new Request("https://hub.internal/export", { method: "POST" }))).status, 404, "GET only");
+});
+
+test("bridge (H6): a machine signs in with a token asked for on every dial, and its key; a failed ask is tried again", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const link = joined(hub, LAPTOP);
+  let asked = 0;
+  const headers = async () => {
+    if (++asked === 1) throw new Error("dovre.dev unreachable");
+    return { "Cf-Access-Jwt-Assertion": `jwt-${asked}` };
+  };
+  const desk = localDesk({ env: { CODE_DIR: mkdtempSync(join(tmpdir(), "code-")), CLAUDE_DIR: mkdtempSync(join(tmpdir(), "claude-")) }, runner: createRunner({ spawnFn: fakeSpawn() }), queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
+  const bridge = startBridge({ url: "wss://alice.dovre.dev/bridge", key: await machineKey(KEY, LAPTOP), headers, name: "laptop", desk, sessions: async () => ({ live: [], recent: [] }), dial: link.dial, timing: { stateMs: 5, backoffMs: 10 } });
+  try {
+    await until(() => !!hub.mac().machines.find((m) => m.id === LAPTOP)?.state);
+    assert.equal(hub.mac().machines[0]!.name, "laptop");
+    assert.equal(link.sockets[0]!.headers["Cf-Access-Jwt-Assertion"], "jwt-2");
+    link.sockets[0]!.server.close(1006, "gone");
+    await until(() => link.sockets.length === 2 && bridge.status().connected);
+    assert.equal(link.sockets[1]!.headers["Cf-Access-Jwt-Assertion"], "jwt-3", "a fresh token for the new socket");
+  } finally {
+    bridge.stop();
+  }
 });
