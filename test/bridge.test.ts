@@ -583,6 +583,15 @@ test("hub: /export dumps every table it keeps, not Cloudflare's or SQLite's own"
   assert.equal((await hub.fetch(new Request("https://hub.internal/export", { method: "POST" }))).status, 404, "GET only");
 });
 
+test("hub: /size reports the storage's size, or null where it isn't known", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never });
+  assert.deepEqual(await (await hub.fetch(new Request("https://hub.internal/size"))).json(), { bytes: null });
+  Object.defineProperty(state.storage.sql, "databaseSize", { value: 8192 });
+  assert.deepEqual(await (await hub.fetch(new Request("https://hub.internal/size"))).json(), { bytes: 8192 });
+  assert.equal((await hub.fetch(new Request("https://hub.internal/size", { method: "POST" }))).status, 404, "GET only");
+});
+
 test("bridge (H6): a machine signs in with a token asked for on every dial, and its key; a failed ask is tried again", async () => {
   const { state } = fakeState();
   const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
