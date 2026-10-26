@@ -770,7 +770,7 @@ function showHelp() {
       const keys = name === "This page" ? [...listed.slice(0, 1), ...docked, ...listed.slice(1)] : listed;
       const group = document.createElement("section");
       const h = document.createElement("h3");
-      h.textContent = name;
+      h.textContent = name + (keysOff({ Hints: "hints", Moving: "moving", "Going to": "going", "This page": "page" }[name]) ? " (off in Settings)" : "");
       const list = document.createElement("dl");
       for (const [key, what] of keys) {
         const dt = document.createElement("dt");
@@ -913,6 +913,13 @@ function hintKey(e) {
 // ── The rest of the keys ──
 const smooth = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
 const scrollBy_ = (dy) => scrollBy({ top: dy, behavior: smooth() });
+// Settings → Keys (dovre#87, src/keys.ts): how far j/k scroll, and the groups switched off.
+const KEYPREFS = (() => {
+  try { return JSON.parse(document.querySelector('meta[name="u-keys"]')?.content || "{}"); } catch { return {}; }
+})();
+const STEP = Number(KEYPREFS.scroll) || 70;
+const keysOff = (group) => Array.isArray(KEYPREFS.off) && KEYPREFS.off.includes(group);
+const GROUP_OF = { f: "hints", F: "hints", j: "moving", k: "moving", d: "moving", u: "moving", G: "moving", J: "moving", K: "moving", "]": "moving", "[": "moving", o: "moving", H: "going", L: "going", r: "page", "/": "page", a: "page" };
 function flash(text) {
   const el = document.createElement("div");
   el.className = "key-flash";
@@ -967,24 +974,30 @@ document.addEventListener("keydown", (e) => {
   if (e.target.closest?.("dialog")) return;
   const k = e.key;
   if (k === "Escape" && (framed || openDock())) { dockOpen(openDock(), false, true); return; }
-  if (DOCK_KEYS[k] || (framed && /^[A-Z]$/.test(k) && !"FGHJKL".includes(k))) { e.preventDefault(); dockKey(k); return; }
+  if (DOCK_KEYS[k] || (framed && /^[A-Z]$/.test(k) && !"FGHJKL".includes(k))) {
+    if (keysOff("docks")) return;
+    e.preventDefault(); dockKey(k); return;
+  }
   const was = prefix;
   prefix = "";
   clearTimeout(prefixTimer);
   if (was === "g") {
+    const group = k === "g" ? "moving" : k === "i" ? "page" : "going";
+    if (keysOff(group)) return;
     e.preventDefault();
     if (k === "g") scrollTo({ top: 0, behavior: smooth() });
     else if (k === "i") firstField();
     else if (GO[k]) { going(); location.href = GO[k]; }
     return;
   }
-  if (was === "y" && k === "y") { e.preventDefault(); copyAddress(); return; }
+  if (was === "y" && k === "y") { if (keysOff("page")) return; e.preventDefault(); copyAddress(); return; }
   if (k === "g" || k === "y") { prefix = k; prefixTimer = setTimeout(() => (prefix = ""), 1200); return; }
+  if (GROUP_OF[k] && keysOff(GROUP_OF[k])) return;
   const act = {
     f: () => showHints(false),
     F: () => showHints(true),
-    j: () => scrollBy_(70),
-    k: () => scrollBy_(-70),
+    j: () => scrollBy_(STEP),
+    k: () => scrollBy_(-STEP),
     d: () => scrollBy_(innerHeight / 2),
     u: () => scrollBy_(-innerHeight / 2),
     G: () => toEnd(),

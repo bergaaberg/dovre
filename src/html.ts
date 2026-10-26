@@ -14,6 +14,7 @@ import type { AskView } from "./relay/asks.ts";
 import type { DockView } from "./packs/registry.ts";
 import { Confirm, icon } from "./ui/kit.ts";
 import { currentTz } from "./when.ts";
+import { isDefaultKeys, type KeyPrefs } from "./keys.ts";
 
 /**
  * Folded or not, before the page draws (no flash): a tiny blocking script, since the page's policy
@@ -45,7 +46,7 @@ export function themeColor(theme?: string) {
 <meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;
 }
 
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws" };
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
 
 /**
  * Bino's pane, docked at the bottom right of every page but Bino's own. Without script it's a link
@@ -212,7 +213,8 @@ ${(frame.styles ?? []).map((href) => html`<link rel="stylesheet" href="${href}">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 ${themeColor(frame.look?.theme)}
-<meta name="u-tz" content="${frame.tz ?? currentTz()}">${frame.live ? html`
+<meta name="u-tz" content="${frame.tz ?? currentTz()}">${frame.keys && !isDefaultKeys(frame.keys) ? html`
+<meta name="u-keys" content="${JSON.stringify(frame.keys)}">` : ""}${frame.live ? html`
 <meta name="u-live" content="${frame.live}">` : ""}
 <script src="${SIDE_PATH}"></script>
 <script type="module" src="${SCRIPT_PATH}"></script>

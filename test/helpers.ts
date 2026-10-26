@@ -111,7 +111,7 @@ export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: u
   const packs = [agents, terminalPack(terminals), ...(extra.packs ?? [])];
   const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, core: ["agents", "terminal"], varsFile: extra.varsFile } });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
-  const post = (path: string, body: Record<string, string>, headers: Record<string, string> = {}) =>
+  const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
     app.request(`http://localhost${path}`, {
       method: "POST",
       headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost", ...headers },
