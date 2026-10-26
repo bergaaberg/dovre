@@ -15,7 +15,8 @@ let next = 1;
 const waiting = new Map<number, { resolve: (r: Ran) => void; reject: (e: Error) => void }>();
 
 function start(): Worker {
-  const w = new Worker(new URL("./spawn-worker.ts", import.meta.url));
+  // Bundled (dist/bridge, `pnpm build:bridge`), the worker is the bundle's spawn-worker.mjs.
+  const w = new Worker(new URL(import.meta.url.endsWith(".mjs") ? "./spawn-worker.mjs" : "./spawn-worker.ts", import.meta.url));
   w.on("message", (d: Done) => {
     const p = waiting.get(d.id);
     if (!p) return;
