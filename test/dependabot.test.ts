@@ -1,7 +1,7 @@
 /** Dependabot cleanup (dovre#108): the queue, combining a repo's bumps into one PR, and the page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bumpedPackage, combine, combinedBody, loadQueue } from "../src/actions/dependabot.ts";
+import { addGroups, bumpedPackage, combine, combinedBody, loadQueue, withGroups } from "../src/actions/dependabot.ts";
 import { openDb } from "../src/db.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { H, assertInert, fakeGhe, signedIn, snapshot } from "./helpers.ts";
@@ -117,8 +117,91 @@ test("page: hostile titles and repo names are inert", async () => {
   const html = dependabotPage({ operator: "me", nav: [] }, {
     org: H,
     repos: [{ repo: H, oldest: "2026-10-01T00:00:00Z", security: 1, prs: [{ repo: H, number: 1, title: H, url: "javascript:alert(1)", createdAt: "2026-10-01T00:00:00Z", security: true }], combined: { number: 2, url: "javascript:alert(1)" } }],
-    jobs: [{ repo: H, state: "done", ok: false, message: H, url: "javascript:alert(1)" }],
+    jobs: [{ repo: H, what: "combine", state: "done", ok: false, message: H, url: "javascript:alert(1)" }, { repo: H, what: "groups", state: "running" }],
   });
   assertInert("dependabot page", html);
   assert.doesNotMatch(html, /href="javascript:/);
+});
+
+const YML = `# Dependabot, see the docs
+version: 2
+updates:
+  - package-ecosystem: npm # the app
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions: { patterns: ["*"] }
+`;
+const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64").replace(/(.{60})/g, "$1\n");
+
+test("withGroups: a group added to each update without one, comments kept, grouped ones left alone", async () => {
+  const { parse } = await import("yaml");
+  const { text, added } = withGroups(YML);
+  assert.deepEqual(added, ["npm"]);
+  assert.match(text, /# Dependabot, see the docs/);
+  assert.match(text, /# the app/);
+  const y = parse(text) as { updates: { groups: Record<string, unknown> }[] };
+  assert.deepEqual(y.updates[0]!.groups, { "minor-and-patch": { patterns: ["*"], "update-types": ["minor", "patch"] } });
+  assert.deepEqual(y.updates[1]!.groups, { actions: { patterns: ["*"] } });
+  assert.deepEqual(withGroups(text), { text, added: [] }, "nothing to add the second time");
+  assert.throws(() => withGroups("version: 2\n"), /no updates/);
+  assert.throws(() => withGroups("updates: [\n"), /doesn't parse/);
+});
+
+function groupRoutes(file?: string) {
+  const routes: Record<string, unknown> = {
+    "GET /repos/ACME/web": { default_branch: "main" },
+    "GET /repos/ACME/web/git/ref/heads/main": { object: { sha: "base" } },
+    "POST /repos/ACME/web/git/refs": {},
+    "PUT /repos/ACME/web/contents/.github/dependabot.yml": {},
+    "POST /repos/ACME/web/pulls": { number: 77, html_url: "https://acme.ghe.com/ACME/web/pull/77" },
+  };
+  if (file !== undefined) routes["GET /repos/ACME/web/contents/.github/dependabot.yml?ref=main"] = { sha: "f1", content: b64(file) };
+  return routes;
+}
+
+test("addGroups: a branch, the file written with groups, one PR, logged; nothing to do or no file says so", async () => {
+  const { ghe, calls } = fakeGhe(groupRoutes(YML));
+  const db = openDb();
+  const r = await addGroups(ghe, db.DB, "ACME/web", new Date("2026-10-26T10:00:00Z"));
+  assert.equal(r.ok, true, r.message);
+  assert.equal(r.url, "https://acme.ghe.com/ACME/web/pull/77");
+  const put = calls.find((c) => c.method === "PUT")!.body as { content: string; sha: string; branch: string };
+  assert.equal(put.sha, "f1");
+  assert.equal(put.branch, "dovre/dependabot-groups-20261026-100000");
+  assert.match(Buffer.from(put.content, "base64").toString("utf8"), /minor-and-patch/);
+  const pr = calls.find((c) => c.method === "POST" && c.path.endsWith("/pulls"))!.body as { body: string; head: string };
+  assert.match(pr.body, /\(npm\)/);
+  assert.deepEqual(db.raw.prepare("SELECT kind, ok, detail FROM actions").all().map((l) => ({ ...l })), [{ kind: "pr.dependabot-groups", ok: 1, detail: "#77: npm" }]);
+
+  const done = fakeGhe(groupRoutes(withGroups(YML).text));
+  const r2 = await addGroups(done.ghe, openDb().DB, "ACME/web");
+  assert.match(r2.message, /has groups already/);
+  assert.ok(!done.calls.some((c) => c.method !== "GET"), "read only");
+
+  const none = fakeGhe(groupRoutes());
+  const r3 = await addGroups(none.ghe, openDb().DB, "ACME/web");
+  assert.equal(r3.ok, false);
+  assert.match(r3.message, /no \.github\/dependabot\.yml/);
+  assert.deepEqual(none.calls.filter((c) => c.path.includes("/contents/")).map((c) => c.path), ["/repos/ACME/web/contents/.github/dependabot.yml?ref=main", "/repos/ACME/web/contents/.github/dependabot.yaml?ref=main"]);
+
+  const broken = fakeGhe({ ...groupRoutes(YML), "POST /repos/ACME/web/pulls": () => { throw new Error("GHE POST: 422 nope"); }, "DELETE /repos/ACME/web/git/refs/heads/dovre/dependabot-groups-20261026-100000": null });
+  const r4 = await addGroups(broken.ghe, openDb().DB, "ACME/web", new Date("2026-10-26T10:00:00Z"));
+  assert.equal(r4.ok, false);
+  assert.ok(broken.calls.some((c) => c.method === "DELETE"), "the branch is cleaned up");
+});
+
+test("page: adding groups runs after the redirect, owners only, this app only", async () => {
+  const { get, post } = signedIn(snapshot(), groupRoutes(YML));
+  assert.equal((await post("/prs/dependabot/groups", { repo: "evil/web" })).status, 303);
+  assert.match(await (await get("/prs/dependabot")).text(), /isn&#39;t a repo of the owners|isn't a repo of the owners/);
+  assert.equal((await post("/prs/dependabot/groups", { repo: "ACME/web" })).status, 303);
+  let seen = false;
+  for (let i = 0; i < 50 && !(seen = /Opened ACME\/web#77/.test(await (await get("/prs/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
+  assert.ok(seen);
+  assert.equal((await post("/prs/dependabot/groups", { repo: "ACME/web" }, { origin: "https://evil.example" })).status, 403, "only from this app");
 });

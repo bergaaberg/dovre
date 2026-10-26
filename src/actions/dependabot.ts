@@ -2,9 +2,11 @@
  * Dependabot cleanup (dovre#108): the open Dependabot PRs across the owners' repos, and combining a
  * repo's into one PR. Combining re-checks GitHub first (still open, still Dependabot's), makes a
  * branch from the default branch, merges each PR's head into it in turn (one that conflicts is
- * skipped and listed), opens one PR that lists every bump, and logs either way.
+ * skipped and listed), opens one PR that lists every bump, and logs either way. `addGroups` opens a
+ * PR adding `groups:` to dependabot.yml, so Dependabot groups its bumps itself from then on.
  */
 import type { D1 } from "../db.ts";
+import { isMap, isSeq, parseDocument } from "yaml";
 import { ownerQuery, owns } from "../owners.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { logAction } from "./deploys.ts";
@@ -141,5 +143,80 @@ export async function combine(ghe: Ghe, db: D1, repo: string, opts: { only?: num
     const error = String((e as Error)?.message ?? e);
     if (branch) await ghe.rest(`/repos/${repo}/git/refs/heads/${branch}`, { method: "DELETE" }).catch(() => {});
     return fail(`Couldn't combine the Dependabot PRs in ${repo}: ${error}`, error);
+  }
+}
+
+// ── Stop it at the source: Dependabot groups its own bumps from then on ──
+
+const fromB64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s+/g, "")), (c) => c.charCodeAt(0)));
+const toB64 = (s: string) => btoa(Array.from(new TextEncoder().encode(s), (b) => String.fromCharCode(b)).join(""));
+
+/** The group added to an update entry that has none: its minor and patch bumps in one PR. */
+export const GROUP = { "minor-and-patch": { patterns: ["*"], "update-types": ["minor", "patch"] } };
+
+/**
+ * dependabot.yml with `groups:` added to each update entry that has none (comments kept).
+ * `added` names the entries' ecosystems; empty when every entry is grouped already.
+ */
+export function withGroups(text: string): { text: string; added: string[] } {
+  const doc = parseDocument(text);
+  if (doc.errors.length) throw new Error(`dependabot.yml doesn't parse: ${doc.errors[0]!.message.split("\n")[0]}`);
+  const updates = doc.get("updates");
+  if (!isSeq(updates)) throw new Error("dependabot.yml has no updates: list");
+  const added: string[] = [];
+  for (const item of updates.items) {
+    if (!isMap(item) || item.has("groups")) continue;
+    item.set("groups", doc.createNode(GROUP));
+    added.push(String(item.get("package-ecosystem") ?? "?"));
+  }
+  return { text: added.length ? doc.toString() : text, added };
+}
+
+/** Opens a PR adding `groups:` to the repo's .github/dependabot.yml, so Dependabot opens grouped PRs itself. */
+export async function addGroups(ghe: Ghe, db: D1, repo: string, now = new Date()): Promise<CombineResult> {
+  const fail = async (message: string, error?: string) => {
+    await logAction(db, { kind: "pr.dependabot-groups", target: repo, ok: false, error: error ?? message });
+    return { ok: false, message };
+  };
+  let branch: string | undefined;
+  try {
+    const info = await ghe.rest<{ default_branch: string }>(`/repos/${repo}`);
+    const base = info.default_branch;
+    let file: { path: string; sha: string; content: string } | undefined;
+    for (const path of [".github/dependabot.yml", ".github/dependabot.yaml"]) {
+      file = await ghe.rest<{ sha: string; content: string }>(`/repos/${repo}/contents/${path}?ref=${encodeURIComponent(base)}`).then(
+        (f) => ({ path, sha: f.sha, content: f.content }),
+        (e) => (/: 404\b/.test(String((e as Error)?.message ?? e)) ? undefined : Promise.reject(e)),
+      );
+      if (file) break;
+    }
+    if (!file) return fail(`${repo} has no .github/dependabot.yml: its bumps are security updates only, which Dependabot doesn't group this way.`);
+    const { text, added } = withGroups(fromB64(file.content));
+    if (!added.length) return fail(`Every update in ${repo}'s ${file.path} has groups already.`);
+    const ref = await ghe.rest<{ object: { sha: string } }>(`/repos/${repo}/git/ref/heads/${encodeURIComponent(base)}`);
+    branch = `dovre/dependabot-groups-${stamp(now)}`;
+    await ghe.rest(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: `refs/heads/${branch}`, sha: ref.object.sha } });
+    await ghe.rest(`/repos/${repo}/contents/${file.path}`, { method: "PUT", body: { message: "Group Dependabot's minor and patch bumps", content: toB64(text), sha: file.sha, branch } });
+    const pr = await ghe.rest<{ number: number; html_url: string }>(`/repos/${repo}/pulls`, {
+      method: "POST",
+      body: {
+        title: "Group Dependabot's minor and patch bumps",
+        head: branch,
+        base,
+        body: [
+          `Adds a \`minor-and-patch\` group to ${added.length === 1 ? "the" : `${added.length}`} update ${added.length === 1 ? "entry" : "entries"} in \`${file.path}\` (${added.join(", ")}).`,
+          "",
+          "From then on Dependabot opens one PR per ecosystem for those bumps; major bumps and security updates still come one by one.",
+          "",
+          "Opened by Dovre.",
+        ].join("\n"),
+      },
+    });
+    await logAction(db, { kind: "pr.dependabot-groups", target: repo, detail: `#${pr.number}: ${added.join(", ")}`, ok: true });
+    return { ok: true, message: `Opened ${repo}#${pr.number}: Dependabot groups minor and patch bumps (${added.join(", ")}) once it merges.`, url: pr.html_url };
+  } catch (e) {
+    const error = String((e as Error)?.message ?? e);
+    if (branch) await ghe.rest(`/repos/${repo}/git/refs/heads/${branch}`, { method: "DELETE" }).catch(() => {});
+    return fail(`Couldn't add groups to ${repo}'s dependabot.yml: ${error}`, error);
   }
 }

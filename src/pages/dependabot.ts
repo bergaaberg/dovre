@@ -7,13 +7,14 @@ import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill 
 import { ago } from "../format.ts";
 import { Link, prTabs, safeUrl } from "./parts.ts";
 
-export type Job = { repo: string; state: "running" } | { repo: string; state: "done"; ok: boolean; message: string; url?: string };
+/** A write running after the redirect: combining a repo's bumps, or adding groups to its dependabot.yml. */
+export type Job = { repo: string; what: "combine" | "groups" } & ({ state: "running" } | { state: "done"; ok: boolean; message: string; url?: string });
 
-function repoPanel(r: RepoQueue, now: number, running: boolean): Html {
+function repoPanel(r: RepoQueue, now: number, running: Set<string>): Html {
   const n = r.prs.length;
   const take = Math.min(n, MAX_COMBINE);
   const meta = html`${n} open · oldest ${ago(Date.parse(r.oldest), now)}${r.security ? html` · ${Pill({ tone: "bad", children: `${r.security} security` })}` : ""}`;
-  const action = running
+  const combine = running.has(`combine:${r.repo}`)
     ? html`<span class="t3">Combining…</span>`
     : n >= 2
       ? Confirm({ kind: "pr.combine-dependabot",
@@ -23,10 +24,18 @@ function repoPanel(r: RepoQueue, now: number, running: boolean): Html {
           question: html`Open one PR in ${r.repo} with ${take} Dependabot bump${take === 1 ? "" : "s"}? Each is merged onto a new branch from the default branch; ones that conflict are left out and listed.${r.security ? html` The ${r.security} security fix${r.security === 1 ? "" : "es"} are listed first.` : ""}`,
         })
       : "";
+  const groups = running.has(`groups:${r.repo}`)
+    ? html`<span class="t3">Adding groups…</span>`
+    : Confirm({ kind: "pr.dependabot-groups",
+        action: "/prs/dependabot/groups",
+        fields: { repo: r.repo },
+        label: "Group future bumps",
+        question: html`Open a PR in ${r.repo} that adds a minor-and-patch group to each update in .github/dependabot.yml? Once it merges, Dependabot opens one PR per ecosystem for those bumps itself.`,
+      });
   return Panel({
     title: r.repo,
     meta,
-    actions: action,
+    actions: html`${groups}${combine}`,
     children: html`${r.combined ? Notice({ children: html`A combined PR is already open: ${Link(r.combined.url, `#${r.combined.number}`)}.` }) : ""}${List(
       r.prs.map((p) =>
         Item({
@@ -43,10 +52,10 @@ function repoPanel(r: RepoQueue, now: number, running: boolean): Html {
 export function dependabotPage(frame: Frame, o: { org: string; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number }): string {
   const now = o.now ?? Date.now();
   const jobs = o.jobs ?? [];
-  const running = new Set(jobs.filter((j) => j.state === "running").map((j) => j.repo));
+  const running = new Set(jobs.filter((j) => j.state === "running").map((j) => `${j.what}:${j.repo}`));
   const jobLines = jobs.map((j) =>
     j.state === "running"
-      ? html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">Combining the Dependabot PRs in ${j.repo}. This fills in by itself.</p></section>`
+      ? html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">${j.what === "groups" ? "Adding groups to the dependabot.yml in" : "Combining the Dependabot PRs in"} ${j.repo}. This fills in by itself.</p></section>`
       : Notice({ tone: j.ok ? "ok" : "bad", children: html`${j.message}${j.url ? html` ${Link(j.url, "Open it")}` : ""}` }),
   );
   const total = (o.repos ?? []).reduce((n, r) => n + r.prs.length, 0);
@@ -57,7 +66,7 @@ export function dependabotPage(frame: Frame, o: { org: string; repos?: RepoQueue
       }${
         o.repos && !o.repos.length
           ? Empty({ title: "No Dependabot PRs", children: html`<p class="t2">Nothing open from Dependabot in ${o.org}.</p>` })
-          : (o.repos ?? []).map((r) => repoPanel(r, now, running.has(r.repo)))
+          : (o.repos ?? []).map((r) => repoPanel(r, now, running))
       }`;
   return String(
     shell({

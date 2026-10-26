@@ -77,7 +77,7 @@ import { viewingAs } from "./viewer.ts";
 import { createStacks } from "./sources/stacks.ts";
 import { stacksPage } from "./pages/stacks.ts";
 import { dependabotPage, type Job as BotJob } from "./pages/dependabot.ts";
-import { combine, loadQueue } from "./actions/dependabot.ts";
+import { addGroups, combine, loadQueue } from "./actions/dependabot.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
@@ -623,29 +623,29 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       .finally(() => (botLoading = undefined));
     return botLoading;
   };
-  /** Combining runs after the redirect; the page shows it running, then what happened, once. */
+  /** Combining and adding groups run after the redirect; the page shows each running, then what happened, once. */
   const botJobs = new Map<string, BotJob>();
   app.get("/prs/dependabot", async (c) => {
     const { frame } = await page();
     const jobs = [...botJobs.values()];
-    for (const j of jobs) if (j.state === "done") botJobs.delete(j.repo);
+    for (const [k, j] of botJobs) if (j.state === "done") botJobs.delete(k);
     const got = await Promise.race([loadBots().then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) })), new Promise<undefined>((res) => setTimeout(res, 1500))]);
     if (!got) return c.html(dependabotPage(frame, { org: env.GHE_ORG, pending: true, jobs }));
     return c.html(dependabotPage(frame, { org: env.GHE_ORG, jobs, ...(got.ok ? got.value : { error: got.error }) }));
   });
-  app.post("/prs/dependabot/combine", async (c) => {
+  const botWrite = (what: BotJob["what"], run: (repo: string) => Promise<{ ok: boolean; message: string; url?: string }>) => async (c: Context) => {
     const form = await c.req.parseBody();
     const repo = repoIn(ownersIn(env), form.repo);
     if (!repo) {
-      botJobs.set("?", { repo: String(form.repo ?? "").slice(0, 100), state: "done", ok: false, message: "That isn't a repo of the owners." });
+      botJobs.set("?", { repo: String(form.repo ?? "").slice(0, 100), what, state: "done", ok: false, message: "That isn't a repo of the owners." });
       return c.redirect("/prs/dependabot", 303);
     }
-    if (botJobs.get(repo)?.state !== "running") {
-      const security = botQueue?.value.repos.find((r) => r.repo === repo)?.prs.filter((p) => p.security).map((p) => p.number) ?? [];
-      botJobs.set(repo, { repo, state: "running" });
-      const job = combine(ghe, env.DB, repo, { security })
-        .then((r) => botJobs.set(repo, { repo, state: "done", ok: r.ok, message: r.message, url: r.url }))
-        .catch((e) => botJobs.set(repo, { repo, state: "done", ok: false, message: String((e as Error)?.message ?? e) }))
+    const key = `${what}:${repo}`;
+    if (botJobs.get(key)?.state !== "running") {
+      botJobs.set(key, { repo, what, state: "running" });
+      const job = run(repo)
+        .then((r) => botJobs.set(key, { repo, what, state: "done", ok: r.ok, message: r.message, url: r.url }))
+        .catch((e) => botJobs.set(key, { repo, what, state: "done", ok: false, message: String((e as Error)?.message ?? e) }))
         .then(() => loadBots(true).catch(() => undefined))
         .finally(() => {
           gatherer.stale();
@@ -656,7 +656,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       } catch {}
     }
     return c.redirect("/prs/dependabot", 303);
-  });
+  };
+  app.post(
+    "/prs/dependabot/combine",
+    botWrite("combine", (repo) => combine(ghe, env.DB, repo, { security: botQueue?.value.repos.find((r) => r.repo === repo)?.prs.filter((p) => p.security).map((p) => p.number) ?? [] })),
+  );
+  app.post("/prs/dependabot/groups", botWrite("groups", (repo) => addGroups(ghe, env.DB, repo)));
   app.get("/movement", async (c) => {
     const { s, frame } = await page();
     const view = ["timeline", "me", "bots"].includes(c.req.query("view") ?? "") ? c.req.query("view")! : "people";
