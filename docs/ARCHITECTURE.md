@@ -69,7 +69,8 @@ It keeps core's safety boundary intact:
    - its `execution` fits (local-only, hosted-only, any);
    - hosted, its `requiredBindings` exist; local, its `requiredBinaries` are on PATH;
    - its required settings are set.
-4. **Mounted** (`createApp`). Each pack gets its own `PackContext` (`ctxOf`). Its routes go on a
+4. **Mounted** (`createApp`). Each pack gets its own `PackContext` (`ctxOf`). A pack whose
+   `available` answers no (or throws) is off now, saying so, before anything of it is mounted. Its routes go on a
    sub-app of their own, mounted after the guard and every core route. The mount is refused if a
    route is outside `/<id>` and the manifest's `paths`, if a path is a core path or another
    pack's, or if `routes` throws. The packs' `styles` are served as one hashed stylesheet.
