@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
-import { activePacks, avatarFrom, actsFrom, briefingFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, within } from "../src/packs/registry.ts";
+import { activePacks, avatarFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -608,6 +608,52 @@ test("dock: a pack's button beside Bino's on every page but its own, cut to size
   const other = await get("/chat/other");
   assert.match(other.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/, "only its dock pages can be framed");
   assert.match((await get("/agents/dock")).headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/, "nor a pack's without a dock");
+});
+
+test("dock keys: a pack's dock may ask for a capital letter; the page's own keys, a second dock's ask and anything else are ignored", async () => {
+  const ask = (id: string, key: unknown) => pack({ id }, { dock: () => ({ label: id, key: key as string }) });
+  const docks = docksFrom([ask("one", "T"), ask("two", "T"), ask("three", "B")], (c) => testContext({ log: () => {} }), () => {});
+  assert.deepEqual(docks.map((d) => [d.id, d.key]), [["one", "T"], ["two", undefined], ["three", undefined]], "first come; B is Bino's");
+  for (const bad of [...TAKEN_KEYS, "t", "TT", "1", "", " ", 7, null, `${H}`]) assert.equal(docksFrom([ask("x", bad)], () => testContext(), () => {})[0]!.key, undefined, String(bad));
+  const { get } = signedIn(snapshot(), {}, { packs: [ask("chat", "T"), ask("plain", undefined)] });
+  const page = await (await get("/prs")).text();
+  assert.match(page, /<div class="tdock" id="dock-chat" data-dock="\/chat\/dock" data-dock-title="chat" data-dock-key="T">/);
+  assert.match(page, /id="dock-chat-btn" href="\/chat" aria-controls="dock-chat-panel" aria-expanded="false" title="chat \(T\)">/);
+  assert.match(page, /<div class="tdock" id="dock-plain" data-dock="\/plain\/dock" data-dock-title="plain">/, "no key: no attribute");
+});
+
+test("actions.what: the first pack that names a kind it logged says what it was, cut to a line; none: undefined", () => {
+  const a = pack({ id: "a" }, { slots: () => ({ "actions.what": ({ kind }) => (kind === "a.post" ? `Posted\nsomething ${"x".repeat(200)}` : undefined) }) });
+  const b = pack({ id: "b" }, { slots: () => ({ "actions.what": () => "Anything" }) });
+  const boom = pack({ id: "boom" }, { slots: () => ({ "actions.what": () => { throw new Error("no"); } }) });
+  const fill = fillOf(() => [boom, a, b], () => testContext(), () => {});
+  const said = whatFrom(fill, "a.post")!;
+  assert.match(said, /^Posted something x+/);
+  assert.ok(said.length <= 60);
+  assert.equal(whatFrom(fill, "b.other"), "Anything");
+  assert.equal(whatFrom(fillOf(() => [], () => testContext(), () => {}), "x"), undefined);
+});
+
+test("ask: a pack's question goes in the bar on every page as its asker; only an answer there resolves it; a test's context says no", async () => {
+  const db = pack({ id: "db-ish" });
+  const { app, get, post } = signedIn(snapshot(), {}, { packs: [db] });
+  const ctx = packsOf(app)!.ctxOf(db);
+  assert.equal(ctx.asking(), false);
+  const schema = { type: "object", required: ["decision"], properties: { decision: { type: "string", enum: ["deny", "allow"] } } };
+  const answer = ctx.ask({ from: `db ${H}`, message: `Open PRODUCTION ledger:prod? ${H}`, schema });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(ctx.asking(), true, "its question waits");
+  const page = await (await get("/prs")).text();
+  assertInert("a pack's question in the bar", page);
+  assert.match(page, /db &lt;script&gt;x&lt;\/script&gt;[^<]*asks for your OK/, "as its asker, escaped");
+  const id = /\/relay\/ask\/([0-9a-f-]{36})\/answer/.exec(page)?.[1];
+  assert.ok(id, "answered in the bar");
+  assert.equal((await post(`/relay/ask/${id}/answer`, { choice: "allow" }, { origin: "http://evil.example" })).status, 403, "only this app's own form answers");
+  await post(`/relay/ask/${id}/answer`, { choice: "allow" });
+  assert.deepEqual(await answer, { action: "accept", content: { decision: "allow" } });
+  assert.equal(ctx.asking(), false);
+  const hosted = testContext();
+  assert.deepEqual(await hosted.ask({ from: "db", message: "x", schema }), { action: "cancel" }, "a test's context says no");
 });
 
 test("available: a pack that says it can't run here, or throws asking, is off with why; its routes, nav and init never run", async () => {

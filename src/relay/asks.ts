@@ -1,11 +1,11 @@
 /**
- * Questions an MCP server puts to me through the relay (`dovre relay -- db mcp`, launcher/
- * relay.go): db-cli asking before it opens a production database, for a client (omp) that can't
+ * Questions an MCP server puts to me through the relay (`dovre relay -- <server>`, launcher/
+ * relay.go), or a pack through `ctx.ask` (a database CLI asking before it opens production), for a client (omp) that can't
  * ask. The relay hands the question here and waits; I answer it on any page (the bar at the top),
  * and only there, so the model never answers it.
  *
- * Forms are read narrowly: one required field with a few named choices (db-cli's deny/allow), or a
- * yes/no. Anything else can only be declined. The first choice listed is the safe one (db-cli
+ * Forms are read narrowly: one required field with a few named choices (deny/allow), or a
+ * yes/no. Anything else can only be declined. The first choice listed is the safe one (a careful server
  * lists deny first); every other choice needs a second click.
  */
 import { randomUUID } from "node:crypto";
@@ -98,9 +98,10 @@ export function createAsks(opts: { now?: () => number; onChange?: (q?: AskView) 
  * An MCP host's elicitation handler that asks me in the bar and waits for the answer (up to
  * `maxMs`; unanswered, or dropped, is cancel, which a careful server reads as no).
  */
-export function askInBar(asks: Asks, server: string, maxMs = 10 * 60_000, now: () => number = Date.now) {
+export function askInBar(asks: Asks, server: string, maxMs = 10 * 60_000, now: () => number = Date.now, /** Told each question's id as it goes in the bar. */ onPut?: (id: string) => void) {
   return async (message: string, schema: unknown): Promise<Answer> => {
     const q = asks.put({ server, message, schema });
+    onPut?.(q.id);
     const until = now() + maxMs;
     while (now() < until) {
       const r = await asks.wait(q.id, Math.min(25_000, Math.max(1, until - now())));

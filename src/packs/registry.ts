@@ -236,6 +236,15 @@ export function settingsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (
 }
 
 /** What the packs call an actions-log entry ("actions.where"): the first that answers, one line of 120 at most. */
+/** What a pack calls a kind of entry it logged ("actions.what": "Sent a Teams message"), cut to a line; undefined: none says. */
+export function whatFrom(fill: Fill, kind: string): string | undefined {
+  for (const w of fill("actions.what", { kind })) {
+    const line = typeof w === "string" ? oneLine(w, 60) : "";
+    if (line) return line;
+  }
+  return undefined;
+}
+
 export function whereFrom(fill: Fill, a: { kind: string; target: string }): string | undefined {
   for (const w of fill("actions.where", { kind: a.kind, target: a.target })) {
     const line = typeof w === "string" ? oneLine(w, 120) : "";
@@ -245,10 +254,13 @@ export function whereFrom(fill: Fill, a: { kind: string; target: string }): stri
 }
 
 /** A pack's dock as the frame draws it: its id (its pages are /<id>/dock…), the label and count cut to size. */
-export type DockView = { id: string; label: string; count: number; hot: boolean; title?: string };
+export type DockView = { id: string; label: string; count: number; hot: boolean; title?: string; /** Its key (one capital letter), when the pack asked for one no other dock has. */ key?: string };
 export const MAX_DOCKS = 3;
 
-/** The packs' docks (`dock`), in their order, three at most; one that throws or has no label adds none. */
+/** Capitals the page's own keys already use (src/ui/app.js.ts): B is Bino's pane; F, G, H, J, K and L move about. */
+export const TAKEN_KEYS = "BFGHJKL";
+
+/** The packs' docks (`dock`), in their order, three at most; one that throws or has no label adds none. A key goes to the first dock that asks for it. */
 export function docksFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): DockView[] {
   const out: DockView[] = [];
   for (const c of on) {
@@ -258,7 +270,8 @@ export function docksFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id:
     if (!d || !label) continue;
     const n = typeof d.count === "number" && Number.isFinite(d.count) ? Math.max(0, Math.min(999, Math.round(d.count))) : 0;
     const title = cut(d.title, 120).trim();
-    out.push({ id: c.manifest.id, label, count: n, hot: d.hot === true && n > 0, ...(title ? { title } : {}) });
+    const key = typeof d.key === "string" && /^[A-Z]$/.test(d.key) && !TAKEN_KEYS.includes(d.key) && !out.some((o) => o.key === d.key) ? d.key : undefined;
+    out.push({ id: c.manifest.id, label, count: n, hot: d.hot === true && n > 0, ...(title ? { title } : {}), ...(key ? { key } : {}) });
   }
   return out;
 }

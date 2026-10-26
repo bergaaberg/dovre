@@ -91,7 +91,9 @@ It keeps core's safety boundary intact:
 - `snapshot()` and `gathered()`: what the gather fetched from the forge (GitHub, or a pack's);
 - `fill(slot, arg)` to host other packs' slots on its own pages;
 - `page()` and `dockPage()` to draw inside Dovre's shell;
-- `log()`, and `ring()` for a one-off notification.
+- `log()`, and `ring()` for a one-off notification;
+- `ask()` to put a question in the bar at the top of every page and wait for my answer (an MCP
+  server's, such as a database CLI's before it opens production; local only), and `asking()`.
 
 **What a pack answers**, grouped by where it lands:
 
@@ -100,9 +102,9 @@ It keeps core's safety boundary intact:
 | Its own pages | `routes`, `styles`, `nav`, `paths` (manifest) | routes on request |
 | Today | `today` (cards), `glance`, `brief`, `lane`, `feed` | cards: 250 ms for all; the rest from memory |
 | Search | `pages`, `finds` (with `kind`: agents, code, actions) | from memory |
-| Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` | from memory |
-| Bino | `bino`, `about`, `acts` (local only) | from memory; an act's `run` in the background |
-| Core pages | `slots` (SlotMap: ten places) | from memory |
+| Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` (with a `key` letter) | from memory |
+| Bino | `bino`, `about` (not asked for a manifest-`private` pack), `acts` (local only) | from memory; an act's `run` in the background |
+| Core pages | `slots` (SlotMap: thirteen places) | from memory |
 | Links | `refs` (ticket keys in text), `linked` (PR links for the gather to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
 | Avatar | `avatar`: working / asking counts, trouble (storm or fire, why, link) | from memory |
@@ -128,7 +130,8 @@ The registry does this for every hook, so a pack can't break a page or another p
     dropped or made harmless.
   - Tones come from fixed lists.
   - Counts are capped:
-    - docks: 3;
+    - docks: 3; a dock's `key` is one capital letter the page doesn't use already (B is Bino's;
+      F, G, H, J, K, L move about), and the first dock to ask for it gets it;
     - acts: 5 per pack, 8 fields each, 12 in all;
     - finds: 500 per pack; linked PRs: 200;
     - glance: 2 numbers; brief: 12 bits; lane: 200 marks;
@@ -149,6 +152,8 @@ The registry does this for every hook, so a pack can't break a page or another p
 - One pack reaches another's page only through a slot, never an import.
 - A pack's writes to its own app re-check the current state first, log to the `actions` table,
   and go through a Confirm (or `oneClick` where I decided so, like Teams' send).
+- A pack whose pages show what isn't mine to hand a model (chats, mail, query results) says
+  `private` in its manifest: asked from one of its pages, Bino hears only the pack's name.
 - What Bino may know (`bino`, `about`) is names, states and counts. Never what someone wrote, an
   address, or a token.
 - A pack's tests live with it (`packs/<id>/test/`), with a hostile-input case for each page.
@@ -192,9 +197,11 @@ deploy.prod, todo.proposals and actions.where. In this write-up (WP-X1), "Start 
 core's search actions for the agents pack: `finds` can now put rows in search's "Do" group
 (`kind: "actions"`).
 
-**Next packs (H9f):** Teams (with mail and channels) and Data
-are still built into core and passed to `createApp`. They move to an instance repository one pack per
-commit. Then a test fails if core names any of them again.
+**Moved out (H9f):** Teams (with mail and channels) and Data are an instance's packs now
+(2026-10-26). For them the contract grew four additive things: a dock's `key` (Teams' T), the
+`actions.what` slot (what a pack's log entry was, in words), the manifest's `private`, and
+`ctx.ask` / `ctx.asking` (Data's production questions in the bar). test/boundary.test.ts fails if
+their code, panes, settings, routes or styles come back to core. DROPS is next (rebuilt).
 
 **Open points:**
 
@@ -202,10 +209,10 @@ commit. Then a test fails if core names any of them again.
    and hosted. It shows on core pages through two slots (`today.hero`, `bino.face`). What other
    packs tell it is one hook, `avatar`: working and asking counts (agents), and trouble, a storm
    or a fire with a line of counts and a link (signals: red signals). `activity` is gone.
-2. **The config store's keys are a fixed list** (src/config.ts `KEYS`). A pack's typed options
-   (TEAMS_CRAWL, DATA_AGENT) can't live there yet. Decide with the first H9f move: either they
-   become manifest `settings` keys in .dev.vars, or the store takes keys a pack declares.
-   *Leaning:* manifest settings, since they already show on the Packs page.
+2. *Settled (H9f, 2026-10-26):* **a pack's options are its manifest `settings`** (.dev.vars, shown
+   and saved on the Packs page). The config store's keys stay a fixed list (src/config.ts `KEYS`)
+   for core's own panes, so Teams' options (TEAMS_CRAWL, TEAMS_SINCE_DAYS, OUTLOOK) left it with
+   Teams.
 3. **Core pages link to the agents pack's routes.** My list, New work, tasks, reviews and the
    desk link to `/agents/new`, and `/agents/s/…` is linked from several places. With
    `PACK_AGENTS=off`, those links answer 404. Acceptable while agents is core's own pack (the

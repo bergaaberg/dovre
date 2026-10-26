@@ -45,18 +45,13 @@ export function themeColor(theme?: string) {
 <meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;
 }
 
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Teams is on: the dock at the bottom right, with how many chats have something new. */ teams?: { unread: number; mentions: number }; /** Bino can answer: its pane beside Teams'. */ bino?: boolean; /** The packs' docks after Teams' (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws" };
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws" };
 
 /**
- * Teams, docked at the bottom right of every page but Teams' own. Without script it's a link to
- * /teams; with it, it opens a panel holding /teams/dock in a frame (src/ui/app.js.ts), which keeps
+ * Bino's pane, docked at the bottom right of every page but Bino's own. Without script it's a link
+ * to /bino; with it, it opens a panel holding /bino/dock in a frame (src/ui/app.js.ts), which keeps
  * its place while I move between pages.
  */
-function teamsDock(t: { unread: number; mentions: number }): Html {
-  return html`<div class="tdock" id="tdock"><div class="tdock-panel" id="tdock-panel" hidden></div><a class="tdock-btn" id="tdock-btn" href="/teams" aria-controls="tdock-panel" aria-expanded="false"><span data-live id="tdock-n">Teams${t.unread ? html`<b class="${t.mentions ? "hot" : ""}" title="${t.unread} with something new${t.mentions ? `, ${t.mentions} mention you` : ""}">${t.mentions ? "@ " : ""}${t.unread}</b>` : ""}</span></a></div>`;
-}
-
-/** Bino's pane, the same way: a link to /bino without script, a panel holding /bino/dock with it. */
 function binoDock(face: Html | ""): Html {
   // With a face (the avatar pack's), the button is it: it works, hops and says what happened (src/ui/app.js.ts).
   if (face) return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn av-dock" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino (B)" aria-label="Bino" data-av-box>${face}</a></div>`;
@@ -65,14 +60,15 @@ function binoDock(face: Html | ""): Html {
 
 /**
  * A pack's dock, the same way: a link to /<id>, a panel holding /<id>/dock with script. The page
- * script finds it by `data-dock` (src/ui/app.js.ts); its count is a live region of its own.
+ * script finds it by `data-dock` (src/ui/app.js.ts); its count is a live region of its own. With a
+ * key (`data-dock-key`), that letter opens and closes it from any page.
  */
 function packDock(d: DockView): Html {
   const id = `dock-${d.id}`;
-  return html`<div class="tdock" id="${id}" data-dock="/${d.id}/dock" data-dock-title="${d.label}"><div class="tdock-panel" id="${id}-panel" hidden></div><a class="tdock-btn" id="${id}-btn" href="/${d.id}" aria-controls="${id}-panel" aria-expanded="false"><span data-live id="${id}-n">${d.label}${d.count ? html`<b class="${d.hot ? "hot" : ""}"${d.title ? html` title="${d.title}"` : ""}>${d.hot ? "@ " : ""}${d.count}</b>` : ""}</span></a></div>`;
+  return html`<div class="tdock" id="${id}" data-dock="/${d.id}/dock" data-dock-title="${d.label}"${d.key ? html` data-dock-key="${d.key}"` : ""}><div class="tdock-panel" id="${id}-panel" hidden></div><a class="tdock-btn" id="${id}-btn" href="/${d.id}" aria-controls="${id}-panel" aria-expanded="false"${d.key ? html` title="${d.label} (${d.key})"` : ""}><span data-live id="${id}-n">${d.label}${d.count ? html`<b class="${d.hot ? "hot" : ""}"${d.title ? html` title="${d.title}"` : ""}>${d.hot ? "@ " : ""}${d.count}</b>` : ""}</span></a></div>`;
 }
 
-/** A page shown inside a dock (Teams, Bino, a pack's): no top bar or footer, the same style and script. */
+/** A page shown inside a dock (Bino's, a pack's): no top bar or footer, the same style and script. */
 export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[] }): Html {
   return html`<!doctype html>
 <html lang="en">
@@ -94,12 +90,11 @@ ${opts.body}
 
 const within = (href: string, path: string) => path === href || (href !== "/" && path.startsWith(`${href.replace(/\/new$/, "")}/`)) || (href !== "/" && path === href.replace(/\/new$/, ""));
 
-/** The docks at the bottom right: Bino, then Teams, then the packs'; none on its own pages. */
+/** The docks at the bottom right: Bino, then the packs'; none on its own pages. */
 function docksOf(frame: Frame, current: string): Html | "" {
   const bino = frame.bino && !within("/bino", current);
-  const teams = frame.teams && !within("/teams", current);
   const packs = (frame.docks ?? []).filter((d) => !within(`/${d.id}`, current));
-  return bino || teams || packs.length ? html`<div class="docks">${bino ? binoDock(frame.face?.({ place: "dock" }) ?? "") : ""}${teams ? teamsDock(frame.teams!) : ""}${packs.map(packDock)}</div>` : "";
+  return bino || packs.length ? html`<div class="docks">${bino ? binoDock(frame.face?.({ place: "dock" }) ?? "") : ""}${packs.map(packDock)}</div>` : "";
 }
 
 const hm = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);

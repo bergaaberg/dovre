@@ -13,6 +13,7 @@ import type { NavItem } from "../html.ts";
 import type { Page } from "../search/search.ts";
 import type { Session } from "../sources/claude.ts";
 import type { Html } from "../ui/kit.ts";
+import type { Answer } from "../relay/asks.ts";
 
 /** The contract's version: a pack built for another is off, saying so. Bump on a breaking change. */
 export const PACK_API = 1;
@@ -58,6 +59,11 @@ export type PackManifest = {
    * that I can switch off. A kind is this Dovre's alone: one the core or another pack has is refused.
    */
   rings?: RingDecl[];
+  /**
+   * What its pages show never reaches Bino: asked from one, Bino hears only the pack's name (chats,
+   * mail, query results). Its `about` isn't asked.
+   */
+  private?: boolean;
 };
 
 /** A kind of notification: its id (lowercase), and how Settings says it. On unless I switch it off. */
@@ -167,6 +173,11 @@ export type SlotMap = {
   "deploy.prod": { arg: { repo: string }; out: Html | "" };
   /** My list, above the list: items proposed from elsewhere, each to add or let go (Teams' crawler). */
   "todo.proposals": { arg: Record<string, never>; out: Html | "" };
+  /**
+   * What an entry on the actions log was, in words ("Sent a Teams message"), for kinds the pack
+   * logged. The first pack that answers names it, cut to a line; undefined: as logged.
+   */
+  "actions.what": { arg: { kind: string }; out: string | undefined };
   /** Today's header, before the glance (avatar: me in my scene). The first pack that answers fills it. */
   "today.hero": { arg: Record<string, never>; out: Html | "" };
   /**
@@ -211,6 +222,17 @@ export type PackContext = {
    * same tag replaces the last. Nothing happens where nothing rings (hosted, tests).
    */
   ring(note: PackNote): void;
+  /**
+   * Puts a question in the bar at the top of every page, as `from` asks it (an MCP server the pack
+   * talks to: db asking before it opens a production database), and waits for my answer: ten
+   * minutes at most, then it's `cancel`, which a careful asker reads as no. Only a person answers it,
+   * in the bar: the safe choice in one click, any other behind a second. The schema is read as the
+   * relay reads one (one field of named choices, or yes/no); anything else can only be declined.
+   * Hosted, it's `cancel` at once.
+   */
+  ask(q: { from: string; message: string; schema: unknown }): Promise<Answer>;
+  /** One of its questions is waiting in the bar now. */
+  asking(): boolean;
 };
 
 /** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */
@@ -222,7 +244,7 @@ export type PackNote = { kind: string; title: string; body?: string; href: strin
  * in a frame (drawn with `ctx.dockPage`), which keeps its place while I move between pages. `count`
  * is how many have something new; `hot` when one of them is for me (a mention).
  */
-export type Dock = { label: string; count?: number; hot?: boolean; /** The count's tooltip ("3 with something new"). */ title?: string };
+export type Dock = { label: string; count?: number; hot?: boolean; /** The count's tooltip ("3 with something new"). */ title?: string; /** A capital letter that opens and closes it from any page (Teams: T). One the page's own keys or an earlier dock has is ignored. */ key?: string };
 
 /** A field of a pack's act, as Bino fills it in: its name (lowercase) and what goes in it, for Bino. */
 export type ActField = { name: string; about: string; required?: boolean; /** Longest it may be (default 200, 4000 at most). */ max?: number; /** Several lines (a message), not one. */ text?: boolean };

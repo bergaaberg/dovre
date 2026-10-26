@@ -91,7 +91,7 @@ export const fixedGatherer = (s: Snapshot): Gatherer & { staled: number } => {
   return g;
 };
 
-const ENV: Omit<Env, "DB"> = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms", DATA_PREFIX: "acme-sqldb-", DATA_DB2: "warehouse" };
+const ENV: Omit<Env, "DB"> = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms" };
 
 /** What the agents pack has read on this machine, for a test: its sessions and worktrees. */
 export type Machine = { sessions?: Partial<Sessions>; worktrees?: Worktree[] };
