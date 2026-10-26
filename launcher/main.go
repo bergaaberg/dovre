@@ -11,7 +11,7 @@
 //	dovre pty-host       one terminal (ConPTY) for Dovre's terminal page, over stdio frames (pty.go)
 //	dovre docker-pipe    Docker Engine's pipe on its own; the supervisor serves it too (docker.go)
 //	dovre version        this build's version (set at release, scripts/release.sh)
-//	dovre bridge …       this machine's agents in hosted Dovre: login, run, install, uninstall, status (bridge.go)
+//	dovre bridge …       this machine's agents in hosted Dovre: login, run, install, uninstall, status, restart, logout (bridge.go)
 //
 // It's also the handler for dovre://open/<path> links. Built twice from this source
 // (scripts/install.ps1): bin/dovre.exe for terminals and bin/dovrew.exe, without a console
