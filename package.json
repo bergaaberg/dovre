@@ -17,7 +17,7 @@
     "packs": "node src/packs/new.ts",
     "instance": "node src/instance-new.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test 'test/*.test.ts' 'src/packs/core/*/test/*.test.ts'",
+    "test": "node --test \"test/*.test.ts\" \"src/packs/core/*/test/*.test.ts\"",
     "test:go": "go -C launcher test ./...",
     "check": "pnpm typecheck && pnpm test && pnpm test:go"
   },

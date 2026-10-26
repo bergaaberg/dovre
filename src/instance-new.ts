@@ -4,7 +4,7 @@
  * that walks from here to a deployed Dovre. Never overwrites a file; installs and deploys nothing.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { provisionInstance } from "./instance-provision.ts";
 
 const TEMPLATE = join(import.meta.dirname, "..", "templates", "instance");
@@ -23,7 +23,7 @@ export function instanceFiles(o: { name: string; domain?: string }): Record<stri
   const vars: Record<string, string> = { name: o.name, worker: o.name, db: `${o.name}-db`, domain };
   const out: Record<string, string> = {};
   for (const file of walk(TEMPLATE)) {
-    const rel = relative(TEMPLATE, file).replace(/^gitignore$/, ".gitignore");
+    const rel = relative(TEMPLATE, file).split(sep).join("/").replace(/^gitignore$/, ".gitignore");
     out[rel] = readFileSync(file, "utf8").replace(/\{\{(\w+)\}\}/g, (m, k: string) => vars[k] ?? m);
   }
   return out;

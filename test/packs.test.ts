@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
@@ -387,12 +388,12 @@ test("refreshLog: a refresh's start, end, time and failure, and a cron run; each
 });
 
 test("Dovre's own packs (src/packs/core/) are reached only through the registry: nothing else in core imports them but the entry points", () => {
-  const root = new URL("../src/", import.meta.url).pathname;
-  const core = join(root, "packs", "core") + "/";
+  const root = fileURLToPath(new URL("../src/", import.meta.url));
+  const core = join(root, "packs", "core") + sep;
   const entry = new Set(["index.ts", "worker.ts", join("demo", "worker.ts")]);
   // Bino's engine sits in the assistant pack's folder (WP-M4) but is still wired by core (the dock,
   // the hub, Settings) until it goes through the Pack API: that one folder, and nothing else in it.
-  const bino = join(core, "assistant", "bino") + "/";
+  const bino = join(core, "assistant", "bino") + sep;
   const bad: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {

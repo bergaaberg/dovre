@@ -239,7 +239,7 @@ test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-pack
   writeInstance(dir, instanceFiles({ name: "pack-test", domain: "dovre.pack.dev" }));
 
   const r1 = addPack({ id: "cf-health", into: dir, from: packsRepo, allowClone: false });
-  assert.ok(r1.wrote.some((p) => p.endsWith("packs/cf-health/index.ts")));
+  assert.ok(r1.wrote.some((p) => p.replaceAll("\\", "/").endsWith("packs/cf-health/index.ts")));
   assert.equal(r1.exportName, "cfHealthPack");
 
   const r2 = addPack({ id: "custom-app", into: dir, from: packsRepo, allowClone: false });
