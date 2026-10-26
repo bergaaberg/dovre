@@ -12,8 +12,22 @@ export const HREF = "/tracker";
 export const ACT = `${HREF}/act`;
 export const COMMENT = `${HREF}/comment`;
 
-/** What a row may offer: absent, no actions (the forge has no writes). `me`: who I am; `task`: dev tasks start here (local). */
-export type RowActs = { me: string; task: boolean; set: SetId };
+/**
+ * What a row may offer: absent, nothing. `write`: the forge takes writes (assign, close, comment);
+ * `me`: who I am; `task`: dev tasks start here (local); `agent`: a new agent session starts on it,
+ * given the checkout folder for its repo (none: the new-session form starts in Dovre's own folder).
+ */
+export type RowActs = { me: string; task: boolean; set: SetId; write: boolean; agent?: (repo: string) => string | undefined };
+
+/** A new agent session's first message about an issue: what it is, where to read it, how its PR closes it. */
+export function agentPromptOf(i: Pick<Issue, "repo" | "number" | "title" | "url">): string {
+  const k = keyOf(i);
+  return `Work on ${k}: ${i.title}\n\nRead the issue first (${i.url}), with its comments and any issue it hangs under. Close it from the PR with "Closes ${k}".`;
+}
+
+/** The new-session form, filled in for the issue: nothing starts until I press Start there. */
+export const agentHref = (i: Pick<Issue, "repo" | "number" | "title" | "url">, dir?: string) =>
+  safeUrl(`/agents/new?${new URLSearchParams({ ...(dir ? { repo: dir } : {}), prompt: agentPromptOf(i) })}`);
 
 const prPill = (p: Issue["prs"][number]) =>
   Pill({ tone: p.state === "MERGED" ? "ok" : undefined, title: `${p.key}: ${p.state.toLowerCase()}`, children: `PR #${p.key.split("#")[1]} ${p.state === "MERGED" ? "merged" : p.state === "OPEN" ? "open" : "closed"}` });
@@ -23,15 +37,18 @@ const fieldsOf = (i: Pick<Issue, "repo" | "number">, set: SetId, more: Record<st
 function actsOf(i: Issue, a: RowActs): Html {
   const k = keyOf(i);
   const mine = i.assignees.some((x) => x.toLowerCase() === a.me.toLowerCase());
-  return html`<details class="issue-acts"><summary>Act on it</summary><div class="issue-acts-body">${
-    !mine && a.me ? Confirm({ action: ACT, fields: fieldsOf(i, a.set, { kind: "assign" }), label: "Assign me", question: html`Assign ${k} to you (${a.me}) on the forge?` }) : ""
+  const writes = a.write
+    ? html`${!mine && a.me ? Confirm({ action: ACT, fields: fieldsOf(i, a.set, { kind: "assign" }), label: "Assign me", question: html`Assign ${k} to you (${a.me}) on the forge?` }) : ""
   }${Confirm({ action: ACT, fields: fieldsOf(i, a.set, { kind: "close", reason: "completed" }), label: "Close as done", question: html`Close ${k} as completed?` })}${Confirm({
     action: ACT,
     fields: fieldsOf(i, a.set, { kind: "close", reason: "not_planned" }),
     label: "Close as not planned",
     question: html`Close ${k} as not planned?`,
     danger: true,
-  })}<form class="issue-comment" method="post" action="${COMMENT}">${Object.entries(fieldsOf(i, a.set)).map(([n, v]) => html`<input type="hidden" name="${n}" value="${v}">`)}<textarea name="body" rows="2" maxlength="${MAX_COMMENT}" required aria-label="${`Comment on ${k}`}" placeholder="A comment"></textarea><button type="submit">Preview comment</button></form>${
+  })}<form class="issue-comment" method="post" action="${COMMENT}">${Object.entries(fieldsOf(i, a.set)).map(([n, v]) => html`<input type="hidden" name="${n}" value="${v}">`)}<textarea name="body" rows="2" maxlength="${MAX_COMMENT}" required aria-label="${`Comment on ${k}`}" placeholder="A comment"></textarea><button type="submit">Preview comment</button></form>`
+    : "";
+  const agent = a.agent ? html`<a class="btn" href="${agentHref(i, a.agent(i.repo))}" title="A new agent session on ${k}: the form opens filled in">Start an agent</a>` : "";
+  return html`<details class="issue-acts"><summary>Act on it</summary><div class="issue-acts-body">${agent}${writes}${
     a.task ? html`<a class="btn" href="${taskHref(k, i.repo)}">Start a task</a>` : ""
   }</div></details>`;
 }
