@@ -7,6 +7,7 @@ Dovre joins your GitHub repositories (`github.com` or GitHub Enterprise), CI/dep
 - **Interactive Demo & Setup Generator:** [dovre.dev](https://dovre.dev) · **Docs:** [dovre.dev/docs](https://dovre.dev/docs)
 - **Pre-Built Packs:** [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs)
 - **Scoped Assistant Memory:** [`bergaaberg/memlet`](https://github.com/bergaaberg/memlet)
+- **Reach local Dovre from another machine:** [docs/REMOTE.md](docs/REMOTE.md)
 - **Architecture & Pack API:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/LEXICON.md](docs/LEXICON.md) · [PLAN.md](PLAN.md)
 
 ---
