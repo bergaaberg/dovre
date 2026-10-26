@@ -509,6 +509,11 @@ details[open] > summary .chev { transform: rotate(225deg); top: 20px; }
 .setup svg { width: 30px; height: 22px; color: var(--ink-3); grid-row: span 2; margin-top: 2px; }
 .setup p { margin: 0; font-size: var(--fs-s); color: var(--ink-2); }
 .notes { font-size: var(--fs-s); color: var(--ink-2); margin: 0 0 8px; }
+/* A pack's ingest tokens on Settings (src/packs/ingest.ts). */
+.ingest { margin-top: 12px; }
+.ingest h3 { font-size: var(--fs-s); margin: 0 0 6px; }
+.ingest-new { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
+code.secret { user-select: all; overflow-wrap: anywhere; }
 /* An atlas panel's description line, and a component's rules note. */
 .panel-note { padding: .75rem 1rem; margin: 0; color: var(--ink-2); font-size: var(--fs-s); }
 .rule-note { margin-left: .5rem; opacity: .8; }

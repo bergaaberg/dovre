@@ -382,11 +382,38 @@ export type Pack = {
    * nothing it didn't start. `signedIn`: the request carries Dovre's cookie (this browser is Dovre's).
    */
   callback?(c: Context<AppEnv>, ctx: PackContext, at: { signedIn: boolean }): Response | Promise<Response>;
+  /**
+   * POST /<id>/ingest/<path>: an app sending data in (an OTLP exporter), answered before the sign-in
+   * check, with an ingest token made on Settings (src/packs/ingest.ts). Core checks the token, the size
+   * and the rate first; the pack gets the body and the token's source, never the token or other headers.
+   * Write-only: what it answers is a status and a short body, never data it keeps.
+   */
+  ingest?: IngestSpec;
   /** Hosted cron (wrangler triggers). */
   scheduled?(event: ScheduledEvent, ctx: PackContext, defer: Defer): Promise<void>;
   /** Hosted Email Routing: a message to an address routed to this Worker. Return true when handled. */
   email?(message: unknown, ctx: PackContext, defer: Defer): Promise<boolean>;
 };
+
+/** What an ingest request brings the pack (see Pack.ingest). */
+export type IngestInput = {
+  /** The path after /<id>/ingest/ ("v1/traces"). */
+  path: string;
+  body: Uint8Array;
+  contentType: string;
+  /** "gzip" when the sender compressed it; the pack decompresses (and caps what it inflates). */
+  contentEncoding: string;
+  /** The name the token was made for on Settings. */
+  source: string;
+};
+export type IngestSpec = {
+  /** Body cap in bytes (default 4 MB); bigger is a 413. */
+  maxBytes?: number;
+  /** Requests per token per minute (default 600); more is a 429. */
+  perMinute?: number;
+  handle(input: IngestInput, ctx: PackContext): Promise<IngestReply> | IngestReply;
+};
+export type IngestReply = { status: number; body?: string | Uint8Array; contentType?: string };
 
 /** A packs module's default export: its packs, given the instance's settings. */
 export type PacksModule = { default: Pack[] | ((env: Record<string, string | undefined>) => Pack[]) };
