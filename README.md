@@ -7,7 +7,7 @@ Dovre joins your GitHub repositories (`github.com` or GitHub Enterprise), CI/dep
 - **Interactive Demo & Setup Generator:** [dovre.dev](https://dovre.dev) · **Docs:** [dovre.dev/docs](https://dovre.dev/docs)
 - **Pre-Built Packs:** [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs)
 - **Scoped Assistant Memory:** [`bergaaberg/memlet`](https://github.com/bergaaberg/memlet)
-- **Reach local Dovre from another machine:** [docs/REMOTE.md](docs/REMOTE.md)
+- **Self-host on Cloudflare or your own server:** [docs/SELF-HOST.md](docs/SELF-HOST.md) · **Reach local Dovre from another machine:** [docs/REMOTE.md](docs/REMOTE.md)
 - **Architecture & Pack API:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/LEXICON.md](docs/LEXICON.md) · [PLAN.md](PLAN.md)
 
 ---
@@ -126,6 +126,8 @@ health:
 | `REPO_HOST` | GitHub host (`github.com` or GitHub Enterprise hostname) | `github.com` |
 | `REPO_OWNERS` | Comma-separated GitHub orgs/users to track | auto-discovered on `/setup` |
 | `GITHUB_TOKEN` / `GHE_TOKEN` | GitHub token (uses `gh auth token` locally when unset). Hosted, an instance can pass `createWorker({ githubToken: async (bindings) => … })` instead, for a rotating token such as a GitHub App's; it's asked before every call and wins over the secret | `gh auth token` |
+| `PUBLIC_ORIGIN` | Local mode behind a sign-in proxy: the one public address it serves Dovre at, exactly `https://host[:port]` ([docs/SELF-HOST.md](docs/SELF-HOST.md)). Environment or `.dev.vars` only | unset (localhost only) |
+| `LISTEN_HOST` | Address the server listens on. Only for a container whose port is published to the host's loopback | `127.0.0.1` |
 | `CODE_DIR` | Parent directory of local repo checkouts | `~/Code` or `~/src` |
 | `AGENT_HARNESSES` | Enabled local agent CLIs (`claude,codex,omp,copilot,agy`) | all detected on `PATH` |
 | `ASSISTANT_VIA` (`BINO_VIA`) | Assistant route: `api-key`, `cf-gateway`, `openrouter`, `claude`, `codex`, `omp`, `copilot`, `agy`, or `off` | best detected harness |

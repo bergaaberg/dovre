@@ -13,7 +13,7 @@ import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { html } from "hono/html";
 import { secureHeaders } from "hono/secure-headers";
-import { COOKIE, isLocal, sameSecret } from "./access.ts";
+import { COOKIE, isLocal, isOwnOrigin, sameSecret, secureCookie } from "./access.ts";
 import type { AppEnv } from "./env.ts";
 import { ownersOf } from "./owners.ts";
 import { mountPwa } from "./pwa.ts";
@@ -128,9 +128,10 @@ ${state.ready ? html`<p class="ok">GHE answers now. Restart Dovre (<code>dovre r
 </main></body></html>`;
 }
 
-function sameLocalOrigin(req: Request): boolean {
+function sameLocalOrigin(req: Request, publicOrigin?: string): boolean {
   const origin = req.headers.get("origin");
   if (!origin) return false;
+  if (isOwnOrigin(req, origin, publicOrigin)) return true;
   try {
     const u = new URL(origin);
     return u.hostname === "localhost" || u.hostname === "127.0.0.1";
@@ -149,8 +150,11 @@ export function setupApp(o: {
   onSaveToken?: (token: string) => Promise<void> | void;
   onStartGhLogin?: () => Promise<{ deviceCode?: string; deviceUrl?: string; status?: string }> | { deviceCode?: string; deviceUrl?: string; status?: string };
   onWake?: () => Promise<void> | void;
+  /** PUBLIC_ORIGIN, checked (src/access.ts). */
+  publicOrigin?: string;
 }) {
   const app = new Hono<AppEnv>();
+  const pub = o.publicOrigin;
   const varsFile = o.varsFile ?? ".dev.vars";
   app.use(
     secureHeaders({
@@ -160,12 +164,12 @@ export function setupApp(o: {
   );
   mountPwa(app, o.info);
   app.get("/login", (c) => {
-    if (!isLocal(c.req.raw) || !sameSecret(c.req.query("tk"), o.token)) return c.notFound();
-    setCookie(c, COOKIE, o.token, { httpOnly: true, sameSite: "Strict", path: "/", maxAge: 400 * 86400 });
+    if (!isLocal(c.req.raw, pub) || !sameSecret(c.req.query("tk"), o.token)) return c.notFound();
+    setCookie(c, COOKIE, o.token, { httpOnly: true, sameSite: "Strict", path: "/", maxAge: 400 * 86400, secure: secureCookie(c.req.raw, pub) });
     return c.redirect("/", 303);
   });
   app.post("/setup/owners", async (c) => {
-    if (!isLocal(c.req.raw) || !sameLocalOrigin(c.req.raw)) return c.notFound();
+    if (!isLocal(c.req.raw, pub) || !sameLocalOrigin(c.req.raw, pub)) return c.notFound();
     const body = await c.req.parseBody();
     const list = ownersOf(typeof body.owners === "string" ? body.owners : "");
     const st = o.state();
@@ -182,7 +186,7 @@ export function setupApp(o: {
     return c.redirect("/", 303);
   });
   app.post("/setup/token", async (c) => {
-    if (!isLocal(c.req.raw) || !sameLocalOrigin(c.req.raw)) return c.notFound();
+    if (!isLocal(c.req.raw, pub) || !sameLocalOrigin(c.req.raw, pub)) return c.notFound();
     const body = await c.req.parseBody();
     const raw = typeof body.token === "string" ? body.token.trim() : "";
     const st = o.state();
@@ -198,7 +202,7 @@ export function setupApp(o: {
     return c.redirect("/", 303);
   });
   app.post("/setup/gh-login", async (c) => {
-    if (!isLocal(c.req.raw) || !sameLocalOrigin(c.req.raw)) return c.notFound();
+    if (!isLocal(c.req.raw, pub) || !sameLocalOrigin(c.req.raw, pub)) return c.notFound();
     const st = o.state();
     st.error = undefined;
     if (o.onStartGhLogin) {
@@ -238,6 +242,6 @@ export function setupApp(o: {
     }
     return c.redirect("/", 303);
   });
-  app.all("*", (c) => (isLocal(c.req.raw) ? c.html(setupPage(o.problem, o.state()), 503) : c.notFound()));
+  app.all("*", (c) => (isLocal(c.req.raw, pub) ? c.html(setupPage(o.problem, o.state()), 503) : c.notFound()));
   return app;
 }

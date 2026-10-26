@@ -116,15 +116,38 @@ test("keys, sizes and close go to the host as frames; output replays to a page t
   assert.ok(changes.length >= 2);
 });
 
+test("behind PUBLIC_ORIGIN (#74): exactly that origin may write to a terminal, at its host or a proxy's rewritten localhost; near misses can't", async () => {
+  const { req, terminals } = app({}, { PUBLIC_ORIGIN: "https://dovre.example.com" });
+  const t = terminals.start({ program: "pwsh", repo: "repo" });
+  assert.ok(!("problem" in t));
+  const input = (origin: string, host = "dovre.example.com") =>
+    req(`/terminal/${t.id}/input`, { method: "POST", host, headers: { ...COOKIE, origin, "content-type": "application/json" }, body: JSON.stringify({ data: "x" }) });
+  // The proxy ends TLS: the request reaches Dovre as http, the browser's Origin says https.
+  assert.equal((await input("https://dovre.example.com")).status, 204, "the public origin, Host kept by the proxy");
+  assert.equal((await input("https://dovre.example.com", "localhost:4848")).status, 204, "the public origin, Host rewritten to localhost");
+  for (const near of ["https://dovre.example.com:8443", "https://dovre.example.co", "https://evil.dovre.example.com", "https://dovre.example.com.evil.example", "null"])
+    assert.equal((await input(near)).status, 403, near);
+  assert.equal((await req(`/terminal/${t.id}`, { headers: COOKIE, host: "dovre.example.com:8443" })).status, 404, "another port on the public host");
+  assert.equal((await req(`/terminal/${t.id}`, { headers: { ...COOKIE, "sec-fetch-site": "cross-site" }, host: "dovre.example.com" })).status, 404, "another site, at the public host");
+});
+
+test("without PUBLIC_ORIGIN, a public name gets nothing and a public Origin can't write", async () => {
+  const { req, terminals } = app();
+  const t = terminals.start({ program: "pwsh", repo: "repo" });
+  assert.ok(!("problem" in t));
+  assert.equal((await req(`/terminal/${t.id}`, { headers: COOKIE, host: "dovre.example.com" })).status, 404);
+  assert.equal((await req(`/terminal/${t.id}/input`, { method: "POST", headers: { ...COOKIE, origin: "https://dovre.example.com", "content-type": "application/json" }, body: "{}" })).status, 403);
+});
+
 /** The app with the terminal pack mounted as index.ts mounts it, signed in; requests as a browser on Dovre's own page would send them. */
-function app(env: Record<string, string> = {}) {
+function app(env: Record<string, string> = {}, appEnv: { PUBLIC_ORIGIN?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "dovre-term-app-"));
   const host = fakeHost();
   const terminals = createTerminals({ hostExe: "host.exe", codeDir: codeDir(), programs: PROGRAMS, spawnFn: host.spawnFn });
   const packs = { ...activePacks([terminalPack(terminals)], { env, hosted: false, which: () => undefined }), env, core: ["terminal"] };
-  const a = appWithAgents({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", U_DB: join(dir, "u.sqlite"), DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, packs });
-  const req = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string; host?: string } = {}) =>
-    a.request(`http://${init.host ?? "localhost"}${path}`, { method: init.method ?? "GET", headers: init.headers, body: init.body });
+  const a = appWithAgents({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", U_DB: join(dir, "u.sqlite"), DB: openDb().DB, ...appEnv }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, packs });
+  const req = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string; host?: string; scheme?: string } = {}) =>
+    a.request(`${init.scheme ?? "http"}://${init.host ?? "localhost"}${path}`, { method: init.method ?? "GET", headers: init.headers, body: init.body });
   return { req, terminals, host, dir };
 }
 const COOKIE = { cookie: "u_tk=test-token" };

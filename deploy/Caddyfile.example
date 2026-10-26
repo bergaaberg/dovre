@@ -1,0 +1,26 @@
+# Caddy in front of Dovre, with oauth2-proxy as the sign-in (docs/SELF-HOST.md).
+# Caddy gets the TLS certificate and keeps the Host header as it is, which Dovre checks.
+dovre.example.com {
+	# oauth2-proxy's own pages (sign-in, callback) on 127.0.0.1:4180.
+	handle /oauth2/* {
+		reverse_proxy 127.0.0.1:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+	# Everything else: signed in first, then Dovre.
+	handle {
+		forward_auth 127.0.0.1:4180 {
+			uri /oauth2/auth
+			header_up X-Real-IP {remote_host}
+			@unauthorized status 401
+			handle_response @unauthorized {
+				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+			}
+		}
+		# Live pages and terminals stream (server-sent events): don't buffer them.
+		reverse_proxy 127.0.0.1:4848 {
+			flush_interval -1
+		}
+	}
+}

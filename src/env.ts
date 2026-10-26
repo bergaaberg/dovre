@@ -13,13 +13,18 @@ import type { D1 } from "./db.ts";
 import type { Frame } from "./html.ts";
 
 /** `who`: hosted, the email Cloudflare Access verified for this request (what a write is done as). */
-export type AppEnv = { Bindings: Env; Variables: { frame: Frame; who?: string } };
+export type AppEnv = { Bindings: Env; Variables: { frame: Frame; who?: string; /** Local, PUBLIC_ORIGIN when set (src/access.ts). */ publicOrigin?: string } };
 export type App = Hono<AppEnv>;
 
 export type Env = {
   DB: D1;
   /** The token /login exchanges for a cookie. Unset: made once and kept in data/launch-token (src/boot.ts). */
   LAUNCH_TOKEN?: string;
+  /**
+   * Local only (#74): the one public address an authenticating proxy serves this Dovre at, exactly
+   * `https://host[:port]`. Read from the environment or .dev.vars only, never from Settings.
+   */
+  PUBLIC_ORIGIN?: string;
   /** Where the SQLite file lives. */
   U_DB?: string;
   /** Which forge the code lives on: "github" (the default) or a pack's (src/forge/types.ts). */
@@ -163,6 +168,8 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
   const owners = ownersOf(v.REPO_OWNERS || v.GHE_ORG || v.GITHUB_USER || v.GH_ORG);
   return {
     LAUNCH_TOKEN: v.LAUNCH_TOKEN,
+    // Not from Settings: widening who gets in is the machine owner's to set, not a page's.
+    PUBLIC_ORIGIN: fileVars().PUBLIC_ORIGIN ?? process.env.PUBLIC_ORIGIN,
     U_DB: v.U_DB,
     FORGE: v.FORGE,
     GHE_HOST: host,

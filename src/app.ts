@@ -10,7 +10,7 @@ import { type Context, Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { contextStorage, tryGetContext } from "hono/context-storage";
 import { secureHeaders } from "hono/secure-headers";
-import { type AccessVerifier, COOKIE, allowed, isLocal, sameSecret } from "./access.ts";
+import { type AccessVerifier, COOKIE, allowed, isLocal, isOwnOrigin, publicOriginOf, sameSecret, secureCookie } from "./access.ts";
 import { decide, logAction, recentActions, rejectSuperseded, repoIn, runId } from "./actions/deploys.ts";
 import type { App, AppEnv, Env } from "./env.ts";
 import type { Gatherer, Snapshot } from "./gather.ts";
@@ -130,6 +130,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
   app.use(contextStorage());
+  // Local only: the one public address a proxy serves this Dovre at (#74). A bad value throws here.
+  const publicOrigin = env.IS_HOSTED === "1" ? undefined : publicOriginOf(env.PUBLIC_ORIGIN);
+  if (publicOrigin)
+    app.use((c, next) => {
+      c.set("publicOrigin", publicOrigin);
+      return next();
+    });
   const { gatherer, ghe } = deps;
   const summary = (key: string) => deps.summaries?.get(key);
   let flash: { ok: boolean; message: string } | undefined;
@@ -216,9 +223,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1" });
 
   app.get("/login", (c) => {
-    if (!isLocal(c.req.raw) || !sameSecret(c.req.query("tk"), env.LAUNCH_TOKEN)) return c.notFound();
+    if (!isLocal(c.req.raw, publicOrigin) || !sameSecret(c.req.query("tk"), env.LAUNCH_TOKEN)) return c.notFound();
     // Long-lived, so the installed app opens straight to Today; the token stays the gate.
-    setCookie(c, COOKIE, env.LAUNCH_TOKEN!, { httpOnly: true, sameSite: "Strict", path: "/", maxAge: 400 * 86400 });
+    setCookie(c, COOKIE, env.LAUNCH_TOKEN!, { httpOnly: true, sameSite: "Strict", path: "/", maxAge: 400 * 86400, secure: secureCookie(c.req.raw, publicOrigin) });
     // Only this app's own paths: never an open redirect.
     const asked = c.req.query("next") ?? "/";
     const next = /^\/(?![/\\])[\w\-/?=&.%]*$/.test(asked) ? asked : "/";
@@ -238,9 +245,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       if (!cr.callback) continue;
       const id = cr.manifest.id;
       app.get(`/${id}/callback`, async (c) => {
-        if (!isLocal(c.req.raw) || !shown().includes(cr)) return c.notFound();
+        if (!isLocal(c.req.raw, publicOrigin) || !shown().includes(cr)) return c.notFound();
         try {
-          const res = await cr.callback!(c, ctxOf(cr), { signedIn: allowed(c.req.raw, env.LAUNCH_TOKEN) });
+          const res = await cr.callback!(c, ctxOf(cr), { signedIn: allowed(c.req.raw, env.LAUNCH_TOKEN, publicOrigin) });
           res.headers.set("Cache-Control", "no-store");
           return res;
         } catch (e) {
@@ -258,11 +265,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       if (!who?.email) return c.notFound();
       c.set("who", who.email);
       viewer = who.email;
-    } else if (!allowed(c.req.raw, env.LAUNCH_TOKEN)) return c.notFound();
-    // Forms only from this app's own origin.
+    } else if (!allowed(c.req.raw, env.LAUNCH_TOKEN, publicOrigin)) return c.notFound();
+    // Forms only from this app's own origin (its host, or exactly PUBLIC_ORIGIN).
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       const origin = c.req.header("origin");
-      if (origin && (() => { try { return new URL(origin).host !== new URL(c.req.url).host; } catch { return true; } })()) return c.text("Cross-origin form.", 403);
+      const sameHost = () => { try { return new URL(origin!).host === new URL(c.req.url).host; } catch { return false; } };
+      if (origin && !sameHost() && !isOwnOrigin(c.req.raw, origin, publicOrigin)) return c.text("Cross-origin form.", 403);
     }
     // A pane that's off isn't here at all.
     const path = c.req.path;
@@ -668,6 +676,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       edge: edgePath(),
       codeDir: env.CODE_DIR,
       repos: listRepos(env.CODE_DIR).length,
+      publicOrigin,
     });
   /** Kept, then (under the supervisor) Dovre starts again with it. */
   const keep = async (config: Config) => {

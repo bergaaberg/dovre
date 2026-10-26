@@ -9,6 +9,7 @@ import { packsOf, createApp } from "./app.ts";
 import { loadPacks } from "./packs/load.ts";
 import { activePacks, initAll, refresher as packRefresher } from "./packs/registry.ts";
 import { launchToken, maskedLogin, serveSetup } from "./boot.ts";
+import { publicOriginOf } from "./access.ts";
 import { findTool, found, harnessesOn, which } from "./tools.ts";
 import { startingPage } from "./pwa.ts";
 import { openDb } from "./db.ts";
@@ -66,6 +67,11 @@ import { type Policy, createNotifier, createRinger, loadPolicy, type Note, saveP
 const port = Number(process.env.PORT ?? 4848);
 // Where the database is comes from the environment or .dev.vars; everything else may be set on Settings too.
 const boot = loadEnv();
+// Self-hosting on a server (docs/REMOTE.md): the public address a sign-in proxy serves Dovre at (#74),
+// and what to listen on. A bad PUBLIC_ORIGIN stops the start here. LISTEN_HOST is only for a
+// container, whose port is published to the host's loopback: the Host and cookie checks still apply.
+const publicOrigin = publicOriginOf(boot.PUBLIC_ORIGIN);
+const listenHost = process.env.LISTEN_HOST || "127.0.0.1";
 const dbPath = boot.U_DB ?? "data/dovre.sqlite";
 // Dovre was Utsikten until 2026-10-23: its database moves to the new name once (with SQLite's side files).
 if (!boot.U_DB && !existsSync(dbPath) && existsSync("data/utsikten.sqlite"))
@@ -90,7 +96,7 @@ if (db.applied.length) console.log(`migrations applied: ${db.applied.join(", ")}
 let config = await loadConfig(db.DB);
 let env = loadEnv(config);
 setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
-const setup = { token: launch, port, dataDir, version, supervised };
+const setup = { token: launch, port, dataDir, version, supervised, publicOrigin, listenHost };
 // Which forge the code lives on (FORGE): GitHub unless a pack brings another (src/forge/pick.ts).
 const forgeId = forgeIdOf(env.FORGE);
 const onGithub = forgeId === "github";
@@ -433,13 +439,15 @@ process.on("exit", () => {
     unlinkSync(upFile);
   } catch {}
 });
-serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, (info) => {
+serve({ fetch: app.fetch, port, hostname: listenHost }, (info) => {
   try {
     writeFileSync(upFile, `window.dovreUp = ${Date.now()};
 `);
   } catch {}
   console.log(`dovre on http://127.0.0.1:${info.port} as ${login}`);
   console.log(`login:   ${maskedLogin(`http://127.0.0.1:${info.port}`)}`);
+  if (publicOrigin) console.log(`public:  ${publicOrigin} (PUBLIC_ORIGIN): keep a sign-in in front of it`);
+  if (listenHost !== "127.0.0.1") console.log(`listening on ${listenHost}:${info.port} (LISTEN_HOST): publish this port to loopback only`);
 });
 
 // Agent runs are this process's children: stop them with it, so nothing keeps editing a repo unseen.

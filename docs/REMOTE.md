@@ -10,7 +10,7 @@ Terminals and agent turns run local programs as you. **Anything that can reach D
 
 Every request, from anywhere:
 
-1. **Host** must be `localhost`, `127.0.0.1` or `[::1]` (any port). Anything else gets a `404`. This stops DNS rebinding (`src/access.ts`).
+1. **Host** must be `localhost`, `127.0.0.1` or `[::1]` (any port), or exactly `PUBLIC_ORIGIN`'s host when that's set. Anything else gets a `404`. This stops DNS rebinding (`src/access.ts`).
 2. **Cookie:** the launch-token cookie (`u_tk`). You get it by opening `/login?tk=<token>` once. The token is in `data/launch-token` (or `LAUNCH_TOKEN` in `.dev.vars`).
 3. **Origin, on writes:** a form post whose `Origin` names another host gets a `403`. Terminals go further (`src/strict.ts`): every write needs an `Origin` that equals the page's own, and a cross-site request gets a `404`.
 
@@ -32,11 +32,9 @@ open "http://localhost:4848/login?tk=$(ssh you@your-mac cat ~/src/dovre/data/lau
 - **Over the internet:** reach the Mac's SSH over a private network rather than a public port. WireGuard or a Tailscale tailnet both work: `ssh -L …` to the Mac's private address. Dovre itself stays on `127.0.0.1`.
 - **From a phone:** an SSH client with local port forwarding (Termius, Blink and others) does the same; then open `http://localhost:4848` in the phone's browser. On iOS the client must stay in the foreground or keep its tunnel alive in the background.
 
-## Tunnels and reverse proxies: not yet
+## Tunnels and reverse proxies: with PUBLIC_ORIGIN
 
-Cloudflare Tunnel with Access, Tailscale Serve, ngrok and reverse proxies all put Dovre at a public name (`https://dovre.example.com`). Local mode refuses that name by design, and rewriting `Host` alone leaves every write refused (see above). Rewriting `Origin` in the proxy as well would get past the checks, but it turns off the cross-site protection unless it's done exactly right, so this page doesn't recommend it.
-
-Support for this is tracked in core: [bergaaberg/dovre#74](https://github.com/bergaaberg/dovre/issues/74), an opt-in setting naming the one public origin to trust. Once it lands, this page gets a recipe per tunnel. Until then:
+Cloudflare Tunnel with Access, Tailscale Serve and reverse proxies all put Dovre at a public name (`https://dovre.example.com`). Local mode refuses that name until you set `PUBLIC_ORIGIN` to exactly that address. Then Dovre answers at it and takes writes from it, still with the launch cookie. The recipes, and what has to sit in front, are in [SELF-HOST.md](SELF-HOST.md#2-put-a-sign-in-in-front); they work the same on a Mac as on a server.
 
 - **ngrok and similar public tunnels** are never acceptable without an auth layer in front, because the URL alone reaches the login page and the terminals.
-- **Hosted Dovre** (Cloudflare Workers with Access, see the README) is the supported way to use Dovre from anywhere. Local terminals never run there.
+- **Hosted Dovre** (Cloudflare Workers with Access, see the README) is the other way to use Dovre from anywhere. Local terminals never run there.

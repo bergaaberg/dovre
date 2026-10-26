@@ -23,8 +23,11 @@ export type SetupFacts = {
   repos: number;
   /** Which OS's advice to give. Unset: this machine's. */
   platform?: NodeJS.Platform;
+  /** PUBLIC_ORIGIN, when set (#74). */
+  publicOrigin?: string;
 };
-export type SetupLine = { name: string; on: boolean; what: string; fix?: string };
+/** `warn`: on, and worth keeping an eye on. */
+export type SetupLine = { name: string; on: boolean; what: string; fix?: string; warn?: boolean };
 
 export function setupLines(f: SetupFacts): SetupLine[] {
   const windows = (f.platform ?? process.platform) === "win32";
@@ -40,6 +43,7 @@ export function setupLines(f: SetupFacts): SetupLine[] {
     f.repos
       ? { name: "Code folder", on: true, what: `${f.repos} checkouts in ${f.codeDir}` }
       : { name: "Code folder", on: false, what: `No checkouts in ${f.codeDir}`, fix: "Set the code folder (Settings → Work) to the folder your repos are in. They have to sit directly in it (<folder>/<repo>), not deeper." },
+    ...(f.publicOrigin ? [{ name: "Public address", on: true, warn: true, what: `Also served at ${f.publicOrigin} (PUBLIC_ORIGIN)`, fix: "Whatever reaches that address reaches the terminals and agents. Keep a sign-in in front of it (docs/REMOTE.md)." }] : []),
   ];
 }
 
@@ -118,7 +122,7 @@ export function setupPanel(lines: SetupLine[], title = "Setup") {
     children: List(
       lines.map((l) =>
         Item({
-          lead: html`<span class="dot${l.on ? " ok" : ""}" role="img" aria-label="${l.on ? "on" : "off"}"></span>`,
+          lead: html`<span class="dot${l.warn ? " warn" : l.on ? " ok" : ""}" role="img" aria-label="${l.on ? "on" : "off"}"></span>`,
           title: html`<strong>${l.name}</strong>`,
           line: l.what,
           more: l.fix,

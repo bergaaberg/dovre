@@ -1,0 +1,27 @@
+# Dovre as a systemd service, without Docker (docs/SELF-HOST.md).
+#   sudo useradd --system --create-home --home-dir /opt/dovre dovre
+#   sudo -u dovre git clone https://github.com/bergaaberg/dovre /opt/dovre/app
+#   cd /opt/dovre/app && sudo -u dovre pnpm install --prod
+#   sudo cp deploy/dovre.service /etc/systemd/system/ && sudo systemctl enable --now dovre
+[Unit]
+Description=Dovre
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dovre
+WorkingDirectory=/opt/dovre/app
+# PUBLIC_ORIGIN, GITHUB_TOKEN, REPO_OWNERS, … (deploy/dovre.env.example). It listens on 127.0.0.1:4848 only.
+EnvironmentFile=/opt/dovre/dovre.env
+Environment=DOVRE_SUPERVISED=1 CODE_DIR=/opt/dovre/code
+ExecStart=/usr/bin/env node src/index.ts
+# Settings → Restart exits with 75; any exit starts it again.
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/dovre
+
+[Install]
+WantedBy=multi-user.target

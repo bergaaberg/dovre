@@ -51,6 +51,10 @@ export async function serveSetup(o: {
   onSaveOwners?: (owners: string) => Promise<void> | void;
   everyMs?: number;
   supervised?: boolean;
+  /** PUBLIC_ORIGIN, checked (src/access.ts). */
+  publicOrigin?: string;
+  /** The address to listen on (LISTEN_HOST; default 127.0.0.1). */
+  listenHost?: string;
   exit?: (code: number) => void;
   /** Stops it (tests). */
   signal?: AbortSignal;
@@ -69,9 +73,10 @@ export async function serveSetup(o: {
     state: () => state,
     onSaveOwners: o.onSaveOwners,
     onWake: look,
+    publicOrigin: o.publicOrigin,
   });
   const up = join(o.dataDir, `up-${o.port}.js`);
-  const server = serve({ fetch: app.fetch, port: o.port, hostname: "127.0.0.1" }, () => {
+  const server = serve({ fetch: app.fetch, port: o.port, hostname: o.listenHost ?? "127.0.0.1" }, () => {
     try {
       mkdirSync(dirname(up), { recursive: true });
       writeFileSync(up, `window.dovreUp = ${Date.now()};\n`);
