@@ -12,7 +12,7 @@ const live = "";
 
 export function prsPage(frame: Frame, s: Snapshot, summary: SummaryOf, agent?: AgentOf, slots?: PrSlots, forge: ForgeView = GITHUB_VIEW) {
   const p = s.prs.ok ? s.prs.value : { mine: [], review: [] };
-  const body = html`${PageHeader({ title: "Pull requests", sub: `${p.review.length} to review · ${p.mine.length} open`, tabs: prTabs("list", forgeCan(forge, "stacks")) })}
+  const body = html`${PageHeader({ title: "Pull requests", sub: `${p.review.length} to review · ${p.mine.length} open`, tabs: prTabs("list", forgeCan(forge, "stacks"), forgeCan(forge, "dependabot")) })}
 ${failed("Pull requests", s.prs)}
 <div data-live id="prs">
 ${Panel({ title: "Review requested", meta: String(p.review.length), flush: true, children: p.review.length ? List(p.review.map((x) => prCard(x, { org: s.org, summary, agent, showAuthor: true, slots, forge }))) : Empty({ title: "No reviews asked of you" }) })}
