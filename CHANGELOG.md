@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 (2026-10-26)
+
+- **Hosted teams**: each person's GitHub writes use their own token and name them (#57, #59); each person sees only the machines they paired (#79).
+- **Hosted hub**: live pages over hibernatable WebSockets (#56), table export at `GET /export` (#61) and storage size at `GET /size` (#80).
+- **Bridge**: machines sign in with issuer JWTs, several per hub (#76); `dovre bridge login|run|install|uninstall|status|restart` and `dovre version` (#77, #78).
+- **Issues pack**: `/tracker`, Today needs and verified row actions, and starting an agent session on an issue (#43–#46, #73).
+- **Core**: Teams and Data left core for instance packs (#66, #71); a pack whose `available()` says no is off before it mounts (#70).
+- **Fixes**: a Confirm in an item's trail opens as a popover (#81); chart day labels never touch (#82); theme-coloured browser bar (#63); steady tab bar on Android Chrome (#53).
+
 ## 0.2.0 (2026-10-25)
 
 - **Pluggable Packs (`PACK_API = 1`)**: Modular architecture (`src/packs/`) with core packs (`agents`, `assistant`, `avatar`, `terminal`, `docker`), instance scaffolding (`pnpm instance new`, `pnpm instance provision`), and pre-built packs CLI (`pnpm packs add`, `pnpm packs new`, `pnpm packs list`).
