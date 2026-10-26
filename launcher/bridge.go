@@ -8,6 +8,7 @@ package main
 //	dovre bridge uninstall        stop it and don't start it at login
 //	dovre bridge status           paired with what, started at login, running
 //	dovre bridge restart          restart the login item (after an update)
+//	dovre bridge logout           unpair this machine: stop the bridge, revoke its sign-in, forget it
 //
 // Pairing is a device-code flow against dovre.dev (like `gh auth login`): the code is typed on
 // the cockpit's page while signed in, never put in a link. What it hands back (a refresh token
@@ -98,8 +99,10 @@ func bridge(p Paths, args []string) error {
 		return bridgeStatus(h)
 	case "restart":
 		return bridgeRestart(h)
+	case "logout":
+		return Logout(h, &http.Client{Timeout: 15 * time.Second}, LocalService{}, os.Stdout)
 	default:
-		fmt.Println("dovre bridge login <handle> | run | install | uninstall | status | restart")
+		fmt.Println("dovre bridge login <handle> | run | install | uninstall | status | restart | logout")
 		return nil
 	}
 }
@@ -503,5 +506,67 @@ func bridgeStatus(h BridgeHome) error {
 		}
 		fmt.Printf("Log (%s):\n  %s\n", h.Log(), strings.Join(lines, "\n  "))
 	}
+	return nil
+}
+
+// LoginItem: the login item, as logout needs it (tests pass a fake, so they never touch the real one).
+type LoginItem interface {
+	Installed() bool
+	Uninstall() error
+}
+
+// LocalService: this machine's launchd, systemd --user or Run key (service.go).
+type LocalService struct{}
+
+func (LocalService) Installed() bool  { return serviceInstalled() }
+func (LocalService) Uninstall() error { return serviceUninstall() }
+
+// Revoke asks the server to unpair the machine holding this refresh token (control's /bridge/revoke).
+func Revoke(c *http.Client, server, token string) error {
+	if !ServerOK(server) {
+		return fmt.Errorf("%s: the server must be https", server)
+	}
+	var reply struct{}
+	code, err := postJSON(c, server+"/bridge/revoke", map[string]string{"token": token}, &reply)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("%s/bridge/revoke answered %d", server, code)
+	}
+	return nil
+}
+
+// Logout unpairs this machine: the login item and a running bridge stop first (a running one would
+// write a rotated token back), then the newest token is revoked and bridge.json removed. bridge.json
+// goes even when the server can't be reached: the machine is still listed on the cockpit then, but
+// nothing here can sign in as it.
+func Logout(h BridgeHome, c *http.Client, item LoginItem, out io.Writer) error {
+	if item.Installed() {
+		if err := item.Uninstall(); err != nil {
+			return err
+		}
+	}
+	if pid := readPid(h.Pid()); pid > 0 && alive(pid) {
+		stopBridge(pid)
+		for i := 0; i < 50 && alive(pid); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	creds, ok := loadCreds(h.Creds())
+	if !ok {
+		fmt.Fprintln(out, "Not paired, so there's nothing to log out of. The bridge is stopped.")
+		return nil
+	}
+	revokeErr := Revoke(c, strings.TrimRight(creds.Server, "/"), creds.RefreshToken)
+	if err := os.Remove(h.Creds()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	cockpit := strings.TrimPrefix(strings.TrimSuffix(creds.Hub, "/bridge"), "wss://")
+	if revokeErr != nil {
+		fmt.Fprintf(out, "Logged out here, but %v.\nRemove %q from the list at https://%s/cloud/bridge.\n", revokeErr, creds.Name, cockpit)
+		return nil
+	}
+	fmt.Fprintf(out, "Logged out: %q is unpaired from %s and the bridge is stopped.\n", creds.Name, cockpit)
 	return nil
 }

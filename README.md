@@ -61,6 +61,7 @@ dovre bridge login <handle>   # type the code it prints at <handle>.dovre.dev/cl
 dovre bridge install          # start at login, and now
 dovre bridge status           # paired with what, running, the log's last lines
 dovre bridge uninstall        # stop, and don't start at login
+dovre bridge logout           # unpair this machine: stop, revoke its sign-in, forget it
 ```
 
 Its sign-in, data, Node and log live in the user config folder (`~/Library/Application Support/dovre`, `~/.config/dovre`, `%AppData%\dovre`; `DOVRE_BRIDGE_HOME` moves them). The bridge's code is a bundle beside the binary (`bridge/main.mjs`, built with `pnpm build:bridge`); in a checkout it falls back to `dist/bridge` or `src/bridge/main.ts`.

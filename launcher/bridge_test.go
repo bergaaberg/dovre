@@ -251,3 +251,72 @@ func TestRunCommandPrefersTheConsoleLessBuild(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+type fakeItem struct{ installed, removed bool }
+
+func (f *fakeItem) Installed() bool  { return f.installed }
+func (f *fakeItem) Uninstall() error { f.removed = true; f.installed = false; return nil }
+
+func TestLogoutRevokesRemovesTheLoginItemAndForgets(t *testing.T) {
+	var got map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bridge/revoke" || r.Method != http.MethodPost {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+	h := BridgeHome{t.TempDir()}
+	if err := SaveCreds(h.Creds(), Creds{Server: srv.URL, Handle: "acme", Machine: "m1", Name: "kari-mbp", Hub: "wss://acme.dovre.dev/bridge", FrameKey: "k", RefreshToken: "rt-1"}); err != nil {
+		t.Fatal(err)
+	}
+	item := &fakeItem{installed: true}
+	var out bytes.Buffer
+	if err := Logout(h, srv.Client(), item, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got["token"] != "rt-1" {
+		t.Errorf("revoked %v", got)
+	}
+	if !item.removed {
+		t.Error("the login item stays")
+	}
+	if exists(h.Creds()) {
+		t.Error("bridge.json stays")
+	}
+	if !strings.Contains(out.String(), `"kari-mbp" is unpaired from acme.dovre.dev`) {
+		t.Error(out.String())
+	}
+}
+
+func TestLogoutForgetsEvenWhenTheServerIsDown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	defer srv.Close()
+	h := BridgeHome{t.TempDir()}
+	_ = SaveCreds(h.Creds(), Creds{Server: srv.URL, Name: "kari-mbp", Hub: "wss://acme.dovre.dev/bridge", RefreshToken: "rt-1"})
+	var out bytes.Buffer
+	if err := Logout(h, srv.Client(), &fakeItem{}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if exists(h.Creds()) {
+		t.Error("bridge.json stays")
+	}
+	if !strings.Contains(out.String(), "https://acme.dovre.dev/cloud/bridge") || !strings.Contains(out.String(), "502") {
+		t.Error(out.String())
+	}
+}
+
+func TestLogoutNotPairedAndNoTokensOverHTTP(t *testing.T) {
+	var out bytes.Buffer
+	item := &fakeItem{installed: true}
+	if err := Logout(BridgeHome{t.TempDir()}, http.DefaultClient, item, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !item.removed || !strings.Contains(out.String(), "Not paired") {
+		t.Error(out.String())
+	}
+	if err := Revoke(http.DefaultClient, "http://dovre.dev", "rt"); err == nil {
+		t.Error("a token over plain http")
+	}
+}
