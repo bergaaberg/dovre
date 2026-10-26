@@ -19,6 +19,7 @@ import { remoteDesk } from "../src/bridge/remote.ts";
 import { answerCall, stateOf } from "../src/bridge/serve.ts";
 import type { MacAnswer, MacView } from "../src/hosted/hub.ts";
 import type { MacState } from "../src/bridge/wire.ts";
+import { viewingAs } from "../src/viewer.ts";
 import { assertInert, H, session, signedIn, snapshot } from "./helpers.ts";
 
 const SESSION = "5a1e7c2b-0d3f-4e6a-9b8c-1d2e3f4a5b6c";
@@ -41,7 +42,7 @@ function fakeSpawn(sid = SESSION) {
 }
 
 /** One machine: its own code folder (with `repo`), transcript and desk, online or not. */
-function machine(o: { id: string; name?: string; repo: string; sid: string; old: string }) {
+function machine(o: { id: string; name?: string; owner?: string; repo: string; sid: string; old: string }) {
   const code = mkdtempSync(join(tmpdir(), "code-"));
   mkdirSync(join(code, o.repo, ".git"), { recursive: true });
   const env = { CODE_DIR: code, CLAUDE_DIR: mkdtempSync(join(tmpdir(), "claude-")), AGENT_DIR: join(code, "agents") };
@@ -56,7 +57,7 @@ function machine(o: { id: string; name?: string; repo: string; sid: string; old:
   const recent = [session({ sessionId: o.old, live: false, title: `Old ${H}`, repo: o.repo, cwd: join(code, o.repo) })];
   const sessions = async () => ({ live: [], recent });
   const desk = localDesk({ env, runner, queue: createQueue(), sessions });
-  return { id: o.id, name: o.name, desk, sessions, runner, online: true, last: undefined as MacState | undefined, calls: 0 };
+  return { id: o.id, name: o.name, owner: o.owner, desk, sessions, runner, online: true, last: undefined as MacState | undefined, calls: 0 };
 }
 type Machine = ReturnType<typeof machine>;
 
@@ -65,7 +66,7 @@ function setup(machines: Machine[] = [machine({ id: "mac", repo: "shop-api", sid
   const hub = {
     async mac(): Promise<MacView> {
       for (const m of machines) if (m.online) m.last = { ...stateOf(m.desk, await m.sessions()), ...(m.name ? { name: m.name } : {}) };
-      return { watching: false, machines: machines.map((m) => ({ id: m.id, name: m.name, online: m.online, seen: Date.now() - 5 * 60_000, state: m.last })) };
+      return { watching: false, machines: machines.map((m) => ({ id: m.id, name: m.name, ...(m.owner ? { owner: m.owner } : {}), online: m.online, seen: Date.now() - 5 * 60_000, state: m.last })) };
     },
     async call(c: Parameters<typeof answerCall>[1], _ms?: number, id?: string): Promise<MacAnswer> {
       const on = machines.filter((m) => m.online);
@@ -193,4 +194,50 @@ test("hosted agents, two machines: both listed and named, a turn starts on the o
 
   desktop.online = false;
   assert.match(await (await get("/agents")).text(), /None of your machines is online/);
+});
+
+test("hosted agents (T4): each person sees only the machines they paired, and those nobody did; another's are as if not there", async () => {
+  const KARI_SID = "7c1e7c2b-0d3f-4e6a-9b8c-1d2e3f4a5b6c";
+  const KARI_OLD = "1b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0";
+  const OLA_SID = "2d1e7c2b-0d3f-4e6a-9b8c-1d2e3f4a5b6c";
+  const OLA_OLD = "3c1c2d3e-4f50-6172-8394-a5b6c7d8e9f0";
+  const kari = machine({ id: "0123456789abcdef", name: "kari-laptop", owner: "kari@example.dev", repo: "shop-api", sid: KARI_SID, old: KARI_OLD });
+  const ola = machine({ id: "fedcba9876543210", name: "ola-desktop", owner: "ola@example.dev", repo: "web", sid: OLA_SID, old: OLA_OLD });
+  const { get, post } = setup([kari, ola]);
+  const asKari = <T>(fn: () => T | Promise<T>) => Promise.resolve(viewingAs("Kari@example.dev", fn));
+  const asOla = <T>(fn: () => T | Promise<T>) => Promise.resolve(viewingAs("ola@example.dev", fn));
+
+  const list = await asKari(async () => (await get("/agents")).text());
+  assert.match(list, new RegExp(KARI_OLD));
+  assert.doesNotMatch(list, new RegExp(OLA_OLD), "Ola's sessions aren't on Kari's list");
+  assert.doesNotMatch(list, /ola-desktop/);
+  const form = await asKari(async () => (await get("/agents/new")).text());
+  assert.doesNotMatch(form, /<select name="machine"/, "one machine of hers: nothing to pick");
+  assert.doesNotMatch(form, /<option value="web"/, "nor Ola's checkouts");
+
+  // Ola's machine named outright: refused, nothing runs there.
+  const theirs = await asKari(() => post("/agents/new", { machine: ola.id, repo: "web", prompt: "x", harness: "claude" }));
+  assert.equal(theirs.status, 400);
+  assert.equal(ola.calls, 0);
+  // Kari's own, with no machine named: hers, the one she sees online.
+  const started = await asKari(() => post("/agents/new", { repo: "shop-api", prompt: "make a plan", harness: "claude", mode: "default" }));
+  assert.equal(started.headers.get("location"), `/agents/s/${KARI_SID}`);
+  await until(() => kari.runner.list()[0]?.status === "done");
+
+  // Ola can't open, answer or stop Kari's session, even knowing its id.
+  await asOla(() => get("/agents"));
+  const before = kari.calls;
+  const page = await asOla(() => get(`/agents/s/${KARI_SID}`));
+  assert.equal(page.status, 404);
+  await asOla(() => post(`/agents/s/${KARI_SID}/reply`, { prompt: "and then?" }));
+  await asOla(() => post(`/agents/s/${KARI_SID}/stop`, {}));
+  assert.equal(kari.calls, before, "Kari's machine wasn't asked anything");
+  assert.match(await asOla(async () => (await get("/agents")).text()), new RegExp(OLA_OLD));
+
+  // Nobody signed in (background work): only machines nobody paired.
+  assert.doesNotMatch(await (await get("/agents")).text(), new RegExp(`${KARI_OLD}|${OLA_OLD}`));
+
+  // A machine nobody paired (a self-hosted bridge) is everyone's.
+  ola.owner = undefined;
+  assert.match(await asKari(async () => (await get("/agents")).text()), new RegExp(OLA_OLD));
 });

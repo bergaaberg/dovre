@@ -6,12 +6,18 @@
  * starts on the machine the form names, or the one online. A machine offline: the lists show what
  * it last said, a session's page its metadata without the conversation, and actions say it's
  * offline. Never empty.
+ *
+ * Each person sees only the machines they paired, and those nobody did (Team T4: the hub knows who
+ * paired each, src/hosted/hub.ts; the request says who's looking, src/viewer.ts). Everything here
+ * goes through `machines()`, and every call names a machine that person sees: another's sessions,
+ * runs and actions are as if they weren't there.
  */
 import type { Desk, DeskView, Done, MachineStatus } from "../agents/desk.ts";
 import { HARNESSES, type HarnessId, type Run } from "../agents/runner.ts";
 import type { HubClient } from "../hosted/client.ts";
 import type { MacView, MachineView } from "../hosted/hub.ts";
 import type { Session } from "../sources/claude.ts";
+import { currentViewer, sees } from "../viewer.ts";
 import { LEGACY_MACHINE, type Call } from "./wire.ts";
 
 export type RemoteDesk = Desk & {
@@ -36,12 +42,18 @@ export function remoteDesk(hub: Pick<HubClient, "mac" | "call">, o: { ttlMs?: nu
   /** Which machine each session and run is on, from what they last said. */
   let owner = new Map<string, string>();
 
-  const machines = () => last?.machines ?? [];
+  /** The machines the person looking may see. */
+  const machines = () => (last?.machines ?? []).filter((m) => sees(currentViewer(), m.owner));
   const online = () => machines().filter((m) => m.online);
   const several = () => machines().length > 1;
 
+  /** A call to `machine` (else the one online), only ever one this person sees: the hub would pick any. */
   const call = async (machine: string | undefined, c: Call, ms?: number): Promise<unknown> => {
-    const a = await hub.call(c, ms, machine);
+    const on = online();
+    const to = machine ?? (on.length === 1 ? on[0]!.id : undefined);
+    if (!to) throw new Error(on.length ? "Say which machine." : "No machine is online.");
+    if (!machines().some((m) => m.id === to)) throw new Error("That machine isn't paired.");
+    const a = await hub.call(c, ms, to);
     if (!a.ok) {
       // It went offline, or never was: lists should know at once.
       if (a.offline) at = 0;

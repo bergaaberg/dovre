@@ -23,6 +23,8 @@ export type CfAccessPayload = {
   type?: string;
   /** A paired machine's id (H6), in a token an issuer signed for the bridge. */
   service?: unknown;
+  /** Who paired that machine (Team T4: their email); its agents are theirs alone to see. */
+  owner?: unknown;
   /** A service token's client id (Access puts it here instead of an email). */
   common_name?: string;
 };
@@ -134,9 +136,13 @@ function endpointsOf(cfg: AccessConfig): { issuer: string; certs: string } | und
 /**
  * A person (their email), or a service: never both. Pages take only a person; /bridge only a service.
  * A service is an Access service token (its client id), or a machine an issuer names in its
- * `service` claim (H6: a paired bridge), which says `machine`.
+ * `service` claim (H6: a paired bridge), which says `machine`, and `owner` when the issuer names
+ * who paired it (T4).
  */
-export type Verified = { email: string; service?: undefined; machine?: undefined } | { service: string; email?: undefined; machine?: boolean };
+export type Verified = { email: string; service?: undefined; machine?: undefined; owner?: undefined } | { service: string; email?: undefined; machine?: boolean; owner?: string };
+
+/** An email as a claim may name one: lowercased, or undefined. */
+const emailOf = (v: unknown): string | undefined => (typeof v === "string" && v.length <= 254 && /^[^\s@]+@[^\s@]+$/.test(v) ? v.toLowerCase() : undefined);
 /** Checks a hosted request: who it is, or undefined (refused). */
 export type AccessVerifier = (request: Request) => Promise<Verified | undefined>;
 
@@ -229,7 +235,13 @@ export function createAccessVerifier(cfg: AccessConfig): AccessVerifier {
       const auds = Array.isArray(p.aud) ? p.aud : p.aud ? [p.aud] : [];
       if (!auds.includes(cfg.aud)) return undefined;
       // A machine's token names it and nobody else: it never passes as a person.
-      if (p.service !== undefined) return typeof p.service === "string" && MACHINE_ID.test(p.service) ? { service: p.service, machine: true } : undefined;
+      if (p.service !== undefined) {
+        if (typeof p.service !== "string" || !MACHINE_ID.test(p.service)) return undefined;
+        const owner = emailOf(p.owner);
+        // An owner claim that isn't an email is a token we don't understand: refused, not shared.
+        if (p.owner !== undefined && !owner) return undefined;
+        return owner ? { service: p.service, machine: true, owner } : { service: p.service, machine: true };
+      }
       const email = typeof p.email === "string" && p.email.includes("@") ? p.email.toLowerCase() : undefined;
       if (email) return emails && !emails.has(email) ? undefined : { email };
       const service = typeof p.common_name === "string" && p.common_name.trim() ? p.common_name.trim() : undefined;

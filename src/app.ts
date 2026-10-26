@@ -69,6 +69,7 @@ import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
+import { viewingAs } from "./viewer.ts";
 import { createStacks } from "./sources/stacks.ts";
 import { stacksPage } from "./pages/stacks.ts";
 
@@ -249,12 +250,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       });
     }
   app.use(async (c, next) => {
+    let viewer: string | undefined;
     // Hosted is the Worker's setting, never something a request can claim (src/access.ts).
     if (hosted) {
       const who = deps.access ? await deps.access(c.req.raw) : undefined;
       // A person only: a service token (the Mac's bridge) gets /bridge in the Worker, never a page.
       if (!who?.email) return c.notFound();
       c.set("who", who.email);
+      viewer = who.email;
     } else if (!allowed(c.req.raw, env.LAUNCH_TOKEN)) return c.notFound();
     // Forms only from this app's own origin.
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
@@ -265,9 +268,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const path = c.req.path;
     if (PANE_PATHS.some(([id, re]) => off(id) && re.test(path))) return c.notFound();
     if (forgeHidden(path)) return c.notFound();
-    // What the packs bring up to date before a page is drawn (hosted agents: what the Mac last said); a moment at most, and a page's event stream needs none.
-    if (path !== "/events") await beforePages(shown(), ctxOf, (id, line) => packLog(id)(line));
-    await next();
+    const rest = async () => {
+      // What the packs bring up to date before a page is drawn (hosted agents: what the Mac last said); a moment at most, and a page's event stream needs none.
+      if (path !== "/events") await beforePages(shown(), ctxOf, (id, line) => packLog(id)(line));
+      await next();
+    };
+    // Hosted, the rest is for this person (src/viewer.ts): what's private to someone shows only to them.
+    return hosted ? viewingAs(viewer, rest) : rest();
   });
 
   app.get(STYLE_PATH, (c) => {

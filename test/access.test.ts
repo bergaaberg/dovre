@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { accessConfigOf, allowed, createAccessVerifier, operatorOf } from "../src/access.ts";
 import worker, { createWorker, resetHostedApp } from "../src/worker.ts";
 import type { D1 } from "../src/db.ts";
-import { signedIn, snapshot } from "./helpers.ts";
+import { session, signedIn, snapshot } from "./helpers.ts";
 
 const TEAM = "my-team";
 const ISS = "https://my-team.cloudflareaccess.com";
@@ -441,6 +441,56 @@ test("H6: a machine an issuer names (its `service` claim) is never a person, and
     resetHostedApp();
     assert.equal((await worker.fetch(upgrade(await k.sign({ iss, aud: "t-alice", email: "me@example.dev", exp })), bindings)).status, 404, "a person isn't a machine");
     assert.equal(handed.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    resetHostedApp();
+  }
+});
+
+test("T4: a machine's token may name who paired it; /bridge hands the hub that owner, never the request's", async () => {
+  const iss = "https://dovre.example.dev";
+  const k = await keyPair("d1");
+  const { fetchFn } = certsServer(() => [k.jwk]);
+  const verify = createAccessVerifier({ issuer: iss, aud: "t-alice", allowedEmails: ["me@example.dev"], fetchFn, now });
+  const machine = { iss, aud: "t-alice", service: "0123456789abcdef", exp: NOW + 600 };
+  assert.deepEqual(await verify(req(await k.sign({ ...machine, owner: "Kari@Example.dev" }))), { service: "0123456789abcdef", machine: true, owner: "kari@example.dev" });
+  for (const bad of ["kari", "a b@c.d", 42, "", `${"x".repeat(250)}@e.dev`]) assert.equal(await verify(req(await k.sign({ ...machine, owner: bad }))), undefined, `owner ${JSON.stringify(bad)}`);
+
+  resetHostedApp();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${iss}/.well-known/jwks.json` ? new Response(JSON.stringify({ keys: [k.jwk] })) : realFetch(url)) as typeof fetch;
+  const handed: Request[] = [];
+  // Two machines the hub knows: Kari's, and mine (each with an old session to list).
+  const old = (sid: string, title: string) => ({ sessions: { live: [], recent: [session({ sessionId: sid, title, repo: "web", cwd: "/code/web", live: false })] } });
+  const machines = [
+    { id: "0123456789abcdef", name: "kari-laptop", owner: "kari@example.dev", online: false, seen: Date.now() - 60_000, state: old("1b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0", "Karis secret plan") },
+    { id: "fedcba9876543210", name: "my-desktop", owner: "me@example.dev", online: false, seen: Date.now() - 60_000, state: old("3c1c2d3e-4f50-6172-8394-a5b6c7d8e9f0", "My own plan") },
+  ];
+  const HUB = {
+    idFromName: () => "hub",
+    get: () => ({
+      fetch: async (r: Request | string) => {
+        const q = new Request(r);
+        if (new URL(q.url).pathname === "/mac") return Response.json({ watching: false, machines });
+        handed.push(q);
+        return new Response("to the hub");
+      },
+    }),
+  };
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const bindings = { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", AUTH_ISSUER: iss, AUTH_AUD: "t-alice", ALLOWED_EMAILS: "me@example.dev", HUB, BRIDGE_KEY: "k".repeat(40) };
+  const upgrade = (j: string) => new Request("https://alice.example.dev/bridge", { headers: { "cf-access-jwt-assertion": j, upgrade: "websocket", "x-dovre-owner": "me@example.dev" } });
+  try {
+    assert.equal((await worker.fetch(upgrade(await k.sign({ ...machine, exp, owner: "kari@example.dev" })), bindings)).status, 200);
+    assert.equal(handed[0]?.headers.get("x-dovre-owner"), "kari@example.dev", "the owner its token names, not the one the request said");
+    assert.equal((await worker.fetch(upgrade(await k.sign({ ...machine, exp })), bindings)).status, 200);
+    assert.equal(handed[1]?.headers.get("x-dovre-owner"), null, "no owner claim: none, whatever the request said");
+
+    // My page lists my machine's sessions, not Kari's: the app knows who's looking.
+    const agents = await (await worker.fetch(new Request("https://alice.example.dev/agents", { headers: { "cf-access-jwt-assertion": await k.sign({ iss, aud: "t-alice", email: "me@example.dev", exp }) } }), bindings)).text();
+    assert.match(agents, /My own plan/);
+    assert.doesNotMatch(agents, /Karis secret plan|kari-laptop/);
   } finally {
     globalThis.fetch = realFetch;
     resetHostedApp();

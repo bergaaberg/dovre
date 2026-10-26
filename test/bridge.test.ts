@@ -121,9 +121,9 @@ function fakeState() {
 }
 
 /** The Mac's side of one socket, by hand: answers the challenge, then speaks in signed frames. */
-async function mac(hub: DovreHub, key = KEY, machine?: string) {
+async function mac(hub: DovreHub, key = KEY, machine?: string, owner?: string) {
   const ws = new FakeSocket();
-  hub.accept(ws, machine);
+  hub.accept(ws, machine, owner);
   const challenge = JSON.parse(ws.out.shift()!) as { t: string; nonce: string };
   assert.equal(challenge.t, "challenge");
   const h = await hello(key, challenge.nonce, { now: hub.now() });
@@ -347,6 +347,31 @@ test("hub (H7): a machine revoked is closed at once, forgotten, and can't come b
   assert.equal((await hub.fetch(new Request("https://hub.internal/mac/revoke", { method: "POST", body: JSON.stringify({ machine: "../x", until: 1 }) }))).status, 400);
   // No machine named on an upgrade (only the worker names one): 404.
   assert.equal((await hub.fetch(new Request("https://hub.internal/bridge", { headers: { upgrade: "websocket" } }))).status, 404);
+});
+
+test("hub (T4): each machine keeps who paired it, as its newest token said; a revoke forgets it", async () => {
+  const { state, db } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const key = await machineKey(KEY, LAPTOP);
+  const owner = (id: string) => hub.mac().machines.find((m) => m.id === id)?.owner;
+
+  await mac(hub, key, LAPTOP, "kari@example.dev");
+  await mac(hub, await machineKey(KEY, DESKTOP), DESKTOP);
+  assert.equal(owner(LAPTOP), "kari@example.dev");
+  assert.equal(owner(DESKTOP), undefined, "a token without an owner: everyone's");
+  // A hello that fails keeps nothing it said.
+  await mac(hub, KEY, DESKTOP, "ola@example.dev");
+  assert.equal(owner(DESKTOP), undefined);
+
+  // A newer token's word wins, either way.
+  await mac(hub, key, LAPTOP, "ola@example.dev");
+  assert.equal(owner(LAPTOP), "ola@example.dev");
+  await mac(hub, key, LAPTOP);
+  assert.equal(owner(LAPTOP), undefined);
+  await mac(hub, key, LAPTOP, "kari@example.dev");
+
+  await hub.fetch(new Request("https://hub.internal/mac/revoke", { method: "POST", body: JSON.stringify({ machine: LAPTOP, until: hub.now() + 1000 }) }));
+  assert.equal(db.prepare("SELECT count(*) AS n FROM mac WHERE k LIKE 'owner%'").get()!.n, 0, "a revoked machine's owner is forgotten");
 });
 
 test("hub: no BRIDGE_KEY, no /bridge", async () => {
