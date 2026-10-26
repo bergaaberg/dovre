@@ -657,6 +657,8 @@ details.confirm .confirm-body { margin-top: .5rem; padding: .8rem .9rem; border:
 details.confirm .confirm-body p { margin: 0 0 .6rem; color: var(--ink-2); font-size: var(--fs-s); }
 .quick details.confirm > summary { padding: 6px 11px; font-size: var(--fs-xs); }
 .quick details.confirm .confirm-body { position: absolute; right: 0; z-index: 3; width: 22rem; box-shadow: var(--shadow); background: var(--surface); }
+.item > .trail details.confirm { position: relative; }
+.item > .trail details.confirm .confirm-body { position: absolute; right: 0; z-index: 3; width: min(22rem, calc(100vw - 32px)); white-space: normal; text-align: left; font-size: var(--fs-s); box-shadow: var(--shadow); background: var(--surface); }
 details.thread { margin: 0; }
 details.thread > summary.item { list-style: none; }
 details.thread > summary.item::-webkit-details-marker { display: none; }
