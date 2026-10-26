@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { instanceFiles, writeInstance } from "../src/instance-new.ts";
 
@@ -34,7 +35,7 @@ test("instance new: written beside core, its own test passes and its Worker answ
   const own = spawnSync(process.execPath, ["--test", join(dir, "test", "packs.test.ts")], { encoding: "utf8" });
   assert.equal(own.status, 0, own.stdout + own.stderr);
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    const { default: worker } = await import(${JSON.stringify(join(dir, "worker.ts"))});
+    const { default: worker } = await import(${JSON.stringify(pathToFileURL(join(dir, "worker.ts")).href)});
     const res = await worker.fetch(new Request("https://dovre.fresh.dev/"), { IS_HOSTED: "1" });
     console.log(res.status, (await res.text()).includes("Dovre isn't set up yet"));
   `], { encoding: "utf8" });

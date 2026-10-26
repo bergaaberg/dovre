@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { scaffold, writeScaffold } from "../src/packs/new.ts";
 
@@ -33,8 +34,8 @@ test("pack new: written into an instance that links core, its own tests pass and
   const own = spawnSync(process.execPath, ["--test", join(dir, "packs", "fresh", "test", "fresh.test.ts")], { encoding: "utf8" });
   assert.equal(own.status, 0, own.stdout + own.stderr);
   const check = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    const { loadPacks } = await import(${JSON.stringify(join(core, "src/packs/load.ts"))});
-    const { activePacks } = await import(${JSON.stringify(join(core, "src/packs/registry.ts"))});
+    const { loadPacks } = await import(${JSON.stringify(pathToFileURL(join(core, "src/packs/load.ts")).href)});
+    const { activePacks } = await import(${JSON.stringify(pathToFileURL(join(core, "src/packs/registry.ts")).href)});
     const { packs, failed } = await loadPacks(${JSON.stringify(dir)}, {});
     const a = activePacks(packs, { env: {}, hosted: false });
     console.log(JSON.stringify({ on: a.on.map((c) => c.manifest.id), off: a.off, failed }));
