@@ -108,7 +108,7 @@ ${base.comments.length ? html`<p class="draft-h">Line comments</p>${base.comment
 ${p.draft.kind === "review"
   ? html`${p.draft.summary ? html`<div class="draft-text">${markdown(p.draft.summary)}</div>` : ""}${p.draft.comments.map((c) => html`<div class="draft-card"><code class="draft-where">${whereOf(c)}</code><div class="draft-text">${markdown(c.body)}</div></div>`)}`
   : html`${p.draft.replies.map((x) => html`<div class="draft-card"><span class="draft-where">Reply to ${Link(`${pr.url}#discussion_r${x.commentId}`, "this comment")}</span><div class="draft-text">${markdown(x.body)}</div></div>`)}${p.draft.comment ? html`<div class="draft-card"><span class="draft-where">On the PR</span><div class="draft-text">${markdown(p.draft.comment)}</div></div>` : ""}`}
-<div class="buttons">${Confirm({
+<div class="buttons">${Confirm({ kind: "review.post",
             action: "/prs/draft/post",
             fields: { run: r.runId, verdict: v.verdict, nonce: p.nonce, draft: JSON.stringify(p.draft) },
             label: review ? `Post the review` : `Post the replies`,

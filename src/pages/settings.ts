@@ -145,7 +145,7 @@ function appPanel(info: { version: string; startedAt: number } | undefined, canR
   });
 }
 
-export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html }) {
+export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html; /** Settings → Writes (src/pages/writes.ts). */ writes?: Html }) {
   const p = opts.policy;
   const form = html`<form method="post" action="/settings/notify">
 <div class="field"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...(opts.rings ?? [])].map(
@@ -175,6 +175,7 @@ ${opts.saved ? (opts.restarting ? restartingNote(opts.restarting, "/settings", "
 ${opts.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${opts.bad.join(", ")} ${opts.bad.length > 1 ? "aren't values they take" : "isn't a value it takes"}.` }) : ""}
 ${appPanel(opts.info, !!opts.canRestart, frame.tz ?? currentTz())}
 ${opts.layout ?? ""}
+${opts.writes ?? ""}
 ${opts.setup ? setupPanel(opts.setup) : ""}
 ${opts.panes ? panesPanel(opts.panes, !!opts.canRestart) : ""}
 ${opts.panes ? workPanel(opts.panes, !!opts.canRestart, opts.teams) : ""}

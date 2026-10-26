@@ -28,7 +28,7 @@ function problemLine(s: Stack, x: Problem): Html {
   const pr = s.nodes.find((n) => n.pr.number === x.pr)?.pr;
   return Notice({
     tone: "warn",
-    children: html`${text} ${pr ? Confirm({ action: "/prs/stacks/retarget", fields: { repo: s.repo, number: String(pr.number), from: pr.base }, label: `Retarget onto ${x.onto}`, question: html`Change #${pr.number}'s base from <code>${pr.base}</code> to <code>${x.onto}</code> on GHE?` }) : ""}`,
+    children: html`${text} ${pr ? Confirm({ kind: "pr.retarget", action: "/prs/stacks/retarget", fields: { repo: s.repo, number: String(pr.number), from: pr.base }, label: `Retarget onto ${x.onto}`, question: html`Change #${pr.number}'s base from <code>${pr.base}</code> to <code>${x.onto}</code> on GHE?` }) : ""}`,
   });
 }
 

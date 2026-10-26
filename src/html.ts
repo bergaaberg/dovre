@@ -136,7 +136,7 @@ function askGroup(g: AskView[]): Html {
     .filter((c) => c.safe)
     .map((c) => html`<form method="post" action="/relay/asks/answer"><input type="hidden" name="ids" value="${ids}"><input type="hidden" name="choice" value="${c.value}"><button type="submit" class="primary">${choiceLabel(c.value)} all</button></form>`)}${g[0]!.choices
     .filter((c) => !c.safe)
-    .map((c) => Confirm({ action: "/relay/asks/answer", fields: { ids, choice: c.value }, label: `${choiceLabel(c.value)} all ${g.length}`, question: html`Answer <strong>${c.value}</strong> to all ${g.length} of ${server}'s questions? Each applies as it says above.`, danger: true }))}<form method="post" action="/relay/asks/answer"><input type="hidden" name="ids" value="${ids}"><input type="hidden" name="decline" value="1"><button type="submit" class="ghost">Decline all</button></form></div></section>`;
+    .map((c) => Confirm({ kind: "relay.answer", action: "/relay/asks/answer", fields: { ids, choice: c.value }, label: `${choiceLabel(c.value)} all ${g.length}`, question: html`Answer <strong>${c.value}</strong> to all ${g.length} of ${server}'s questions? Each applies as it says above.`, danger: true }))}<form method="post" action="/relay/asks/answer"><input type="hidden" name="ids" value="${ids}"><input type="hidden" name="decline" value="1"><button type="submit" class="ghost">Decline all</button></form></div></section>`;
 }
 
 /** The bar at the top of every page: what the packs ask (an agent's tool, `banner`), then the relay's questions. */
@@ -147,7 +147,7 @@ function approvals(all: AskView[], banners: Html[] = []): Html {
       .filter((c) => c.safe)
       .map((c) => html`<form method="post" action="/relay/ask/${q.id}/answer"><input type="hidden" name="choice" value="${c.value}"><button type="submit" class="primary">${c.value === "false" ? "No" : c.value[0]!.toUpperCase() + c.value.slice(1)}</button></form>`)}${q.choices
       .filter((c) => !c.safe)
-      .map((c) => Confirm({ action: `/relay/ask/${q.id}/answer`, fields: { choice: c.value }, label: c.value === "true" ? "Yes" : c.value[0]!.toUpperCase() + c.value.slice(1), question: html`Answer <strong>${c.value}</strong> to ${q.server}? It applies as the server says above.`, danger: true }))}<form method="post" action="/relay/ask/${q.id}/answer"><input type="hidden" name="decline" value="1"><button type="submit" class="ghost">Decline</button></form></div></section>`,
+      .map((c) => Confirm({ kind: "relay.answer", action: `/relay/ask/${q.id}/answer`, fields: { choice: c.value }, label: c.value === "true" ? "Yes" : c.value[0]!.toUpperCase() + c.value.slice(1), question: html`Answer <strong>${c.value}</strong> to ${q.server}? It applies as the server says above.`, danger: true }))}<form method="post" action="/relay/ask/${q.id}/answer"><input type="hidden" name="decline" value="1"><button type="submit" class="ghost">Decline</button></form></div></section>`,
   )}</div>`;
 }
 

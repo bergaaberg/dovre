@@ -144,7 +144,7 @@ export async function binoPage(frame: Frame, b: Bino, todos: Todo[] = []): Promi
     children: !b.memory.available
       ? html`<p class="notes">${b.memory.why}</p>`
       : memories.length
-        ? html`<ul class="bino-mems">${memories.map((m) => html`<li><span>${m.scope.startsWith("app:") ? html`<span class="tag">${m.scope.slice(4)}</span> ` : ""}${m.text}</span> ${Confirm({ action: `/bino/memory/${m.id}/forget`, label: "Forget", question: "Forget this?" })}</li>`)}</ul>`
+        ? html`<ul class="bino-mems">${memories.map((m) => html`<li><span>${m.scope.startsWith("app:") ? html`<span class="tag">${m.scope.slice(4)}</span> ` : ""}${m.text}</span> ${Confirm({ kind: "bino.forget", action: `/bino/memory/${m.id}/forget`, label: "Forget", question: "Forget this?" })}</li>`)}</ul>`
         : html`<p class="notes">Nothing yet. Bino keeps a few short facts from your conversations, never secrets. You can make it forget any of them here.</p>`,
   });
   const body = html`${PageHeader({ title: "Bino", sub: `Sees ${b.sees ?? "My list and pull requests"}. Changes nothing by itself.`, actions: html`${binoTag(b)}${binoAvatar(frame, convs.some((x) => x.thinking))}` })}

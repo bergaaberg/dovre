@@ -48,11 +48,11 @@ function deployRow(d: Deploy, s: Snapshot, summary: SummaryOf, ghe: string, rule
   const env = d.envs.map((e) => e.name).join(", ");
   const decide = !approve ? html`<div class="buttons">${Link(d.url, "Open ↗", "btn ghost")}</div>` : html`<div class="buttons">${
     live
-      ? Confirm({ action: "/deploys/reject", fields, label: "Reject leftover run", danger: true, question: html`This commit is already live in ${env}. Reject the run so it stops waiting?` })
-      : Confirm({ action: "/deploys/approve", fields, label: `Approve deploy to ${env}`, question: html`Ship <strong>${repo}</strong> <code>${d.sha}</code> to ${env}?` })
-  }${live ? "" : Confirm({ action: "/deploys/reject", fields, label: "Reject", danger: true, question: html`Reject <strong>${repo}</strong> <code>${d.sha}</code>? The run ends without deploying.` })}${
+      ? Confirm({ kind: "deploy.reject", action: "/deploys/reject", fields, label: "Reject leftover run", danger: true, question: html`This commit is already live in ${env}. Reject the run so it stops waiting?` })
+      : Confirm({ kind: "deploy.approve", action: "/deploys/approve", fields, label: `Approve deploy to ${env}`, question: html`Ship <strong>${repo}</strong> <code>${d.sha}</code> to ${env}?` })
+  }${live ? "" : Confirm({ kind: "deploy.reject", action: "/deploys/reject", fields, label: "Reject", danger: true, question: html`Reject <strong>${repo}</strong> <code>${d.sha}</code>? The run ends without deploying.` })}${
     d.superseded.length
-      ? Confirm({ action: "/deploys/reject-superseded", fields: { repo: d.repo, workflow: d.name }, label: `Reject ${d.superseded.length}${d.more ? "+" : ""} superseded runs`, danger: true, question: html`Reject the older waiting runs of <strong>${d.name}</strong> in ${repo}? They end as rejected. This one stays waiting.` })
+      ? Confirm({ kind: "deploy.reject-superseded", action: "/deploys/reject-superseded", fields: { repo: d.repo, workflow: d.name }, label: `Reject ${d.superseded.length}${d.more ? "+" : ""} superseded runs`, danger: true, question: html`Reject the older waiting runs of <strong>${d.name}</strong> in ${repo}? They end as rejected. This one stays waiting.` })
       : ""
   }${Link(d.url, "Run ↗", "btn ghost")}</div>`;
   return html`<li class="row has-quick">
@@ -64,8 +64,8 @@ function deployRow(d: Deploy, s: Snapshot, summary: SummaryOf, ghe: string, rule
 </details>
 ${approve ? html`<div class="quick">${
     live
-      ? Confirm({ action: "/deploys/reject", fields, label: "Reject", danger: true, question: html`Already live: reject this leftover run?` })
-      : Confirm({ action: "/deploys/approve", fields, label: "Approve", question: html`Ship <strong>${repo}</strong> <code>${d.sha}</code> to ${env}?` })
+      ? Confirm({ kind: "deploy.reject", action: "/deploys/reject", fields, label: "Reject", danger: true, question: html`Already live: reject this leftover run?` })
+      : Confirm({ kind: "deploy.approve", action: "/deploys/approve", fields, label: "Approve", question: html`Ship <strong>${repo}</strong> <code>${d.sha}</code> to ${env}?` })
   }</div>` : ""}
 </li>`;
 }

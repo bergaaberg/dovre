@@ -53,6 +53,8 @@ import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
 import type { Html } from "./ui/kit.ts";
+import { writeClicksStore } from "./writes.ts";
+import { writesPanel } from "./pages/writes.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { type AvatarFeeds, avatarFrom, actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { packsPage } from "./pages/packs.ts";
@@ -292,6 +294,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     return hosted ? viewingAs(viewer, rest) : rest();
   });
 
+  // Which writes take one click (dovre#104), for the page being drawn: Confirm reads it (src/writes.ts).
+  const clicks = writeClicksStore(env.DB);
+  app.use(async (c, next) => {
+    if (c.req.method === "GET") c.set("clicks", await clicks.get().catch(() => new Map()));
+    await next();
+  });
   app.get(STYLE_PATH, (c) => {
     c.header("Content-Type", "text/css; charset=utf-8");
     c.header("Cache-Control", "private, max-age=31536000, immutable");
@@ -874,9 +882,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     saved = false;
     settingsBad = undefined;
     if (made) c.header("Cache-Control", "no-store");
-    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)) }));
+    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)), writes: writesPanel(await clicks.get().catch(() => new Map())) }));
   };
   app.get("/settings", (c) => showSettings(c));
+  app.post("/settings/writes", async (c) => {
+    const f = await c.req.parseBody({ all: true });
+    const once = ([] as unknown[]).concat(f.once ?? []).filter((v): v is string => typeof v === "string");
+    await clicks.set(once);
+    saved = true;
+    return c.redirect("/settings#writes", 303);
+  });
   const ingestPack = (id: unknown) => shown().find((p) => p.ingest && p.manifest.id === id);
   // A new token is shown on the page this answers, once; only its hash is kept.
   app.post("/settings/ingest/new", async (c) => {

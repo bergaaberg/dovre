@@ -5,6 +5,7 @@
  */
 import { html } from "hono/html";
 import { type IconName, icon } from "./icons.ts";
+import { oneClickNow } from "../writes.ts";
 
 export type Html = ReturnType<typeof html>;
 
@@ -92,8 +93,11 @@ export const KeyValues = (pairs: [Child, Child][]) => html`<dl class="kv">${pair
 /**
  * A button that needs a second click, no script: the first opens what will happen, the
  * second posts. For anything that changes something for a customer or can't be undone.
+ * `kind` names the write (src/writes.ts): when I've set that kind to one click on Settings, it's a
+ * Post instead.
  */
-export function Confirm(opts: { action: string; fields?: Record<string, string>; label: string; question: Child; danger?: boolean }): Html {
+export function Confirm(opts: { action: string; fields?: Record<string, string>; label: string; question: Child; danger?: boolean; kind?: string }): Html {
+  if (oneClickNow(opts.kind)) return Post({ action: opts.action, fields: opts.fields, label: opts.label, danger: opts.danger });
   return html`<details class="confirm"><summary>${opts.label}…</summary><div class="confirm-body"><p>${opts.question}</p><form method="post" action="${opts.action}">${Object.entries(opts.fields ?? {}).map(
     ([name, value]) => html`<input type="hidden" name="${name}" value="${value}">`,
   )}<button type="submit"${opts.danger ? html` class="danger"` : ""}>${opts.label}</button></form></div></details>`;

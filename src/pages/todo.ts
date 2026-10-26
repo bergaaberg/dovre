@@ -84,7 +84,7 @@ ${t.notes ? html`<div class="todo-notes">${markdown(t.notes, { headingOffset: 3 
 <form method="post" action="/todo/${t.id}/move"><input type="hidden" name="back" value="${back}"><input type="hidden" name="dir" value="down"><button type="submit" class="sm ghost">Move down</button></form>
 <a class="btn sm ghost" href="${agentHref(t)}">Start an agent on this</a>
 ${bino ? html`<form method="post" action="/bino/new"><input type="hidden" name="todo" value="${t.id}"><button type="submit" class="sm ghost" data-busy="Asking Bino">Break it down with Bino</button></form>` : ""}
-${Confirm({ action: `/todo/${t.id}/delete`, fields: { back }, label: "Delete", question: isChild ? "Delete this step?" : "Delete this, and the steps under it?", danger: true })}
+${Confirm({ kind: "todo.delete", action: `/todo/${t.id}/delete`, fields: { back }, label: "Delete", question: isChild ? "Delete this step?" : "Delete this, and the steps under it?", danger: true })}
 </div></details>`;
 }
 

@@ -38,8 +38,8 @@ function actsOf(i: Issue, a: RowActs): Html {
   const k = keyOf(i);
   const mine = i.assignees.some((x) => x.toLowerCase() === a.me.toLowerCase());
   const writes = a.write
-    ? html`${!mine && a.me ? Confirm({ action: ACT, fields: fieldsOf(i, a.set, { kind: "assign" }), label: "Assign me", question: html`Assign ${k} to you (${a.me}) on the forge?` }) : ""
-  }${Confirm({ action: ACT, fields: fieldsOf(i, a.set, { kind: "close", reason: "completed" }), label: "Close as done", question: html`Close ${k} as completed?` })}${Confirm({
+    ? html`${!mine && a.me ? Confirm({ kind: "issue.assign", action: ACT, fields: fieldsOf(i, a.set, { kind: "assign" }), label: "Assign me", question: html`Assign ${k} to you (${a.me}) on the forge?` }) : ""
+  }${Confirm({ kind: "issue.close", action: ACT, fields: fieldsOf(i, a.set, { kind: "close", reason: "completed" }), label: "Close as done", question: html`Close ${k} as completed?` })}${Confirm({ kind: "issue.close",
     action: ACT,
     fields: fieldsOf(i, a.set, { kind: "close", reason: "not_planned" }),
     label: "Close as not planned",
@@ -84,7 +84,7 @@ export function doneOf(q: { done?: string; ref?: string; reason?: string }): Don
 }
 
 function doneNotice(d: Done, set: SetId, acts: boolean): Html {
-  const undo = acts && d.kind === "close" ? Confirm({ action: ACT, fields: fieldsOf(d, set, { kind: "reopen" }), label: "Reopen", question: html`Reopen ${keyOf(d)}?` }) : "";
+  const undo = acts && d.kind === "close" ? Confirm({ kind: "issue.reopen", action: ACT, fields: fieldsOf(d, set, { kind: "reopen" }), label: "Reopen", question: html`Reopen ${keyOf(d)}?` }) : "";
   return Notice({ tone: "ok", children: html`${doneText(d)}. ${undo}` });
 }
 
@@ -115,7 +115,7 @@ export function commentPreview(o: { issue: Issue; body: string; set: SetId }): H
   const k = keyOf(o.issue);
   return html`${PageHeader({ title: html`Comment on ${k}`, sub: o.issue.title, crumbs: [{ href: `${HREF}?set=${o.set}`, label: "Issues" }, { label: "Comment" }] })}${Panel({
     title: "It will say",
-    children: html`<blockquote class="issue-comment-text">${o.body}</blockquote>${Confirm({ action: ACT, fields: fieldsOf(o.issue, o.set, { kind: "comment", body: o.body }), label: "Post comment", question: html`Post this on ${k} as you?` })}`,
+    children: html`<blockquote class="issue-comment-text">${o.body}</blockquote>${Confirm({ kind: "issue.comment", action: ACT, fields: fieldsOf(o.issue, o.set, { kind: "comment", body: o.body }), label: "Post comment", question: html`Post this on ${k} as you?` })}`,
   })}`;
 }
 
