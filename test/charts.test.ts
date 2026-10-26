@@ -1,7 +1,7 @@
 /** The numbers and charts packs build on (src/ui/kit.ts Stat…Gauge, src/ui/charts.view.ts): they draw, and hostile labels stay inert. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ColumnChart, FunnelDiagram, HBars, Heatmap, LineChart, StackedBar } from "../src/ui/charts.view.ts";
+import { ColumnChart, DAY_LABEL_W, FunnelDiagram, HBars, Heatmap, LineChart, StackedBar } from "../src/ui/charts.view.ts";
 import { Delta, Gauge, Post, Pulse, Spark, Stat, Stats } from "../src/ui/kit.ts";
 import { H, assertInert } from "./helpers.ts";
 
@@ -38,4 +38,24 @@ test("Post: one click, a plain form; hostile fields and label stay inert", () =>
   assert.match(out, /^<form class="post" method="post" action="\/signals\/mute">/);
   assert.doesNotMatch(out, /<details/);
   assertInert("post", out);
+});
+
+test("day labels never touch: the first hangs right, the last left, the rest are centred", () => {
+  const fortnight = Array.from({ length: 14 }, (_, i) => `2026-10-${String(13 + i).padStart(2, "0")}`);
+  const month = Array.from({ length: 30 }, (_, i) => `2026-09-${String(1 + (i % 28)).padStart(2, "0")}`);
+  for (const [name, out] of [
+    ["half column, 14 days", String(ColumnChart({ days: fortnight, values: fortnight.map(() => 1), title: "t", unit: "u", half: true }))],
+    ["column, 30 days", String(ColumnChart({ days: month, values: month.map(() => 1), title: "t", unit: "u" }))],
+    ["line, 30 days", String(LineChart({ days: month, series: [{ label: "a", values: month.map(() => 1), color: "s1" }], title: "t" }))],
+  ] as const) {
+    for (const svg of out.split("</svg>").slice(0, -1)) {
+      const labels = [...svg.matchAll(/<text x="([\d.]+)" y="[\d.]+" text-anchor="(start|middle|end)">\d+ \w+<\/text>/g)].map((m) => {
+        const x = Number(m[1]);
+        const [l, r] = m[2] === "start" ? [0, 1] : m[2] === "end" ? [1, 0] : [0.5, 0.5];
+        return { from: x - l * DAY_LABEL_W, to: x + r * DAY_LABEL_W };
+      });
+      assert.ok(labels.length >= 2, `${name}: first and last at least`);
+      for (let i = 1; i < labels.length; i++) assert.ok(labels[i]!.from >= labels[i - 1]!.to - 1e-6, `${name}: label ${i} clears the one before`);
+    }
+  }
 });

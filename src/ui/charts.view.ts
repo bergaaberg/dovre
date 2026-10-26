@@ -26,23 +26,27 @@ function Grid({ p, max, format = count }: { p: Plot; max: number; format?: (n: n
   )}`;
 }
 
+/** A day label's width plus a gap, in drawing units ("26 Oct" in the page's monospace is about 55). */
+export const DAY_LABEL_W = 64;
+
 /** Day labels under the plot, at `x(i)`: the first, the last and a few between. */
 function DayLabels({ p, days, x }: { p: Plot; days: string[]; x: (i: number) => number }): Html {
-  // The chosen days, less any that would touch a neighbour (a narrow drawing has less room): first and last stay.
-  const GAP = 52;
-  const picked = [...labelledDays(days.length)].sort((a, b) => a - b);
+  // The first label hangs right of its point and the last left of it; the rest are centred. A label
+  // between is kept only when it clears both neighbours by those extents (a narrow drawing keeps fewer).
   const last = days.length - 1;
+  const picked = [...labelledDays(days.length)].sort((a, b) => a - b);
   const shown = new Set<number>();
-  let prev = -Infinity;
+  let prev = { x: -Infinity, right: 0 };
   for (const i of picked) {
-    if (i === 0 || i === last || (x(i) - prev >= GAP && x(last) - x(i) >= GAP)) {
+    const ends = i === 0 || i === last;
+    if (ends || (x(i) - prev.x >= DAY_LABEL_W * (prev.right + 0.5) && x(last) - x(i) >= DAY_LABEL_W * 1.5)) {
       shown.add(i);
-      prev = x(i);
+      prev = { x: x(i), right: i === 0 ? 1 : 0.5 };
     }
   }
   return html`${days.map((d, i) =>
     shown.has(i)
-      ? html`<text x="${x(i)}" y="${p.height - 6}" text-anchor="${i === 0 ? "start" : i === days.length - 1 ? "end" : "middle"}">${shortDay(d)}</text>`
+      ? html`<text x="${x(i)}" y="${p.height - 6}" text-anchor="${i === 0 ? "start" : i === last ? "end" : "middle"}">${shortDay(d)}</text>`
       : "",
   )}`;
 }
