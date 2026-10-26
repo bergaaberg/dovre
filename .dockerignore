@@ -1,0 +1,12 @@
+node_modules
+data
+dist
+bin
+.dev.vars
+*.sqlite*
+.git
+.wrangler
+.claude
+site
+demo
+deploy/dovre.env

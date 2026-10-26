@@ -1,6 +1,8 @@
 /**
  * Who gets in (PLAN D16). Two modes, and a request never picks its own:
  * - Local (the default): a localhost Host and the launch-token cookie. Anything else is a 404.
+ *   PUBLIC_ORIGIN (opt-in, #74) adds exactly one more Host: the address an authenticating proxy
+ *   serves this Dovre at. The cookie is still required.
  * - Hosted (IS_HOSTED=1, set by the Worker, never by a request): the Cf-Access-Jwt-Assertion
  *   header, its RS256 signature checked against the issuer's published keys, with its issuer,
  *   audience and expiry. The issuer is Cloudflare Access (CF_ACCESS_TEAM, CF_ACCESS_AUD) or any
@@ -45,17 +47,58 @@ export function cookieOf(request: Request, name: string): string | undefined {
   return undefined;
 }
 
-export function isLocal(request: Request): boolean {
+/**
+ * PUBLIC_ORIGIN, checked: exactly `https://host[:port]` (or http), nothing else. Unset: undefined.
+ * Anything looser (a path, a wildcard, a login in the URL, a default port spelled out) throws, so a
+ * typo stops the start rather than letting in more than was meant.
+ */
+export function publicOriginOf(value: string | undefined): string | undefined {
+  const s = value?.trim();
+  if (!s) return undefined;
+  let u: URL;
   try {
-    return LOCAL_HOSTS.includes(new URL(request.url).hostname);
+    u = new URL(s);
+  } catch {
+    throw new Error(`PUBLIC_ORIGIN isn't a URL: write it as https://dovre.example.com`);
+  }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.username || u.password || !/^(\[[0-9a-f:.]+\]|[a-z0-9-]+(\.[a-z0-9-]+)*)$/.test(u.hostname) || u.origin.toLowerCase() !== s.replace(/\/$/, "").toLowerCase())
+    throw new Error(`PUBLIC_ORIGIN must be exactly scheme://host[:port], with no path: write it as https://dovre.example.com`);
+  return u.origin;
+}
+
+/** A localhost Host, or exactly PUBLIC_ORIGIN's host (and port) when it's set. */
+export function isLocal(request: Request, publicOrigin?: string): boolean {
+  try {
+    const u = new URL(request.url);
+    return LOCAL_HOSTS.includes(u.hostname) || (!!publicOrigin && u.host === new URL(publicOrigin).host);
   } catch {
     return false;
   }
 }
 
-/** Local mode: a localhost Host (no DNS rebinding) and the launch-token cookie. */
-export function allowed(request: Request, token: string | undefined): boolean {
-  return isLocal(request) && sameSecret(cookieOf(request, COOKIE), token);
+/** Local mode: a localhost (or PUBLIC_ORIGIN) Host, no DNS rebinding, and the launch-token cookie. */
+export function allowed(request: Request, token: string | undefined, publicOrigin?: string): boolean {
+  return isLocal(request, publicOrigin) && sameSecret(cookieOf(request, COOKIE), token);
+}
+
+/** Whether a write's Origin is this app's own: the request's own origin, or exactly PUBLIC_ORIGIN. */
+export function isOwnOrigin(request: Request, origin: string | null | undefined, publicOrigin?: string): boolean {
+  if (!origin) return false;
+  try {
+    return origin === new URL(request.url).origin || (!!publicOrigin && origin === publicOrigin);
+  } catch {
+    return false;
+  }
+}
+
+/** The login cookie is Secure when it was asked for at an https PUBLIC_ORIGIN's own host. */
+export function secureCookie(request: Request, publicOrigin?: string): boolean {
+  if (!publicOrigin?.startsWith("https:")) return false;
+  try {
+    return new URL(request.url).host === new URL(publicOrigin).host;
+  } catch {
+    return false;
+  }
 }
 
 // ── Hosted: Cloudflare Access, or any RS256 issuer ──
