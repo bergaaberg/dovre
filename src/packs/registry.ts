@@ -527,6 +527,7 @@ export function hooksOf(c: Pack): string[] {
     [c.banner, "bar"],
     [c.dock, "dock"],
     [c.callback, "sign-in return"],
+    [c.ingest, "ingest"],
     [c.avatar, "avatar"],
     [c.refresh || c.beforePage, "refresh"],
     [c.scheduled, "cron"],

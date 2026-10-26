@@ -52,6 +52,8 @@ import { type Choice, type Config, configFromForm, type PaneId, type PanesOn, ty
 import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
+import type { Html } from "./ui/kit.ts";
+import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { type AvatarFeeds, avatarFrom, actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { packsPage } from "./pages/packs.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
@@ -256,6 +258,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         }
       });
     }
+  // A pack's ingest (dovre#109): apps POST in with a token made on Settings, before the guard.
+  mountIngest(app, { packs: deps.packs?.on ?? [], shown: () => shown(), ctxOf: (p) => ctxOf(p), db: () => env.DB, hosted, isLocal: (req) => isLocal(req, publicOrigin), log: (id, line) => packLog(id)(line) });
   app.use(async (c, next) => {
     let viewer: string | undefined;
     // Hosted is the Worker's setting, never something a request can claim (src/access.ts).
@@ -800,13 +804,54 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
   });
 
-  app.get("/settings", async (c) => {
+  /** The packs' Settings panels, with core's ingest tokens under each pack that takes ingest (dovre#109). */
+  const packPanels = async (made?: { pack: string; source: string; token: string }) => {
+    const own = settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line));
+    const out: { id: string; name: string; body: Html }[] = [];
+    for (const p of shown()) {
+      const id = p.manifest.id;
+      const mine = own.find((x) => x.id === id);
+      if (!p.ingest) {
+        if (mine) out.push(mine);
+        continue;
+      }
+      const tokens = tokensPanel(p, await listTokens(env.DB, id).catch(() => []), { hosted, made: made?.pack === id ? made : undefined });
+      out.push({ id, name: p.manifest.name, body: html`${mine?.body ?? ""}${tokens}` });
+    }
+    return out;
+  };
+  const showSettings = async (c: Context<AppEnv>, made?: { pack: string; source: string; token: string }) => {
     const { frame } = await page();
     const wasSaved = saved;
     const bad = settingsBad;
     saved = false;
     settingsBad = undefined;
-    return c.html(settingsPage(frame, { rings: packRings, packs: settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)) }));
+    if (made) c.header("Cache-Control", "no-store");
+    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)) }));
+  };
+  app.get("/settings", (c) => showSettings(c));
+  const ingestPack = (id: unknown) => shown().find((p) => p.ingest && p.manifest.id === id);
+  // A new token is shown on the page this answers, once; only its hash is kept.
+  app.post("/settings/ingest/new", async (c) => {
+    const f = await c.req.parseBody();
+    const p = ingestPack(f.pack);
+    if (!p) return c.notFound();
+    if (!sourceOk(f.source)) {
+      settingsBad = ["the source's name"];
+      return c.redirect(`/settings#pack-${p.manifest.id}`, 303);
+    }
+    const token = await createToken(env.DB, p.manifest.id, f.source);
+    await logAction(env.DB, { kind: "ingest-token", target: `${p.manifest.id}:${f.source}`, ok: true, detail: "made" }).catch(() => {});
+    return showSettings(c, { pack: p.manifest.id, source: f.source, token });
+  });
+  app.post("/settings/ingest/revoke", async (c) => {
+    const f = await c.req.parseBody();
+    const p = ingestPack(f.pack);
+    const id = Number(f.id);
+    if (!p || !Number.isInteger(id)) return c.notFound();
+    const done = await revokeToken(env.DB, p.manifest.id, id);
+    await logAction(env.DB, { kind: "ingest-token", target: `${p.manifest.id}:${id}`, ok: done, detail: "revoked" }).catch(() => {});
+    return c.redirect(`/settings#pack-${p.manifest.id}`, 303);
   });
   /** When this server started: a page waiting out a restart asks until it changes. */
   app.get("/settings/started", (c) => noStore(c.text(String(startedAt))));
