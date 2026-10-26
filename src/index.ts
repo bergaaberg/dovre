@@ -19,7 +19,8 @@ import { createHelper } from "./teams/helper.ts";
 import { createTeams } from "./teams/teams.ts";
 import { createOutlook } from "./teams/outlook.ts";
 import { createChannels } from "./teams/channels.ts";
-import { ompCrawler } from "./teams/crawl.ts";
+import { CRAWLER_WHO } from "./teams/crawl.ts";
+import { ompAsker } from "./ai/omp.ts";
 import { runOff } from "./spawn.ts";
 import { createData } from "./data/db.ts";
 import { createGatherer, SNAPSHOT_SHAPE, type Snapshot, snapshotStore } from "./gather.ts";
@@ -188,11 +189,11 @@ const dbTool = findTool("db");
 found.paths = { ...found.paths, pwsh: pwsh ? findTool("pwsh")?.path : undefined, db: dbTool?.path };
 const hostExe = fileURLToPath(new URL(`../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
 // Which panes run (Settings, src/config.ts): one that's off, or can't run here, never starts its work.
-// Copilot through omp, for whoever has no Claude Code: Bino and summaries talk through it. The crawler's
-// asker (src/teams/crawl.ts): its own profile with no MCP servers, no tools, no session, an empty folder.
+// Copilot through omp, for whoever has no Claude Code: Bino and summaries talk through it
+// (src/ai/omp.ts): its own profile with no MCP servers, no tools, no session, an empty folder.
 const copilotDir = join(dataDir, "copilot");
 mkdirSync(copilotDir, { recursive: true });
-const copilot = omp ? ompCrawler({ omp: { bin: omp.bin, pre: omp.pre }, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: copilotDir, run: runOff, who: { name: "Copilot through omp", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" } }) : undefined;
+const copilot = omp ? ompAsker({ omp: { bin: omp.bin, pre: omp.pre }, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: copilotDir, run: runOff, who: { name: "Copilot through omp", profileVar: "TEAMS_CRAWL_PROFILE", modelVar: "TEAMS_CRAWL_MODEL" } }) : undefined;
 found.copilot = copilot ? (copilot.why() ?? "ready") : undefined;
 const copilotAsk = copilotTool ? copilotCli(copilotTool, { model: env.COPILOT_CLI_MODEL, log: (l) => console.log(l) }) : undefined;
 const isWin = process.platform === "win32";
@@ -380,7 +381,7 @@ mkdirSync(dataAgentDir, { recursive: true });
 const dataAsker =
   !on.data || env.DATA_AGENT === "off"
     ? undefined
-    : ompCrawler({
+    : ompAsker({
         omp: omp ? { bin: omp.bin, pre: omp.pre } : undefined,
         profile: env.DATA_AGENT_PROFILE || env.TEAMS_CRAWL_PROFILE || "dovre-copilot",
         model: env.DATA_AGENT_MODEL || env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium",
@@ -402,7 +403,7 @@ const teams = !on.teams ? undefined : createTeams({
   crawler:
     env.TEAMS_CRAWL === "off"
       ? undefined
-      : ompCrawler({ omp: omp ? { bin: omp.bin, pre: omp.pre } : undefined, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: teamsCrawlDir, run: runOff }),
+      : ompAsker({ omp: omp ? { bin: omp.bin, pre: omp.pre } : undefined, profile: env.TEAMS_CRAWL_PROFILE || "dovre-copilot", model: env.TEAMS_CRAWL_MODEL || "github-copilot/gpt-6-luna:medium", cwd: teamsCrawlDir, run: runOff, who: CRAWLER_WHO }),
   crawlEveryMs: env.TEAMS_CRAWL === "ask" ? 0 : undefined,
   me: () => gatherer.peek()?.name ?? "",
 });

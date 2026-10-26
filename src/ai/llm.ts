@@ -7,7 +7,7 @@ import { type Ran, runOff } from "../spawn.ts";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Crawler } from "../teams/crawl.ts";
+import type { OmpAsker } from "./omp.ts";
 import { codexCost } from "../agents/codex.ts";
 
 export type Complete = (p: { system: string; user: string; model?: string }) => Promise<{ text: string; cost: number }>;
@@ -31,7 +31,7 @@ export function cliArgs(system: string, model: string): string[] {
  * (src/teams/crawl.ts: its own profile with no MCP servers, no tools, no session). The model it
  * was made with answers, whatever `model` asks for; Copilot calls cost nothing per call here.
  */
-export function copilotComplete(c: Pick<Crawler, "ask">): Complete {
+export function copilotComplete(c: Pick<OmpAsker, "ask">): Complete {
   return async ({ system, user }) => ({ text: (await c.ask(user, { system })).trim(), cost: 0 });
 }
 
