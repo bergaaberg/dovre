@@ -45,7 +45,8 @@ export type HubSocket = {
 /** What this object uses of its state: SQLite storage and alarms, and the hibernation API for the Mac's socket. */
 export type HubState = {
   storage: {
-    sql: { exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, unknown>[] } };
+    /** `databaseSize`: the storage's size in bytes, as Cloudflare bills it. */
+    sql: { exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, unknown>[] }; readonly databaseSize?: number };
     setAlarm(at: number): Promise<void> | void;
     getAlarm?(): Promise<number | null> | number | null;
   };
@@ -212,6 +213,11 @@ export class DovreHub {
     }
     if (req.method === "POST" && path === "/bino") return json(await this.binoOp((await req.json()) as BinoOp));
     if (req.method === "GET" && path === "/export") return json(this.dump());
+    // For hosted Dovre's fair-use data count, asked through the tenant script like /export.
+    if (req.method === "GET" && path === "/size") {
+      const bytes = this.state.storage.sql.databaseSize;
+      return json({ bytes: typeof bytes === "number" && Number.isFinite(bytes) ? bytes : null });
+    }
     return new Response("Not found", { status: 404 });
   }
 
