@@ -31,7 +31,7 @@ import type { AvatarFeeds } from "./packs/registry.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
 import { createQueue } from "./agents/queue.ts";
-import { type HubEnv, hostedBinoRoute, MACHINE_HEADER } from "./hosted/hub.ts";
+import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER } from "./hosted/hub.ts";
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 
 export interface WorkerBindings {
@@ -155,7 +155,8 @@ export function createHostedGatherer(bindings: WorkerBindings, login: string, fo
 /**
  * /bridge (PLAN D24, H6, H7): a WebSocket upgrade from a machine, handed to the hub, which then
  * wants the signed hello under that machine's key. Who may open one:
- * - a machine the issuer named (a verified token's `service` claim): that machine;
+ * - a machine the issuer named (a verified token's `service` claim): that machine, and whose it
+ *   is when the token says (`owner`, Team T4);
  * - the Access service token whose client id is BRIDGE_CLIENT_ID: the one machine `mac`.
  * A person's token isn't one. Anything else, or no BRIDGE_KEY, is a 404.
  */
@@ -167,9 +168,11 @@ export async function bridgeIn(request: Request, bindings: Pick<WorkerBindings, 
   const id = bindings.BRIDGE_CLIENT_ID?.trim();
   const machine = who?.machine ? who.service : who?.service && id && who.service === id ? LEGACY_MACHINE : undefined;
   if (!machineOk(machine)) return nope;
-  // The hub takes the machine from us alone: whatever the request said is replaced.
+  // The hub takes the machine and its owner from us alone: whatever the request said is replaced.
   const headers = new Headers(request.headers);
   headers.set(MACHINE_HEADER, machine);
+  if (who?.machine && who.owner) headers.set(OWNER_HEADER, who.owner);
+  else headers.delete(OWNER_HEADER);
   return h.hub.bridge(new Request(request, { headers }));
 }
 

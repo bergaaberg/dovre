@@ -19,7 +19,8 @@
  *   keeps only each machine's metadata (runs, sessions, harnesses, when it was last seen); calls
  *   the Worker makes go down that machine's socket and their answers back to that request, never
  *   kept. It tells the machines when a page is watching, so they stream only then. A machine
- *   revoked (POST /mac/revoke) is shut out until its tokens run out.
+ *   revoked (POST /mac/revoke) is shut out until its tokens run out. Each keeps who paired it, when
+ *   its token said (Team T4); the agents desk shows a machine only to them (src/bridge/remote.ts).
  *
  * - Export (GET /export): every table it keeps, for a hosted cockpit's export of its data.
  *
@@ -54,15 +55,17 @@ export type HubState = {
 };
 
 /** What a socket keeps across hibernation: its machine and challenge, and once the hello passed, its key and counters. */
-type Attached = { challenge: string; machine?: string; key?: string; sent: number; got: number; since: number };
+type Attached = { challenge: string; machine?: string; owner?: string; key?: string; sent: number; got: number; since: number };
 
-/** A machine as pages see it: online or when it was last, and its metadata. */
-export type MachineView = { id: string; name?: string; online: boolean; seen?: number; state?: MacState };
+/** A machine as pages see it: online or when it was last, its metadata, and who paired it (T4: theirs alone; none, everyone's). */
+export type MachineView = { id: string; name?: string; online: boolean; seen?: number; owner?: string; state?: MacState };
 /** The machines (H7), and whether a page is watching. */
 export type MacView = { watching: boolean; machines: MachineView[] };
 
 /** The worker names the machine on a /bridge upgrade it verified (src/worker.ts `bridgeIn`); only the worker reaches the hub. */
 export const MACHINE_HEADER = "x-dovre-machine";
+/** And who paired it, when its token said (Team T4). */
+export const OWNER_HEADER = "x-dovre-owner";
 /** A call's answer: the Mac's, or why there isn't one. */
 export type MacAnswer = { ok: true; value: unknown } | { ok: false; error: string; offline?: boolean };
 
@@ -364,7 +367,7 @@ export class DovreHub {
     this.sql().exec("INSERT INTO mac (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", k, v);
   }
   /** A machine's own row: `mac`'s are the rows from before there were several. */
-  private static k(what: "state" | "seen" | "revoked", machine: string) {
+  private static k(what: "state" | "seen" | "revoked" | "owner", machine: string) {
     return machine === LEGACY_MACHINE ? what : `${what}:${machine}`;
   }
 
@@ -407,7 +410,8 @@ export class DovreHub {
     const machines = ids
       .map((id): MachineView => {
         const state = this.stateOf(id);
-        return { id, name: state?.name, online: !!this.live(id), seen: Number(this.kept(DovreHub.k("seen", id))) || undefined, state };
+        const owner = this.kept(DovreHub.k("owner", id));
+        return { id, name: state?.name, online: !!this.live(id), seen: Number(this.kept(DovreHub.k("seen", id))) || undefined, ...(owner ? { owner } : {}), state };
       })
       .sort((a, b) => Number(b.online) - Number(a.online) || (b.seen ?? 0) - (a.seen ?? 0));
     return { watching: this.watching(), machines };
@@ -429,7 +433,7 @@ export class DovreHub {
   revoke(machine: string, until: number): void {
     if (!machineOk(machine)) return;
     this.keep(DovreHub.k("revoked", machine), String(Math.min(Math.max(until, this.now()), this.now() + REVOKE_MAX_MS)));
-    this.sql().exec("DELETE FROM mac WHERE k = ? OR k = ?", DovreHub.k("state", machine), DovreHub.k("seen", machine));
+    this.sql().exec("DELETE FROM mac WHERE k = ? OR k = ? OR k = ?", DovreHub.k("state", machine), DovreHub.k("seen", machine), DovreHub.k("owner", machine));
     for (const ws of this.state.getWebSockets?.(`${MAC}:${machine}`) ?? []) ws.close(4004, "revoked");
     this.fail(machine, `${machine === LEGACY_MACHINE ? "Your Mac" : "That machine"} was removed.`);
     this.publish(["mac", "snapshot"]);
@@ -441,15 +445,15 @@ export class DovreHub {
     const Pair = (globalThis as { WebSocketPair?: new () => Record<0 | 1, HubSocket> }).WebSocketPair;
     if (!Pair) return new Response("Not found", { status: 404 });
     const pair = new Pair();
-    this.accept(pair[1], machine);
+    this.accept(pair[1], machine, req.headers.get(OWNER_HEADER) ?? undefined);
     return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
   }
 
-  /** Takes a machine's end of a new socket and challenges it. */
-  accept(ws: HubSocket, machine: string = LEGACY_MACHINE): void {
+  /** Takes a machine's end of a new socket (and who paired it, if its token said) and challenges it. */
+  accept(ws: HubSocket, machine: string = LEGACY_MACHINE, owner?: string): void {
     this.state.acceptWebSocket!(ws, [MAC, `${MAC}:${machine}`]);
     const challenge = nonce();
-    ws.serializeAttachment({ challenge, machine, sent: 0, got: 0, since: this.now() } satisfies Attached);
+    ws.serializeAttachment({ challenge, machine, ...(owner ? { owner } : {}), sent: 0, got: 0, since: this.now() } satisfies Attached);
     ws.send(JSON.stringify({ t: "challenge", nonce: challenge }));
   }
 
@@ -519,6 +523,9 @@ export class DovreHub {
       // One socket a machine: a new hello takes over from the one before.
       for (const other of this.state.getWebSockets?.(`${MAC}:${machine}`) ?? []) if (other !== ws) other.close(4000, "replaced");
       this.keep(DovreHub.k("seen", machine), String(this.now()));
+      // Whose it is, as its newest token said: none makes it everyone's (a self-hosted bridge).
+      if (a.owner) this.keep(DovreHub.k("owner", machine), a.owner);
+      else this.sql().exec("DELETE FROM mac WHERE k = ?", DovreHub.k("owner", machine));
       await this.send(ws, { t: "welcome", watching: this.watching() });
       this.publish(["mac", "snapshot"]);
       return;
