@@ -16,6 +16,7 @@ export const WRITES: WriteKind[] = [
   { kind: "deploy.reject-superseded", label: "Reject the superseded deploys", group: "Deploys" },
   { kind: "pr.retarget", label: "Retarget a stacked PR", group: "Pull requests" },
   { kind: "pr.combine-dependabot", label: "Combine Dependabot PRs", group: "Pull requests" },
+  { kind: "pr.dependabot-groups", label: "Add groups to dependabot.yml", group: "Pull requests" },
   { kind: "review.post", label: "Post a review or replies", group: "Pull requests" },
   { kind: "issue.assign", label: "Assign me an issue", group: "Issues" },
   { kind: "issue.close", label: "Close an issue", group: "Issues" },
