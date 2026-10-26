@@ -12,6 +12,8 @@ function sink() {
   const p: Pack = {
     manifest: { api: PACK_API, id: "sink", name: "Sink", description: "", domain: "personal" },
     ingest: { maxBytes: 64, perMinute: 3, handle: (input) => (got.push(input), { status: 200, body: "{}", contentType: "application/json" }) },
+    // Its own pages too (dovre#113): ingest mustn't make /sink look like a core path.
+    routes: (app, ctx) => app.get("/sink", (c) => ctx.page(c, { title: "Sink", body: "sink page" })),
   };
   return { p, got };
 }
@@ -24,6 +26,7 @@ test("ingest: a token made on Settings lets an app POST in, before the sign-in c
   const send = (token: string | undefined, body = "{\"a\":1}", url = "http://localhost/sink/ingest/v1/traces", extra: Record<string, string> = {}) =>
     app.request(url, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...extra }, body });
 
+  assert.match(await (await get("/sink")).text(), /sink page/, "its own pages mount beside ingest");
   const settings = await (await get("/settings")).text();
   assert.match(settings, /Ingest tokens/);
   assert.match(settings, /No tokens yet/);
