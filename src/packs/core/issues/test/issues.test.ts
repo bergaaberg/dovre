@@ -7,12 +7,12 @@ import type { IssueSets } from "../../../../forge/types.ts";
 import { testContext } from "../../../testing.ts";
 import { issuesPack } from "../index.ts";
 import { setOf, staleDaysOf, staleFor, triageReposOf } from "../model.ts";
-import { issueRow } from "../view.ts";
+import { agentHref, agentPromptOf, issueRow } from "../view.ts";
 import { issue, NOW } from "./fixtures.ts";
 
 const sets = (o: Partial<IssueSets> = {}): IssueSets => ({ assigned: [issue()], mentioned: [], authored: [], triage: [], ...o });
 
-function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: string[] }) => Promise<IssueSets>; can?: string[]; env?: Record<string, string> } = {}) {
+function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: string[] }) => Promise<IssueSets>; can?: string[]; env?: Record<string, string>; agents?: () => (repo: string) => string | undefined } = {}) {
   const asked: { login: string; owners: string; triage?: string[] }[] = [];
   const published: string[][] = [];
   const pack = issuesPack({
@@ -28,6 +28,7 @@ function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: s
     owners: () => "bergaaberg",
     newHref: "/issues/new",
     now: () => NOW,
+    ...(o.agents ? { agents: o.agents } : {}),
   });
   const ctx = testContext({ env: o.env ?? {}, publish: (t) => published.push(t), page: async (_c, p) => new Response(String(p.body)) });
   const app = new Hono<AppEnv>();
@@ -179,4 +180,44 @@ test("my own writes show at once, stay shown over lagging reads for a while, and
   t += 3 * 60_000;
   await pack.refresh!(ctx);
   assert.deepEqual(pack.kept()!.sets!.assigned, [], "after a while the forge's word stands");
+});
+
+test("a row starts a new agent session on its issue: the form filled in, in the repo's checkout", () => {
+  const i = issue();
+  const prompt = agentPromptOf(i);
+  assert.match(prompt, /^Work on bergaaberg\/dovre#33: Today header on a wide screen\n/);
+  assert.match(prompt, /https:\/\/github\.com\/bergaaberg\/dovre\/issues\/33/);
+  assert.match(prompt, /"Closes bergaaberg\/dovre#33"/);
+  const href = new URL(agentHref(i, "dovre-wt"), "http://localhost");
+  assert.equal(href.pathname, "/agents/new");
+  assert.equal(href.searchParams.get("repo"), "dovre-wt");
+  assert.equal(href.searchParams.get("prompt"), prompt);
+  assert.equal(new URL(agentHref(i), "http://localhost").searchParams.has("repo"), false, "no checkout: the form starts in Dovre's own folder");
+
+  const asked: string[] = [];
+  const acts = { me: "kari", task: false, set: "assigned" as const, write: true, agent: (repo: string) => (asked.push(repo), "dovre") };
+  const out = String(issueRow(i, { staleDays: 14, now: NOW, acts }));
+  assert.deepEqual(asked, ["bergaaberg/dovre"]);
+  assert.match(out, /<a class="btn" href="\/agents\/new\?repo=dovre&amp;prompt=Work\+on\+bergaaberg%2Fdovre%2333/);
+  assert.match(out, />Start an agent</);
+  assert.doesNotMatch(String(issueRow(i, { staleDays: 14, now: NOW, acts: { ...acts, agent: undefined } })), /Start an agent/);
+});
+
+test("a hostile title stays text in the agent link", () => {
+  const out = String(issueRow(issue({ title: `"><script>alert(1)</script>` }), { staleDays: 14, now: NOW, acts: { me: "kari", task: false, set: "assigned", write: false, agent: () => undefined } }));
+  assert.doesNotMatch(out, /<script>/);
+  const href = out.match(/href="(\/agents\/new\?[^"]*)"/)?.[1]?.replace(/&amp;/g, "&");
+  assert.ok(href);
+  assert.match(new URL(href, "http://localhost").searchParams.get("prompt")!, /: "><script>alert\(1\)<\/script>\n/);
+});
+
+test("a read-only forge still offers an agent on each issue, and no writes", async () => {
+  const s = setup({ agents: () => () => "dovre" });
+  await s.pack.refresh!(s.ctx);
+  const out = await s.get("/tracker");
+  assert.match(out, /href="\/agents\/new\?repo=dovre&amp;prompt=/);
+  assert.doesNotMatch(out, /Assign me|Close as done|Preview comment|Start a task/, "the test forge has no issue()/issueAct()");
+  const none = setup();
+  await none.pack.refresh!(none.ctx);
+  assert.doesNotMatch(await none.get("/tracker"), /Start an agent|Act on it/);
 });

@@ -31,6 +31,7 @@ import { createGhe, missingGhe, viewer } from "./sources/ghe.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeCan } from "./forge/types.ts";
+import { checkoutOf, checkouts } from "./issues/tasks.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
@@ -341,7 +342,21 @@ const corePacks = [
     onStart: (svg) => writeFileSync(join(dataDir, "avatar-start.svg"), svg),
   }),
   // My open issues from the forge (/tracker), where the forge has them.
-  issuesPack({ forge, owners: () => ownersIn(env), login: () => gatherer.peek()?.login, ...(forgeCan(forge, "issues") ? { newHref: "/issues/new", tasks: true } : {}) }),
+  // Each row can start a new agent session on its issue, in the repo's checkout, when an agent can run here.
+  issuesPack({
+    forge,
+    owners: () => ownersIn(env),
+    login: () => gatherer.peek()?.login,
+    ...(forgeCan(forge, "issues") ? { newHref: "/issues/new", tasks: true } : {}),
+    ...(found.harnesses.length
+      ? {
+          agents: () => {
+            const list = checkouts(env.CODE_DIR, forge.host, ownersIn(env));
+            return (repo: string) => checkoutOf(list, repo)?.dir;
+          },
+        }
+      : {}),
+  }),
   ...(terminals ? [terminalPack(terminals)] : []),
   ...(on.docker
     ? [

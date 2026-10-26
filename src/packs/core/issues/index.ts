@@ -29,6 +29,11 @@ export type IssuesDeps = {
   newHref?: string;
   /** Rows offer "Start a task" (the dev-task flow, local only). */
   tasks?: boolean;
+  /**
+   * Rows offer "Start an agent": a new agent session on the issue (where agents run here). Called
+   * once a page, it gives the lookup from a repo to its checkout folder under CODE_DIR.
+   */
+  agents?: () => (repo: string) => string | undefined;
   now?: () => number;
 };
 
@@ -185,7 +190,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
             now: now(),
             host: o.forge.host,
             newHref: o.newHref,
-            acts: canAct() ? { me: me(), task: !!o.tasks } : undefined,
+            acts: canAct() || o.agents ? { me: me(), task: !!o.tasks && canAct(), write: canAct(), agent: o.agents?.() } : undefined,
             done: doneOf({ done: c.req.query("done"), ref: c.req.query("ref"), reason: c.req.query("reason") }),
           }),
         }),
