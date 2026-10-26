@@ -20,6 +20,14 @@ test("hostedSetup: the essentials needed, the rest advised; a half-set bridge sa
   assert.equal(on(hostedSetup({ DB: db, CF_ACCESS_TEAM: " ", CF_ACCESS_AUD: "a" }, { tables: false }))["Its tables"], false);
 });
 
+test("hostedSetup: Bino's line follows the route: AI Gateway by default, the key itself with BINO_VIA=api-key", () => {
+  assert.equal(on(hostedSetup({}))["Bino's model (AI Gateway)"], false);
+  assert.equal(on(hostedSetup({ CF_AIG_TOKEN: "t" }))["Bino's model (AI Gateway)"], true);
+  assert.equal(on(hostedSetup({ BINO_VIA: "api-key" }))["Bino's model (your key)"], false);
+  assert.equal(on(hostedSetup({ BINO_VIA: " API-KEY ", ASSISTANT_API_KEY: "sk-ant-x" }))["Bino's model (your key)"], true);
+  assert.equal(on(hostedSetup({ ASSISTANT_VIA: "api-key", GEMINI_API_KEY: "AIza" }))["Bino's model (your key)"], true);
+});
+
 test("tablesOk: a database with Dovre's migrations answers; without them, or no database, not", async () => {
   assert.equal(await tablesOk(openDb().DB), true);
   assert.equal(await tablesOk(undefined), false);

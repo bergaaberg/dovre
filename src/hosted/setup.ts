@@ -9,7 +9,7 @@ import type { D1 } from "../db.ts";
 import type { SetupLine } from "../pages/settings.ts";
 
 /** The bindings this reads: the same names as the Worker's (src/worker.ts). */
-export type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; CF_AIG_TOKEN?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
+export type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
 
 const set = (v: unknown) => typeof v === "string" && v.trim() !== "";
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -23,6 +23,8 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
   const access = !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
   const bridge = [set(b.BRIDGE_CLIENT_ID), set(b.BRIDGE_KEY)];
+  // The same choice hostedBinoRoute makes (src/hosted/hub.ts): BINO_VIA=api-key goes straight to the provider.
+  const direct = String(str(b.ASSISTANT_VIA) ?? str(b.BINO_VIA) ?? "").trim().toLowerCase() === "api-key";
   const lines: HostedLine[] = [
     { name: "Database (D1)", on: isDb(b.DB), needed: true, what: "Dovre's own tables: settings, My list, the snapshot", fix: "Create one (`wrangler d1 create <name>`) and bind it as DB in wrangler.jsonc, with migrations_dir pointing at core's migrations/." },
     { name: "Its tables", on: isDb(b.DB) && o.tables !== false, needed: true, what: "D1's migrations applied", fix: "`wrangler d1 migrations apply <name> --remote` (the template's deploy script does it first)." },
@@ -31,7 +33,9 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
     { name: "Live pages and Bino (HUB)", on: !!b.HUB, what: "Pages update by themselves; Bino answers", fix: "Bind the Durable Object: durable_objects HUB → DovreHub, a new_sqlite_classes migration, and `export { DovreHub } from \"dovre/hosted/hub.ts\"` in worker.ts." },
     { name: "Icons and fonts (ASSETS)", on: !!b.ASSETS, what: "The app icon and Nordwand Mono", fix: "assets: { directory: \"../dovre/assets\", binding: \"ASSETS\", run_worker_first: true } in wrangler.jsonc." },
     { name: "GitHub", on: !!o.githubToken || set(b.GITHUB_TOKEN), what: "Pull requests and deploys on Today", fix: "`wrangler secret put GITHUB_TOKEN` (a fine-grained token, read-only on the repos you track)." },
-    { name: "Bino's model (AI Gateway)", on: set(b.CF_AIG_TOKEN), what: "Bino's answers, through Cloudflare AI Gateway", fix: "Make a gateway (AI_GATEWAY, default dovre) with your Anthropic key in it, then `wrangler secret put CF_AIG_TOKEN`." },
+    direct
+      ? { name: "Bino's model (your key)", on: [b.ASSISTANT_API_KEY, b.ANTHROPIC_API_KEY, b.OPENAI_API_KEY, b.GEMINI_API_KEY].some(set), what: "Bino's answers, straight from the provider with your key", fix: "`wrangler secret put ASSISTANT_API_KEY` (an Anthropic, OpenAI or Gemini key)." }
+      : { name: "Bino's model (AI Gateway)", on: set(b.CF_AIG_TOKEN), what: "Bino's answers, through Cloudflare AI Gateway", fix: "Make a gateway (AI_GATEWAY, default dovre) with your Anthropic key in it, then `wrangler secret put CF_AIG_TOKEN`. Or BINO_VIA=api-key with ASSISTANT_API_KEY, straight to the provider." },
     {
       name: "The Mac's agents (bridge)",
       on: bridge[0]! && bridge[1]!,
