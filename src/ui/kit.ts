@@ -104,6 +104,19 @@ export function Confirm(opts: { action: string; fields?: Record<string, string>;
 }
 
 /**
+ * Bulk (dovre#104): one form for many rows. Each row gets a `Pick` tickbox tied to the form by id;
+ * each button asks twice (like Confirm) unless its `kind` is set to one click. The server checks
+ * and logs every picked row on its own.
+ */
+export function BulkBar(opts: { id: string; action: string; label: Child; buttons: { name: string; value: string; label: string; question: Child; kind?: string; danger?: boolean }[] }): Html {
+  const press = (b: (typeof opts.buttons)[number]) => html`<button type="submit" form="${opts.id}" name="${b.name}" value="${b.value}"${b.danger ? html` class="danger"` : ""}>${b.label}</button>`;
+  return html`<div class="bulk"><form id="${opts.id}" method="post" action="${opts.action}"></form><span class="t3">${opts.label}</span>${opts.buttons.map((b) =>
+    oneClickNow(b.kind) ? press(b) : html`<details class="confirm"><summary>${b.label}…</summary><div class="confirm-body"><p>${b.question}</p>${press(b)}</div></details>`,
+  )}</div>`;
+}
+export const Pick = (o: { form: string; value: string; label: string }) => html`<input type="checkbox" class="pick" form="${o.form}" name="pick" value="${o.value}" aria-label="${o.label}">`;
+
+/**
  * A button that posts at once, no second click: for what's easily undone or only runs a job
  * again (mark read, mute, re-run, rebuild). Anything that changes something for a customer or
  * can't be undone is a Confirm.

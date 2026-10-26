@@ -107,6 +107,28 @@ test("approve re-checks the run, approves only the environments I may, and logs 
   assert.match(page, /<div data-live id="deploys">/, "the list swaps when the gather lands");
 });
 
+test("bulk: tick several waiting runs, each re-checked and logged on its own; outside the org refused", async () => {
+  const { app, calls, db, get } = signedIn(snapshot({ deploys: { ok: true, value: [deploy(), deploy({ id: 11, repo: "ACME/shop" })] } }), {
+    "GET /repos/ACME/people/actions/runs/10/pending_deployments": [{ environment: { id: 5, name: "prod" }, current_user_can_approve: true }],
+    "POST /repos/ACME/people/actions/runs/10/pending_deployments": null,
+    "GET /repos/ACME/shop/actions/runs/11/pending_deployments": [],
+  });
+  const page = await (await get("/deploys")).text();
+  assert.match(page, /<form id="deploys-bulk" method="post" action="\/deploys\/bulk">/);
+  assert.match(page, /form="deploys-bulk" name="pick" value="ACME\/people#10"/);
+  const res = await app.request("http://localhost/deploys/bulk", {
+    method: "POST",
+    headers: { cookie: "u_tk=test-token", origin: "http://localhost", "content-type": "application/x-www-form-urlencoded" },
+    body: "state=approved&pick=ACME%2Fpeople%2310&pick=ACME%2Fshop%2311&pick=evil%2Fx%2312",
+  });
+  assert.equal(res.status, 303);
+  assert.equal(calls.filter((c) => c.method === "POST").length, 1, "only the run still waiting");
+  assert.ok(!calls.some((c) => c.path.includes("evil")), "never reaches a URL outside the org");
+  const log = await recentActions(db.DB);
+  assert.deepEqual(log.map((a) => [a.target, a.ok]), [["ACME/people run 10", 1]]);
+  assert.match(await (await get("/deploys")).text(), /Approved 1 of 3\./);
+});
+
 test("a run that moved on is left alone", async () => {
   const { post, calls } = signedIn(snapshot(), { "GET /repos/ACME/people/actions/runs/10/pending_deployments": [] });
   await post("/deploys/reject", { repo: "ACME/people", run: "10" });
