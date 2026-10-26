@@ -46,7 +46,7 @@ const revision = (() => {
     return "checkout";
   }
 })();
-const VERSION = `0.2.0+${revision}`;
+const VERSION = `0.2.1+${revision}`;
 // Started at login, the PATH is the system's: the places agent CLIs install to are added (H8).
 process.env.PATH = withToolDirs(process.env.PATH, { platform: process.platform, home: homedir(), env: process.env });
 const env = loadEnv();

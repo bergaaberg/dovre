@@ -198,7 +198,7 @@ const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Obj
 type Hosted = { builtAt: number; started: boolean; app: App; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier };
 
 export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, for an instance not yet renamed. */ crates?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
-  const version = opts.version ?? "0.2.0";
+  const version = opts.version ?? "0.2.1";
   // One app per isolate: its caches outlive a request (bindings don't change within an isolate).
   let hosted: Hosted | undefined;
   /** Set once D1, its tables and Access are there (WP-N6); until then every request gets the setup page. */

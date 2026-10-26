@@ -181,7 +181,7 @@ export type DemoOpts = {
 };
 
 export function createDemoWorker(opts: DemoOpts = {}) {
-  const version = opts.version ?? "0.2.0";
+  const version = opts.version ?? "0.2.1";
   const fx = opts.fixtures ?? {};
   const host = fx.host ?? DEMO_HOST;
   const org = fx.org ?? DEMO_ORG;
