@@ -4,7 +4,7 @@ import { html } from "hono/html";
 import type { Logged } from "../actions/deploys.ts";
 import { type Frame, shell } from "../html.ts";
 import type { Snapshot } from "../gather.ts";
-import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
+import { BulkBar, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill } from "../ui/kit.ts";
 import { changelogBlock, type SummaryOf } from "./inline.ts";
 import { Ago, Link, failed, safeUrl } from "./parts.ts";
 
@@ -13,11 +13,13 @@ export function deploysPage(frame: Frame, s: Snapshot, opts: { log: Logged[]; fl
   // What was decided here but isn't gathered yet: the decision shows, not the buttons; rejected superseded runs aren't counted.
   const deploys = (s.deploys.ok ? s.deploys.value : []).map((d) => ({ ...d, superseded: d.superseded.filter((r) => !decided.has(r.id)) }));
   const stale = deploys.reduce((n, d) => n + d.superseded.length, 0);
+  // Two or more waiting: tick several and decide them at once.
+  const bulk = opts.approve !== false && deploys.filter((d) => !decided.has(d.id)).length >= 2;
   const rows = deploys.map((d) => {
     const short = d.repo.replace(`${s.org}/`, "");
     const fields = { repo: d.repo, run: String(d.id) };
     return Item({
-      lead: html`<span class="kind bad">${d.envs.map((e) => e.name).join(", ")}</span>`,
+      lead: html`${bulk ? Pick({ form: "deploys-bulk", value: `${d.repo}#${d.id}`, label: `Pick ${short} ${d.sha}` }) : ""}<span class="kind bad">${d.envs.map((e) => e.name).join(", ")}</span>`,
       title: html`<strong>${short}</strong> ${Link(d.url, html`${d.title}`)}`,
       line: `${d.name} · ${d.branch} · ${d.sha} · by ${d.actor}`,
       trail: Ago(d.createdAt),
@@ -43,7 +45,7 @@ export function deploysPage(frame: Frame, s: Snapshot, opts: { log: Logged[]; fl
   const body = html`${PageHeader({ title: "Deploys", sub: deploys.length ? `${deploys.length} waiting${opts.approve === false ? "" : " for you"}${stale ? `, with ${stale} superseded runs behind them` : ""}.` : "Nothing waits for your approval." })}
 ${opts.flash ? Notice({ tone: opts.flash.ok ? "ok" : "bad", children: opts.flash.message }) : ""}
 <div data-live id="deploys">${failed("Deploys", s.deploys)}
-${Panel({ title: "Waiting for you", meta: String(deploys.length), flush: true, children: deploys.length ? List(rows) : Empty({ title: "Nothing waiting" }) })}
+${Panel({ title: "Waiting for you", meta: String(deploys.length), flush: true, children: deploys.length ? html`${bulk ? BulkBar({ id: "deploys-bulk", action: "/deploys/bulk", label: "Ticked:", buttons: [{ name: "state", value: "approved", label: "Approve ticked", kind: "deploy.approve", question: "Approve every ticked run? Each is checked again first." }, { name: "state", value: "rejected", label: "Reject ticked", kind: "deploy.reject", danger: true, question: "Reject every ticked run? They end without deploying." }] }) : ""}${List(rows)}` : Empty({ title: "Nothing waiting" }) })}
 ${Panel({
   title: "Decided here",
   meta: String(opts.log.length),

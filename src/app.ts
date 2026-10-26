@@ -688,6 +688,33 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       return c.redirect("/deploys", 303);
     });
   }
+  // Bulk (dovre#104): each ticked run decided on its own, checked again and logged; 20 at most.
+  app.post("/deploys/bulk", async (c) => {
+    const form = await c.req.parseBody({ all: true });
+    const state = form.state === "approved" || form.state === "rejected" ? form.state : null;
+    const picks = ([] as unknown[]).concat(form.pick ?? []).filter((v): v is string => typeof v === "string").slice(0, 20);
+    if (!state || !picks.length) {
+      flash = { ok: false, message: "Tick one or more runs first." };
+      return c.redirect("/deploys", 303);
+    }
+    let done = 0;
+    const failed: string[] = [];
+    for (const p of picks) {
+      const at = p.lastIndexOf("#");
+      const repo = repoIn(ownersIn(env), p.slice(0, at));
+      const run = runId(p.slice(at + 1));
+      if (!repo || !run) {
+        failed.push("a run outside the org");
+        continue;
+      }
+      const r = await decide(ghe, env.DB, repo, run, state);
+      if (r.ok) (done++, decided.set(run, { state, at: Date.now() }));
+      else failed.push(r.message);
+    }
+    flash = { ok: !failed.length, message: `${state === "approved" ? "Approved" : "Rejected"} ${done} of ${picks.length}.${failed.length ? ` ${failed.join(" ")}` : ""}` };
+    gatherer.stale();
+    return c.redirect("/deploys", 303);
+  });
   app.post("/deploys/reject-superseded", async (c) => {
     const form = await c.req.parseBody();
     const repo = repoIn(ownersIn(env), form.repo);
