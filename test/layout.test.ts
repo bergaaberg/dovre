@@ -108,9 +108,16 @@ test("look: a picked theme and accent are on every page's <html>, the CSS has a 
   assert.ok(!STYLE.includes("${"), "every token block filled in");
   assert.deepEqual(layoutOf({ theme: "sepia", accent: "red" }), {});
   const { get, post } = signedIn(snapshot());
-  assert.match(await (await get("/")).text(), /<html lang="en">/, "unset: the system's, fjord");
+  const unset = await (await get("/")).text();
+  assert.match(unset, /<html lang="en">/, "unset: the system's, fjord");
+  assert.match(unset, /<meta name="theme-color" content="#efe7db" media="\(prefers-color-scheme: light\)">/, "the browser's bar follows the system too");
+  assert.match(unset, /<meta name="theme-color" content="#0e1922" media="\(prefers-color-scheme: dark\)">/);
   await post("/settings/layout", { theme: "dark", accent: "heather" });
   const page = await (await get("/prs")).text();
   assert.match(page, /<html lang="en" data-theme="dark" data-accent="heather">/);
+  assert.equal(page.match(/name="theme-color"/g)?.length, 1, "picked: one bar colour, the theme's");
+  assert.match(page, /<meta name="theme-color" content="#0e1922">/);
   assert.match(await (await get("/settings")).text(), /<option value="heather" selected>/);
+  await post("/settings/layout", { theme: "light" });
+  assert.match(await (await get("/prs")).text(), /<meta name="theme-color" content="#efe7db">/);
 });

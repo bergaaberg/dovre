@@ -37,6 +37,14 @@ export const NAV_GROUPS = ["", "Code", "Agents", "Plan", "Ops"];
 const groupRank = (g: string) => (NAV_GROUPS.includes(g) ? NAV_GROUPS.indexOf(g) : NAV_GROUPS.length);
 
 /** What every page knows: who's signed in, the sections (app.ts), when the data was gathered. */
+/** The browser's bar in the page's colour (--sky): the picked theme's, else both, by the system's setting. */
+const SKY = { light: "#efe7db", dark: "#0e1922" } as const;
+export function themeColor(theme?: string) {
+  if (theme === "light" || theme === "dark") return html`<meta name="theme-color" content="${SKY[theme]}">`;
+  return html`<meta name="theme-color" content="${SKY.light}" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;
+}
+
 export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Teams is on: the dock at the bottom right, with how many chats have something new. */ teams?: { unread: number; mentions: number }; /** Bino can answer: its pane beside Teams'. */ bino?: boolean; /** The packs' docks after Teams' (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws" };
 
 /**
@@ -208,7 +216,7 @@ export function shell(opts: { title: string; frame: Frame; current?: string; bod
 ${(frame.styles ?? []).map((href) => html`<link rel="stylesheet" href="${href}">`)}
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#0e1922">
+${themeColor(frame.look?.theme)}
 <meta name="u-tz" content="${frame.tz ?? currentTz()}">${frame.live ? html`
 <meta name="u-live" content="${frame.live}">` : ""}
 <script src="${SIDE_PATH}"></script>
