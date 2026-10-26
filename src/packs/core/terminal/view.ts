@@ -66,7 +66,7 @@ export function terminalPage(t: Term): PageOpts {
     sub: html`<span id="term-state">${t.endedAt ? `Ended${t.code !== undefined ? `, exit code ${t.code}` : ""}` : "Running"}</span> · started ${Ago(t.startedAt)} · <code>${t.cwd}</code>`,
     actions: t.endedAt
       ? html`<a class="btn" href="${safeUrl(`/terminal?repo=${encodeURIComponent(t.repo)}&program=${encodeURIComponent(t.program)}`)}">Open another</a>`
-      : Confirm({ action: `/terminal/${t.id}/close`, label: "Close", question: html`Close this terminal? ${t.label} and everything it started end now.`, danger: true }),
+      : Confirm({ kind: "terminal.close", action: `/terminal/${t.id}/close`, label: "Close", question: html`Close this terminal? ${t.label} and everything it started end now.`, danger: true }),
   })}
 <div class="term-wrap"><div id="term" class="term" data-id="${t.id}" aria-label="Terminal"></div></div>
 <p class="hint t3">Ctrl+C copies when text is selected, else interrupts; Ctrl+V pastes. ${Pill({ children: "in memory only" })}</p>`;

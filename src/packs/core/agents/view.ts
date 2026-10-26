@@ -44,7 +44,7 @@ function runItem(r: Run, all: Run[]) {
 
 /** Clears every run started here that has ended, and the ended sessions in Dovre's folder. */
 function clearAll(n: number) {
-  return Confirm({ action: "/agents/clear", label: "Clear finished", question: html`Clear away ${n} finished ${n === 1 ? "session" : "sessions"} started here, those waiting for your OK included? Their transcripts stay; replying to one brings it back.` });
+  return Confirm({ kind: "agents.clear", action: "/agents/clear", label: "Clear finished", question: html`Clear away ${n} finished ${n === 1 ? "session" : "sessions"} started here, those waiting for your OK included? Their transcripts stay; replying to one brings it back.` });
 }
 
 export function agentsPage(s: Snapshot, sessions: Sessions, all: Run[] = [], o: { workDir?: string; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Packs' panels after "Started here" ("agents.panel"). */ panels?: (Html | "")[]; /** Packs' ways to pick an ended session up ("session.resume"). */ resume?: (s: Session) => (Html | "")[] } = {}): PageOpts {

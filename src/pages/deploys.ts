@@ -21,7 +21,7 @@ export function deploysPage(frame: Frame, s: Snapshot, opts: { log: Logged[]; fl
       title: html`<strong>${short}</strong> ${Link(d.url, html`${d.title}`)}`,
       line: `${d.name} · ${d.branch} · ${d.sha} · by ${d.actor}`,
       trail: Ago(d.createdAt),
-      more: html`${opts.prodLine ? opts.prodLine(d.repo) : ""}${changelogBlock(s.changelogs.get(d.id), opts)}${decided.has(d.id) ? Pill({ tone: decided.get(d.id)!.state === "approved" ? "ok" : "bad", children: `${decided.get(d.id)!.state === "approved" ? "Approved" : "Rejected"} · updating` }) : opts.approve === false ? "" : html`<span class="actions">${Confirm({ action: "/deploys/approve", fields, label: "Approve", question: html`Approve <strong>${short}</strong> ${d.sha} to ${d.envs.map((e) => e.name).join(", ")}?` })}${Confirm({
+      more: html`${opts.prodLine ? opts.prodLine(d.repo) : ""}${changelogBlock(s.changelogs.get(d.id), opts)}${decided.has(d.id) ? Pill({ tone: decided.get(d.id)!.state === "approved" ? "ok" : "bad", children: `${decided.get(d.id)!.state === "approved" ? "Approved" : "Rejected"} · updating` }) : opts.approve === false ? "" : html`<span class="actions">${Confirm({ kind: "deploy.approve", action: "/deploys/approve", fields, label: "Approve", question: html`Approve <strong>${short}</strong> ${d.sha} to ${d.envs.map((e) => e.name).join(", ")}?` })}${Confirm({ kind: "deploy.reject",
         action: "/deploys/reject",
         fields,
         label: "Reject",
@@ -29,7 +29,7 @@ export function deploysPage(frame: Frame, s: Snapshot, opts: { log: Logged[]; fl
         question: html`Reject <strong>${short}</strong> ${d.sha}? The run ends without deploying.`,
       })}${
         d.superseded.length
-          ? Confirm({
+          ? Confirm({ kind: "deploy.reject-superseded",
               action: "/deploys/reject-superseded",
               fields: { repo: d.repo, workflow: d.name },
               label: `Reject ${d.superseded.length}${d.more ? "+" : ""} superseded`,

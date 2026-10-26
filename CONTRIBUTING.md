@@ -33,7 +33,7 @@ git switch -c <type>/<N>-<short-slug>     # e.g. feat/4-pack-settings-editor
   - **Escaping:** views use `html\`…\`` from `hono/html`. Use `raw()` only around static constants. Every `href` built from data goes through `safeUrl()`.
   - **Hostile-input test:** every new page gets a test case in `test/app.test.ts` that feeds `<script>alert(1)</script>` and `javascript:alert(1)` through it and checks they come out inert.
   - **One stylesheet:** styles go only in `src/ui/style.ts`, with no `style="…"` attributes. Build pages from `src/ui/kit.ts` inside `shell()`. `ok`, `warn` and `bad` colours mean status only.
-  - **Verified writes:** any write (to GitHub or a pack's own app) re-checks the current state first, logs to the `actions` table and goes through the two-click `Confirm`. Repos outside `REPO_OWNERS` are refused.
+  - **Verified writes:** any write (to GitHub or a pack's own app) re-checks the current state first, logs to the `actions` table and goes through a `Confirm` with its write `kind` (`src/writes.ts`, which I can set to one click on Settings unless its floor is `twice`). Repos outside `REPO_OWNERS` are refused.
   - **Terminals:** only programs from the fixed list, only in checkouts directly under `CODE_DIR`, and every write checks the exact `Origin` (`src/strict.ts`). Never widen this.
   - **Agent permissions:** agent turns run in `default`, `acceptEdits` or `plan` mode only. Never store or render raw tool results.
   - **Non-blocking pages:** pages read `gatherer.get()`, and actions call `gatherer.stale()` before redirecting.

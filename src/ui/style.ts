@@ -511,6 +511,10 @@ details[open] > summary .chev { transform: rotate(225deg); top: 20px; }
 .notes { font-size: var(--fs-s); color: var(--ink-2); margin: 0 0 8px; }
 /* A pack's ingest tokens on Settings (src/packs/ingest.ts). */
 .ingest { margin-top: 12px; }
+/* Settings → Writes (src/pages/writes.ts). */
+.writes fieldset { border: 0; padding: 0; margin: 0 0 10px; }
+.writes legend { font-weight: 600; font-size: var(--fs-s); margin-bottom: 4px; }
+.write-row { display: block; padding: 3px 0; }
 .ingest h3 { font-size: var(--fs-s); margin: 0 0 6px; }
 .ingest-new { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
 code.secret { user-select: all; overflow-wrap: anywhere; }

@@ -16,7 +16,7 @@ function repoPanel(r: RepoQueue, now: number, running: boolean): Html {
   const action = running
     ? html`<span class="t3">Combining…</span>`
     : n >= 2
-      ? Confirm({
+      ? Confirm({ kind: "pr.combine-dependabot",
           action: "/prs/dependabot/combine",
           fields: { repo: r.repo },
           label: `Combine ${take}`,

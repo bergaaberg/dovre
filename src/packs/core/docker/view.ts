@@ -26,7 +26,7 @@ function containerItem(c: Container, v: DockerView): Html {
     ? html`<span class="t3">${busy === "stop" ? "Stopping" : busy === "remove" ? "Removing" : busy === "restart" ? "Restarting" : "Starting"}…</span>`
     : up
       ? html`${btn(`${base}/stop`, "Stop", "Stopping")}${btn(`${base}/restart`, "Restart", "Restarting", "sm ghost")}`
-      : html`${btn(`${base}/start`, "Start", "Starting", "sm primary")}${Confirm({ action: `${base}/remove`, label: "Remove", danger: true, question: html`Remove the container <strong>${c.name}</strong>? Its volumes stay; what's only inside the container goes.` })}`;
+      : html`${btn(`${base}/start`, "Start", "Starting", "sm primary")}${Confirm({ kind: "docker.remove", action: `${base}/remove`, label: "Remove", danger: true, question: html`Remove the container <strong>${c.name}</strong>? Its volumes stay; what's only inside the container goes.` })}`;
   return Item({
     lead: html`<span class="dot${tone(c) ? ` ${tone(c)}` : ""}" aria-hidden="true"></span>`,
     title: html`<a class="name" href="${base}"><strong>${c.service ?? c.name}</strong></a>${c.health && c.health !== "healthy" ? html` ${Pill({ tone: c.health === "unhealthy" ? "bad" : "warn", children: c.health })}` : ""}`,
@@ -64,7 +64,7 @@ export function dockerPage(v: DockerView, flash?: DockerView["flash"]): PageOpts
   const groups = groupsOf(v.containers);
   const running = v.containers.filter((c) => c.state === "running").length;
   const sub = v.state === "ok" ? `${running} running · ${v.containers.length} in all${v.version ? ` · Docker Engine ${v.version}` : ""}` : (v.ours ? "Containers on this machine, without Docker Desktop." : "Containers on Docker Engine.");
-  const actions = v.ours && v.state === "ok" ? Confirm({ action: "/docker/engine/off", label: "Stop Docker", question: `Stop the engine and every container (${running} running)? Volumes and images stay.` }) : undefined;
+  const actions = v.ours && v.state === "ok" ? Confirm({ kind: "docker.engine-off", action: "/docker/engine/off", label: "Stop Docker", question: `Stop the engine and every container (${running} running)? Volumes and images stay.` }) : undefined;
   const body = html`${PageHeader({ title: "Docker", sub, actions })}
 <div data-live id="docker">
 ${flash ? Notice({ tone: flash.ok ? "ok" : "bad", children: flash.message }) : ""}
