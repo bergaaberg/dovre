@@ -753,7 +753,7 @@ const KEYS = [
   ["Hints", [["f", "Letters on everything clickable: type them to press it"], ["F", "The same, links open in a new window"], ["Backspace", "Take back a letter"], ["Esc", "Put the letters away"]]],
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
   ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["H / L", "Back / forward"]]],
-  ["This page", [["r", "Refresh the data"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
+  ["This page", [["r", "Refresh the data"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
 ];
 let help = null;
 function showHelp() {
@@ -996,6 +996,14 @@ document.addEventListener("keydown", (e) => {
     "]": () => goStop(1, 1) || move(1),
     "[": () => goStop(-1, 1) || move(-1),
     o: () => showOutline(),
+    // Add to My list with details: here when the page has the form, else on My list.
+    a: () => {
+      const q = document.getElementById("todo-q");
+      if (!q) { going(); location.href = "/todo?add"; return; }
+      const more = document.getElementById("todo-add-more");
+      if (more) more.open = true;
+      q.focus();
+    },
     "?": () => showHelp(),
     "/": () => {
       // The page's own search where it has one (Data, Search); else search everything.
