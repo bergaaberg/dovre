@@ -96,7 +96,7 @@ const demoPack = (): Pack => ({
     name: "Demo",
     description: "Says on every page that this is a demo with made-up data.",
     domain: "general",
-    paths: ["elsewhere"],
+    paths: ["elsewhere", "read-only"],
   },
   banner: () =>
     html`<div class="notice accent"><div><p><strong>This is a demo.</strong> The repos, people and agents are made up, and nothing you click changes anything. <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a>.</p></div></div>`,
@@ -136,13 +136,36 @@ const demoPack = (): Pack => ({
     };
     app.get("/elsewhere", splash);
     app.get("/elsewhere/*", splash);
+    // What a refused write shows (the worker draws it as the 403's body): why, and the way back.
+    app.get("/read-only", (c) => {
+      const back = c.req.query("back") ?? "";
+      const backHref = back.startsWith("/") && safeUrl(back) === back ? back : "/";
+      const body = html`
+        ${PageHeader({ title: "Read-only demo", crumbs: [{ label: "Demo", href: "/" }, { label: "Read-only" }] })}
+        ${Panel({
+          children: html`
+            <div class="empty">
+              <p>${whyReadOnly(c.req.query("did") ?? "")}</p>
+              <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
+            </div>
+          `,
+        })}
+      `;
+      return ctx.page(c, { title: "Read-only demo · Dovre", current: "/read-only", body });
+    });
   },
 });
 
-const READ_ONLY = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Read-only demo</title>
-<body>
-<h1>This demo is read-only</h1><p>The demo shows made-up data, so buttons that would change something stop here.</p>
-<p><a href="/">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p></body>`;
+/** Why a button does nothing here, by the path it posted to. */
+export function whyReadOnly(path: string): string {
+  if (path === "/refresh" || path === "/stats/refresh") return "Refreshing reads GitHub and your packs again. The demo's data is made up, so there's nothing new to read.";
+  if (path.startsWith("/deploys/")) return "On your own Dovre, approving or rejecting a deploy goes to GitHub after a second click to confirm. The demo's deploys are made up.";
+  if (path.startsWith("/todo")) return "Your list is saved in your own Dovre. The demo keeps nothing between clicks.";
+  if (path.startsWith("/avatar")) return "The avatar's settings are saved in your own Dovre. The demo keeps nothing between clicks.";
+  if (path.startsWith("/settings")) return "Settings are saved in your own Dovre. The demo's are fixed, so everyone sees the same page.";
+  if (/^\/agents\/s\/[^/]+\/reply$/.test(path)) return "A reply goes to the agent's session on your machine. These agents are made up; ask Bino instead, it answers in the demo.";
+  return "This is a demo over made-up data, so buttons that would change something stop here.";
+}
 
 /** The only writes the demo takes: asking its scripted Bino, in a new conversation or one of your own. */
 export function isAllowedDemoWrite(request: Request): boolean {
@@ -246,11 +269,18 @@ export function createDemoWorker(opts: DemoOpts = {}) {
         const res = await bindings.ASSETS.fetch(new Request(new URL(url.pathname.slice("/assets".length), url), request));
         if (res.ok) return res;
       }
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        if (!isAllowedDemoWrite(request) && !opts.allowWrite?.(request)) return new Response(READ_ONLY, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-      }
       if (url.pathname === "/bridge") return new Response("Not found", { status: 404 });
       const app = build();
+      if (request.method !== "GET" && request.method !== "HEAD" && !isAllowedDemoWrite(request) && !opts.allowWrite?.(request)) {
+        // Refused before the app sees it: the request becomes a GET of the read-only page, still a 403.
+        const q = new URLSearchParams({ did: url.pathname });
+        try {
+          const ref = new URL(request.headers.get("referer") ?? "");
+          if (ref.origin === url.origin) q.set("back", ref.pathname + ref.search);
+        } catch {}
+        const page = await app.fetch(new Request(new URL(`/read-only?${q}`, url), { headers: { accept: "text/html" } }));
+        return new Response(page.body, { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+      }
       // A pack that hangs doesn't hold the page: it shows what it had.
       if (refresh) await within(2000, () => refresh!.due());
       const engine = freshEngine();
