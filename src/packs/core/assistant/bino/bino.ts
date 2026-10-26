@@ -39,9 +39,9 @@ export type Bino = {
   say(id: string, text: string, o?: { view?: string; context?: string }): P<boolean>;
   /** Marks a plan as added to the list. */
   added(id: string, index: number, todo: number): P<void>;
-  /** An act Bino proposed: how it stands (sending, sent, refused). */
+  /** An act Bino proposed: how it stands (sending, done, refused). */
   act(id: string, index: number, n: number): P<Act | undefined>;
-  setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "sent" | "done" | "sending" | "error">>): P<void>;
+  setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): P<void>;
 };
 
 /** The engine itself: answers at once from memory. */
@@ -52,7 +52,7 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
   say(id: string, text: string, o?: { view?: string; context?: string }): boolean;
   added(id: string, index: number, todo: number): void;
   act(id: string, index: number, n: number): Act | undefined;
-  setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "sent" | "done" | "sending" | "error">>): void;
+  setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): void;
   /** Resolves when nothing is being answered (tests). */
   idle(): Promise<void>;
 };

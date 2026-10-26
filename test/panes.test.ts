@@ -32,40 +32,35 @@ test("without Claude Code: Bino and summaries go to Copilot through omp", () => 
 
 test("a pane that can't run here says why; one switched off doesn't", () => {
   const p = panesOf({ DATA: "off" }, none);
-  assert.match(p.teams.why ?? "", /PowerShell 7/);
-  assert.match(p.outlook.why ?? "", /Teams/);
   assert.equal(p.data.on, false);
   assert.equal(p.data.why, undefined);
   assert.match(p.reviews.why ?? "", /agent CLI/);
   assert.equal(p.docker.on, true, "unknown: as before");
   const mac = panesOf({}, { ...none, windows: false });
   assert.match(mac.docker.why ?? "", /No Docker Engine socket found/);
-  assert.match(mac.teams.why ?? "", /Windows only/, "no advice to install pwsh where Teams can't run");
   const macWithDocker = panesOf({}, { ...none, windows: false, dockerSocket: "/var/run/docker.sock" });
   assert.equal(macWithDocker.docker.on, true);
   assert.equal(macWithDocker.docker.why, undefined);
   assert.equal(p.bino.wanted, false, "no model at all: off");
   const on = runningOf(p);
-  assert.equal(on.teams, false);
+  assert.equal(on.data, false);
   assert.equal(on.stats, true);
 });
 
 test("the form: a switch, a route, options; bad values refused; fixed keys left alone", () => {
-  const form = { "on.teams": "on", TEAMS_CRAWL: "ask", TEAMS_SINCE_DAYS: "30", "on.bino": "on", "via.bino": "omp" };
+  const form = { "on.data": "on", DATA_AGENT: "off", "on.bino": "on", "via.bino": "omp" };
   const { config, bad } = configFromForm(form, { STATS: "on" }, new Set(["DATA"]), { panes: true });
   assert.deepEqual(bad, []);
-  assert.equal(config.TEAMS, "on");
-  assert.equal(config.TEAMS_CRAWL, "ask");
-  assert.equal(config.TEAMS_SINCE_DAYS, "30");
+  assert.equal(config.DATA, undefined, "set in .dev.vars: not touched");
+  assert.equal(config.DATA_AGENT, "off");
   assert.equal(config.BINO_VIA, "omp");
   assert.equal(config.STATS, "off", "unticked is off");
-  assert.equal(config.DATA, undefined, "set in .dev.vars: not touched");
-  const worse = configFromForm({ "on.bino": "on", "via.bino": "gpt-at-home", TEAMS_SINCE_DAYS: "9999", JIRA_PROJECTS: "JSD; rm -rf" }, {}, new Set(), { panes: true });
-  assert.deepEqual(worse.bad.sort(), ["Bino", "Teams: History kept"].sort());
+  const worse = configFromForm({ "on.bino": "on", "via.bino": "gpt-at-home", DATA_AGENT: "sometimes", JIRA_PROJECTS: "JSD; rm -rf" }, {}, new Set(), { panes: true });
+  assert.deepEqual(worse.bad.sort(), ["Bino", "Data: Query agent"].sort());
   assert.equal(worse.config.JIRA_PROJECTS, undefined, "a key no pane has isn't kept");
-  const empty = configFromForm({ TEAMS_SINCE_DAYS: "" }, { TEAMS_SINCE_DAYS: "30" }, new Set(), { panes: true });
-  assert.equal(empty.config.TEAMS_SINCE_DAYS, undefined, "empty is the default");
-  const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS", "on.teams": "on" }, {}, new Set(), { general: true });
+  const empty = configFromForm({ TZ_NAME: "" }, { TZ_NAME: "Europe/Oslo" }, new Set(), { general: true });
+  assert.equal(empty.config.TZ_NAME, undefined, "empty is the default");
+  const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS", "on.data": "on" }, {}, new Set(), { general: true });
   assert.deepEqual(work.config, { CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS" }, "the work form leaves the switches alone");
   assert.deepEqual(configFromForm({ TEAM: "a/b" }, {}, new Set(), { general: true }).bad, ["Your team on GHE"]);
 });
@@ -73,8 +68,8 @@ test("the form: a switch, a route, options; bad values refused; fixed keys left 
 test("kept in the settings table: known keys only, as strings", async () => {
   const db = openDb();
   assert.deepEqual(await loadConfig(db.DB), {});
-  await saveConfig(db.DB, { TEAMS: "off", PATH: "C:\\evil", GHE_TOKEN: "x" } as Record<string, string>);
-  assert.deepEqual(await loadConfig(db.DB), { TEAMS: "off" });
+  await saveConfig(db.DB, { DATA: "off", PATH: "C:\\evil", GHE_TOKEN: "x" } as Record<string, string>);
+  assert.deepEqual(await loadConfig(db.DB), { DATA: "off" });
   await db.DB.prepare("UPDATE settings SET value = ? WHERE key = 'config'").bind(JSON.stringify({ DATA: 1, STATS: "off", GHE_HOST: "evil.example" })).run();
   assert.deepEqual(await loadConfig(db.DB), { STATS: "off" });
 });
@@ -83,9 +78,9 @@ test("what Settings keeps sits under the environment and .dev.vars", () => {
   const saved = { ...process.env };
   try {
     process.env.GHE_TOKEN = "t";
-    process.env.TEAMS = "on";
-    const env = loadEnv({ TEAMS: "off", STATS: "off" });
-    assert.equal(env.TEAMS, "on", "the environment wins");
+    process.env.DATA = "on";
+    const env = loadEnv({ DATA: "off", STATS: "off" });
+    assert.equal(env.DATA, "on", "the environment wins");
     assert.equal(env.STATS, "off");
   } finally {
     process.env = saved;
@@ -105,15 +100,15 @@ test("an off pane is gone from the menu, search, Today and its pages", async () 
 });
 
 test("Settings shows each pane and saves the form; what can't run says why", async () => {
-  const panes = panesOf({ BINO_VIA: "omp" }, { ...all, pwsh: false });
-  const config = { panes, stored: { BINO_VIA: "omp", TEAMS_SINCE_DAYS: H } };
+  const panes = panesOf({ BINO_VIA: "omp" }, { ...all, db: false });
+  const config = { panes, stored: { BINO_VIA: "omp", TZ_NAME: H } };
   const { get, post, db } = signedIn(snapshot(), {}, { config });
   const page = await (await get("/settings")).text();
   assertInert("settings", page);
-  assert.match(page, /name="on\.teams"/);
-  assert.match(page, /Needs PowerShell 7/);
+  assert.match(page, /name="on\.data"/);
+  assert.match(page, /Needs db-cli/);
   assert.match(page, /<option value="omp" selected>/);
-  const r = await post("/settings/panes", { "on.teams": "on", "on.bino": "on", "via.bino": "claude", "on.stats": "on" });
+  const r = await post("/settings/panes", { "on.bino": "on", "via.bino": "claude", "on.stats": "on" });
   assert.equal(r.status, 303);
   const kept = await loadConfig(db.DB);
   assert.equal(kept.BINO_VIA, "claude");
@@ -146,11 +141,11 @@ test("the first run: Today sends to the first-run page until it's answered or sk
   assert.match(page, /Found here/);
   assert.match(page, /<option value="my-team">Skreddersøm \(my-team\)<\/option>/);
   assert.doesNotMatch(page, /Elsewhere|bad slug/, "only the org's teams, with plain slugs");
-  assert.match(page, /name="on\.teams"/);
+  assert.match(page, /name="on\.data"/);
   const bad = await post("/welcome", { TEAM: "no/slashes" });
   assert.equal(bad.headers.get("location"), "/welcome?go=1");
   assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Your team on GHE/);
-  const r = await post("/welcome", { TEAM: "my-team", "on.teams": "on", "on.jira": "on", "via.jira": "mcp" });
+  const r = await post("/welcome", { TEAM: "my-team", "on.data": "on", "on.jira": "on", "via.jira": "mcp" });
   assert.equal(r.headers.get("location"), "/", "no supervisor in a test: straight to Today");
   const kept = await loadConfig(db.DB);
   assert.equal(kept.SETUP_DONE, "1");

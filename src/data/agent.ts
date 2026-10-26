@@ -1,6 +1,6 @@
 /**
  * The query agent: a question in plain words becomes one read-only query, proposed as a card I run
- * myself. It runs only on a Copilot model through omp (src/teams/crawl.ts's asker: no tools, no MCP
+ * myself. It runs only on a Copilot model through omp (src/ai/omp.ts's asker: no tools, no MCP
  * servers, no session), never Claude: a question can name a customer, and a result it reviews can
  * come from production. Decided with the user 2026-10-23.
  *

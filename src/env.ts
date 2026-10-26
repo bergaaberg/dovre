@@ -82,21 +82,14 @@ export type Env = {
   /** Docker (src/packs/core/docker/): `on` (default) or `off`. DOCKER_PIPE: another engine's pipe (\\.\pipe\docker_engine for Docker Desktop's) instead of the launcher's. */
   DOCKER?: string;
   DOCKER_PIPE?: string;
-  /** Teams (src/teams/): `on` (default, with PowerShell 7) or `off`. Connect once on the Teams page (the Teams button, bottom right → Page). */
-  TEAMS?: string;
-  /** How many days of chat history are kept (default 60). */
-  TEAMS_SINCE_DAYS?: string;
-  /** The crawler that proposes todos from chats: `on` (every 2 h, default), `ask` (only when asked) or `off`. */
-  TEAMS_CRAWL?: string;
-  /** Its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
-  TEAMS_CRAWL_PROFILE?: string;
-  TEAMS_CRAWL_MODEL?: string;
-  /** The Data tab's query agent: on (default) or off. Its omp profile and Copilot model default to the crawler's. */
+  /** Copilot through omp, for Bino and summaries without Claude Code (src/ai/omp.ts): its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
+  COPILOT_PROFILE?: string;
+  COPILOT_MODEL?: string;
+  /** The Data tab's query agent: on (default) or off. Its omp profile and Copilot model default to COPILOT_PROFILE's and COPILOT_MODEL's. */
   DATA_AGENT?: string;
   DATA_AGENT_PROFILE?: string;
   DATA_AGENT_MODEL?: string;
   /** Panes switched on Settings (src/config.ts): `off` turns one off; unset is on. */
-  OUTLOOK?: string;
   DATA?: string;
   TERMINAL?: string;
   STATS?: string;
@@ -224,15 +217,11 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     CF_AIG_TOKEN: v.CF_AIG_TOKEN || undefined,
     DOCKER: v.DOCKER || undefined,
     DOCKER_PIPE: v.DOCKER_PIPE || undefined,
-    TEAMS: v.TEAMS || undefined,
-    TEAMS_SINCE_DAYS: v.TEAMS_SINCE_DAYS || undefined,
-    TEAMS_CRAWL: v.TEAMS_CRAWL || undefined,
-    TEAMS_CRAWL_PROFILE: v.TEAMS_CRAWL_PROFILE || undefined,
-    TEAMS_CRAWL_MODEL: v.TEAMS_CRAWL_MODEL || undefined,
+    COPILOT_PROFILE: v.COPILOT_PROFILE || undefined,
+    COPILOT_MODEL: v.COPILOT_MODEL || undefined,
     DATA_AGENT: v.DATA_AGENT || undefined,
     DATA_AGENT_PROFILE: v.DATA_AGENT_PROFILE || undefined,
     DATA_AGENT_MODEL: v.DATA_AGENT_MODEL || undefined,
-    OUTLOOK: v.OUTLOOK || undefined,
     DATA: v.DATA || undefined,
     TERMINAL: v.TERMINAL || undefined,
     STATS: v.STATS || undefined,

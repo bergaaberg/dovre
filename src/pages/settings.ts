@@ -18,7 +18,6 @@ export type SetupFacts = {
   copilot?: string;
   /** Copilot CLI's path, when it's here. */
   copilotCli?: string;
-  pwsh?: string;
   db?: string;
   edge?: string;
   codeDir: string;
@@ -33,16 +32,11 @@ export function setupLines(f: SetupFacts): SetupLine[] {
   return [
     { name: "GHE", on: true, what: `${f.ghe.host}, org ${f.ghe.org}, signed in as ${f.ghe.login}` },
     f.claude ? { name: "Claude Code", on: true, what: `Agents can run in it: ${f.claude}` } : { name: "Claude Code", on: false, what: "Not found", fix: "Install it (`claude` on the PATH), or set CLAUDE_BIN in .dev.vars. Without it, Bino, summaries and reviews use Copilot through omp." },
-    f.omp ? { name: "omp", on: true, what: `Agents can run in it (Copilot models): ${f.omp}` } : { name: "omp", on: false, what: "Not found", fix: "Install it (`omp` on the PATH), or set OMP_BIN in .dev.vars. Copilot models need it: Teams' todos and the Data tab's query agent." },
+    f.omp ? { name: "omp", on: true, what: `Agents can run in it (Copilot models): ${f.omp}` } : { name: "omp", on: false, what: "Not found", fix: "Install it (`omp` on the PATH), or set OMP_BIN in .dev.vars. Copilot models need it: Bino and summaries without Claude Code, and the Data tab's query agent." },
     f.copilotCli
       ? { name: "Copilot CLI", on: true, what: `Its sessions show on Agents; Bino and summaries can ask through it (Settings → Panes): ${f.copilotCli}` }
       : { name: "Copilot CLI", on: false, what: "Not found", fix: `Optional. Install it (${windows ? "winget install GitHub.Copilot" : "npm install -g @github/copilot"}) for its sessions on Agents, and to give Bino and summaries a way in without Claude Code; or set COPILOT_BIN in .dev.vars.` },
-    ...(f.copilot ? [f.copilot === "ready" ? { name: "Copilot", on: true, what: "Bino, summaries, Teams' todos and the query agent can use Copilot models through omp" } : { name: "Copilot", on: false, what: "Not set up", fix: f.copilot }] : []),
-    f.pwsh
-      ? { name: "PowerShell 7", on: true, what: "Teams and Outlook sign in through Graph PowerShell" }
-      : windows
-        ? { name: "PowerShell 7", on: false, what: "Not found", fix: "Install PowerShell 7 (`pwsh`). Teams and Outlook need it." }
-        : { name: "PowerShell 7", on: false, what: "Windows only: Teams and Outlook seal what chats say with a key Windows (DPAPI) holds" },
+    ...(f.copilot ? [f.copilot === "ready" ? { name: "Copilot", on: true, what: "Bino, summaries and the query agent can use Copilot models through omp" } : { name: "Copilot", on: false, what: "Not set up", fix: f.copilot }] : []),
     f.db ? { name: "db", on: true, what: `The Data tab reads databases through it: ${f.db}` } : { name: "db", on: false, what: "Not found", fix: "Install db-cli (`db` on the PATH). The Data tab needs it." },
     ...(windows ? [f.edge ? { name: "Edge", on: true, what: "Opens Dovre as its own window" } : { name: "Edge", on: false, what: "Not found: the default browser opens it instead" }] : []),
     f.repos

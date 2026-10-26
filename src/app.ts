@@ -36,20 +36,13 @@ import { statsPage } from "./pages/stats.ts";
 import { type Data, setDataNames, TABLE, targetOk } from "./data/db.ts";
 import { type Prod, prodOk } from "./data/prod.ts";
 import { createSchemas, schemaSource } from "./data/schema.ts";
-import { actionsCard, actionsPage, type ChatName } from "./pages/actions.ts";
+import { actionsCard, actionsPage } from "./pages/actions.ts";
 import { acrossHref, acrossPage, askHref, askPage, dataGate, dataHome, dataResult, dataTable, dataTarget, dbHref } from "./pages/data.ts";
 import { type Asker, createDataAgent } from "./data/agent.ts";
 import { pagesOf, parseQuery, type Row as SearchRow, search } from "./search/search.ts";
 import { createGheSearch } from "./search/ghe.ts";
 import { searchList, searchPage } from "./pages/search.ts";
 import { createIssueRoutes } from "./pages/issues.ts";
-import { mailCard, outlookPage } from "./pages/outlook.ts";
-import { channelPage, channelsPickPage, chatHref, chatPage, dockChatPage, dockHref, dockListPage, proposalsPanel, teamsCard, teamsPage } from "./pages/teams.ts";
-import { CHANNEL_ID, type Channels } from "./teams/channels.ts";
-import type { Outlook } from "./teams/outlook.ts";
-import { CHAT_ID, MAX_SEND, MESSAGE_ID, REACTIONS, TEAM_ID } from "./teams/helper.ts";
-import { addTodo } from "./todo/store.ts";
-import type { Teams } from "./teams/teams.ts";
 import { type Asks, createAsks } from "./relay/asks.ts";
 import { type Bino, createBino } from "./packs/core/assistant/bino/bino.ts";
 import { appsOf, contextOf } from "./packs/core/assistant/bino/context.ts";
@@ -64,7 +57,7 @@ import { type Choice, type Config, configFromForm, type PaneId, type PanesOn, ty
 import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
-import { type AvatarFeeds, avatarFrom, actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
+import { type AvatarFeeds, avatarFrom, actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { packsPage } from "./pages/packs.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
 import { strictOrigin } from "./strict.ts";
@@ -86,8 +79,6 @@ import { stacksPage } from "./pages/stacks.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
-  ["teams", /^\/teams(\/|$)/],
-  ["outlook", /^\/outlook(\/|$)/],
   ["data", /^\/data(\/|$)/],
   ["bino", /^\/bino(\/|$)/],
   ["stats", /^\/stats(\/|$)/],
@@ -114,7 +105,7 @@ function pendingPage(path: string, frame: Frame): string {
 /** Nothing gathered yet: what the frame is drawn from on the "Gathering" page. */
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
-export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino?: boolean; teams?: boolean; outlook?: boolean; data?: boolean; /** Shown unless switched off. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
+export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino?: boolean; data?: boolean; /** Shown unless switched off. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
   const deploys = s.deploys.ok ? s.deploys.value.length : 0;
   const prs = s.prs.ok ? s.prs.value.mine.length + s.prs.value.review.length : 0;
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
@@ -129,8 +120,6 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
     !opts.hosted && { href: "/todo", title: "My list", icon: "list", group: "Plan" },
     !opts.hosted && opts.issues !== false && { href: "/issues/new", title: "New work", icon: "plus", group: "Plan" },
     !!opts.data && { href: "/data", title: "Data", icon: "db", group: "Ops" },
-    !!opts.teams && { href: "/teams", title: "Teams", icon: "people", group: "Ops" },
-    !!opts.outlook && { href: "/outlook", title: "Outlook", icon: "mail", group: "Ops" },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
     !opts.hosted && !!opts.lab && { href: "/lab", title: "Lab", icon: "flask", group: "You" },
@@ -142,7 +131,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** What the packs tell the avatar (avatarFrom), and whether anything has it at work (a pack's thing working, or Bino answering). */ feeds: () => AvatarFeeds & { busy: boolean }; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Teams chats through Graph PowerShell (src/teams/). */ teams?: Teams; /** …and through the same sign-in, the inbox, and the team channels I follow (read-only, in memory). */ outlook?: Outlook; channels?: Channels; /** The Data tab: test databases through db-cli (src/data/db.ts). */ data?: Data; /** …and production through db mcp, after db asks me (src/data/prod.ts). */ prod?: Prod; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Where databases' schemas are kept (names only; src/data/schema.ts). */ schemaDir?: string; /** The query agent's model: a Copilot one through omp, never Claude (src/data/agent.ts). */ dataAsker?: Asker; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Data tab: test databases through db-cli (src/data/db.ts). */ data?: Data; /** …and production through db mcp, after db asks me (src/data/prod.ts). */ prod?: Prod; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Where databases' schemas are kept (names only; src/data/schema.ts). */ schemaDir?: string; /** The query agent's model: a Copilot one through omp, never Claude (src/data/agent.ts). */ dataAsker?: Asker; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
   setDataNames({ prefix: env.DATA_PREFIX, db2: env.DATA_DB2 });
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
@@ -206,7 +195,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       objectSrc: ["'none'"],
     },
   });
-  // The docks' pages (Teams, Bino) are framed by the app's own pages (src/html.ts), and only by them.
+  // The docks' pages (Bino's, a pack's) are framed by the app's own pages (src/html.ts), and only by them.
   const dockHeaders = secureHeaders({
     referrerPolicy: "same-origin",
     xFrameOptions: "SAMEORIGIN",
@@ -223,21 +212,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   });
   // The lab's policy is set per page (below): it needs the page's own origin to name /lab/.
   const labHeaders = secureHeaders({ referrerPolicy: "same-origin", contentSecurityPolicy: undefined });
-  /** A dock's page: Teams', Bino's, or one under a pack's /<id>/dock when that pack has a dock. */
+  /** A dock's page: Bino's, or one under a pack's /<id>/dock when that pack has a dock. */
   const dockPath = (path: string) => {
     const m = /^\/([a-z][a-z0-9-]*)\/dock(\/|$)/.exec(path);
-    return !!m && (m[1] === "teams" || m[1] === "bino" || packs.on.some((x) => x.manifest.id === m[1] && !!x.dock));
+    return !!m && (m[1] === "bino" || packs.on.some((x) => x.manifest.id === m[1] && !!x.dock));
   };
   app.use((c, next) => (c.req.path.startsWith("/lab/") ? labHeaders(c, next) : dockPath(c.req.path) ? dockHeaders(c, next) : appHeaders(c, next)));
-  /** A Teams chat's name for the Actions log (the log holds the chat's id, cut to 40 characters). */
-  const chatName: ChatName = (id) => (deps.teams?.view().chats ?? []).find((x) => x.id === id || (id.length >= 40 && x.id.startsWith(id)))?.name;
-  /** The Teams dock on every page: there when Teams is on, with how many chats have something new. */
-  const teamsDock = () => {
-    const v = deps.teams?.view();
-    if (!v || v.state === "off") return undefined;
-    const fresh = v.state === "ok" ? v.chats.filter((c) => c.unread) : [];
-    return { unread: fresh.length, mentions: fresh.filter((c) => c.mentioned).length };
-  };
 
   /** Exchanges the launch token for a cookie, on localhost only. */
   mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1" });
@@ -370,6 +350,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const fill = fillOf(shown, ctxOf, (id, line) => packLog(id)(line));
   /** What the packs call an actions-log entry of theirs (a name for an id). */
   const packWhere = (a: { kind: string; target: string }) => whereFrom(fill, a);
+  const packWhat = (kind: string) => whatFrom(fill, kind);
   /** What Bino may propose that the packs carry out (`acts`): local only, as Bino's own are. */
   const packActs = () => (hosted ? [] : actsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)));
   const packPages = () => shown().flatMap((c) => (c.pages ? safely(() => c.pages!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`pages: ${(e as Error)?.message ?? e}`)) : []));
@@ -412,7 +393,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
    * start), a page waits a little, then shows "Gathering…" and swaps itself in when it lands.
    */
   /** Every page's frame: menu, docks, styles, sync state. */
-  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, teams: !!deps.teams && deps.teams.view().state !== "off", outlook: !!deps.outlook && deps.outlook.view().state !== "off", data: !!deps.data, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), teams: teamsDock(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, data: !!deps.data, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
@@ -428,14 +409,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     if (deps.config && !setUp()) return c.redirect("/welcome", 303);
     const { s, frame } = await page();
     const todo = todoCard(await listTodos(env.DB), linkCtxOf(env, s, packRefs()));
-    const actions = actionsCard(await recentActions(env.DB, 6), chatName, packWhere);
+    const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
-    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), avatar: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: await reviewViews(s), todo, actions, teams: deps.teams ? teamsCard(deps.teams.view(), deps.channels?.view()) : undefined, mail: deps.outlook ? mailCard(deps.outlook.view()) : undefined }));
+    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), avatar: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: await reviewViews(s), todo, actions}));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
     const { frame } = await page();
-    return c.html(actionsPage(frame, await recentActions(env.DB, 200), chatName, packWhere));
+    return c.html(actionsPage(frame, await recentActions(env.DB, 200), packWhere, packWhat));
   });
   // ── Live updates: one event stream per open page (src/live.ts) ──
   app.get("/events", (c) =>
@@ -472,7 +453,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.post("/refresh", async (c) => {
     // Gathers in the background; the page swaps itself when it lands (and the next load waits a moment for it).
     gatherer.stale();
-    deps.teams?.kick();
     const back = c.req.header("referer");
     const path = back && new URL(back).host === new URL(c.req.url).host ? new URL(back).pathname : "/";
     return c.redirect(path, 303);
@@ -802,7 +782,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       omp: found.paths?.omp,
       copilot: found.copilot,
       copilotCli: found.paths?.copilot,
-      pwsh: found.paths?.pwsh,
       db: found.paths?.db,
       edge: edgePath(),
       codeDir: env.CODE_DIR,
@@ -829,7 +808,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   /** Settings → Layout: what can be arranged here, and where it is now. */
   const layoutView = async (frame: Frame): Promise<LayoutView> => {
     const l = layout.get();
-    const present: Record<string, boolean> = { teams: !!deps.teams, mail: !!deps.outlook };
     const packNow = shown().length ? (await packCards()).cards : [];
     const packLabel = (id: string) => {
       const pack = packs.on.find((c) => id.startsWith(`${c.manifest.id}-`));
@@ -843,7 +821,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       pages: frame.nav.filter((p) => p.href !== "/" && p.place !== "action").map((p) => ({ href: p.href, title: p.title })),
       tabs: tabsOf(frame.nav).map((p) => p.href).filter((h) => h !== "/"),
       cards: [
-        ...CORE_CARDS.filter((c) => present[c.id] !== false).map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
+        ...CORE_CARDS.map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
         ...packNow.map((c) => ({ id: c.id, label: packLabel(c.id), ...placed(c.id, c.column === "left" ? "left" : "right", packOrder(c.order)) })),
       ],
       feeds: packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
@@ -1011,13 +989,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.route("/", createReviewRoutes(env, { ...reviewDeps, ghe, stale: () => gatherer.stale() }));
   app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), list: () => (shown().some((x) => x.manifest.id === "tracker") ? "/tracker" : undefined), prewarm: deps.prewarm }));
   // ── My list (src/pages/todo.ts): small things kept on this machine ──
-  /** Teams' crawler's proposals, for My list (empty when Teams or its store isn't there). */
-  const teamsProposals = async () => {
-    const store = deps.teams?.store();
-    if (!store) return "" as const;
-    return proposalsPanel(await store.findings("new"), new Map((await store.chats()).map((c) => [c.id, c])));
-  };
-  app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: !!bino?.route.ready, proposals: async () => html`${await teamsProposals()}${fill("todo.proposals", {})}` }));
+  app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: !!bino?.route.ready, proposals: async () => html`${fill("todo.proposals", {})}` }));
   if (bino)
     app.route(
       "/",
@@ -1025,7 +997,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         bino,
         page,
         hub: deps.hub,
-        teams: deps.teams,
         peek: () => gatherer.peek(),
         packAct: (kind) => packActs().find((k) => k.kind === kind),
         // The object hosted has no packs or list of its own: what Bino knows goes with each message.
@@ -1036,6 +1007,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
             name: c.manifest.name,
             paths: c.manifest.paths,
             own: packs.core?.includes(c.manifest.id),
+            private: c.manifest.private === true,
             about: c.about ? (path: string) => safely(() => c.about!(ctxOf(c), path), undefined, (e) => packLog(c.manifest.id)(`about: ${(e as Error)?.message ?? e}`)) : undefined,
           })),
       }),
@@ -1073,185 +1045,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     body = /<body[^>]*>/i.test(body) ? body.replace(/<body[^>]*>/i, (m) => m + LAB_EXIT) : LAB_EXIT + body;
     c.header("Content-Security-Policy", labCsp(new URL(c.req.url).origin));
     return c.html(body);
-  });
-
-  // ── Teams (src/teams/, src/pages/teams.ts) ──
-  let teamsFlash: { ok: boolean; message: string } | undefined;
-  const teamsOn = () => !!deps.teams && deps.teams.view().state !== "off";
-  const chatIdOf = (raw: string) => {
-    let id = "";
-    try {
-      id = decodeURIComponent(raw);
-    } catch {}
-    return CHAT_ID.test(id) ? id : undefined;
-  };
-  app.get("/teams", async (c) => {
-    if (!teamsOn()) return c.notFound();
-    const { frame } = await page();
-    const shown = teamsFlash;
-    teamsFlash = undefined;
-    deps.channels?.kick();
-    return c.html(teamsPage(frame, deps.teams!.view(), { flash: shown, channels: deps.channels?.view() }));
-  });
-
-  // ── Team channels I follow (src/teams/channels.ts): read-only, in memory ──
-  const decoded = (raw: string) => {
-    try {
-      return decodeURIComponent(raw);
-    } catch {
-      return "";
-    }
-  };
-  app.get("/teams/channels", async (c) => {
-    if (!teamsOn() || !deps.channels) return c.notFound();
-    const team = c.req.query("team");
-    const open = team && TEAM_ID.test(team) ? team : undefined;
-    deps.channels.loadTeams();
-    if (open) deps.channels.loadChannels(open);
-    const { frame } = await page();
-    return c.html(channelsPickPage(frame, deps.channels.view(), open));
-  });
-  app.post("/teams/channels/follow", async (c) => {
-    if (!teamsOn() || !deps.channels) return c.notFound();
-    const f = await c.req.parseBody();
-    const team = String(f.team ?? "");
-    const channel = String(f.channel ?? "");
-    if (!TEAM_ID.test(team) || !CHANNEL_ID.test(channel)) return c.text("Not a channel.", 400);
-    await deps.channels.follow(team, channel, f.on !== undefined);
-    return c.redirect(`/teams/channels?team=${encodeURIComponent(team)}#t-${team}`, 303);
-  });
-  app.get("/teams/ch/:team/:channel", async (c) => {
-    const team = decoded(c.req.param("team"));
-    const channel = decoded(c.req.param("channel"));
-    if (!teamsOn() || !deps.channels || !TEAM_ID.test(team) || !CHANNEL_ID.test(channel)) return c.notFound();
-    const f = deps.channels.view().followed.find((x) => x.teamId === team && x.channelId === channel);
-    if (!f) return c.notFound();
-    void deps.channels.seen(team, channel);
-    const { frame } = await page();
-    return c.html(channelPage(frame, f));
-  });
-
-  // ── Outlook (src/teams/outlook.ts): the inbox, read-only, in memory ──
-  const outlookOn = () => !!deps.outlook && deps.outlook.view().state !== "off";
-  app.get("/outlook", async (c) => {
-    if (!outlookOn()) return c.notFound();
-    deps.outlook!.kick();
-    const { frame } = await page();
-    return c.html(outlookPage(frame, deps.outlook!.view()));
-  });
-  /** Starts the sign-in and comes straight back: the page shows "Signing in" and fills in over the hub. */
-  app.post("/teams/connect", (c) => {
-    if (!teamsOn()) return c.notFound();
-    void deps.teams!.connect().then((r) => {
-      if (!r.ok) teamsFlash = r;
-    });
-    return c.redirect("/teams", 303);
-  });
-  app.post("/teams/disconnect", async (c) => {
-    if (!teamsOn()) return c.notFound();
-    await deps.teams!.disconnect();
-    teamsFlash = { ok: true, message: "Disconnected: Graph PowerShell is signed out here, and Dovre stopped reading Teams." };
-    return c.redirect("/teams", 303);
-  });
-  /** The crawler looks now; the page says so and fills in when it's done. */
-  app.post("/teams/crawl", (c) => {
-    if (!teamsOn()) return c.notFound();
-    void deps.teams!.crawl().then((r) => {
-      teamsFlash = r;
-      deps.hub?.publish(["snapshot"]);
-    });
-    return c.redirect("/teams", 303);
-  });
-  const chatFlash = new Map<string, { ok: boolean; message: string }>();
-  /** Messages Teams didn't take, per chat: shown in the chat, with the text, for ten minutes. */
-  const sendFailed = new Map<string, { message: string; text: string; at: number }>();
-  const failedIn = (id: string) => {
-    const f = sendFailed.get(id);
-    if (f && Date.now() - f.at > 10 * 60_000) sendFailed.delete(id);
-    return sendFailed.get(id);
-  };
-  /** The dock (src/html.ts): the chats, and one chat, as small pages framed by the app's own. */
-  app.get("/teams/dock", (c) => {
-    if (!teamsOn()) return c.notFound();
-    return c.html(dockListPage(deps.teams!.view()));
-  });
-  app.get("/teams/dock/c/:id", async (c) => {
-    const id = chatIdOf(c.req.param("id"));
-    const store = deps.teams?.store();
-    if (!teamsOn() || !id || !store) return c.notFound();
-    const chat = await store.chat(id);
-    if (!chat) return c.notFound();
-    void deps.teams!.refreshChat(id);
-    const shown = chatFlash.get(id);
-    chatFlash.delete(id);
-    return c.html(dockChatPage(chat, await store.messages(id, 80), { flash: shown, failed: failedIn(id), canWrite: deps.teams!.view().state === "ok" }));
-  });
-  app.get("/teams/c/:id", async (c) => {
-    const id = chatIdOf(c.req.param("id"));
-    const store = deps.teams?.store();
-    if (!teamsOn() || !id || !store) return c.notFound();
-    const chat = await store.chat(id);
-    if (!chat) return c.notFound();
-    // What's new in it lands over the hub; the page draws what's kept now.
-    void deps.teams!.refreshChat(id);
-    const { frame } = await page();
-    const shown = chatFlash.get(id);
-    chatFlash.delete(id);
-    const v = deps.teams!.view();
-    return c.html(chatPage(frame, chat, await store.messages(id, 80), { flash: shown, failed: failedIn(id), canWrite: v.state === "ok", why: v.state === "ok" ? undefined : "Teams isn't connected: connect it on the Teams page to write here." }));
-  });
-  app.post("/teams/c/:id/send", async (c) => {
-    const id = chatIdOf(c.req.param("id"));
-    if (!teamsOn() || !id || !(await deps.teams!.store()?.chat(id))) return c.notFound();
-    const form = await c.req.parseBody();
-    const text = String(form.text ?? "");
-    const quiet = c.req.header("x-dovre-send") === "1";
-    if (!text.trim() || text.length > MAX_SEND) {
-      if (quiet) return c.text(`A message is 1 to ${MAX_SEND} characters.`, 400);
-      chatFlash.set(id, { ok: false, message: `A message is 1 to ${MAX_SEND} characters: nothing was sent.` });
-    } else {
-      // Sent in the background: the page doesn't wait. A refusal shows in the chat, with the text.
-      sendFailed.delete(id);
-      void deps.teams!.send(id, text).then((r) => {
-        if (!r.ok) sendFailed.set(id, { message: r.message, text, at: Date.now() });
-        deps.hub?.publish(["snapshot"]);
-      });
-      if (quiet) return c.body(null, 202);
-    }
-    return c.redirect(form.dock === "1" ? dockHref(id) : `${chatHref(id)}#end`, 303);
-  });
-  app.post("/teams/c/:id/react", async (c) => {
-    const id = chatIdOf(c.req.param("id"));
-    if (!teamsOn() || !id || !(await deps.teams!.store()?.chat(id))) return c.notFound();
-    const form = await c.req.parseBody();
-    const message = String(form.message ?? "");
-    const on = typeof form.on === "string" ? form.on : undefined;
-    const reaction = on ?? (typeof form.off === "string" ? form.off : "");
-    chatFlash.set(id, MESSAGE_ID.test(message) && (REACTIONS as readonly string[]).includes(reaction) ? await deps.teams!.react(id, message, reaction, on !== undefined) : { ok: false, message: "That isn't a reaction on a message here." });
-    const at = `#m-${MESSAGE_ID.test(message) ? message : ""}`;
-    return c.redirect(form.dock === "1" ? dockHref(id).replace("#end", at) : `${chatHref(id)}${at}`, 303);
-  });
-  /** A proposal from the crawler becomes an item on My list, with where it came from in its notes. */
-  app.post("/teams/finding/:id/add", async (c) => {
-    const store = deps.teams?.store();
-    const id = /^\d{1,9}$/.test(c.req.param("id")) ? Number(c.req.param("id")) : undefined;
-    const f = store && id !== undefined ? await store.finding(id) : undefined;
-    if (!store || !f) return c.notFound();
-    if (f.state === "new") {
-      const chat = await store.chat(f.chatId);
-      const item = await addTodo(env.DB, { title: f.title, due: f.due, notes: `From Teams: ${chat?.name ?? "a chat"}${chat?.webUrl ? ` ${chat.webUrl}` : ""}` });
-      if (item) await store.settle(f.id, "added", item.id);
-      deps.hub?.publish(["snapshot"]);
-    }
-    return c.redirect("/todo", 303);
-  });
-  app.post("/teams/finding/:id/dismiss", async (c) => {
-    const store = deps.teams?.store();
-    const id = /^\d{1,9}$/.test(c.req.param("id")) ? Number(c.req.param("id")) : undefined;
-    if (!store || id === undefined) return c.notFound();
-    await store.settle(id, "dismissed");
-    deps.hub?.publish(["snapshot"]);
-    return c.redirect("/todo", 303);
   });
 
   // ── The relay (launcher/relay.go): an MCP server's question, answered here and only here ──

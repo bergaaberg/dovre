@@ -28,7 +28,7 @@ export function cliArgs(system: string, model: string): string[] {
 
 /**
  * The same through a Copilot model in omp, for people without Claude Code: the crawler's asker
- * (src/teams/crawl.ts: its own profile with no MCP servers, no tools, no session). The model it
+ * (src/ai/omp.ts: its own profile with no MCP servers, no tools, no session). The model it
  * was made with answers, whatever `model` asks for; Copilot calls cost nothing per call here.
  */
 export function copilotComplete(c: Pick<OmpAsker, "ask">): Complete {

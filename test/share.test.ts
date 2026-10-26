@@ -167,15 +167,13 @@ test("Settings → Setup says what's on, and how to turn on what's off", async (
   const by = Object.fromEntries(lines.map((l) => [l.name, l]));
   assert.equal(by.GHE!.on, true);
   assert.match(by["Claude Code"]!.fix ?? "", /CLAUDE_BIN/);
-  assert.match(by["PowerShell 7"]!.fix ?? "", /pwsh/);
+  assert.equal(by["PowerShell 7"], undefined, "PowerShell is the Teams pack's business, not core's");
   assert.match(by.db!.fix ?? "", /Data tab/);
   assert.equal(by.omp!.on, true);
   assert.match(by["Code folder"]!.fix ?? "", /directly in it/);
   assert.match(by["Copilot CLI"]!.fix ?? "", /winget/);
   assert.ok(by.Edge, "Edge is a Windows line");
   const mac = Object.fromEntries(setupLines({ ghe: { host: "github.com", org: "me", login: "me" }, codeDir: "/Users/me/src", repos: 3, platform: "darwin" }).map((l) => [l.name, l]));
-  assert.match(mac["PowerShell 7"]!.what, /Windows only/, "no advice to install pwsh where Teams can't run");
-  assert.equal(mac["PowerShell 7"]!.fix, undefined);
   assert.match(mac["Copilot CLI"]!.fix ?? "", /npm install -g @github\/copilot/);
   assert.equal(mac.Edge, undefined);
   const { get } = signedIn(snapshot());

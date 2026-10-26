@@ -2,15 +2,14 @@
  * What I'm looking at when I ask Bino from its pane: the page's address, turned here into a line of
  * names and states from what's gathered, under the same rule as the rest of Bino's context
  * (src/packs/core/assistant/bino/context.ts): never a PR body, an agent's prompt or recap, a tool result, or anything a
- * private page shows. Teams, Outlook, Data, Terminal and the Lab are named, never described.
- * A pack's page is described by the pack (`about`), under the same rule.
+ * private page shows. Data, Terminal and the Lab are named, never described, and so is a private
+ * pack's page (manifest `private`: Teams). Another pack's page is described by the pack (`about`),
+ * under the same rule.
  */
 import type { Snapshot } from "../../../../gather.ts";
 
-/** Pages whose content never reaches Bino: chats, mail, query results, shells, prod alerts, artifacts. */
+/** Pages whose content never reaches Bino: query results, shells, artifacts (and private packs' pages, below). */
 const PRIVATE: [string, string][] = [
-  ["/teams", "Teams"],
-  ["/outlook", "Outlook"],
   ["/data", "Data"],
   ["/terminal", "Terminal"],
   ["/lab", "Lab"],
@@ -35,7 +34,7 @@ const one = (s: string, max = 160) => s.replace(/\s+/g, " ").trim().slice(0, max
 const REVIEW: Record<string, string> = { APPROVED: "approved", CHANGES_REQUESTED: "changes requested", REVIEW_REQUIRED: "review required" };
 
 /** A pack as Bino's view knows it: its id and other paths, and what it says one of its pages is. */
-export type ViewApp = { id: string; name: string; paths?: string[]; /** Dovre's own pack, not one of my apps. */ own?: boolean; about?: (path: string) => string | undefined };
+export type ViewApp = { id: string; name: string; paths?: string[]; /** Dovre's own pack, not one of my apps. */ own?: boolean; /** Its pages are named, never described (manifest `private`); `about` isn't asked. */ private?: boolean; about?: (path: string) => string | undefined };
 
 /** The page at `raw` (a path and query from this app), as Bino may hear it; "" when it isn't one. */
 export function viewOf(raw: string, s?: Snapshot, apps: ViewApp[] = []): string {
@@ -74,6 +73,7 @@ export function viewOf(raw: string, s?: Snapshot, apps: ViewApp[] = []): string 
   // A pack's page: its own words when it has them (names and states, its `about` hook), else which app.
   const app = apps.find((a) => under(path, `/${a.id}`) || a.paths?.some((p) => under(path, `/${p}`)));
   if (app) {
+    if (app.private) return `a page of their app ${one(app.name, 60)}. What it shows is kept from you: don't guess at it.`;
     const said = app.about?.(path);
     if (typeof said === "string" && said.trim()) return one(said, 300);
     return app.own ? `a page of Dovre's ${one(app.name, 60)} (${one(path, 120)}).` : `a page of their app ${one(app.name, 60)} (${one(path, 120)}).`;

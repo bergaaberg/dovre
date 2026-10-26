@@ -4,8 +4,6 @@
  * do. Text folded
  * (æ ø å, case, punctuation), a name's start beats its middle, a word's start next, then the other
  * names a thing answers to. Pure: what to search in, and the query, in; groups of rows out.
- *
- * Never Teams: what chats are called and say isn't searched (CLAUDE.md).
  */
 import type { Snapshot } from "../gather.ts";
 import type { Todo } from "../todo/store.ts";

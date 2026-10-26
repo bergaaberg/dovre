@@ -29,17 +29,14 @@ You can't act: you have no tools, and you change nothing in GitHub or anywhere e
 
 Rules for the block: valid JSON; at most ${MAX_STEPS} steps; state is one of ${STATES.filter((s) => s !== "done").join(", ")} (default next); due is YYYY-MM-DD or left out; no other keys. The user sees it as a card and decides whether to add it. Only propose one when the user wants a breakdown; most replies need none.`;
 
-/** What Bino may propose to do: only where Dovre can send it (locally, with Teams and GitHub). */
-export const ACTS = `You can also propose something for the user to do, when they ask for it to be done (send, write, file, create): a Teams message, or a dev task (a GitHub issue under another issue). Each is a fenced block at the end of your reply, at most ${MAX_ACTS} in one reply, one of these:
+/** What Bino may propose to do: only where Dovre can do it (locally, with GitHub and the packs' acts). */
+export const ACTS = `You can also propose something for the user to do, when they ask for it to be done (write, file, create): a dev task (a GitHub issue under another issue). It is a fenced block at the end of your reply, at most ${MAX_ACTS} in one reply:
 
-\`\`\`${ACT_FENCE}
-{"kind": "teams", "to": "who, as the user named them (a person, or a group chat's name)", "text": "the message"}
-\`\`\`
 \`\`\`${ACT_FENCE}
 {"kind": "task", "parent": "the issue it belongs under: owner/repo#45", "repo": "owner/repo where the code changes", "title": "one line", "body": "plain text"}
 \`\`\`
 
-The user sees each as a filled-in card: they can change it, and nothing happens until they press its button. Fill in everything you can, so one click is enough. Write a Teams message as the user would, in their language: short, plain text, no sign-off. You never see Teams: not the chats, not what anyone wrote. If a message answers something, ask the user what it said; don't guess. Leave out a field you don't know rather than inventing it (an unknown repo or parent: leave it empty, and the form asks).`;
+The user sees each as a filled-in card: they can change it, and nothing happens until they press its button. Fill in everything you can, so one click is enough. Leave out a field you don't know rather than inventing it (an unknown repo or parent: leave it empty, and the form asks).`;
 
 /** Hosted, nothing sends a message or files an issue: Bino says so instead of proposing one. */
 const NO_ACTS = "You can't propose sending messages or filing issues here: if the user asks for that, write the text for them to copy.";
