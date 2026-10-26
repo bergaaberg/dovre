@@ -12,7 +12,7 @@ checkout beside it (`../dovre`); this repo never goes into core, and core never 
    and your email in `ALLOWED_EMAILS` (wrangler.jsonc, vars).
 4. Set `REPO_OWNERS` and `GITHUB_USER`, then `pnpm wrangler secret put GITHUB_TOKEN`
    (fine-grained, read-only on those repos).
-5. `pnpm deploy`: it applies core's migrations to D1, then deploys.
+5. `pnpm deploy:worker`: it applies core's migrations to D1, then deploys.
 
 Open {{domain}}. Until D1, its tables and Access are there, the Worker shows a page listing what's
 missing (names only). Once in, Settings → Setup lists the rest: live pages (HUB), Bino's model
