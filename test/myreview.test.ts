@@ -19,13 +19,13 @@ const view = (o: { author?: string; sha?: string } = {}) => ({
       number: 840, title: `Fix ${H}`, url: "https://acme.ghe.com/ACME/shop-api/pull/840", state: "OPEN", isDraft: false, mergeable: "MERGEABLE",
       baseRefName: "main", headRefName: "feat/840", headRefOid: o.sha ?? SHA, author: { login: o.author ?? "per" }, body: "", additions: 2, deletions: 1, changedFiles: 1,
       createdAt: "2026-10-20T08:00:00Z", updatedAt: "2026-10-22T08:00:00Z", reviewDecision: null, labels: { nodes: [] }, reviewRequests: { nodes: [] }, reviews: { nodes: [] },
-      reviewThreads: { nodes: [] }, commits: { nodes: [] }, timelineItems: { nodes: [] },
+      reviewThreads: { nodes: [{ id: "PRRT_one", isResolved: false, isOutdated: false, path: PATH, line: 11, originalLine: 11, diffSide: "RIGHT", comments: { nodes: [{ databaseId: 77, author: { login: "per" }, body: `Why ${H}?`, createdAt: "2026-10-21T09:00:00Z", url: "" }] } }] }, commits: { nodes: [] }, timelineItems: { nodes: [] },
     },
   },
 });
 const FILES = [{ filename: PATH, status: "modified", additions: 2, deletions: 1, sha: "1", patch: "@@ -10,3 +10,4 @@ class A\n ctx\n-old\n+new\n+added\n" }];
 
-function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string } = {}) {
+function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean } } = {}) {
   const calls: { method: string; path: string; body?: any }[] = [];
   const state = { sha: o.sha ?? SHA };
   const ghe: Ghe = {
@@ -35,10 +35,20 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
       calls.push({ method, path, body: init.body });
       if (path.startsWith("/repos/ACME/shop-api/pulls/840/files")) return (path.includes("page=1") ? FILES : []) as T;
       if (method === "GET" && path === "/repos/ACME/shop-api/pulls/840") return { state: "open", head: { sha: state.sha }, user: { login: o.author ?? "per" } } as T;
+      if (method === "POST" && path === "/repos/ACME/shop-api/pulls/840/comments/77/replies") return { id: 78 } as T;
       if (method === "POST" && path === "/repos/ACME/shop-api/pulls/840/reviews") return { html_url: "https://acme.ghe.com/ACME/shop-api/pull/840#pullrequestreview-1" } as T;
       throw new Error(`GHE ${method} ${path}: 404`);
     },
-    async graphql<T>() {
+    async graphql<T>(q: string) {
+      if (q.startsWith("mutation")) {
+        calls.push({ method: "MUTATION", path: q });
+        return {} as T;
+      }
+      if (q.includes("node(id:")) {
+        calls.push({ method: "NODE", path: q });
+        const t = o.thread ?? {};
+        return { node: q.includes('"PRRT_one"') ? { isResolved: !!t.resolved, pullRequest: { number: t.n ?? 840, repository: { nameWithOwner: t.repo ?? "ACME/shop-api" } }, comments: { nodes: [{ databaseId: 77 }] } } : null } as T;
+      }
       return view({ author: o.author, sha: state.sha }) as T;
     },
   };
@@ -202,4 +212,42 @@ test("people's reviews are their own (hosted: by verified email)", async () => {
   await addComment(db.DB, "a@x.no", "ACME/shop-api#840", SHA, { path: PATH, side: "RIGHT", line: 11, body: "A's" });
   assert.equal(await myReview(db.DB, "b@x.no", "ACME/shop-api#840"), undefined);
   assert.equal((await myReview(db.DB, "a@x.no", "ACME/shop-api#840"))!.comments.length, 1);
+});
+
+test("threads: reply and resolve from the conversation and the files, each checked on GHE, asked twice, logged without text", async () => {
+  const { db, calls, post, text } = setup();
+  const page = await text(B);
+  assertInert("conversation with thread actions", page);
+  assert.match(page, /<details class="thread-reply"><summary>Reply<\/summary><form method="post" action="\/prs\/ACME\/shop-api\/840\/threads\/reply"><input type="hidden" name="thread" value="PRRT_one">/);
+  assert.match(page, /<details class="confirm"><summary>Reply…/, "a reply asks twice");
+  assert.match(page, /<details class="confirm"><summary>Resolve…/);
+  assert.match(await text(`${B}/files`), /threads\/reply/, "on the diff too");
+  const res = await post(`${B}/threads/reply`, { thread: "PRRT_one", body: `Because ${H}`, back: "files" });
+  assert.equal(res.headers.get("location"), `${B}/files`);
+  const sent = calls.filter((c) => c.method === "POST");
+  assert.deepEqual(sent.map((c) => [c.path, c.body.body]), [["/repos/ACME/shop-api/pulls/840/comments/77/replies", `Because ${H}`]]);
+  assert.match(await text(`${B}/files`), /Replied on ACME\/shop-api#840/);
+  await post(`${B}/threads/resolve`, { thread: "PRRT_one", resolve: "1", back: "conversation" });
+  assert.equal(calls.filter((c) => c.method === "MUTATION").length, 1);
+  assert.match(calls.find((c) => c.method === "MUTATION")!.path, /^mutation\{resolveReviewThread\(input:\{threadId:"PRRT_one"\}\)/);
+  assert.match(await text(B), /Resolved the thread/);
+  const log = await recentActions(db.DB);
+  assert.deepEqual(log.map((a) => [a.kind, a.detail]).reverse(), [["pr.thread-reply", "a reply to 77"], ["pr.thread-resolve", "a thread"]]);
+});
+
+test("threads: one on another PR, an odd id, or an empty reply changes nothing; resolving a resolved one does nothing", async () => {
+  const other = setup({ thread: { n: 841 } });
+  await other.post(`${B}/threads/reply`, { thread: "PRRT_one", body: "x" });
+  await other.post(`${B}/threads/resolve`, { thread: "PRRT_one", resolve: "1" });
+  assert.equal(other.calls.filter((c) => c.method === "POST" || c.method === "MUTATION").length, 0);
+  assert.match(await other.text(B), /isn&#39;t on ACME\/shop-api#840|isn't on ACME\/shop-api#840/);
+  const odd = setup();
+  await odd.post(`${B}/threads/reply`, { thread: "x y}){evil", body: "x" });
+  await odd.post(`${B}/threads/reply`, { thread: "PRRT_one", body: "   " });
+  assert.equal(odd.calls.filter((c) => c.method !== "GET").length, 0, "neither reaches GHE");
+  const done = setup({ thread: { resolved: true } });
+  await done.post(`${B}/threads/resolve`, { thread: "PRRT_one", resolve: "1" });
+  assert.equal(done.calls.filter((c) => c.method === "MUTATION").length, 0);
+  await done.post(`${B}/threads/resolve`, { thread: "PRRT_one", resolve: "0" });
+  assert.match(done.calls.find((c) => c.method === "MUTATION")!.path, /unresolveReviewThread/);
 });

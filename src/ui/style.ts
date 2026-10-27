@@ -1084,6 +1084,11 @@ tr:hover > .code > .d-c, .d-c:focus-visible, .d-c.picked { opacity: 1; backgroun
 .d-form td { padding: 4px 12px 8px; white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
 .d-form .draft-card { border-color: var(--accent, var(--line)); background: var(--surface); }
 .review-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--accent-line, var(--line)); border-radius: var(--r-s); background: var(--accent-soft); font-size: var(--fs-s); }
+.thread-acts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; padding: 4px 12px 10px; }
+.thread-acts .buttons { margin: 0; }
+.thread-reply { flex: 1 1 24rem; }
+.thread-reply > summary { cursor: pointer; color: var(--ink-2); font-size: var(--fs-s); }
+.thread-reply textarea { width: 100%; margin: 6px 0; }
 .review-bar .buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0; }
 @media (hover: none) { .d-c { opacity: .55; } }
 .sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
