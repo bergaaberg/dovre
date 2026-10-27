@@ -1,10 +1,17 @@
 # Dovre
 
-**Local-first and Cloudflare-hosted engineering cockpit.**
+**A self-hosted cockpit for your repos, CI and coding agents.** Runs on Cloudflare Workers or your own server.
 
-Dovre joins your GitHub repositories (`github.com` or GitHub Enterprise), CI/deploys, pluggable app packs, and local coding agents (`claude`, `codex`, `omp`, `copilot`, `agy`) into a single live morning view.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) · **[Try the demo](https://demo.dovre.dev)** · [dovre.dev](https://dovre.dev) · [Docs](https://dovre.dev/docs)
 
-- **Interactive Demo & Setup Generator:** [dovre.dev](https://dovre.dev) · **Docs:** [dovre.dev/docs](https://dovre.dev/docs)
+[![Dovre's morning view: what waits for you, the last 24 hours, agents, pull requests and what's happening](docs/img/today.png)](https://demo.dovre.dev)
+
+- **One morning view.** Pull requests, red builds, deploys waiting for approval and what changed in your apps, across every repo on `github.com` or GitHub Enterprise, in one live page.
+- **Your coding agents in one place.** `claude`, `codex`, `omp`, `copilot` and `agy` sessions: who is working, who needs you, and what they cost, from your desk or your phone.
+- **Packs for the rest.** Linear, Slack, OpenTelemetry, Kafka, DuckDB, Docker and more each add a card, a page and answers to Bino, the built-in assistant.
+
+More:
+
 - **Pre-Built Packs:** [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs)
 - **Scoped Assistant Memory:** [`bergaaberg/memlet`](https://github.com/bergaaberg/memlet)
 - **Self-host on Cloudflare or your own server:** [docs/SELF-HOST.md](docs/SELF-HOST.md) · **Reach local Dovre from another machine:** [docs/REMOTE.md](docs/REMOTE.md)
