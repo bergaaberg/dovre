@@ -1140,6 +1140,24 @@ document.addEventListener("keydown", (e) => {
   if (t.value.trim() && t.form) t.form.requestSubmit();
 }, true);
 
+// ── A form that saves as I change it (form[data-autosave]: Settings → Look and layout): posted in
+// the background, then the page reloads where it is, so a theme or a tab shows at once. Typing in a
+// box saves when it loses focus (change), not on every key. ──
+document.addEventListener("change", async (e) => {
+  const form = e.target.closest && e.target.closest("form[data-autosave]");
+  if (!form || form.dataset.saving) return;
+  form.dataset.saving = "1";
+  try {
+    const res = await fetch(form.action, { method: "POST", body: new URLSearchParams(new FormData(form)), redirect: "manual" });
+    if (res.type === "opaqueredirect" || res.ok) return location.reload();
+    form.requestSubmit();
+  } catch {
+    form.requestSubmit();
+  } finally {
+    delete form.dataset.saving;
+  }
+});
+
 // ── A link to /page#id opens that row in place (a <details> closed by default) ──
 function openTarget() {
   const el = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));

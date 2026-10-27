@@ -34,7 +34,7 @@ export function layoutPanel(v: LayoutView) {
   const off = (list: string[] | undefined, id: string) => !!list?.includes(id);
   const pick = (name: string, label: string, value: string | undefined, choices: { value: string; label: string }[]) =>
     html`<label class="field"><span class="label">${label}</span><select name="${name}">${choices.map((o) => html`<option value="${o.value}"${(value ?? "") === o.value ? html` selected` : ""}>${o.label}</option>`)}</select></label>`;
-  const form = html`<form method="post" action="/settings/layout">
+  const form = html`<form method="post" action="/settings/layout" data-autosave>
 <div class="fields">${pick("theme", "Theme", v.layout.theme, [{ value: "", label: "As the system" }, { value: "light", label: "Light (cabin)" }, { value: "dark", label: "Dark (night)" }, { value: "birch", label: "Birch (cool light)" }, { value: "polar", label: "Polar (black)" }, { value: "ember", label: "Ember (warm dark)" }])}${pick("accent", "Accent", v.layout.accent, [{ value: "", label: "Fjord (blue)" }, { value: "heather", label: "Heather (violet)" }, { value: "glacier", label: "Glacier (ice blue)" }])}${pick("binoButton", "Bino's button", v.layout.binoButton, [{ value: "", label: "The face a pack draws, when there is one" }, { value: "icon", label: "The assistant icon" }])}</div>
 <div class="field"><span class="label">On the phone</span><span class="hint">The bar at the foot: Today, then up to three pages, then More.</span></div>
 <div class="fields">${[0, 1, 2].map(tab)}</div>
@@ -43,8 +43,8 @@ ${v.cards.length
 <div class="layout-rows">${v.cards.map(card)}</div>`
   : ""}
 ${v.stats.length
-  ? html`<div class="field"><span class="label">Stats</span><span class="hint">What the Stats page shows, lowest number first, and how far back its weekly charts reach.</span></div>
-<div class="fields">${pick("statsWeeks", "Weeks on Stats", v.layout.statsWeeks ? String(v.layout.statsWeeks) : "", [{ value: "", label: "12 weeks" }, { value: "4", label: "4 weeks" }, { value: "26", label: "26 weeks" }])}</div>
+  ? html`<div class="field"><span class="label">Stats</span><span class="hint">What the Stats page shows, lowest number first, and how far back its charts reach, by week or by day.</span></div>
+<div class="fields">${pick("statsWeeks", "Range on Stats", v.layout.statsDays ? `${v.layout.statsDays}d` : v.layout.statsWeeks ? String(v.layout.statsWeeks) : "", [{ value: "", label: "12 weeks" }, { value: "4", label: "4 weeks" }, { value: "26", label: "26 weeks" }, { value: "14d", label: "14 days" }, { value: "28d", label: "28 days" }])}</div>
 <div class="layout-rows">${v.stats.map(stat)}</div>`
   : ""}
 ${v.feeds.length
@@ -53,12 +53,12 @@ ${v.feeds.length
 ${v.packs.length
   ? html`<div class="field"><span class="label">Packs shown</span><fieldset>${v.packs.map((c) => html`<label class="check"><input type="checkbox" name="pack" value="${c.id}"${off(v.layout.packsOff, c.id) ? "" : html` checked`}> ${c.name}</label><br>`)}</fieldset><span class="hint">A hidden pack leaves the menu, Today, the feed, search and Bino, its pages answer 404, and it stops refreshing. <a href="/packs">Packs</a> lists them all.</span></div>`
   : ""}
-<div class="buttons"><button type="submit" class="primary">Save</button></div>
+<noscript><div class="buttons"><button type="submit" class="primary">Save</button></div></noscript>
 </form>`;
   return Panel({
     id: "layout",
     title: "Look and layout",
-    meta: "applies at once",
+    meta: "saves as you change it",
     actions: html`<form method="post" action="/settings/layout/reset"><button type="submit" class="sm">Back to defaults</button></form>`,
     children: form,
   });

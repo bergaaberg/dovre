@@ -572,14 +572,19 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const gheSearch = createGheSearch(ghe, ownersIn(env));
   // ── Stats (src/stats/): drawn from what's kept; a visit gathers again when it's due ──
   /** The packs' panels for /stats, over the weeks I picked (Settings → Look and layout). */
-  const packStats = () => statsFrom(shown(), ctxOf, layout.get().statsWeeks ?? WEEKS, (id, line) => packLog(id)(line));
+  // Days touch at most five weeks: that's what a pack drawing weekly gets.
+  const packStats = () => {
+    const l = layout.get();
+    return statsFrom(shown(), ctxOf, l.statsDays ? Math.ceil(l.statsDays / 7) + 1 : (l.statsWeeks ?? WEEKS), (id, line) => packLog(id)(line), l.statsDays);
+  };
+  const reach = () => ({ weeks: layout.get().statsWeeks ?? WEEKS, days: layout.get().statsDays });
   app.get("/stats", async (c) => {
     const { frame } = await page();
-    stats.refresh(false, layout.get().statsWeeks ?? WEEKS);
+    stats.refresh(false, reach());
     return c.html(statsPage(frame, stats.view(), { forge, packs: packStats(), layout: layout.get(), github: can("stats") }));
   });
   app.post("/stats/refresh", async (c) => {
-    stats.refresh(true, layout.get().statsWeeks ?? WEEKS);
+    stats.refresh(true, reach());
     return c.redirect("/stats", 303);
   });
 

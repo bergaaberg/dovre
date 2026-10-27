@@ -420,9 +420,11 @@ export type Pack = {
   needs?(ctx: PackContext): PackNeed[];
   /**
    * Its panels on /stats, from memory, never awaited (see PackStat): gather on the pack's own
-   * schedule in `refresh`. `weeks` is the range I picked on Settings (4 or 12), for weekly charts.
+   * schedule in `refresh`. `weeks` is the range I picked on Settings (4, 12 or 26), for weekly
+   * charts. `days` is set when I picked days instead (14 or 28): draw per day where you can, or
+   * weekly over `weeks` (the weeks those days touch).
    */
-  stats?(ctx: PackContext, o: { weeks: number }): PackStat[];
+  stats?(ctx: PackContext, o: { weeks: number; days?: number }): PackStat[];
   /**
    * A bar at the top of every page, above the page itself, from memory: something to answer wherever I
    * am (an agent waiting for my OK on a tool). Empty most of the time. It's redrawn with the page's

@@ -28,10 +28,14 @@ export type Layout = {
   stats?: Record<string, StatPlace>;
   /** How many weeks /stats's weekly charts span (default 12). */
   statsWeeks?: StatsWeeks;
+  /** /stats by day instead, over this many days. */
+  statsDays?: StatsDays;
 };
 export type StatPlace = { show: boolean; order: number };
 export const STATS_WEEKS = [4, 12, 26] as const;
 export type StatsWeeks = (typeof STATS_WEEKS)[number];
+export const STATS_DAYS = [14, 28] as const;
+export type StatsDays = (typeof STATS_DAYS)[number];
 export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
 export const ACCENTS = ["heather", "glacier"] as const;
@@ -79,6 +83,7 @@ export function layoutOf(raw: unknown): Layout {
     out.stats = stats;
   }
   if (STATS_WEEKS.includes(v.statsWeeks as StatsWeeks)) out.statsWeeks = v.statsWeeks as StatsWeeks;
+  if (STATS_DAYS.includes(v.statsDays as StatsDays)) out.statsDays = v.statsDays as StatsDays;
   return out;
 }
 
@@ -118,7 +123,7 @@ export function placeCards<T>(slots: Slot<T>[], cards: Layout["cards"]): Record<
 /**
  * The Layout form, read against what's here: `tab1..3` hrefs from the menu, `col:<id>` and
  * `order:<id>` per card, `feed` and `pack` the ticked packs (the rest go off), `stat:<id>` (on/off)
- * and `statorder:<id>` per stat, and `statsWeeks`.
+ * and `statorder:<id>` per stat, and `statsWeeks` (a number of weeks, or of days as `14d`).
  */
 export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: string[]; cards: string[]; feeds: string[]; packs: string[]; /** /stats's panels on offer. */ stats?: string[] }): Layout {
   const one = (k: string) => (typeof form[k] === "string" ? String(form[k]) : "");
@@ -138,7 +143,7 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
     const at = one(`statorder:${id}`).trim();
     if (show === "on" || show === "off") stats[id] = { show: show === "on", order: at === "" ? 100 : order(Number(at)) };
   }
-  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), binoButton: one("binoButton"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")) });
+  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), binoButton: one("binoButton"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")), statsDays: Number(/^(\d+)d$/.exec(one("statsWeeks"))?.[1]) });
 }
 
 /**

@@ -14,11 +14,11 @@ export type StatsView = { history?: History; historyError?: string; gathering: b
 export type Stats = {
   view(): StatsView;
   /**
-   * Gathers again when it's due (or `force`); returns at once. `weeks`: how many Stats shows now
-   * (Settings → Look and layout); kept for the background gathers, and a longer history than the
-   * kept one is gathered at once.
+   * Gathers again when it's due (or `force`); returns at once. `reach`: how many weeks, or days,
+   * Stats shows now (Settings → Look and layout); kept for the background gathers, and a reach the
+   * kept history doesn't have is gathered at once.
    */
-  refresh(force?: boolean, weeks?: number): void;
+  refresh(force?: boolean, reach?: { weeks?: number; days?: number }): void;
 };
 
 const EVERY = 6 * 3600e3;
@@ -40,6 +40,7 @@ export function createStats(o: { ghe: Ghe; org: string; login: () => string | un
   }
   // What a gather reaches back: as far as the kept one did, until the page says otherwise.
   let want = GATHER_WEEKS(history?.weeks);
+  let wantDays = history?.days ?? 0;
   const keep = () => {
     if (!o.file || !history) return;
     try {
@@ -49,12 +50,15 @@ export function createStats(o: { ghe: Ghe; org: string; login: () => string | un
   };
   return {
     view: () => ({ history, historyError, gathering, spend, spendAt, spends: !!o.spend }),
-    refresh(force = false, weeks?: number) {
-      if (weeks !== undefined) want = GATHER_WEEKS(weeks);
+    refresh(force = false, reach?: { weeks?: number; days?: number }) {
+      if (reach) {
+        want = GATHER_WEEKS(reach.weeks);
+        wantDays = reach.days ?? 0;
+      }
       const login = o.login();
-      if (login && (o.github?.() ?? true) && !gathering && (force || !history || history.login !== login || (history.weeks ?? WEEKS) < want || now() - history.at > EVERY)) {
+      if (login && (o.github?.() ?? true) && !gathering && (force || !history || history.login !== login || (history.weeks ?? WEEKS) < want || (history.days ?? 0) < wantDays || now() - history.at > EVERY)) {
         gathering = true;
-        gather(o.ghe, o.org, login, now(), want).then(
+        gather(o.ghe, o.org, login, now(), want, wantDays).then(
           (h) => {
             history = h;
             historyError = undefined;
