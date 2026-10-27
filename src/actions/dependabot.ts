@@ -94,7 +94,7 @@ type RawPull = { number: number; title: string; html_url: string; state: string;
 export type CombineResult = { ok: boolean; message: string; url?: string; merged?: number[]; skipped?: { number: number; why: string }[] };
 
 /** The branches combine() opens its PRs from. */
-const BRANCH = "dovre/dependabot-";
+export const BRANCH = "dovre/dependabot-";
 
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
