@@ -376,6 +376,8 @@ details > summary { cursor: pointer; }
   .tabbar.gap-32 { grid-template-columns: 2fr 2fr 2fr 76px 3fr 3fr; }
   body:has(.tab-gap) #bdock-btn { position: fixed; left: calc(50% - 31px); bottom: calc(10px + var(--sab)); z-index: 1; width: 62px; height: 62px; padding: 0; justify-content: center; border-width: 1.5px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, var(--surface-2), var(--surface) 70%); box-shadow: 0 0 0 5px var(--bg), 0 0 0 6px var(--line), 0 10px 24px -10px var(--accent); transition: transform .15s ease-out; }
   body:has(.tab-gap) #bdock-btn:active { transform: scale(.94); }
+  body:has(.tab-gap) .bino-btn span { display: none; }
+  body:has(.tab-gap) .bino-btn svg { width: 26px; height: 26px; }
   body:has(.tab-gap) .av-say { position: fixed; left: 50%; right: auto; bottom: calc(86px + var(--sab)); max-width: calc(100vw - 32px); transform: translateX(-50%); }
   body:has(.tab-gap) .av-say::after { right: calc(50% - 5px); }
   body:has(.side.open) #bdock-btn, body:has(.side.open) .av-say { display: none; }
@@ -951,6 +953,8 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .tdock { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
 .tdock > * { pointer-events: auto; }
 .tdock-btn { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: 600 var(--fs-s)/1.2 var(--sans); text-decoration: none; box-shadow: var(--shadow); }
+.bino-btn { gap: 8px; }
+.bino-btn svg { width: 18px; height: 18px; color: var(--accent); }
 .tdock-btn:hover, .tdock.open .tdock-btn { border-color: var(--accent); color: var(--accent); }
 .tdock-btn b { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); }
 .tdock-btn b.hot { background: var(--warn-soft); color: var(--warn); }

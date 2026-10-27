@@ -47,7 +47,7 @@ export function themeColor(theme?: string) {
 <meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;
 }
 
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** The theme when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the assistant icon (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** The theme when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string; /** Bino's button: the assistant icon even when a pack draws a face (Settings → Layout). */ binoIcon?: boolean }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
 
 /**
  * Bino's pane, docked at the bottom right of every page but Bino's own. Without script it's a link
@@ -57,7 +57,7 @@ export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?
 function binoDock(face: Html | ""): Html {
   // With a face (the avatar pack's), the button is it: it works, hops and says what happened (src/ui/app.js.ts).
   if (face) return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn av-dock" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino (B)" aria-label="Bino" data-av-box>${face}</a></div>`;
-  return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino (B)">Bino</a></div>`;
+  return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn bino-btn" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino, your assistant (B)" aria-label="Bino">${icon("bino")}<span>Ask Bino</span></a></div>`;
 }
 
 /**
@@ -96,7 +96,7 @@ const within = (href: string, path: string) => path === href || (href !== "/" &&
 function docksOf(frame: Frame, current: string): Html | "" {
   const bino = frame.bino && !within("/bino", current);
   const packs = (frame.docks ?? []).filter((d) => !within(`/${d.id}`, current));
-  return bino || packs.length ? html`<div class="docks">${bino ? binoDock(frame.face?.({ place: "dock" }) ?? "") : ""}${packs.map(packDock)}</div>` : "";
+  return bino || packs.length ? html`<div class="docks">${bino ? binoDock(frame.look?.binoIcon ? "" : (frame.face?.({ place: "dock" }) ?? "")) : ""}${packs.map(packDock)}</div>` : "";
 }
 
 const hm = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);

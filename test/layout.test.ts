@@ -146,3 +146,29 @@ test("themes (#95): each has its block, its accents and its scheme; the browser'
   assert.ok(!STYLE.includes(':not([data-theme="light"])'), "the system's dark only fills in when no theme is picked");
   assert.deepEqual(layoutOf({ theme: "polar" }), { theme: "polar" });
 });
+
+test("Bino's button: the assistant icon without an avatar; with one, the avatar unless Settings → Layout says the icon", async () => {
+  const { createApp } = await import("../src/app.ts");
+  const { noMemory } = await import("../src/packs/core/assistant/bino/memory.ts");
+  const { fakeGhe, fixedGatherer } = await import("./helpers.ts");
+  const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
+  const bino = { route: { via: "claude" as const, ready: true, model: "sonnet", reflectModel: "haiku", ask: async () => ({ text: "", cost: 0 }) }, memory: noMemory("no") };
+  const face = pack("face", "Face", { slots: () => ({ "bino.face": () => html`<img class="av-face" alt="">` }) });
+  const appWith = (packs: Pack[]) => {
+    const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino, packs: { on: packs, off: [], env: {} } });
+    const get = (path: string) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
+    const post = (path: string, body: Record<string, string>) => app.request(`http://localhost${path}`, { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
+    return { get, post };
+  };
+  const button = (page: string) => page.match(/<a class="tdock-btn[^"]*" id="bdock-btn"[^]*?<\/a>/)?.[0] ?? "";
+  const icon = button(await (await appWith([]).get("/prs")).text());
+  assert.match(icon, /class="tdock-btn bino-btn"/);
+  assert.match(icon, /href="#i-bino"/);
+  assert.match(icon, /aria-label="Bino"/);
+  const { get, post } = appWith([face]);
+  assert.match(button(await (await get("/prs")).text()), /av-dock[^]*av-face/);
+  await post("/settings/layout", { binoButton: "icon" });
+  assert.match(button(await (await get("/prs")).text()), /href="#i-bino"/);
+  assert.match(await (await get("/settings")).text(), /<option value="icon" selected>The assistant icon/);
+  assert.deepEqual(layoutOf({ binoButton: "face" }), {}, "only what it knows");
+});
