@@ -18,7 +18,7 @@ import { Confirm, ConfirmSubmit, type Child, Empty, type Html, Item, KeyValues, 
 import { markdown } from "../ui/markdown.ts";
 import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
-import { type DiffLine, type FileView, fileViews, placeMine } from "../viewer/diff.ts";
+import { type DiffLine, type FileView, fileViews, type Mark, placeMine } from "../viewer/diff.ts";
 import { type DiffAsk, type LocalDiff, localDiff, MAX_FILES, MAX_UNTRACKED } from "../viewer/localdiff.ts";
 import { Ago, Link } from "./parts.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -46,9 +46,10 @@ const codeHref = (dir: string, o: { ref?: string; path?: string; q?: string } = 
   return `/code/${encodeURIComponent(dir)}${s ? `?${s}` : ""}`;
 };
 /** A checkout's own diff (dovre#105): uncommitted by default, or two refs, or one commit. */
-export const diffHref = (dir: string, o: { base?: string; head?: string; commit?: string } = {}) => {
+export const diffHref = (dir: string, o: { base?: string; head?: string; commit?: string; /** Side by side. */ split?: boolean } = {}) => {
   const q = new URLSearchParams();
   for (const k of ["base", "head", "commit"] as const) if (o[k]) q.set(k, o[k]!);
+  if (o.split) q.set("view", "split");
   const s = q.toString();
   return `/code/${encodeURIComponent(dir)}/diff${s ? `?${s}` : ""}`;
 };
@@ -154,6 +155,46 @@ export type LineExtra = (l: DiffLine) => Html | "";
 /** Where a line's "+" goes (my own review, dovre#106): a comment on that side's line number. */
 export type CommentAt = (side: "LEFT" | "RIGHT", line: number) => string;
 
+/** A line's text, the words that changed in it marked. */
+function marked(text: string, marks?: Mark[]): Html | string {
+  if (!marks?.length) return text;
+  const parts: (Html | string)[] = [];
+  let at = 0;
+  for (const [from, to] of marks) {
+    if (from > at) parts.push(text.slice(at, from));
+    parts.push(html`<mark class="d-w">${text.slice(from, to)}</mark>`);
+    at = to;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return html`${parts}`;
+}
+
+type Code = Extract<DiffLine, { kind: "ctx" | "add" | "del" }>;
+const half = (l: Code | undefined, side: "old" | "new") =>
+  l ? html`<td class="ln ${LINE_CLASS[l.kind]}">${l[side] ?? ""}</td><td class="code ${LINE_CLASS[l.kind]}"><code>${marked(l.text, l.marks)}</code></td>` : html`<td class="ln d-empty"></td><td class="code d-empty"></td>`;
+
+/** Side by side (dovre#105): the old file left, the new right; removed lines face the lines that took their place. */
+function splitRows(lines: DiffLine[]): Html[] {
+  const rows: Html[] = [];
+  for (let i = 0; i < lines.length; ) {
+    const l = lines[i]!;
+    if (l.kind === "hunk" || l.kind === "note") {
+      rows.push(html`<tr class="${l.kind === "hunk" ? "d-hunk" : "d-note"}"${l.kind === "hunk" ? html` data-stop="2"` : ""}><td class="ln"></td><td class="code${l.kind === "note" ? " t3" : ""}" colspan="3"><code>${l.text}</code></td></tr>`);
+      i++;
+    } else if (l.kind === "ctx") {
+      rows.push(html`<tr>${half(l, "old")}${half(l, "new")}</tr>`);
+      i++;
+    } else {
+      const dels: Code[] = [];
+      const adds: Code[] = [];
+      while (lines[i]?.kind === "del") dels.push(lines[i++] as Code);
+      while (lines[i]?.kind === "add") adds.push(lines[i++] as Code);
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) rows.push(html`<tr>${half(dels[k], "old")}${half(adds[k], "new")}</tr>`);
+    }
+  }
+  return rows;
+}
+
 function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt, acts?: ThreadActs): Html {
   if (l.kind === "hunk") return html`<tr class="d-hunk" data-stop="2"><td class="ln"></td><td class="ln"></td><td class="code"><code>${l.text}</code></td></tr>`;
   if (l.kind === "note") return html`<tr class="d-note"><td class="ln"></td><td class="ln"></td><td class="code t3">${l.text}</td></tr>`;
@@ -161,7 +202,7 @@ function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt, acts?: ThreadAc
   const side = l.kind === "del" ? "LEFT" : "RIGHT";
   const line = side === "LEFT" ? l.old : l.new;
   const plus = at && line ? html`<a class="d-c" href="${at(side, line)}" data-side="${side}" data-line="${line}" aria-label="Comment on line ${line}" title="Comment (c)">+</a>` : "";
-  return html`<tr class="${LINE_CLASS[l.kind]}"><td class="ln">${l.old ?? ""}</td><td class="ln">${l.new ?? ""}</td><td class="code">${plus}<code><span class="d-sign" aria-hidden="true">${sign}</span>${l.text}</code></td></tr>${
+  return html`<tr class="${LINE_CLASS[l.kind]}"><td class="ln">${l.old ?? ""}</td><td class="ln">${l.new ?? ""}</td><td class="code">${plus}<code><span class="d-sign" aria-hidden="true">${sign}</span>${marked(l.text, l.marks)}</code></td></tr>${
     l.threads?.length ? html`<tr class="d-threads"><td colspan="3">${l.threads.map((t) => threadView(t, { acts }))}</td></tr>` : ""
   }${extra ? extra(l) : ""}`;
 }
@@ -169,7 +210,7 @@ function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt, acts?: ThreadAc
 export const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
 
 /** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
-export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt; acts?: ThreadActs }): Html {
+export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt; acts?: ThreadActs; /** Side by side: no comments or threads on lines (the local diff has none). */ split?: boolean }): Html {
   const f = fv.file;
   const name = f.previous && f.previous !== f.path ? html`<code>${f.previous}</code> → <code>${f.path}</code>` : html`<code>${f.path}</code>`;
   const view = o.dir && f.status !== "removed" ? (o.present ? html`<a class="btn sm ghost" href="${codeHref(o.dir, { ref: o.sha, path: f.path })}">View file</a>` : "") : "";
@@ -178,7 +219,7 @@ export function fileView(fv: FileView, o: { sha: string; dir?: string; present: 
     fv.threads.length ? html` · ${fv.threads.length} ${fv.threads.length === 1 ? "thread" : "threads"}` : ""
   }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""}${fv.mine ? html` · <span class="spark">${fv.mine} pending</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
     fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true, acts: o.acts }))}</div>` : ""
-  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map((l) => lineRow(l, o.extra, at, o.acts))}</tbody></table></div>` : ""}</details>`;
+  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff${o.split ? " split" : ""}"><tbody>${o.split ? splitRows(fv.lines) : fv.lines.map((l) => lineRow(l, o.extra, at, o.acts))}</tbody></table></div>` : ""}</details>`;
 }
 
 /** My own review on the Files tab (dovre#106): pending comments, the form open at a line (no script), the agent's draft to start from. */
@@ -289,7 +330,7 @@ export function codePage(frame: Frame, o: { dir: string; repo: string; ref: stri
 
 // ── A checkout's own diff (dovre#105) ───────────────────────────────────────
 
-export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: DiffAsk; diff: LocalDiff }): Html {
+export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: DiffAsk; diff: LocalDiff; /** Side by side. */ split?: boolean }): Html {
   const a = o.ask;
   const d = o.diff;
   const short = (sha?: string) => (sha ? sha.slice(0, 7) : "");
@@ -302,11 +343,15 @@ export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: Diff
   const tabs = Tabs({
     label: "What to compare",
     items: [
-      { href: diffHref(o.dir), label: "Uncommitted", current: a.kind === "worktree" && a.base === "HEAD" },
-      { href: diffHref(o.dir, { base: "origin/HEAD", head: "HEAD" }), label: "Branch vs default", current: a.kind === "refs" },
+      { href: diffHref(o.dir, { split: o.split }), label: "Uncommitted", current: a.kind === "worktree" && a.base === "HEAD" },
+      { href: diffHref(o.dir, { base: "origin/HEAD", head: "HEAD", split: o.split }), label: "Branch vs default", current: a.kind === "refs" },
     ],
   });
-  const form = html`<div class="code-bar"><form method="get" action="${diffHref(o.dir)}" class="code-ref"><label class="label" for="base">Base</label><input type="text" id="base" name="base" value="${a.kind === "commit" ? "" : a.base}" maxlength="200" placeholder="HEAD"><label class="label" for="head">Head</label><input type="text" id="head" name="head" value="${a.kind === "refs" ? a.head : ""}" maxlength="200" placeholder="working tree"><button type="submit" class="sm">Compare</button></form><form method="get" action="${diffHref(o.dir)}" class="code-ref"><label class="label" for="commit">Commit</label><input type="text" id="commit" name="commit" value="${a.kind === "commit" ? a.sha : ""}" maxlength="200"><button type="submit" class="sm">Show</button></form></div>`;
+  // The same comparison, the other way of laying it out.
+  const same = a.kind === "commit" ? { commit: a.sha } : a.kind === "refs" ? { base: a.base, head: a.head } : { base: a.base === "HEAD" ? undefined : a.base };
+  const layout = html`<a class="btn sm ghost" href="${diffHref(o.dir, { ...same, split: !o.split })}">${o.split ? "Unified" : "Side by side"}</a>`;
+  const keep = o.split ? html`<input type="hidden" name="view" value="split">` : "";
+  const form = html`<div class="code-bar"><form method="get" action="${diffHref(o.dir)}" class="code-ref"><label class="label" for="base">Base</label><input type="text" id="base" name="base" value="${a.kind === "commit" ? "" : a.base}" maxlength="200" placeholder="HEAD"><label class="label" for="head">Head</label><input type="text" id="head" name="head" value="${a.kind === "refs" ? a.head : ""}" maxlength="200" placeholder="working tree">${keep}<button type="submit" class="sm">Compare</button></form><form method="get" action="${diffHref(o.dir)}" class="code-ref"><label class="label" for="commit">Commit</label><input type="text" id="commit" name="commit" value="${a.kind === "commit" ? a.sha : ""}" maxlength="200">${keep}<button type="submit" class="sm">Show</button></form>${layout}</div>`;
   let inner: Html;
   if (!d.ok) inner = Notice({ tone: "bad", children: html`<strong>The diff didn't load.</strong> ${d.error}` });
   else if (!d.files.length) inner = Panel({ children: Empty({ title: a.kind === "worktree" ? "Nothing uncommitted" : "No changes" }) });
@@ -321,7 +366,7 @@ export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: Diff
       (fv) => html`<li><a href="#${fileId(fv.file.path)}"><code>${fv.file.path}</code></a> <span class="add">+${fv.file.additions}</span> <span class="del">−${fv.file.deletions}</span></li>`,
     )}</ul></nav>${d.capped ? Notice({ tone: "warn", children: `Showing the first ${MAX_FILES} files.` }) : ""}${
       d.moreUntracked ? Notice({ tone: "warn", children: `${d.moreUntracked} more untracked ${d.moreUntracked === 1 ? "file" : "files"} past the first ${MAX_UNTRACKED}, not shown.` }) : ""
-    }${views.map((fv) => fileView(fv, { sha: key, dir: head ? o.dir : undefined, present: !!head }))}`;
+    }${views.map((fv) => fileView(fv, { sha: key, dir: head ? o.dir : undefined, present: !!head, split: o.split }))}`;
   }
   return shell({
     title: `Changes · ${o.dir} · Dovre`,
@@ -650,7 +695,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const refs = ask.kind === "commit" ? [ask.sha] : ask.kind === "refs" ? [ask.base, ask.head] : [ask.base];
     if (!refs.every(safeRef)) return c.html(diffPage(frame, { dir: co.dir, repo: co.repo, ask, diff: { ok: false, error: "That isn't a ref in this checkout." } }), 400);
     const diff = await localDiff(g, dirOf(env.CODE_DIR, co.dir), ask);
-    return c.html(diffPage(frame, { dir: co.dir, repo: co.repo, ask, diff }), diff.ok ? 200 : 404);
+    return c.html(diffPage(frame, { dir: co.dir, repo: co.repo, ask, diff, split: c.req.query("view") === "split" }), diff.ok ? 200 : 404);
   });
 
   app.get("/code/:dir", async (c) => {

@@ -6,7 +6,7 @@ import type { PrFile, Thread } from "../sources/prview.ts";
 
 export type DiffLine =
   | { kind: "hunk"; text: string; oldStart: number; newStart: number }
-  | { kind: "ctx" | "add" | "del"; text: string; old?: number; new?: number; threads?: Thread[]; /** Draft line comments here, by their index in the draft. */ drafts?: number[]; /** My pending review's comments here, by index (dovre#106). */ mine?: number[] }
+  | { kind: "ctx" | "add" | "del"; text: string; old?: number; new?: number; threads?: Thread[]; /** What changed within the line, as [from, to) offsets into `text`, against the line it replaced (markWords). */ marks?: Mark[]; /** Draft line comments here, by their index in the draft. */ drafts?: number[]; /** My pending review's comments here, by index (dovre#106). */ mine?: number[] }
   | { kind: "note"; text: string };
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
@@ -30,7 +30,72 @@ export function parsePatch(patch: string): DiffLine[] {
     else if (line.startsWith("-")) out.push({ kind: "del", text: line.slice(1), old: o++ });
     else out.push({ kind: "ctx", text: line.startsWith(" ") ? line.slice(1) : line, old: o++, new: n++ });
   }
-  return out;
+  return markWords(out);
+}
+
+/** A stretch of a line: [from, to) offsets. */
+export type Mark = [number, number];
+
+const TOKEN = /\w+|\s+|[^\w\s]/g;
+/** Longer lines aren't compared word by word: the whole line's tint says enough. */
+const MAX_CHARS = 500;
+const MAX_TOKENS = 160;
+
+/**
+ * The words that differ between a removed line and the line that took its place, on each side.
+ * Undefined when they're too long to compare, or too unlike for word marks to help.
+ */
+export function wordDiff(a: string, b: string): { a: Mark[]; b: Mark[] } | undefined {
+  if (a === b || a.length > MAX_CHARS || b.length > MAX_CHARS) return undefined;
+  const x = [...a.matchAll(TOKEN)];
+  const y = [...b.matchAll(TOKEN)];
+  if (x.length > MAX_TOKENS || y.length > MAX_TOKENS) return undefined;
+  // The longest run of tokens they share (LCS), from the end.
+  const L = Array.from({ length: x.length + 1 }, () => new Uint16Array(y.length + 1));
+  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) L[i]![j] = x[i]![0] === y[j]![0] ? L[i + 1]![j + 1]! + 1 : Math.max(L[i + 1]![j]!, L[i]![j + 1]!);
+  const keepA = new Array<boolean>(x.length).fill(false);
+  const keepB = new Array<boolean>(y.length).fill(false);
+  for (let i = 0, j = 0; i < x.length && j < y.length; ) {
+    if (x[i]![0] === y[j]![0]) keepA[i++] = keepB[j++] = true;
+    else if (L[i + 1]![j]! >= L[i]![j + 1]!) i++;
+    else j++;
+  }
+  // Shared visible characters, against all of them: under 40%, it's a different line.
+  const seen = (t: RegExpExecArray[]) => t.reduce((n, m) => n + m[0].replace(/\s/g, "").length, 0);
+  const shared = seen(x.filter((_, i) => keepA[i]));
+  if (shared * 2 < 0.4 * (seen(x) + seen(y))) return undefined;
+  const ranges = (t: RegExpExecArray[], keep: boolean[]) => {
+    const out: Mark[] = [];
+    t.forEach((m, i) => {
+      if (keep[i]) return;
+      const last = out[out.length - 1];
+      if (last && last[1] === m.index) last[1] = m.index + m[0].length;
+      else out.push([m.index, m.index + m[0].length]);
+    });
+    return out;
+  };
+  return { a: ranges(x, keepA), b: ranges(y, keepB) };
+}
+
+/** Pairs each run of removed lines with the added lines straight after it, line by line, and marks the words that changed. */
+export function markWords(lines: DiffLine[]): DiffLine[] {
+  for (let i = 0; i < lines.length; ) {
+    let d = i;
+    while (lines[d]?.kind === "del") d++;
+    let e = d;
+    while (lines[e]?.kind === "add") e++;
+    for (let k = 0; k < Math.min(d - i, e - d); k++) {
+      const del = lines[i + k] as Code;
+      const add = lines[d + k] as Code;
+      const w = wordDiff(del.text, add.text);
+      if (w) {
+        del.marks = w.a;
+        add.marks = w.b;
+      }
+    }
+    i = Math.max(e, i + 1);
+  }
+  return lines;
 }
 
 /** Where a comment sits: on its side's line number (RIGHT: the new file, LEFT: the old one). */

@@ -4,11 +4,11 @@ import { html } from "hono/html";
 import type { Child } from "../src/ui/kit.ts";
 import { test } from "node:test";
 import type { Env } from "../src/env.ts";
-import { createViewerRoutes } from "../src/pages/viewer.ts";
+import { createViewerRoutes, fileView } from "../src/pages/viewer.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { normalizePrView } from "../src/sources/prview.ts";
 import { blob, commitOf, type Git, grep, safePath, safeRef, tree } from "../src/viewer/code.ts";
-import { fileViews, parsePatch, placeDrafts, placeThreads } from "../src/viewer/diff.ts";
+import { fileViews, parsePatch, placeDrafts, placeThreads, wordDiff } from "../src/viewer/diff.ts";
 import { git as realGit } from "../src/viewer/code.ts";
 import { localDiff, parseGitDiff } from "../src/viewer/localdiff.ts";
 import { execFileSync } from "node:child_process";
@@ -70,6 +70,32 @@ test("a diff's lines have both sides' numbers; threads sit on their line; unplac
   assert.equal(lines.find((l) => l.kind === "add" && l.new === 11 && l.threads?.length === 1) !== undefined, true, "RIGHT 11 is the added line");
   assert.equal(lines.find((l) => l.kind === "del" && l.old === 11 && l.threads?.length === 1) !== undefined, true, "LEFT 11 is the deleted line");
   assert.equal(unplaced.length, 1);
+});
+
+test("word marks (#105): a removed line and the one that took its place mark only what changed", () => {
+  const w = wordDiff("const total = price * 2;", "const total = price * qty;")!;
+  assert.deepEqual(w, { a: [[22, 23]], b: [[22, 25]] });
+  assert.equal(wordDiff("same", "same"), undefined);
+  assert.equal(wordDiff("return a + b;", "throw new Error(\"nope\")"), undefined, "too unlike to mark");
+  assert.equal(wordDiff("x".repeat(600), "y"), undefined, "too long to compare");
+  // Runs pair line by line: two removed, three added; the third added line has no partner.
+  const lines = parsePatch("@@ -1,2 +1,3 @@\n-let a = 1;\n-let b = 2;\n+let a = 10;\n+let b = 20;\n+let c = 3;");
+  assert.deepEqual(lines.map((l) => ("marks" in l ? l.marks : undefined)), [undefined, [[8, 9]], [[8, 9]], [[8, 10]], [[8, 10]], undefined]);
+});
+
+test("side by side (#105): removed lines face their replacements, blanks fill the gaps, hostile text stays inert in marks", () => {
+  const patch = `@@ -1,3 +1,3 @@\n ctx\n-const a = "${H}";\n+const a = "${H}!";\n-gone`;
+  const [fv] = fileViews([{ path: "a.ts", status: "modified", additions: 1, deletions: 2, patch, sha: "s" }], []);
+  const split = String(fileView(fv!, { sha: "x", present: false, split: true }));
+  assertInert("split diff", split);
+  assert.match(split, /class="diff split"/);
+  assert.match(split, /<mark class="d-w">/);
+  assert.equal(split.match(/<tr>/g)?.length, 3, "ctx, the pair, and the removed line alone");
+  assert.match(split, /d-empty/);
+  const unified = String(fileView(fv!, { sha: "x", present: false }));
+  assertInert("unified diff", unified);
+  assert.match(unified, /<mark class="d-w">/);
+  assert.doesNotMatch(unified, /diff split/);
 });
 
 test("files: binary, renamed, generated and big ones start folded, with why", () => {
@@ -286,6 +312,11 @@ test("local diff (#105) through the app: hostile code inert, bad refs refused be
     const refs = await (await app.request("/code/shop-api/diff?base=main&head=feat")).text();
     assert.match(refs, /c\.ts/);
     assert.match(refs, /View file/);
+    assert.match(refs, /href="\/code\/shop-api\/diff\?base=main&amp;head=feat&amp;view=split">Side by side/);
+    const split = await (await app.request("/code/shop-api/diff?base=main&head=feat&view=split")).text();
+    assert.match(split, /class="diff split"/);
+    assert.match(split, /href="\/code\/shop-api\/diff\?base=main&amp;head=feat">Unified/);
+    assert.match(split, /name="view" value="split"/, "a new comparison keeps the layout");
     assert.equal((await app.request("/code/shop-api/diff?base=--output=x")).status, 400);
     assert.equal((await app.request("/code/shop-api/diff?commit=a..b")).status, 400);
     assert.equal((await app.request("/code/shop-api/diff?head=nope")).status, 404);
