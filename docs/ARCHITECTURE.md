@@ -220,7 +220,8 @@ updated. Every change since H1 has been additive, so the contract is still 1.
 
 **Done here (H9a–e):** agents, topo, terminal and docker are packs. The hooks the work packs
 need exist and are tested with fake packs: dock, callback, acts, settings, and the slots
-deploy.prod, todo.proposals and actions.where. In this write-up (WP-X1), "Start an agent" left
+deploy.prod, todo.proposals and actions.where. A pack's own page can host others' slots through
+`ctx.fill` (`span.actions`: otel-sink's trace page, filled by http). In this write-up (WP-X1), "Start an agent" left
 core's search actions for the agents pack: `finds` can now put rows in search's "Do" group
 (`kind: "actions"`).
 

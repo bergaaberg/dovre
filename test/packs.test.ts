@@ -883,6 +883,19 @@ test("acts with Bino: a pack's block becomes its card, two clicks; run on my pre
   assert.doesNotMatch(last.user, /Typed by me|once more/, "not what I typed");
 });
 
+test("a pack's page hosts another pack's slot (span.actions): the second pack's button shows, hostile text inert, one that throws adds none", async () => {
+  const sink = pack({ id: "sink" }, {
+    routes: (app, ctx) =>
+      app.get("/sink/trace", (c) => ctx.page(c, { title: "Trace", body: html`<ul>${ctx.fill("span.actions", { service: "api", kind: "server", method: "GET", route: `/users/:id ${H}`, attrs: { "server.address": "api.local" } })}</ul>` })),
+  });
+  const client = pack({ id: "client" }, { slots: () => ({ "span.actions": (s) => html`<button type="submit">Open ${s.method} ${s.route} on ${String(s.attrs["server.address"])}</button>` }) });
+  const boom = pack({ id: "boom" }, { slots: () => ({ "span.actions": () => { throw new Error("no button"); } }) });
+  const { get } = signedIn(snapshot(), {}, { packs: [sink, boom, client] });
+  const page = await (await get("/sink/trace")).text();
+  assert.match(page, /<button type="submit">Open GET \/users\/:id .* on api\.local<\/button>/);
+  assertInert("a span's actions", page);
+});
+
 test("the work slots and Settings: a deploy's prod line, My list's proposals, a name on the actions log, a pack's panel; hostile text inert, one that throws adds none", async () => {
   const work = pack({ id: "work", name: `Work ${H}` }, {
     slots: () => ({
