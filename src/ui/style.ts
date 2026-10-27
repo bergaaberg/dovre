@@ -582,7 +582,7 @@ details[open] > summary .chev { transform: rotate(225deg); top: 20px; }
 .ingest h3 { font-size: var(--fs-s); margin: 0 0 6px; }
 .ingest-new { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
 code.secret { user-select: all; overflow-wrap: anywhere; }
-/* An atlas panel's description line, and a component's rules note. */
+/* An topo panel's description line, and a component's rules note. */
 .panel-note { padding: .75rem 1rem; margin: 0; color: var(--ink-2); font-size: var(--fs-s); }
 .rule-note { margin-left: .5rem; opacity: .8; }
 

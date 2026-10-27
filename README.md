@@ -82,7 +82,7 @@ Dovre Core ships five built-in packs under `src/packs/core/`:
 | Core Pack | Purpose | Toggle |
 |---|---|---|
 | `agents` | Multi-harness session discovery, live streaming turns, worktrees, and tool approval bar (`claude`, `codex`, `omp`, `copilot`, `agy`) | `PACK_AGENTS=off` / `AGENT_HARNESSES` |
-| `assistant` | **Bino** assistant + **Repo Atlas** ([`peak.yaml`](https://github.com/bergaaberg/peak) catalog) + [`memlet`](https://github.com/bergaaberg/memlet) scoped SQLite/D1 memory | `PACK_ASSISTANT=off` / `PACK_ATLAS=off` |
+| `assistant` | **Bino** assistant + **Topo** ([`peak.yaml`](https://github.com/bergaaberg/peak) catalog) + [`memlet`](https://github.com/bergaaberg/memlet) scoped SQLite/D1 memory | `PACK_ASSISTANT=off` / `PACK_TOPO=off` |
 | `terminal` | Strict-origin local PTY web terminals (`/terminal`) | `PACK_TERMINAL=off` |
 | `docker` | Container and compose project controls + live SSE logs (`/docker`) | `PACK_DOCKER=off` |
 
@@ -102,9 +102,11 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full `Pack` contract (`
 
 ---
 
-## Repo Atlas (`peak.yaml`)
+## Topo (`peak.yaml`)
 
-Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of any checkout under `CODE_DIR`. It says what the repo is, how much care it gets (`tier`), which part owns which files, and what to read first. Dovre shows it on `/atlas`, gives it to Bino as context, offers "focus on this component" on `/agents/new`, and shows the tier and docs on pull requests. The format, its JSON Schema and a `peak check` command live in [`bergaaberg/peak`](https://github.com/bergaaberg/peak) ([SPEC.md](https://github.com/bergaaberg/peak/blob/main/SPEC.md)).
+Topo is the map of your repos (it was called Atlas; `/atlas` still leads there).
+
+Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of any checkout under `CODE_DIR`. It says what the repo is, how much care it gets (`tier`), which part owns which files, and what to read first. Dovre shows it on `/topo`, gives it to Bino as context, offers "focus on this component" on `/agents/new`, and shows the tier and docs on pull requests. The format, its JSON Schema and a `peak check` command live in [`bergaaberg/peak`](https://github.com/bergaaberg/peak) ([SPEC.md](https://github.com/bergaaberg/peak/blob/main/SPEC.md)).
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/bergaaberg/peak/main/peak.schema.json
@@ -124,7 +126,7 @@ health:
   workers: [quill-web, quill-dispatcher]
 ```
 
-`range.yaml`, the format's old name, is still read when a repo has no `peak.yaml`; `/atlas` asks you to rename it. Files with problems are listed on `/atlas` with every problem.
+`range.yaml`, the format's old name, is still read when a repo has no `peak.yaml`; `/topo` asks you to rename it. Files with problems are listed on `/topo` with every problem.
 
 ---
 

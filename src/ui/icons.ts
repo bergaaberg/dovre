@@ -11,7 +11,7 @@ const PATHS = {
   search: `<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>`,
   chart: `<path d="M3 3v18h18"/><path d="M7.5 17v-4M12 17V9M16.5 17V6"/>`,
   health: `<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>`,
-  atlas: `<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15"/><path d="M15 6v15"/>`,
+  topo: `<path d="M2.5 19c2.2-3.3 5.4-5 9.5-5s7.3 1.7 9.5 5"/><path d="M6 14.5c1.6-2.8 3.6-4.2 6-4.2s4.4 1.4 6 4.2"/><path d="M9.5 9.8c.8-1.8 1.6-2.8 2.5-2.8s1.7 1 2.5 2.8"/>`,
   pen: `<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>`,
   agents: `<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="m7 10 3 2.5L7 15"/><path d="M12.5 15H17"/>`,
   tasks: `<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.5 1.5L7.5 5"/><path d="m3.5 12 1.5 1.5L7.5 11"/><circle cx="5" cy="18" r="1.5"/>`,

@@ -237,7 +237,7 @@ test("worker.fetch: /healthz is public (/health is free for a pack); without Acc
   resetHostedApp();
 });
 
-test("worker: a verified request gets in; /atlas, /code and /issues/new aren't there hosted", async () => {
+test("worker: a verified request gets in; /topo, /code and /issues/new aren't there hosted", async () => {
   resetHostedApp();
   const k = await keyPair("k1");
   const realFetch = globalThis.fetch;
@@ -248,7 +248,7 @@ test("worker: a verified request gets in; /atlas, /code and /issues/new aren't t
     const jwt = await k.sign({ ...good, exp: Math.floor(Date.now() / 1000) + 3600 });
     const headers = { "cf-access-jwt-assertion": jwt };
     assert.equal((await worker.fetch(new Request("https://dovre.example.dev/todo", { headers }), bindings)).status, 200);
-    for (const path of ["/atlas", "/code", "/issues/new"]) assert.equal((await worker.fetch(new Request(`https://dovre.example.dev${path}`, { headers }), bindings)).status, 404, path);
+    for (const path of ["/topo", "/code", "/issues/new"]) assert.equal((await worker.fetch(new Request(`https://dovre.example.dev${path}`, { headers }), bindings)).status, 404, path);
   } finally {
     globalThis.fetch = realFetch;
     resetHostedApp();

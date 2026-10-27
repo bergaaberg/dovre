@@ -16,7 +16,7 @@ import { HARNESS_NAME, Link, safeUrl } from "./parts.ts";
 export const CURRENT = "/issues/new";
 export const MAX_NOTE = 4000;
 
-export type Ctx = Setup & { frame: Frame; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: atlas's Projects). */ extra?: Child[] };
+export type Ctx = Setup & { frame: Frame; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: topo's Projects). */ extra?: Child[] };
 export type Res<T> = { ok: true; value: T } | { ok: false; error: string };
 export const settle = <T>(p: Promise<T>): Promise<Res<T>> =>
   p.then(

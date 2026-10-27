@@ -178,9 +178,9 @@ export type PrSlotArg = { repo: string; number: number; branch: string; title: s
  * fills nothing. One pack reaching another's page goes through a slot, never an import.
  */
 export type SlotMap = {
-  /** /agents/new with a checkout picked: a field under "Runs in" (atlas: the component picker). */
+  /** /agents/new with a checkout picked: a field under "Runs in" (topo: the component picker). */
   "agents.new": { arg: { repo: string }; out: Html | "" };
-  /** A PR's row on /prs, beside its repo: a pill or two (atlas: its repo's tier). */
+  /** A PR's row on /prs, beside its repo: a pill or two (topo: its repo's tier). */
   "pr.lead": { arg: PrSlotArg; out: Html | "" };
   /** A PR opened in place (the /prs list or the viewer): rows for its facts (label, value). */
   "pr.facts": { arg: PrSlotArg; out: [string, Html][] };

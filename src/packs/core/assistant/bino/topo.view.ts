@@ -1,5 +1,5 @@
 /**
- * Repo Atlas's views: its page (/atlas), a catalog of local repositories, peak.yaml component
+ * Topo's views: its page (/topo), a catalog of local repositories, peak.yaml component
  * boundaries, rules, docs, and direct agent launching; and what it puts in core pages' slots
  * (the component picker on /agents/new, a PR's tier and docs, New work's Projects) and Bino's lines.
  */
@@ -7,7 +7,7 @@ import { html } from "hono/html";
 import { type Child, Dot, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs, type Tone } from "../../../../ui/kit.ts";
 import { Link, safeUrl } from "../../../../pages/parts.ts";
 import { SCHEMA_URL, SPEC_URL, type Peak } from "@bergaaberg/peak";
-import { type AtlasEntry, type AtlasProblem, isLegacy } from "./scan.ts";
+import { type TopoEntry, type TopoProblem, isLegacy } from "./scan.ts";
 
 function tierTone(tier?: string): Tone {
   if (!tier) return "neutral";
@@ -19,7 +19,7 @@ function tierTone(tier?: string): Tone {
   return "neutral";
 }
 
-function repoLinks(entry: AtlasEntry): Html {
+function repoLinks(entry: TopoEntry): Html {
   const parts: Html[] = [];
   if (entry.peak.url) {
     const label = (() => {
@@ -39,7 +39,7 @@ function repoLinks(entry: AtlasEntry): Html {
   return html`<div class="buttons">${parts}</div>`;
 }
 
-function repoPanel(entry: AtlasEntry): Html {
+function repoPanel(entry: TopoEntry): Html {
   const rows: Child[] = [];
 
   // Components
@@ -107,7 +107,7 @@ function bareItem(repo: string): Html {
 }
 
 /** Files Dovre can't use: every problem, and where the format is written down. */
-function problemsPanel(problems: AtlasProblem[]): Html {
+function problemsPanel(problems: TopoProblem[]): Html {
   return Panel({
     title: "Files with problems",
     meta: String(problems.length),
@@ -132,7 +132,7 @@ function problemsPanel(problems: AtlasProblem[]): Html {
 }
 
 /** range.yaml is the format's old name: Dovre still reads it, and asks for the rename. */
-function renameNotice(legacy: AtlasEntry[]): Html {
+function renameNotice(legacy: TopoEntry[]): Html {
   const names = legacy.map((e) => e.repo).join(", ");
   return Notice({
     tone: "neutral",
@@ -141,12 +141,12 @@ function renameNotice(legacy: AtlasEntry[]): Html {
 }
 
 /** The page's body; the pack's route puts it in Dovre's shell. */
-export function atlasPage(
+export function topoPage(
   opts: {
-    entries: AtlasEntry[];
+    entries: TopoEntry[];
     bare?: string[];
     /** Checkouts whose file can't be used. */
-    problems?: AtlasProblem[];
+    problems?: TopoProblem[];
     filter?: string;
   },
 ): Html {
@@ -158,11 +158,11 @@ export function atlasPage(
   const tabs =
     tiers.length > 0
       ? Tabs({
-          label: "Atlas Tiers",
+          label: "Topo tiers",
           items: [
-            { href: "/atlas", label: "All", n: entries.length, current: !filter },
+            { href: "/topo", label: "All", n: entries.length, current: !filter },
             ...tiers.map((t) => ({
-              href: `/atlas?tier=${encodeURIComponent(t)}`,
+              href: `/topo?tier=${encodeURIComponent(t)}`,
               label: t[0].toUpperCase() + t.slice(1),
               n: entries.filter((e) => (e.peak.tier ?? "").toLowerCase() === t).length,
               current: (filter ?? "").toLowerCase() === t,
@@ -175,15 +175,15 @@ export function atlasPage(
 
   const body = html`
     ${PageHeader({
-      title: "Repo Atlas",
+      title: "Topo",
       sub,
       tabs,
       actions: html`
-        <a class="btn" href="/atlas?refresh=1">Rescan</a>
+        <a class="btn" href="/topo?refresh=1">Rescan</a>
         <a class="btn primary" href="/agents/new">New agent session</a>
       `,
     })}
-    <div data-live id="atlas">
+    <div data-live id="topo">
       ${!filter && problems.length ? problemsPanel(problems) : ""}
       ${!filter && legacy.length ? renameNotice(legacy) : ""}
       ${filtered.map(repoPanel)}
@@ -202,7 +202,7 @@ export const draftPrompt = () =>
   `Write a peak.yaml for this repo (the format: ${SPEC_URL}). Draft it from the README, the folder layout, AGENTS.md / CLAUDE.md and any docs: name, a one-line description, tier, its components with the paths each owns (and rules files where they exist), docs, and health (deployed workers and URLs that should answer) only where the repo names them. Leave out what you'd have to guess. Then run \`${CHECK}\` and fix what it reports.`;
 
 /** For a file Dovre can't use: what's wrong, and the check to run after. */
-export const fixPrompt = (p: AtlasProblem) =>
+export const fixPrompt = (p: TopoProblem) =>
   `${p.file} in this repo has problems (the format: ${SPEC_URL}): ${p.problems.join(" ")} Fix them${isLegacy(p.file) ? " and rename the file to peak.yaml" : ""}, then run \`${CHECK}\` until it passes.`;
 
 const focusPrompt = (peak: Peak, c: Peak["components"][number]) =>
@@ -228,7 +228,7 @@ export function prFacts(repo: string, peak: Peak | undefined): [string, Html][] 
   const docs = Object.entries(peak.docs);
   return [
     [
-      "Atlas",
+      "Topo",
       html`${Pill({ tone: "ok", children: `tier: ${peak.tier}` })}${peak.url ? html` ${Link(peak.url, peak.name)}` : html` <strong>${peak.name}</strong>`}${
         docs.length ? html` · docs: ${docs.map(([k, path], i) => html`${i ? ", " : ""}${Link(`/code/${short}?path=${encodeURIComponent(path)}`, k)}`)}` : ""
       }`,
@@ -237,7 +237,7 @@ export function prFacts(repo: string, peak: Peak | undefined): [string, Html][] 
 }
 
 /** New work's "work.new" slot: the cataloged projects, each with its docs and an agent. */
-export function projectsPanel(entries: AtlasEntry[]): Html | "" {
+export function projectsPanel(entries: TopoEntry[]): Html | "" {
   if (!entries.length) return "";
   const items = entries.map((e) =>
     Item({
@@ -252,7 +252,7 @@ export function projectsPanel(entries: AtlasEntry[]): Html | "" {
 }
 
 /** What Bino is told: a line per cataloged repo, kept within what a pack may say (APP_CHARS). */
-export function binoLines(entries: AtlasEntry[], max = 1400): string {
+export function binoLines(entries: TopoEntry[], max = 1400): string {
   const out: string[] = [];
   let used = 0;
   for (const [i, { repo, peak }] of entries.entries()) {
