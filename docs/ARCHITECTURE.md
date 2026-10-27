@@ -180,6 +180,10 @@ The registry does this for every hook, so a pack can't break a page or another p
 - A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, `PACK_API`,
   a hash per file). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare
   against the local dovre-packs checkout. An update is all or nothing, and it never runs on its own.
+  Locally, the Packs page shows the same state (`src/packs/copies.ts`, kept and worked out again in
+  the background) and an **Update**. It's a verified write that always asks twice (`packs.update`).
+  After the update, the instance's typecheck and tests run, and the files go back if either fails.
+  The new code loads on a restart.
 
 ## Extending Dovre
 

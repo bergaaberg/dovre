@@ -77,6 +77,24 @@ test("the Packs page keeps a pack's manifest and settings inert", async () => {
   assertInert("/packs", await res.text());
 });
 
+test("the Packs page keeps a copied pack's state, job output and Update inert; Update goes through the copies", async () => {
+  const { PACK_API } = await import("../src/packs/types.ts");
+  const manifest = { api: PACK_API, id: "copied", name: H, description: H, domain: "personal" as const };
+  const started: string[] = [];
+  const copy = { id: "copied", into: H, source: H, commit: H, state: { id: "copied", tracked: true, behind: 2, upstream: [H, "view.ts"], edited: [H] }, job: { at: 0, state: "failed" as const, step: H, out: H } };
+  const copies = { get: () => new Map([["copied", copy]]), refresh: () => new Map(), update: (id: string) => (started.push(id), { ok: true as const }) };
+  const { get, post } = signedIn(snapshot(), {}, { packs: [{ manifest }], copies });
+  const out = await (await get("/packs")).text();
+  assertInert("/packs", out);
+  assert.match(out, /newer upstream/);
+  assert.match(out, /action="\/packs\/copied\/update"/);
+  assert.equal((await post("/packs/copied/update", {}, { origin: "http://evil.example" })).status, 403);
+  assert.deepEqual(started, []);
+  const res = await post("/packs/copied/update", {});
+  assert.equal(res.status, 303);
+  assert.deepEqual(started, ["copied"]);
+});
+
 test("a source that fails says so on the page; the rest still renders", async () => {
   const { get } = signedIn(snapshot({ prs: { ok: false, error: "GHE graphql: 502" } }), {}, { sessions: { live: [session({ title: "Still here" })] } });
   const out = await (await get("/")).text();

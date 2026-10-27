@@ -106,7 +106,7 @@ pnpm packs update cf-health --into ../my-dovre # or --all; your edits are merged
 pnpm packs track avatar --into ../my-dovre     # a pack copied before .pack.json existed
 ```
 
-`update` takes upstream's version of each file you haven't touched and merges files changed on both sides (`git merge-file`). If a merge conflicts, it writes nothing. It refuses a pack that needs a newer `PACK_API` than your Dovre, and a source outside `REPO_OWNERS`. Nothing updates on its own.
+`update` takes upstream's version of each file you haven't touched and merges files changed on both sides (`git merge-file`). If a merge conflicts, it writes nothing. It refuses a pack that needs a newer `PACK_API` than your Dovre, and a source outside `REPO_OWNERS`. Nothing updates on its own. Locally, the Packs page shows the same state and has an **Update** button. It asks twice, runs the instance's typecheck and tests, undoes the update if they fail, then offers a restart.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full `Pack` contract (`src/packs/types.ts`), hooks (`today`, `routes`, `slots`, `needs`, `stats`, `bino`, `acts`, `dock`, `scheduled`, `email`), and isolation guarantees.
 

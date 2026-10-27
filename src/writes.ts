@@ -32,6 +32,7 @@ export const WRITES: WriteKind[] = [
   { kind: "bino.forget", label: "Forget something Bino remembers", group: "Here", floor: "twice" },
   { kind: "relay.answer", label: "Answer an MCP server's question", group: "Here", floor: "twice" },
   { kind: "ingest.revoke", label: "Revoke an ingest token", group: "Here", floor: "twice" },
+  { kind: "packs.update", label: "Update a pack from dovre-packs", group: "Here", floor: "twice" },
 ];
 
 const byKind = new Map(WRITES.map((w) => [w.kind, w]));

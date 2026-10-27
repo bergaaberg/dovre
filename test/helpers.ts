@@ -9,6 +9,7 @@ import { type Desk, localDesk } from "../src/agents/desk.ts";
 import type { Runner } from "../src/agents/runner.ts";
 import { createQueue, type Queue } from "../src/agents/queue.ts";
 import type { Pack } from "../src/packs/types.ts";
+import type { Copies } from "../src/packs/copies.ts";
 import { activePacks } from "../src/packs/registry.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,7 +66,7 @@ const hereOf = (m: Machine = {}) => fixedHere({ live: m.sessions?.live ?? [], re
 
 /** The app with a fixed snapshot and a fake GHE, signed in. */
 /** `extra.sessions`, `extra.worktrees`: what the agents pack read here. */
-export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: unknown) => unknown)> = {}, extra: Machine & { panes?: PanesOn; config?: { panes: Record<PaneId, PaneState>; stored: Config }; packs?: Pack[]; /** The instance's settings the packs read. */ packEnv?: Record<string, string>; budgetMs?: number; desk?: Desk; /** The forge's abilities (default GitHub: all). */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged">>; /** Where a pack's starting-page picture goes. */ startPicture?: (svg: string) => void; varsFile?: string; /** Settings on top of the tests' own (PUBLIC_ORIGIN, …). */ env?: Partial<Omit<Env, "DB">> } = {}) {
+export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: unknown) => unknown)> = {}, extra: Machine & { panes?: PanesOn; config?: { panes: Record<PaneId, PaneState>; stored: Config }; packs?: Pack[]; /** The instance's settings the packs read. */ packEnv?: Record<string, string>; budgetMs?: number; desk?: Desk; /** The forge's abilities (default GitHub: all). */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged">>; /** Where a pack's starting-page picture goes. */ startPicture?: (svg: string) => void; varsFile?: string; /** Packs copied from dovre-packs (src/packs/copies.ts). */ copies?: Copies; /** Settings on top of the tests' own (PUBLIC_ORIGIN, …). */ env?: Partial<Omit<Env, "DB">> } = {}) {
   const db = openDb();
   const { ghe, calls } = fakeGhe(routes);
   const gatherer = fixedGatherer(s);
@@ -75,7 +76,7 @@ export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: u
   // The agents pack, with the desk and the sessions cleared away, as index.ts makes them.
   const { pack: agents } = agentsFor({ ...ENV, DB: db.DB }, { here: hereOf(extra), desk: extra.desk });
   const packs = [agents, terminalPack(terminals), ...(extra.packs ?? [])];
-  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, core: ["agents", "terminal"], varsFile: extra.varsFile } });
+  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, core: ["agents", "terminal"], varsFile: extra.varsFile, copies: extra.copies } });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
     app.request(`http://localhost${path}`, {
