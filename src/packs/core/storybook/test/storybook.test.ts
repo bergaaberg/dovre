@@ -24,6 +24,11 @@ test("story ids as Storybook makes them", () => {
   assert.equal(storyName("PrimaryLarge"), "Primary Large");
   assert.equal(storyName("withIcon"), "With Icon");
   assert.equal(storyName("Size2XL"), "Size 2 XL");
+  // As Storybook names minside-web's (#166).
+  assert.equal(storyName("EFaktura"), "E Faktura");
+  assert.equal(storyName("AnsattIJbf"), "Ansatt I Jbf");
+  assert.equal(storyName("AnsattJBF"), "Ansatt JBF");
+  assert.equal(storyName("ForsikringstypeValgtIFlyt"), "Forsikringstype Valgt I Flyt");
   assert.equal(storyId("Components/Button", "PrimaryLarge"), "components-button--primary-large");
   assert.equal(autoTitle("src/components/Button/Button.stories.tsx"), "components/Button");
   assert.equal(autoTitle("src/ui/Card.stories.ts"), "ui/Card");
@@ -34,6 +39,9 @@ test("a stories file: the meta's title (not an arg's), its exports", () => {
   assert.deepEqual(a, { title: "Forms/Button", exports: ["Primary", "Big", "Tiny"] });
   const b = parseStories("src/x/Card/Card.stories.tsx", `export default { component: Card };\nexport const Basic = { args: { title: "x" } };`);
   assert.equal(b.title, "x/Card");
+  // The meta's title far down, after decorators and a render with its own `title`; strings with braces and escaped quotes skipped.
+  const long = `const meta: Meta<A> = {\n  component: X,\n  decorators: [moduleMetadata({ imports: [A] })],\n  render: (args) => ({ props: { title: "inner" }, template: \`<x>{{ a }}</x>\` }),\n  args: { label: 'it\\'s {', title: "arg" },\n  ${"// pad\n  ".repeat(0)}parameters: { docs: { description: { component: "${"x".repeat(2500)}" } } },\n  title: "Components/Form Controls/Input",\n};\nexport default meta;\nexport const Text: Story = {};`;
+  assert.equal(parseStories("src/a/input.stories.ts", long).title, "Components/Form Controls/Input");
 });
 
 test("touched: changed stories, and the folders of changed source files (not tests)", () => {
