@@ -5,7 +5,7 @@ import { recentActions } from "../src/actions/deploys.ts";
 import { choicesOf, createAsks } from "../src/relay/asks.ts";
 import { assertInert, H, signedIn, snapshot } from "./helpers.ts";
 
-// db-cli's prod gate, as it asks (internal/mcpserver/prodgate.go).
+// A database tool's production gate, shaped as such a tool asks it.
 const DB_SCHEMA = { type: "object", properties: { decision: { type: "string", title: "Production access to ledger:prod", enum: ["deny", "allow"] } }, required: ["decision"] };
 
 test("a form is answerable only when it's one field with a few choices or a yes/no; the first choice is the safe one", () => {
