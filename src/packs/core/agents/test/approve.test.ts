@@ -8,6 +8,7 @@ import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { agentAsksOf } from "../asks.ts";
+import { agentPage } from "../session.view.ts";
 import { createRunner, type Run } from "../../../../agents/runner.ts";
 import { createApp } from "../../../../app.ts";
 import { openDb } from "../../../../db.ts";
@@ -26,6 +27,27 @@ test("asks: an ended run with refused calls, until a later turn (or a fork of it
   assert.equal(agentAsksOf([ask, run({ id: "r3", startedAt: 2, sessionId: "33333333-3333-4333-8333-333333333333", resumed: SID, forked: true })]).length, 0, "answered in a fork");
   assert.equal(agentAsksOf([ask], (sid) => sid === SID).length, 0, "cleared away");
   assert.equal(agentAsksOf([run({ events: [{ t: "result", text: "", cost: 0, error: false }] })]).length, 0, "nothing refused");
+});
+
+test("asks: a call refused though the turn had it allowed isn't asked again (#163)", () => {
+  const stuck = denied("Bash(cd /tmp/x && sed -n 1,2p f)");
+  assert.equal(agentAsksOf([run({ allowed: [stuck.spec], events: [stuck] })]).length, 0, "Allow wouldn't help");
+  const both = agentAsksOf([run({ allowed: [stuck.spec], events: [stuck, denied("Bash(git status)")] })]);
+  assert.deepEqual(both.map((a) => a.specs), [["Bash(git status)"]], "only the new call");
+});
+
+test("session page: an allowed call refused again says why, with no Allow for it (#163)", () => {
+  const stuck = denied(`Bash(cd /tmp/x && ${H})`, `cd /tmp/x && ${H}`);
+  const page = (r: Run) => { const p = agentPage({ sessionId: SID, turns: [], run: r }); return `${p.head ?? ""}${p.body}`; };
+  const only = page(run({ allowed: [stuck.spec], events: [stuck] }));
+  assertInert("refused again", only);
+  assert.match(only, /Allowed, and refused again/);
+  assert.doesNotMatch(only, /\/allow"/, "no Allow form");
+  const mixed = page(run({ allowed: [stuck.spec], events: [stuck, denied("Bash(git status)")] }));
+  assert.match(mixed, /Allowed, and refused again/);
+  assert.match(mixed, /name="spec" value="Bash\(git status\)"/);
+  assert.doesNotMatch(mixed, /name="spec" value="Bash\(cd \/tmp/, "the stuck call isn't offered");
+  assert.doesNotMatch(page(run({ events: [stuck] })), /refused again/, "first refusal: just the Allow card");
 });
 
 /** A turn that says its session, then ends with `deny` refused (or nothing). */

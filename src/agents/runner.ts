@@ -79,8 +79,16 @@ export type StartOpts = {
 /** The --mcp-config that names Dovre's MCP server for one turn (added to the user's own servers, not replacing them). */
 export const mcpConfig = (m: { url: string; token: string }) => JSON.stringify({ mcpServers: { dovre: { type: "http", url: m.url, headers: { Authorization: `Bearer ${m.token}` } } } });
 
+/**
+ * Added to every Claude Code turn. Headless, Claude Code refuses a command that touches a folder
+ * outside the project (`/tmp`, another checkout) whatever `--allowedTools` says, so the agent
+ * keeps its work inside the repo (#163).
+ */
+export const HEADLESS_NOTE =
+  "You are running headless from Dovre. Keep every command and file inside this repo's folder: a call that touches a folder outside it (such as /tmp or another checkout) is refused, and allowing it doesn't help. If you need a separate checkout, make a git worktree inside this folder (for example .worktrees/<name>).";
+
 export function argsFor(o: StartOpts): string[] {
-  const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", o.mode ?? "default"];
+  const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", o.mode ?? "default", "--append-system-prompt", HEADLESS_NOTE];
   if (o.model) args.push("--model", o.model);
   if (o.resume) args.push("--resume", o.resume);
   if (o.resume && o.fork) args.push("--fork-session");

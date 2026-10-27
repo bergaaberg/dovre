@@ -8,12 +8,13 @@ import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { cleanUserText, turnsOf } from "../src/agents/conversation.ts";
-import { apply, argsFor, createRunner, repoDir, type Run, toolSpec } from "../src/agents/runner.ts";
+import { apply, argsFor, createRunner, HEADLESS_NOTE, repoDir, type Run, toolSpec } from "../src/agents/runner.ts";
 
 const line = (o: object) => JSON.stringify(o);
 
 test("CLI args: headless stream-json, the chosen mode, resume and fork, never a bypass", () => {
-  assert.deepEqual(argsFor({ cwd: "x", prompt: "p" }), ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "default"]);
+  assert.deepEqual(argsFor({ cwd: "x", prompt: "p" }), ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "default", "--append-system-prompt", HEADLESS_NOTE]);
+  assert.match(HEADLESS_NOTE, /inside this repo's folder/, "told to keep its work in the repo (#163)");
   const a = argsFor({ cwd: "x", prompt: "p", resume: "abc", fork: true, mode: "plan", model: "opus", allowed: ["Bash(dotnet test)"] });
   assert.ok(a.includes("--fork-session") && a.includes("--resume") && a.includes("plan") && a.includes("opus"));
   assert.deepEqual(a.slice(-2), ["--allowedTools", "Bash(dotnet test)"]);
