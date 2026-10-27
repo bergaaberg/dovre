@@ -221,3 +221,51 @@ test("a read-only forge still offers an agent on each issue, and no writes", asy
   await none.pack.refresh!(none.ctx);
   assert.doesNotMatch(await none.get("/tracker"), /Start an agent|Act on it/);
 });
+
+test("bulk (dovre#104): tick several, close or take them at once; each re-checked and logged; outsiders and junk refused", async () => {
+  const current = sets({ assigned: [issue({ number: 1 }), issue({ number: 2 }), issue({ number: 3, state: "CLOSED" })] });
+  const wrote: string[] = [];
+  const logged: unknown[][] = [];
+  const pack = issuesPack({
+    forge: {
+      host: "github.com",
+      can: ["issues"],
+      viewer: async () => ({ login: "kari", name: null }),
+      issues: async () => current,
+      issue: async (_r, n) => current.assigned.find((i) => i.number === n),
+      issueAct: async (a) => void wrote.push(`${a.kind} ${a.repo}#${a.number}${a.kind === "close" ? ` ${a.reason}` : ""}`),
+    },
+    owners: () => "bergaaberg",
+    login: () => "kari",
+    now: () => NOW,
+  });
+  const ctx = testContext({ db: { prepare: () => ({ bind: (...v: unknown[]) => ({ run: async () => (logged.push(v), {}) }) }) } as never });
+  await pack.refresh!(ctx);
+  const app = new Hono<AppEnv>();
+  pack.routes!(app, { ...ctx, page: async (_c, p) => new Response(String(p.body)) });
+
+  const page = await (await app.request("http://localhost/tracker")).text();
+  assert.match(page, /<form id="issues-bulk" method="post" action="\/tracker\/bulk"><input type="hidden" name="set" value="assigned"><\/form>/);
+  assert.match(page, /<input type="checkbox" class="pick" form="issues-bulk" name="pick" value="bergaaberg\/dovre#1"/);
+  assert.match(page, /value="not-planned" class="danger">Close as not planned/);
+
+  const bulk = (body: string) => app.request("http://localhost/tracker/bulk", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body });
+  const r = await bulk("set=assigned&do=done&pick=bergaaberg/dovre%231&pick=bergaaberg/dovre%232&pick=bergaaberg/dovre%233&pick=evil/repo%239&pick=junk");
+  assert.equal(r.status, 303);
+  assert.deepEqual(wrote, ["close bergaaberg/dovre#1 completed", "close bergaaberg/dovre#2 completed"]);
+  const to = new URL(r.headers.get("location")!, "http://localhost");
+  assert.equal(to.searchParams.get("bulk"), "done");
+  assert.equal(to.searchParams.get("done"), "2");
+  assert.equal(to.searchParams.get("of"), "5");
+  assert.equal(to.searchParams.getAll("why").length, 3, "a few reasons, not all");
+  assert.equal(logged.length, 3, "two written and the closed one refused are logged; the outsider never reaches the forge");
+  const after = await (await app.request(`http://localhost${to.pathname}${to.search}`)).text();
+  assert.match(after, /Closed as done: 2 of 5\. bergaaberg\/dovre#3: It&#39;s already closed\./);
+
+  assert.equal((await bulk("set=assigned&do=burn&pick=bergaaberg/dovre%231")).status, 400, "an unknown act");
+  assert.equal((await bulk("set=assigned&do=done")).status, 400, "nothing ticked");
+  const many = Array.from({ length: 30 }, (_, i) => `pick=bergaaberg/dovre%23${i + 100}`).join("&");
+  const capped = new URL((await bulk(`set=assigned&do=assign&${many}`)).headers.get("location")!, "http://localhost");
+  assert.equal(capped.searchParams.get("of"), "20", "20 at most");
+  assert.equal((await (await app.request("http://localhost/tracker?bulk=done&done=9&of=2")).text()).includes("9 of 2"), false, "a made-up count is ignored");
+});

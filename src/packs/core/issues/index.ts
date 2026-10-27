@@ -15,7 +15,7 @@ import { safeUrl } from "../../../pages/parts.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
 import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
 import { actOf, doneText, refusal } from "./act.ts";
-import { ACT, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
+import { ACT, BULK, BULK_DO, BULK_MAX, type BulkDo, bulkOf, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
 
 export const ISSUES_PACK_ID = "tracker";
 
@@ -147,6 +147,27 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       });
 
       // Every write: the owners' repo (refused before any URL), re-read now, still allowed, then written and logged.
+      const write = async (a: IssueAct): Promise<{ ok: true } | { ok: false; why: string; status: number }> => {
+        const target = `${a.repo}#${a.number}`;
+        const kind = `issues.${a.kind}`;
+        try {
+          const no = refusal(await o.forge.issue!(a.repo, a.number), a);
+          if (no) {
+            await logAction(ctx.db, { kind, target, ok: false, error: no });
+            return { ok: false, why: `${target}: ${no}`, status: 409 };
+          }
+          await o.forge.issueAct!(a);
+          await logAction(ctx.db, { kind, target, detail: a.kind === "close" ? a.reason : undefined, ok: true });
+        } catch (e) {
+          const error = String((e as Error)?.message ?? e).slice(0, 300);
+          await logAction(ctx.db, { kind, target, ok: false, error }).catch(() => {});
+          return { ok: false, why: `${o.forge.host} said: ${error}`, status: 502 };
+        }
+        applied(a);
+        ctx.log(doneText(a.kind === "close" ? { ...a, reason: a.reason } : a));
+        return { ok: true };
+      };
+
       app.post(ACT, async (c) => {
         const f = await formOf(c);
         const set = setIn(f);
@@ -154,26 +175,42 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         const asked = actOf(f, o.owners(), me());
         if (!asked.ok) return with_(c, 400, "Not done", refusedBody({ title: "Not done", why: asked.error, set }));
         const a = asked.act;
-        const target = `${a.repo}#${a.number}`;
-        const kind = `issues.${a.kind}`;
-        try {
-          const no = refusal(await o.forge.issue!(a.repo, a.number), a);
-          if (no) {
-            await logAction(ctx.db, { kind, target, ok: false, error: no });
-            return with_(c, 409, "Not done", refusedBody({ title: "Not done", why: `${target}: ${no}`, set }));
-          }
-          await o.forge.issueAct!(a);
-          await logAction(ctx.db, { kind, target, detail: a.kind === "close" ? a.reason : undefined, ok: true });
-        } catch (e) {
-          const error = String((e as Error)?.message ?? e).slice(0, 300);
-          await logAction(ctx.db, { kind, target, ok: false, error }).catch(() => {});
-          return with_(c, 502, "Not done", refusedBody({ title: "Not done", why: `${o.forge.host} said: ${error}`, set, tone: "bad" }));
-        }
-        applied(a);
+        const r = await write(a);
+        if (!r.ok) return with_(c, r.status, "Not done", refusedBody({ title: "Not done", why: r.why, set, ...(r.status === 502 ? { tone: "bad" as const } : {}) }));
         ctx.publish([ISSUES_PACK_ID]);
         void read(ctx);
-        ctx.log(doneText(a.kind === "close" ? { ...a, reason: a.reason } : a));
+        const target = `${a.repo}#${a.number}`;
         const q = new URLSearchParams({ set, done: a.kind, ref: target, ...(a.kind === "close" ? { reason: a.reason } : {}) });
+        return c.redirect(`${HREF}?${q}`, 303);
+      });
+
+      // Bulk (dovre#104): each ticked issue checked and written on its own, as ACT does; BULK_MAX at most.
+      app.post(BULK, async (c) => {
+        const f = (await c.req.parseBody({ all: true })) as Record<string, unknown>;
+        const set = setIn({ set: Array.isArray(f.set) ? f.set[0] : f.set });
+        if (!canAct()) return c.notFound();
+        const what = typeof f.do === "string" && Object.hasOwn(BULK_DO, f.do) ? (f.do as BulkDo) : undefined;
+        const picks = ([] as unknown[]).concat(f.pick ?? []).filter((v): v is string => typeof v === "string").slice(0, BULK_MAX);
+        if (!what || !picks.length) return with_(c, 400, "Not done", refusedBody({ title: "Not done", why: "Tick one or more issues first.", set }));
+        let done = 0;
+        const why: string[] = [];
+        for (const p of picks) {
+          const m = /^([\w.-]+\/[\w.-]+)#(\d{1,9})$/.exec(p);
+          const asked = m ? actOf({ ...BULK_DO[what], repo: m[1], number: m[2] }, o.owners(), me()) : ({ ok: false, error: "Not an issue." } as const);
+          if (!asked.ok) {
+            why.push(`${p.slice(0, 80)}: ${asked.error}`);
+            continue;
+          }
+          const r = await write(asked.act);
+          if (r.ok) done++;
+          else why.push(r.why);
+        }
+        if (done) {
+          ctx.publish([ISSUES_PACK_ID]);
+          void read(ctx);
+        }
+        const q = new URLSearchParams({ set, bulk: what, done: String(done), of: String(picks.length) });
+        for (const w of why.slice(0, 3)) q.append("why", w.slice(0, 200));
         return c.redirect(`${HREF}?${q}`, 303);
       });
 
@@ -192,6 +229,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
             newHref: o.newHref,
             acts: canAct() || o.agents ? { me: me(), task: !!o.tasks && canAct(), write: canAct(), agent: o.agents?.() } : undefined,
             done: doneOf({ done: c.req.query("done"), ref: c.req.query("ref"), reason: c.req.query("reason") }),
+            bulk: bulkOf({ bulk: c.req.query("bulk"), done: c.req.query("done"), of: c.req.query("of"), why: c.req.queries("why") }),
           }),
         }),
       );
