@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { packsOf, createApp } from "./app.ts";
+import { createCopies } from "./packs/copies.ts";
 import { loadPacks } from "./packs/load.ts";
 import { activePacks, initAll, refresher as packRefresher } from "./packs/registry.ts";
 import { launchToken, maskedLogin, serveSetup } from "./boot.ts";
@@ -386,7 +387,8 @@ if (stats) {
 
 
 // Packs (PLAN D23): those PACKS loaded above that can run here, after the core's.
-const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, hosted: false, which: (b) => which(b) }), env: packEnv, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars" };
+const copies = createCopies({ packs: env.PACKS, env: packEnv, onChange: () => hub.publish(["packs"]) });
+const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, hosted: false, which: (b) => which(b) }), env: packEnv, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars", copies };
 packSet.off.push(...loaded.failed);
 mcpOn = () => packSet.on.some((p) => p.tools);
 for (const o of packSet.off) console.log(`pack ${o.id}: off, ${o.why}`);
