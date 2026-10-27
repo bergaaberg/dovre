@@ -82,7 +82,7 @@ Dovre Core ships five built-in packs under `src/packs/core/`:
 | Core Pack | Purpose | Toggle |
 |---|---|---|
 | `agents` | Multi-harness session discovery, live streaming turns, worktrees, and tool approval bar (`claude`, `codex`, `omp`, `copilot`, `agy`) | `PACK_AGENTS=off` / `AGENT_HARNESSES` |
-| `assistant` | **Bino** assistant + **Repo Atlas** (`range.yaml` catalog) + [`memlet`](https://github.com/bergaaberg/memlet) scoped SQLite/D1 memory | `PACK_ASSISTANT=off` / `PACK_ATLAS=off` |
+| `assistant` | **Bino** assistant + **Repo Atlas** ([`peak.yaml`](https://github.com/bergaaberg/peak) catalog) + [`memlet`](https://github.com/bergaaberg/memlet) scoped SQLite/D1 memory | `PACK_ASSISTANT=off` / `PACK_ATLAS=off` |
 | `terminal` | Strict-origin local PTY web terminals (`/terminal`) | `PACK_TERMINAL=off` |
 | `docker` | Container and compose project controls + live SSE logs (`/docker`) | `PACK_DOCKER=off` |
 
@@ -102,15 +102,17 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full `Pack` contract (`
 
 ---
 
-## Repo Atlas (`range.yaml`)
+## Repo Atlas (`peak.yaml`)
 
-Drop a `range.yaml` manifest into any checkout under `CODE_DIR` to catalog components, file ownership boundaries, and rules in `/atlas` and `/agents/new`:
+Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of any checkout under `CODE_DIR`. It says what the repo is, how much care it gets (`tier`), which part owns which files, and what to read first. Dovre shows it on `/atlas`, gives it to Bino as context, offers "focus on this component" on `/agents/new`, and shows the tier and docs on pull requests. The format, its JSON Schema and a `peak check` command live in [`bergaaberg/peak`](https://github.com/bergaaberg/peak) ([SPEC.md](https://github.com/bergaaberg/peak/blob/main/SPEC.md)).
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bergaaberg/peak/main/peak.schema.json
+version: 1
 name: Quill
 description: Publishing platform and worker queue
 url: https://quill.example
-tier: active
+tier: active            # active · maintained · scratch
 components:
   - name: web
     owns: [src/web/, src/ui/]
@@ -121,6 +123,8 @@ docs:
 health:
   workers: [quill-web, quill-dispatcher]
 ```
+
+`range.yaml`, the format's old name, is still read when a repo has no `peak.yaml`; `/atlas` asks you to rename it. Files with problems are listed on `/atlas` with every problem.
 
 ---
 

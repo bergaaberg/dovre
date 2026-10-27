@@ -1,13 +1,13 @@
 /**
- * Repo Atlas's views: its page (/atlas), a catalog of local repositories, range.yaml component
+ * Repo Atlas's views: its page (/atlas), a catalog of local repositories, peak.yaml component
  * boundaries, rules, docs, and direct agent launching; and what it puts in core pages' slots
  * (the component picker on /agents/new, a PR's tier and docs, New work's Projects) and Bino's lines.
  */
 import { html } from "hono/html";
-import { type Child, type Html, Item, List, PageHeader, Panel, Pill, Tabs, type Tone } from "../../../../ui/kit.ts";
+import { type Child, Dot, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs, type Tone } from "../../../../ui/kit.ts";
 import { Link, safeUrl } from "../../../../pages/parts.ts";
-import type { Range } from "./range.ts";
-import type { AtlasEntry } from "./scan.ts";
+import { SCHEMA_URL, SPEC_URL, type Peak } from "@bergaaberg/peak";
+import { type AtlasEntry, type AtlasProblem, isLegacy } from "./scan.ts";
 
 function tierTone(tier?: string): Tone {
   if (!tier) return "neutral";
@@ -21,19 +21,19 @@ function tierTone(tier?: string): Tone {
 
 function repoLinks(entry: AtlasEntry): Html {
   const parts: Html[] = [];
-  if (entry.range.url) {
+  if (entry.peak.url) {
     const label = (() => {
       try {
-        return `${new URL(entry.range.url).host} ↗`;
+        return `${new URL(entry.peak.url).host} ↗`;
       } catch {
         return "Site ↗";
       }
     })();
-    parts.push(html`<a class="t2" href="${safeUrl(entry.range.url)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    parts.push(html`<a class="t2" href="${safeUrl(entry.peak.url)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
   }
   parts.push(html`<a class="t2" href="/code/${encodeURIComponent(entry.repo)}">Code →</a>`);
   parts.push(html`<a class="t2" href="/agents/new?repo=${encodeURIComponent(entry.repo)}">Agent →</a>`);
-  if (entry.range.health?.workers?.length || entry.range.health?.links?.length) {
+  if (entry.peak.health?.workers?.length || entry.peak.health?.links?.length) {
     parts.push(html`<a class="t2" href="/ops#${encodeURIComponent(entry.repo)}">Health →</a>`);
   }
   return html`<div class="buttons">${parts}</div>`;
@@ -43,15 +43,15 @@ function repoPanel(entry: AtlasEntry): Html {
   const rows: Child[] = [];
 
   // Components
-  if (entry.range.components?.length) {
+  if (entry.peak.components?.length) {
     rows.push(
       Item({
-        title: html`<span class="sub-h">Components (${entry.range.components.length})</span>`,
+        title: html`<span class="sub-h">Components (${entry.peak.components.length})</span>`,
         quiet: true,
       }),
     );
-    for (const c of entry.range.components) {
-      const prompt = focusPrompt(entry.range, c);
+    for (const c of entry.peak.components) {
+      const prompt = focusPrompt(entry.peak, c);
       rows.push(
         Item({
           title: html`<strong>${c.name}</strong>${c.rules ? html`<span class="mono sm t3 rule-note">rules: ${c.rules}</span>` : ""}`,
@@ -63,7 +63,7 @@ function repoPanel(entry: AtlasEntry): Html {
   }
 
   // Docs
-  const docEntries = Object.entries(entry.range.docs ?? {}).filter(([, p]) => typeof p === "string" && p.trim().length > 0);
+  const docEntries = Object.entries(entry.peak.docs ?? {}).filter(([, p]) => typeof p === "string" && p.trim().length > 0);
   if (docEntries.length) {
     rows.push(
       Item({
@@ -83,11 +83,11 @@ function repoPanel(entry: AtlasEntry): Html {
 
   return Panel({
     id: entry.repo,
-    title: html`${entry.range.name} ${entry.range.tier ? Pill({ tone: tierTone(entry.range.tier), children: entry.range.tier }) : ""}`,
+    title: html`${entry.peak.name} ${entry.peak.tier ? Pill({ tone: tierTone(entry.peak.tier), children: entry.peak.tier }) : ""}`,
     actions: repoLinks(entry),
     flush: true,
     children: html`
-      ${entry.range.description ? html`<p class="panel-note">${entry.range.description}</p>` : ""}
+      ${entry.peak.description ? html`<p class="panel-note">${entry.peak.description}</p>` : ""}
       ${rows.length ? List(rows) : ""}
     `,
   });
@@ -96,7 +96,7 @@ function repoPanel(entry: AtlasEntry): Html {
 function bareItem(repo: string): Html {
   return Item({
     title: html`<strong>${repo}</strong>`,
-    line: html`<span class="t3">No range.yaml manifest found</span>`,
+    line: html`<span class="t3">No peak.yaml</span>`,
     trail: html`
       <div class="buttons">
         <a class="btn sm ghost" href="/code/${encodeURIComponent(repo)}">Code</a>
@@ -106,18 +106,50 @@ function bareItem(repo: string): Html {
   });
 }
 
+/** Files Dovre can't use: every problem, and where the format is written down. */
+function problemsPanel(problems: AtlasProblem[]): Html {
+  return Panel({
+    title: "Files with problems",
+    meta: String(problems.length),
+    foot: html`The format: ${Link(SPEC_URL, "peak.yaml spec")} · ${Link(SCHEMA_URL, "JSON Schema")}. Check a repo with <code>npx github:bergaaberg/peak check</code>.`,
+    flush: true,
+    children: List(
+      problems.map((p) =>
+        Item({
+          lead: Dot({ tone: "bad" }),
+          title: html`<strong>${p.repo}</strong> <span class="t3">${p.file}</span>`,
+          line: p.problems.join(" "),
+          trail: html`<a class="btn sm ghost" href="/code/${encodeURIComponent(p.repo)}?path=${encodeURIComponent(p.file)}">Open</a>`,
+        }),
+      ),
+    ),
+  });
+}
+
+/** range.yaml is the format's old name: Dovre still reads it, and asks for the rename. */
+function renameNotice(legacy: AtlasEntry[]): Html {
+  const names = legacy.map((e) => e.repo).join(", ");
+  return Notice({
+    tone: "neutral",
+    children: html`${legacy.length === 1 ? "One repo uses" : `${legacy.length} repos use`} the old name <code>range.yaml</code> (${names}). Rename it to <code>peak.yaml</code>: same format, and Dovre stops reading the old name in a later release. ${Link(SPEC_URL, "The spec")}`,
+  });
+}
+
 /** The page's body; the pack's route puts it in Dovre's shell. */
 export function atlasPage(
   opts: {
     entries: AtlasEntry[];
     bare?: string[];
+    /** Checkouts whose file can't be used. */
+    problems?: AtlasProblem[];
     filter?: string;
   },
 ): Html {
-  const { entries, bare = [], filter } = opts;
-  const filtered = filter ? entries.filter((e) => (e.range.tier ?? "").toLowerCase() === filter.toLowerCase()) : entries;
+  const { entries, bare = [], problems = [], filter } = opts;
+  const legacy = entries.filter((e) => isLegacy(e.file));
+  const filtered = filter ? entries.filter((e) => (e.peak.tier ?? "").toLowerCase() === filter.toLowerCase()) : entries;
 
-  const tiers = Array.from(new Set(entries.map((e) => (e.range.tier ?? "").toLowerCase()).filter(Boolean))) as string[];
+  const tiers = Array.from(new Set(entries.map((e) => (e.peak.tier ?? "").toLowerCase()).filter(Boolean))) as string[];
   const tabs =
     tiers.length > 0
       ? Tabs({
@@ -127,7 +159,7 @@ export function atlasPage(
             ...tiers.map((t) => ({
               href: `/atlas?tier=${encodeURIComponent(t)}`,
               label: t[0].toUpperCase() + t.slice(1),
-              n: entries.filter((e) => (e.range.tier ?? "").toLowerCase() === t).length,
+              n: entries.filter((e) => (e.peak.tier ?? "").toLowerCase() === t).length,
               current: (filter ?? "").toLowerCase() === t,
             })),
           ],
@@ -147,6 +179,8 @@ export function atlasPage(
       `,
     })}
     <div data-live id="atlas">
+      ${!filter && problems.length ? problemsPanel(problems) : ""}
+      ${!filter && legacy.length ? renameNotice(legacy) : ""}
       ${filtered.map(repoPanel)}
       ${!filter && bare.length > 0 ? Panel({ title: "Uncataloged Checkouts", meta: String(bare.length), flush: true, children: List(bare.map(bareItem)) }) : ""}
     </div>
@@ -156,31 +190,31 @@ export function atlasPage(
 }
 
 /** The prompt that focuses an agent on one component. */
-const focusPrompt = (range: Range, c: Range["components"][number]) =>
-  `Focus on component "${c.name}" (${c.owns.join(", ")}) in ${range.name}${c.rules ? `, following rules in ${c.rules}` : ""}: `;
+const focusPrompt = (peak: Peak, c: Peak["components"][number]) =>
+  `Focus on component "${c.name}" (${c.owns.join(", ")}) in ${peak.name}${c.rules ? `, following rules in ${c.rules}` : ""}: `;
 
 /** /agents/new's "agents.new" slot: a checkout's components, each a link that sets the prompt. */
-export function componentField(repo: string, range: Range | undefined): Html | "" {
-  if (!range?.components?.length) return "";
-  return html`<div class="field"><span class="label">Component</span><div class="buttons">${range.components.map(
-    (c) => html`<a class="btn sm ghost" href="/agents/new?repo=${encodeURIComponent(repo)}&prompt=${encodeURIComponent(focusPrompt(range, c))}" title="Owns: ${c.owns.join(", ")}">${c.name}</a>`,
+export function componentField(repo: string, peak: Peak | undefined): Html | "" {
+  if (!peak?.components?.length) return "";
+  return html`<div class="field"><span class="label">Component</span><div class="buttons">${peak.components.map(
+    (c) => html`<a class="btn sm ghost" href="/agents/new?repo=${encodeURIComponent(repo)}&prompt=${encodeURIComponent(focusPrompt(peak, c))}" title="Owns: ${c.owns.join(", ")}">${c.name}</a>`,
   )}</div><span class="hint">Clicking a component sets boundaries and loads component rules.</span></div>`;
 }
 
 /** A PR row's "pr.lead" slot: its repo's tier. */
-export function prLead(range: Range | undefined): Html | "" {
-  return range ? html` ${Pill({ tone: "neutral", children: range.tier })}` : "";
+export function prLead(peak: Peak | undefined): Html | "" {
+  return peak ? html` ${Pill({ tone: "neutral", children: peak.tier })}` : "";
 }
 
 /** A PR's "pr.facts" slot: its repo's tier, site and docs (links into /code). */
-export function prFacts(repo: string, range: Range | undefined): [string, Html][] {
-  if (!range) return [];
+export function prFacts(repo: string, peak: Peak | undefined): [string, Html][] {
+  if (!peak) return [];
   const short = repo.replace(/^.*\//, "");
-  const docs = Object.entries(range.docs);
+  const docs = Object.entries(peak.docs);
   return [
     [
       "Atlas",
-      html`${Pill({ tone: "ok", children: `tier: ${range.tier}` })}${range.url ? html` ${Link(range.url, range.name)}` : html` <strong>${range.name}</strong>`}${
+      html`${Pill({ tone: "ok", children: `tier: ${peak.tier}` })}${peak.url ? html` ${Link(peak.url, peak.name)}` : html` <strong>${peak.name}</strong>`}${
         docs.length ? html` · docs: ${docs.map(([k, path], i) => html`${i ? ", " : ""}${Link(`/code/${short}?path=${encodeURIComponent(path)}`, k)}`)}` : ""
       }`,
     ],
@@ -193,9 +227,9 @@ export function projectsPanel(entries: AtlasEntry[]): Html | "" {
   const items = entries.map((e) =>
     Item({
       href: `/code/${e.repo}`,
-      title: html`<strong>${e.range.name}</strong> ${Pill({ tone: "ok", children: `tier: ${e.range.tier}` })}`,
-      line: e.range.description ?? "",
-      more: html`${e.range.url ? Link(e.range.url, "Live site ↗") : ""}${Object.entries(e.range.docs).map(([k, p]) => html` · ${Link(`/code/${e.repo}?path=${encodeURIComponent(p)}`, k)}`)}`,
+      title: html`<strong>${e.peak.name}</strong> ${Pill({ tone: "ok", children: `tier: ${e.peak.tier}` })}`,
+      line: e.peak.description ?? "",
+      more: html`${e.peak.url ? Link(e.peak.url, "Live site ↗") : ""}${Object.entries(e.peak.docs).map(([k, p]) => html` · ${Link(`/code/${e.repo}?path=${encodeURIComponent(p)}`, k)}`)}`,
       trail: html`<a class="btn sm ghost" href="/agents/new?repo=${encodeURIComponent(e.repo)}">Start agent</a>`,
     }),
   );
@@ -206,10 +240,10 @@ export function projectsPanel(entries: AtlasEntry[]): Html | "" {
 export function binoLines(entries: AtlasEntry[], max = 1400): string {
   const out: string[] = [];
   let used = 0;
-  for (const [i, { repo, range }] of entries.entries()) {
-    const comps = range.components?.length ? ` Components: ${range.components.slice(0, 6).map((c) => `${c.name} (${c.owns.join(", ")})`).join("; ")}${range.components.length > 6 ? ` (and ${range.components.length - 6} more)` : ""}.` : "";
-    const docs = Object.entries(range.docs ?? {}).slice(0, 6).map(([k, p]) => `${k}: ${p}`).join(", ");
-    const l = `- ${repo}${range.tier ? ` [${range.tier}]` : ""}: ${(range.description ?? range.name).replace(/\s+/g, " ").slice(0, 100)}.${comps}${docs ? ` Docs: ${docs}.` : ""}`.slice(0, 400);
+  for (const [i, { repo, peak }] of entries.entries()) {
+    const comps = peak.components?.length ? ` Components: ${peak.components.slice(0, 6).map((c) => `${c.name} (${c.owns.join(", ")})`).join("; ")}${peak.components.length > 6 ? ` (and ${peak.components.length - 6} more)` : ""}.` : "";
+    const docs = Object.entries(peak.docs ?? {}).slice(0, 6).map(([k, p]) => `${k}: ${p}`).join(", ");
+    const l = `- ${repo}${peak.tier ? ` [${peak.tier}]` : ""}: ${(peak.description ?? peak.name).replace(/\s+/g, " ").slice(0, 100)}.${comps}${docs ? ` Docs: ${docs}.` : ""}`.slice(0, 400);
     if (used + l.length > max) {
       out.push(`- (and ${entries.length - i} more cataloged repositories)`);
       break;
