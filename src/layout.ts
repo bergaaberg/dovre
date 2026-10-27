@@ -22,6 +22,12 @@ export type Layout = {
   theme?: Theme;
   /** An accent besides fjord's blue (the default), each checked in both themes (WP-N5). */
   accent?: Accent;
+  /** The font for text (code stays Nordwand Mono); unset: Nordwand Mono (#183). */
+  font?: Font;
+  /** Text size, a step either side of the default (#183). */
+  textSize?: TextSize;
+  /** Line height: tighter or looser than the default (#183). */
+  lineHeight?: LineHeight;
   /** What Bino's button shows: the face a pack draws, if any (unset), or the assistant icon. */
   binoButton?: "icon";
   /** /stats's panels by id (core's, or `<pack>:<id>`): shown or hidden, and their order. Unset: each where its code puts it. */
@@ -40,6 +46,12 @@ export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
 export const ACCENTS = ["heather", "glacier"] as const;
 export type Accent = (typeof ACCENTS)[number];
+export const FONTS = ["sans", "serif"] as const;
+export type Font = (typeof FONTS)[number];
+export const TEXT_SIZES = ["small", "large", "larger"] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];
+export const LINE_HEIGHTS = ["tight", "loose"] as const;
+export type LineHeight = (typeof LINE_HEIGHTS)[number];
 
 const HREF = /^\/[\w\-/]{0,80}$/;
 const ID = /^[a-z][a-z0-9-]{0,64}$/;
@@ -72,6 +84,9 @@ export function layoutOf(raw: unknown): Layout {
   if (packsOff) out.packsOff = packsOff;
   if (THEMES.includes(v.theme as Theme)) out.theme = v.theme as Theme;
   if (ACCENTS.includes(v.accent as Accent)) out.accent = v.accent as Accent;
+  if (FONTS.includes(v.font as Font)) out.font = v.font as Font;
+  if (TEXT_SIZES.includes(v.textSize as TextSize)) out.textSize = v.textSize as TextSize;
+  if (LINE_HEIGHTS.includes(v.lineHeight as LineHeight)) out.lineHeight = v.lineHeight as LineHeight;
   if (v.binoButton === "icon") out.binoButton = "icon";
   if (v.stats && typeof v.stats === "object" && !Array.isArray(v.stats)) {
     const stats: Record<string, StatPlace> = {};
@@ -143,7 +158,7 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
     const at = one(`statorder:${id}`).trim();
     if (show === "on" || show === "off") stats[id] = { show: show === "on", order: at === "" ? 100 : order(Number(at)) };
   }
-  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), binoButton: one("binoButton"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")), statsDays: Number(/^(\d+)d$/.exec(one("statsWeeks"))?.[1]) });
+  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), font: one("font"), textSize: one("textSize"), lineHeight: one("lineHeight"), binoButton: one("binoButton"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")), statsDays: Number(/^(\d+)d$/.exec(one("statsWeeks"))?.[1]) });
 }
 
 /**

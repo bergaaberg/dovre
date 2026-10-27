@@ -8,6 +8,17 @@
 import { ISSUES_CSS } from "../issues/style.ts";
 import { SPLASH_CSS } from "./splash.ts";
 
+/** Reading settings (#183): code keeps --mono whatever the font. */
+const READING_CSS = String.raw`
+:root[data-font="sans"] { --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; --serif: var(--sans); --serif-text: var(--sans); --display: var(--sans); }
+:root[data-font="serif"] { --sans: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, Cambria, serif; --serif: var(--sans); --serif-text: var(--sans); --display: var(--sans); }
+:root[data-size="small"] { --zoom: 0.92; }
+:root[data-size="large"] { --zoom: 1.12; }
+:root[data-size="larger"] { --zoom: 1.25; }
+:root[data-lh="tight"] { --lh: 1.35; }
+:root[data-lh="loose"] { --lh: 1.7; }
+`;
+
 /** Numbers and charts (src/ui/kit.ts Stat…Gauge, src/ui/charts.view.ts). */
 const CHARTS_CSS = String.raw`
 .viz svg.wide { display: block; } .viz.wide-only { display: block; }
@@ -236,7 +247,9 @@ export const STYLE = String.raw`
   --sans: var(--nordwand);
   --display: var(--nordwand);
   --mono: var(--nordwand);
-  --fs-xs: 12px; --fs-s: 13px; --fs-m: 15px; --fs-l: 18px; --fs-xl: 23px; --fs-hero: 50px;
+  /* Reading settings (Settings → Look and layout, #183): the text size scales these, --lh is body text's line height. */
+  --zoom: 1; --lh: 1.5;
+  --fs-xs: calc(12px * var(--zoom)); --fs-s: calc(13px * var(--zoom)); --fs-m: calc(15px * var(--zoom)); --fs-l: calc(18px * var(--zoom)); --fs-xl: calc(23px * var(--zoom)); --fs-hero: calc(50px * var(--zoom));
   --r: 16px; --r-s: 9px;
 
   /* morning in the cabin: oat and cream, espresso ink, warm stone (PLAN WP-M2) */
@@ -257,7 +270,7 @@ export const STYLE = String.raw`
 
   /* the kit's token aliases, on these values */
   --text: var(--ink); --text-2: var(--ink-2); --text-3: var(--ink-3); --border: var(--line); --border-2: var(--line-2);
-  --fs-sm: var(--fs-s); --fs: 14px; --fs-md: var(--fs-m); --fs-lg: var(--fs-l); --r-lg: var(--r); --r-sm: 6px; --font: var(--sans);
+  --fs-sm: var(--fs-s); --fs: calc(14px * var(--zoom)); --fs-md: var(--fs-m); --fs-lg: var(--fs-l); --r-lg: var(--r); --r-sm: 6px; --font: var(--sans);
   /* the charts' (src/ui/charts.view.ts): series are identity, not status */
   --s1: var(--c1); --s2: var(--c2); --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --grid: var(--line); --axis: var(--line-2);
   /* the blue ramp (heatmaps, ordered outcomes): h1 faintest, h6 strongest on this surface */
@@ -284,11 +297,12 @@ ${DARK}
 :root[data-theme="dark"][data-accent="glacier"] { ${ACCENT_DARK.glacier} }
 /* The other themes (THEMES above). */
 ${themeCss()}
+${READING_CSS}
 
 /* ── Base ───────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: var(--fs-m)/1.5 var(--sans); font-variant-numeric: tabular-nums;
+body { margin: 0; background: var(--bg); color: var(--ink); font: var(--fs-m)/var(--lh) var(--sans); font-variant-numeric: tabular-nums;
   background-image: linear-gradient(180deg, var(--sky) 0, var(--bg) 560px); background-repeat: no-repeat; }
 a { color: inherit; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
 a:hover { color: var(--accent); text-decoration-color: currentColor; }
