@@ -4,6 +4,7 @@
  * beside a live log of what's moving, docked at the right (src/home/feed.ts). Lists are short: what
  * needs me first, the rest counted and a link away. Every row opens in place.
  */
+import { prOrder } from "./prlist.ts";
 import { html } from "hono/html";
 import { type Snapshot, prSummaryKey } from "../gather.ts";
 import { eyebrow, glance, greeting, lede } from "../home/brief.ts";
@@ -100,11 +101,7 @@ function prRow(p: Pr, s: Snapshot, summary: SummaryOf, showAuthor = false, agent
   }<span class="row-m">${prState(p)}${p.draft ? html`<span>Draft</span>` : ""}<span>${Ago(p.updatedAt)}</span></span>${Chev}</summary><div class="expand">${prBody(p, { summary, agent, forge })}</div></details></li>`;
 }
 
-/** Mine first where I'm needed: red, changes asked, threads, ready to merge; then the freshest. */
-export function prOrder(prs: Pr[]): Pr[] {
-  const weight = (p: Pr) => (p.checks === "FAILURE" || p.checks === "ERROR" ? 0 : p.review === "CHANGES_REQUESTED" ? 1 : p.openThreads ? 2 : prNeeds(p)[0]?.startsWith("approved") ? 3 : p.draft ? 5 : 4);
-  return [...prs].sort((a, b) => weight(a) - weight(b) || b.updatedAt.localeCompare(a.updatedAt));
-}
+export { prOrder };
 
 /** My open PRs counted by what they wait on (once each, by the first that holds); drafts counted apart. */
 export function prStats(mine: Pr[]): { failing: number; changes: number; threads: number; ready: number; drafts: number } {

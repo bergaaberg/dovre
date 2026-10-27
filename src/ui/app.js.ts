@@ -1158,6 +1158,12 @@ document.addEventListener("change", async (e) => {
   }
 });
 
+// ── A filter form (form[data-autofilter], the PR list) goes as soon as a choice changes ──
+document.addEventListener("change", (e) => {
+  const form = e.target.closest && e.target.closest("form[data-autofilter]");
+  if (form && e.target.tagName === "SELECT") form.requestSubmit();
+});
+
 // ── A link to /page#id opens that row in place (a <details> closed by default) ──
 function openTarget() {
   const el = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));

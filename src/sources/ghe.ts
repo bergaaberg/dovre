@@ -75,6 +75,8 @@ export type Pr = {
   url: string;
   draft: boolean;
   updatedAt: string;
+  /** When it was opened (older sources leave it out: updatedAt stands in). */
+  createdAt?: string;
   branch: string;
   author: string;
   review: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
@@ -93,7 +95,7 @@ export type Pr = {
   runs: { name: string; state: "ok" | "bad" | "pending" | "skipped"; url: string | null }[];
 };
 
-const PR_FIELDS = `number title url isDraft updatedAt headRefName headRefOid author{login} repository{nameWithOwner}
+const PR_FIELDS = `number title url isDraft updatedAt createdAt headRefName headRefOid author{login} repository{nameWithOwner}
   body additions deletions labels(first:10){nodes{name}} files(first:80){nodes{path additions deletions}}
   latestReviews(first:10){nodes{author{login} state}}
   reviewRequests(first:10){nodes{requestedReviewer{... on User{login} ... on Team{name}}}}
@@ -114,7 +116,7 @@ export function checkState(c: RawCheck): Pr["runs"][number]["state"] {
 const RANK = { bad: 0, pending: 1, ok: 2, skipped: 3 } as const;
 
 type PrNode = {
-  number: number; title: string; url: string; isDraft: boolean; updatedAt: string; headRefName: string; headRefOid?: string;
+  number: number; title: string; url: string; isDraft: boolean; updatedAt: string; createdAt?: string; headRefName: string; headRefOid?: string;
   author: { login: string } | null; repository: { nameWithOwner: string }; reviewDecision: Pr["review"];
   body?: string; additions?: number; deletions?: number; labels?: { nodes: { name: string }[] };
   files?: { nodes: { path: string; additions: number; deletions: number }[] } | null;
@@ -132,6 +134,7 @@ export function normalizePr(p: PrNode): Pr {
     url: p.url,
     draft: p.isDraft,
     updatedAt: p.updatedAt,
+    ...(p.createdAt ? { createdAt: p.createdAt } : {}),
     branch: p.headRefName,
     author: p.author?.login ?? "ghost",
     review: p.reviewDecision,
