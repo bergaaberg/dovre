@@ -19,6 +19,7 @@ import { markdown } from "../ui/markdown.ts";
 import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
 import { type DiffLine, type FileView, fileViews, placeMine } from "../viewer/diff.ts";
+import { type DiffAsk, type LocalDiff, localDiff, MAX_FILES, MAX_UNTRACKED } from "../viewer/localdiff.ts";
 import { Ago, Link } from "./parts.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { checkReview, postReview } from "../actions/reviews.ts";
@@ -43,6 +44,13 @@ const codeHref = (dir: string, o: { ref?: string; path?: string; q?: string } = 
   if (o.q) q.set("q", o.q);
   const s = q.toString();
   return `/code/${encodeURIComponent(dir)}${s ? `?${s}` : ""}`;
+};
+/** A checkout's own diff (dovre#105): uncommitted by default, or two refs, or one commit. */
+export const diffHref = (dir: string, o: { base?: string; head?: string; commit?: string } = {}) => {
+  const q = new URLSearchParams();
+  for (const k of ["base", "head", "commit"] as const) if (o[k]) q.set(k, o[k]!);
+  const s = q.toString();
+  return `/code/${encodeURIComponent(dir)}/diff${s ? `?${s}` : ""}`;
 };
 
 const STATE_TONE = { OPEN: "ok", MERGED: "ok", CLOSED: "bad" } as const;
@@ -275,7 +283,51 @@ export function codePage(frame: Frame, o: { dir: string; repo: string; ref: stri
     title: `${o.path || o.dir} · Code · Dovre`,
     frame,
     current: "/code",
-    body: html`${PageHeader({ title: o.path ? o.path.split("/").pop()! : o.dir, sub: html`<code>${o.repo}</code> at <code>${o.ref}</code> (${o.sha.slice(0, 7)})`, crumbs: [{ href: "/code", label: "Code" }, { href: codeHref(o.dir), label: o.dir }] })}${forms}${crumbsOf(o.dir, o.ref, o.path)}${inner}`,
+    body: html`${PageHeader({ title: o.path ? o.path.split("/").pop()! : o.dir, sub: html`<code>${o.repo}</code> at <code>${o.ref}</code> (${o.sha.slice(0, 7)})`, crumbs: [{ href: "/code", label: "Code" }, { href: codeHref(o.dir), label: o.dir }], actions: html`<a class="btn sm ghost" href="${diffHref(o.dir)}">Changes</a>` })}${forms}${crumbsOf(o.dir, o.ref, o.path)}${inner}`,
+  });
+}
+
+// ── A checkout's own diff (dovre#105) ───────────────────────────────────────
+
+export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: DiffAsk; diff: LocalDiff }): Html {
+  const a = o.ask;
+  const d = o.diff;
+  const short = (sha?: string) => (sha ? sha.slice(0, 7) : "");
+  const sub =
+    a.kind === "worktree"
+      ? html`What's not committed in <code>${o.dir}</code>, against <code>${a.base}</code>${d.ok ? html` (${short(d.base)})` : ""}, untracked files too.`
+      : a.kind === "refs"
+        ? html`<code>${a.head}</code> against <code>${a.base}</code>, from where they split.`
+        : html`Commit <code>${short(d.ok ? d.head : a.sha) || a.sha}</code>.`;
+  const tabs = Tabs({
+    label: "What to compare",
+    items: [
+      { href: diffHref(o.dir), label: "Uncommitted", current: a.kind === "worktree" && a.base === "HEAD" },
+      { href: diffHref(o.dir, { base: "origin/HEAD", head: "HEAD" }), label: "Branch vs default", current: a.kind === "refs" },
+    ],
+  });
+  const form = html`<div class="code-bar"><form method="get" action="${diffHref(o.dir)}" class="code-ref"><label class="label" for="base">Base</label><input type="text" id="base" name="base" value="${a.kind === "commit" ? "" : a.base}" maxlength="200" placeholder="HEAD"><label class="label" for="head">Head</label><input type="text" id="head" name="head" value="${a.kind === "refs" ? a.head : ""}" maxlength="200" placeholder="working tree"><button type="submit" class="sm">Compare</button></form><form method="get" action="${diffHref(o.dir)}" class="code-ref"><label class="label" for="commit">Commit</label><input type="text" id="commit" name="commit" value="${a.kind === "commit" ? a.sha : ""}" maxlength="200"><button type="submit" class="sm">Show</button></form></div>`;
+  let inner: Html;
+  if (!d.ok) inner = Notice({ tone: "bad", children: html`<strong>The diff didn't load.</strong> ${d.error}` });
+  else if (!d.files.length) inner = Panel({ children: Empty({ title: a.kind === "worktree" ? "Nothing uncommitted" : "No changes" }) });
+  else {
+    const views = fileViews(d.files, []);
+    const adds = d.files.reduce((n, f) => n + f.additions, 0);
+    const dels = d.files.reduce((n, f) => n + f.deletions, 0);
+    // "View file" opens the head commit; the working tree has none.
+    const head = a.kind === "worktree" ? undefined : d.head;
+    const key = head ?? `worktree:${o.dir}`;
+    inner = html`<p class="t3">${d.files.length} ${d.files.length === 1 ? "file" : "files"} · <span class="add">+${adds}</span> <span class="del">−${dels}</span></p><nav class="dfile-index" aria-label="Files"><ul>${views.map(
+      (fv) => html`<li><a href="#${fileId(fv.file.path)}"><code>${fv.file.path}</code></a> <span class="add">+${fv.file.additions}</span> <span class="del">−${fv.file.deletions}</span></li>`,
+    )}</ul></nav>${d.capped ? Notice({ tone: "warn", children: `Showing the first ${MAX_FILES} files.` }) : ""}${
+      d.moreUntracked ? Notice({ tone: "warn", children: `${d.moreUntracked} more untracked ${d.moreUntracked === 1 ? "file" : "files"} past the first ${MAX_UNTRACKED}, not shown.` }) : ""
+    }${views.map((fv) => fileView(fv, { sha: key, dir: head ? o.dir : undefined, present: !!head }))}`;
+  }
+  return shell({
+    title: `Changes · ${o.dir} · Dovre`,
+    frame,
+    current: "/code",
+    body: html`${PageHeader({ title: "Changes", sub, crumbs: [{ href: "/code", label: "Code" }, { href: codeHref(o.dir), label: o.dir }], tabs })}${form}${inner}`,
   });
 }
 
@@ -584,6 +636,22 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
   }
 
   app.get("/code", async (c) => env.IS_HOSTED === "1" ? c.notFound() : c.html(codeListPage(await deps.frame(), list())));
+
+  app.get("/code/:dir/diff", async (c) => {
+    if (env.IS_HOSTED === "1") return c.notFound();
+    const co = list().find((x) => x.dir === c.req.param("dir"));
+    if (!co) return c.notFound();
+    const frame = await deps.frame();
+    const q = (k: string) => (c.req.query(k) ?? "").trim().slice(0, 200);
+    const commit = q("commit");
+    const base = q("base") || "HEAD";
+    const head = q("head");
+    const ask: DiffAsk = commit ? { kind: "commit", sha: commit } : head ? { kind: "refs", base, head } : { kind: "worktree", base };
+    const refs = ask.kind === "commit" ? [ask.sha] : ask.kind === "refs" ? [ask.base, ask.head] : [ask.base];
+    if (!refs.every(safeRef)) return c.html(diffPage(frame, { dir: co.dir, repo: co.repo, ask, diff: { ok: false, error: "That isn't a ref in this checkout." } }), 400);
+    const diff = await localDiff(g, dirOf(env.CODE_DIR, co.dir), ask);
+    return c.html(diffPage(frame, { dir: co.dir, repo: co.repo, ask, diff }), diff.ok ? 200 : 404);
+  });
 
   app.get("/code/:dir", async (c) => {
     if (env.IS_HOSTED === "1") return c.notFound();

@@ -9,6 +9,12 @@ import type { Ghe } from "../src/sources/ghe.ts";
 import { normalizePrView } from "../src/sources/prview.ts";
 import { blob, commitOf, type Git, grep, safePath, safeRef, tree } from "../src/viewer/code.ts";
 import { fileViews, parsePatch, placeDrafts, placeThreads } from "../src/viewer/diff.ts";
+import { git as realGit } from "../src/viewer/code.ts";
+import { localDiff, parseGitDiff } from "../src/viewer/localdiff.ts";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { assertInert, H, signedIn, snapshot } from "./helpers.ts";
 
 const SHA = "a".repeat(40);
@@ -195,4 +201,99 @@ test("draft comments go on their lines (RIGHT on the new side, LEFT on a removed
   assert.deepEqual(at("new2").drafts, [0]);
   assert.deepEqual(at("old2").drafts, [1]);
   assert.equal(views[0]!.drafts, 2);
+});
+
+test("local diff (#105): git's output as the viewer's files: added, removed, renamed, binary, mode-only", () => {
+  const out = [
+    "diff --git a/src/a.ts b/src/a.ts", "index 1..2 100644", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,2 +1,2 @@", " keep", "-old", "+new",
+    "diff --git a/gone.ts b/gone.ts", "deleted file mode 100644", "index 1..0", "--- a/gone.ts", "+++ /dev/null", "@@ -1 +0,0 @@", "-bye",
+    "diff --git a/old name.ts b/new name.ts", "similarity index 90%", "rename from old name.ts", "rename to new name.ts",
+    "diff --git a/img.png b/img.png", "new file mode 100644", "index 0..1", "Binary files /dev/null and b/img.png differ",
+    "diff --git a/run.sh b/run.sh", "old mode 100644", "new mode 100755", "",
+  ].join("\n");
+  const files = parseGitDiff(out);
+  assert.deepEqual(files.map((f) => [f.path, f.status, f.additions, f.deletions, f.previous ?? null, f.patch === undefined]), [
+    ["src/a.ts", "modified", 1, 1, null, false],
+    ["gone.ts", "removed", 0, 1, null, false],
+    ["new name.ts", "renamed", 0, 0, "old name.ts", true],
+    ["img.png", "added", 0, 0, null, true],
+    ["run.sh", "modified", 0, 0, null, true],
+  ]);
+  assert.equal(files[0]!.patch, "@@ -1,2 +1,2 @@\n keep\n-old\n+new");
+});
+
+/** A real repo: main with two files, a branch with a commit, and uncommitted work on top. */
+function repo() {
+  const code = mkdtempSync(join(tmpdir(), "dovre-localdiff-"));
+  const dir = join(code, "shop-api");
+  mkdirSync(dir);
+  const run = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args], { cwd: dir, stdio: "pipe" }).toString().trim();
+  run("init", "-q", "-b", "main");
+  writeFileSync(join(dir, "a.ts"), "one\ntwo\nthree\n");
+  writeFileSync(join(dir, "b.ts"), "bee\n");
+  run("add", "-A");
+  run("commit", "-q", "-m", "first");
+  run("switch", "-q", "-c", "feat");
+  writeFileSync(join(dir, "c.ts"), "sea\n");
+  run("add", "-A");
+  run("commit", "-q", "-m", "second");
+  const second = run("rev-parse", "HEAD");
+  // Uncommitted: a change, a rename, a deletion, an untracked file with hostile text, an ignored one.
+  writeFileSync(join(dir, "a.ts"), `one\n2 ${H}\nthree\n`);
+  renameSync(join(dir, "b.ts"), join(dir, "bee.ts"));
+  run("add", "-A", "b.ts", "bee.ts");
+  unlinkSync(join(dir, "c.ts"));
+  writeFileSync(join(dir, "new&'.ts"), `${H}\n`);
+  writeFileSync(join(dir, ".gitignore"), "secret.env\n");
+  writeFileSync(join(dir, "secret.env"), "TOKEN=x\n");
+  return { code, dir, second, done: () => rmSync(code, { recursive: true, force: true }) };
+}
+
+test("local diff (#105) on a real checkout: uncommitted (untracked too, ignored never), two refs, one commit", async () => {
+  const r = repo();
+  try {
+    const wt = await localDiff(realGit, r.dir, { kind: "worktree", base: "HEAD" });
+    assert.ok(wt.ok, JSON.stringify(wt));
+    assert.deepEqual(wt.files.map((f) => [f.path, f.status]).sort(), [[".gitignore", "added"], ["a.ts", "modified"], ["bee.ts", "renamed"], ["c.ts", "removed"], ["new&'.ts", "added"]]);
+    assert.equal(wt.files.find((f) => f.path === "new&'.ts")!.additions, 1);
+    const refs = await localDiff(realGit, r.dir, { kind: "refs", base: "main", head: "feat" });
+    assert.ok(refs.ok);
+    assert.deepEqual(refs.files.map((f) => [f.path, f.status]), [["c.ts", "added"]]);
+    const one = await localDiff(realGit, r.dir, { kind: "commit", sha: r.second });
+    assert.ok(one.ok && one.files.length === 1 && one.head === r.second);
+    const root = await localDiff(realGit, r.dir, { kind: "commit", sha: "main" });
+    assert.ok(root.ok);
+    assert.deepEqual(root.files.map((f) => f.path), ["a.ts", "b.ts"], "a root commit diffs against the empty tree");
+    assert.equal((await localDiff(realGit, r.dir, { kind: "refs", base: "main", head: "nope" })).ok, false);
+  } finally {
+    r.done();
+  }
+});
+
+test("local diff (#105) through the app: hostile code inert, bad refs refused before git, unknown checkouts 404, hosted 404", async () => {
+  const r = repo();
+  try {
+    const env = { ...ENV, CODE_DIR: r.code } as Env;
+    const app = createViewerRoutes(env, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }] });
+    const res = await app.request("/code/shop-api/diff");
+    assert.equal(res.status, 200);
+    const out = await res.text();
+    assertInert("local diff page", out);
+    assert.match(out, /Nothing uncommitted|a\.ts/);
+    assert.match(out, /new&amp;&#39;\.ts|new&amp;'\.ts/);
+    assert.doesNotMatch(out, /TOKEN=x/, "ignored files stay out");
+    assert.doesNotMatch(out, /View file/, "the working tree has no commit to open");
+    const refs = await (await app.request("/code/shop-api/diff?base=main&head=feat")).text();
+    assert.match(refs, /c\.ts/);
+    assert.match(refs, /View file/);
+    assert.equal((await app.request("/code/shop-api/diff?base=--output=x")).status, 400);
+    assert.equal((await app.request("/code/shop-api/diff?commit=a..b")).status, 400);
+    assert.equal((await app.request("/code/shop-api/diff?head=nope")).status, 404);
+    assert.equal((await app.request("/code/other/diff")).status, 404);
+    assert.match(await (await app.request("/code/shop-api")).text(), /href="\/code\/shop-api\/diff"/);
+    const hosted = createViewerRoutes({ ...env, IS_HOSTED: "1" } as Env, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }] });
+    assert.equal((await hosted.request("/code/shop-api/diff")).status, 404);
+  } finally {
+    r.done();
+  }
 });
