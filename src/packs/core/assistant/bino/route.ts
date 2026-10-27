@@ -22,7 +22,8 @@ export const VIAS = ["claude", "omp", "copilot", "agy", "codex", "api-key", "cf-
 export type BinoVia = (typeof VIAS)[number];
 
 /** One call: a system prompt and the conversation so far as one message in, the reply out. */
-export type Ask = (p: { system: string; user: string; model?: string }) => Promise<{ text: string; cost: number }>;
+/** `signal`: aborting it stops the call (Bino's Stop): a request is cancelled, a program killed. */
+export type Ask = (p: { system: string; user: string; model?: string; signal?: AbortSignal }) => Promise<{ text: string; cost: number }>;
 
 export type Route = {
   via: BinoVia;
@@ -86,7 +87,7 @@ export function parseReply(r: Ran): { text: string; cost: number } {
   return { text: String(j.result ?? "").trim(), cost: Number(j.total_cost_usd ?? 0) };
 }
 
-type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string }) => Promise<Ran>;
+type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal }) => Promise<Ran>;
 
 /**
  * `copilot`: the omp route, a Copilot model with no tools, no MCP and no session (src/ai/omp.ts);
@@ -161,8 +162,8 @@ export function routeOf(o: { via: BinoVia; claude?: Tool; copilot?: OmpAsker; co
   // An empty folder of its own: no CLAUDE.md or project settings to pick up.
   const cwd = join(tmpdir(), "dovre-bino");
   mkdirSync(cwd, { recursive: true });
-  const ask: Ask = async ({ system, user, model: m }) => {
-    const r = await run(claude.bin, [...claude.pre, ...binoArgs(system, m || model)], { cwd, input: user, timeoutMs: 180_000 });
+  const ask: Ask = async ({ system, user, model: m, signal }) => {
+    const r = await run(claude.bin, [...claude.pre, ...binoArgs(system, m || model)], { cwd, input: user, timeoutMs: 180_000, signal });
     const got = parseReply(r);
     o.log?.(`bino: ${m || model}, $${got.cost.toFixed(4)}`);
     return got;

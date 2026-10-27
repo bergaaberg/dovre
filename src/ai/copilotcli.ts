@@ -69,7 +69,7 @@ export function parseCopilotJsonl(stdout: string): { text: string; sessionId?: s
   return { text: text.trim(), sessionId, premiumRequests, model, error };
 }
 
-type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; env?: Record<string, string | null> }) => Promise<Ran>;
+type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; env?: Record<string, string | null>; signal?: AbortSignal }) => Promise<Ran>;
 
 /**
  * A Complete through Copilot CLI. `model` is Copilot's (COPILOT_CLI_MODEL), whatever a caller asks
@@ -85,7 +85,7 @@ export function copilotCli(tool: Pick<Tool, "bin" | "pre">, opts: { model?: stri
       for (const d of readdirSync(root)) if (d.startsWith("h-") && !active.has(join(root, d))) rmSync(join(root, d), { recursive: true, force: true });
     } catch {}
   };
-  return async ({ system, user }) => {
+  return async ({ system, user, signal }) => {
     mkdirSync(root, { recursive: true });
     sweep();
     const home = mkdtempSync(join(root, "h-"));
@@ -95,7 +95,7 @@ export function copilotCli(tool: Pick<Tool, "bin" | "pre">, opts: { model?: stri
     try {
       let r: Ran;
       try {
-        r = await run(tool.bin, [...tool.pre, ...copilotCliArgs(cwd, opts.model)], { cwd, input: copilotPrompt(system, user), timeoutMs: opts.timeoutMs ?? 120_000, env: { COPILOT_HOME: home, COPILOT_ALLOW_ALL: null, COPILOT_AUTO_UPDATE: "false" } });
+        r = await run(tool.bin, [...tool.pre, ...copilotCliArgs(cwd, opts.model)], { cwd, input: copilotPrompt(system, user), timeoutMs: opts.timeoutMs ?? 120_000, env: { COPILOT_HOME: home, COPILOT_ALLOW_ALL: null, COPILOT_AUTO_UPDATE: "false" }, signal });
       } catch (e) {
         throw new Error(/timed out|ETIMEDOUT|killed/i.test(String((e as Error).message)) ? "Copilot CLI timed out" : String((e as Error).message).slice(0, 300));
       }

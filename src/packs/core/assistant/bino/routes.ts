@@ -106,6 +106,13 @@ function composer(o: { action: string; label: string; placeholder: string; butto
 <div class="bino-compose-f"><span class="hint">Enter sends · Shift+Enter new line · ↑ last message</span><button type="submit" class="primary" data-busy="${o.busy}">${o.button}</button></div>${o.extra ?? ""}</form>`;
 }
 
+/** While Bino answers: the spinner and Stop (Esc or s, src/ui/app.js.ts); once stopped, a line saying so. */
+function answering(c: Conv, dock: boolean): Html {
+  if (c.stopped && !c.thinking) return html`<p class="notes">You stopped this answer. Ask again, or say something else.</p>`;
+  if (!c.thinking) return html``;
+  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite">${dock ? html`<input type="hidden" name="dock" value="1">` : ""}<span class="spinner" aria-hidden="true"></span> Bino is thinking… <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
+}
+
 const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? "Bino can't answer here." });
 
 /** Where Bino answers from, as a tag in the header: the harness and its model. */
@@ -117,7 +124,7 @@ const binoAvatar = (frame: Frame, thinking = false) => frame.face?.({ place: "mi
 export function convPage(frame: Frame, b: Bino, c: Conv, target?: Todo, ax?: ActCtx): Html {
   const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoAvatar(frame, c.thinking)}` })}
 <div class="bino-thread"><div data-live id="bino-conv"><ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => message(c, m, i, target, ax))}</ol>
-${c.thinking ? html`<p class="bino-thinking" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Bino is thinking…</p>` : ""}
+${answering(c, false)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}</div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask for a breakdown", button: "Send", busy: "Sending" }) : cantAnswer(b)}</div>`;
   return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino:${c.id}">` });
@@ -177,7 +184,7 @@ export async function binoDockPage(b: Bino): Promise<Html> {
 export function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo): Html {
   const body = html`${dockBar(c.title, { back: true, full: `/bino/c/${c.id}` })}
 <div class="dock-b"><div data-live id="bino-conv"><ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => message(c, m, i, target, ax))}</ol>
-${c.thinking ? html`<p class="bino-thinking" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Bino is thinking…</p>` : ""}
+${answering(c, true)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}</div></div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask about this page", button: "Send", busy: "Sending", dock: true }) : cantAnswer(b)}`;
   return dockShell({ title: `${c.title} · Bino`, body, head: html`<meta name="u-topics" content="bino:${c.id}">` });
@@ -248,6 +255,14 @@ export function createBinoRoutes(env: Env, deps: {
     if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
     const form = await c.req.parseBody();
     await bino.say(id, first(form.text), { view: viewIn(form), ...(await known()) });
+    return c.redirect(convHref(id, first(form.dock) === "1"), 303);
+  });
+  /** Stop: the answer being written is cancelled; what I said stays, to ask again. */
+  app.post("/bino/c/:id/stop", async (c) => {
+    const id = c.req.param("id");
+    if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
+    const form = await c.req.parseBody();
+    await bino.stop(id);
     return c.redirect(convHref(id, first(form.dock) === "1"), 303);
   });
   app.get("/bino/dock", async (c) => c.html(await binoDockPage(bino)));

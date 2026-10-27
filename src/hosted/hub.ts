@@ -155,6 +155,7 @@ export type BinoOp =
   | { op: "get"; id: string }
   | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string }
   | { op: "say"; id: string; text: string; view?: string; context: string }
+  | { op: "stop"; id: string }
   | { op: "added"; id: string; index: number; todo: number }
   | { op: "setAct"; id: string; index: number; n: number; patch: { error?: string } };
 
@@ -347,6 +348,8 @@ export class DovreHub {
         await this.awake(b);
         return ok;
       }
+      case "stop":
+        return b.stop(String(o.id ?? ""));
       case "added":
         return b.added(o.id, o.index, o.todo);
       case "setAct":

@@ -22,6 +22,9 @@ const PRICES: Record<string, [number, number]> = { "claude-haiku-5-5": [0.1, 0.5
 export const gatewayModelOf = (m: string | undefined) => GATEWAY_MODELS[(m ?? "").trim().toLowerCase()] ?? (m?.trim() || "claude-sonnet-5-5");
 
 /** A setting from the process, where there is one (locally; a Worker passes its bindings instead). */
+/** A hung provider must never stall a Bino turn (the CLI routes time out at 180 s); Stop ends it sooner. */
+const within = (stop?: AbortSignal) => (stop ? AbortSignal.any([AbortSignal.timeout(180_000), stop]) : AbortSignal.timeout(180_000));
+
 const fromEnv = (k: string): string | undefined => (typeof process !== "undefined" ? process.env?.[k] : undefined) || undefined;
 
 /** Ask implementation using Cloudflare AI Gateway. */
@@ -34,7 +37,7 @@ export function createCfGatewayAsk(opts: CfGatewayOpts = {}): Ask {
   const defaultModel = gatewayModelOf(opts.model);
   const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gateway}/anthropic/v1/messages`;
 
-  return async ({ system, user, model: callModel }) => {
+  return async ({ system, user, model: callModel, signal }) => {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       "anthropic-version": "2023-06-01",
@@ -44,8 +47,7 @@ export function createCfGatewayAsk(opts: CfGatewayOpts = {}): Ask {
     const res = await f(url, {
       method: "POST",
       headers,
-      // A hung gateway must never stall a Bino turn (the CLI routes time out at 180 s).
-      signal: AbortSignal.timeout(180_000),
+      signal: within(signal),
       // Current models think by default, and thinking counts against max_tokens: leave room for the reply.
       body: JSON.stringify({
         model: callModel ? gatewayModelOf(callModel) : defaultModel,
@@ -130,7 +132,7 @@ export function createApiKeyAsk(opts: ApiKeyOpts = {}): Ask {
     "";
   const defaultModel = directModelOf(opts.model, apiKey);
 
-  return async ({ system, user, model: callModel }) => {
+  return async ({ system, user, model: callModel, signal }) => {
     const model = callModel ? directModelOf(callModel, apiKey) : defaultModel;
     const isGemini = /^gemini-/i.test(model) || apiKey.startsWith("AIza");
     const isOpenAi = !isGemini && (/^(gpt-|o1|o3|o4)/i.test(model) || /^sk-(?!ant-)/.test(apiKey));
@@ -145,7 +147,7 @@ export function createApiKeyAsk(opts: ApiKeyOpts = {}): Ask {
           "content-type": "application/json",
           authorization: `Bearer ${apiKey}`,
         },
-        signal: AbortSignal.timeout(180_000),
+        signal: within(signal),
         body: JSON.stringify({
           model,
           messages: [
@@ -172,7 +174,7 @@ export function createApiKeyAsk(opts: ApiKeyOpts = {}): Ask {
         "anthropic-version": "2023-06-01",
         "x-api-key": apiKey,
       },
-      signal: AbortSignal.timeout(180_000),
+      signal: within(signal),
       body: JSON.stringify({
         model,
         max_tokens: 8192,
@@ -243,7 +245,7 @@ export function createOpenRouterAsk(opts: OpenRouterOpts = {}): Ask {
   const apiKey = opts.apiKey ?? fromEnv("OPENROUTER_API_KEY") ?? fromEnv("ASSISTANT_API_KEY") ?? "";
   const defaultModel = openRouterModelOf(opts.model);
 
-  return async ({ system, user, model: callModel }) => {
+  return async ({ system, user, model: callModel, signal }) => {
     const model = callModel ? openRouterModelOf(callModel) : defaultModel;
     const res = await f("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -253,7 +255,7 @@ export function createOpenRouterAsk(opts: OpenRouterOpts = {}): Ask {
         "http-referer": "https://dovre.dev",
         "x-title": "Dovre",
       },
-      signal: AbortSignal.timeout(180_000),
+      signal: within(signal),
       body: JSON.stringify({
         model,
         messages: [
