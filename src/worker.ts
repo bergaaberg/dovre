@@ -277,6 +277,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, bindings, core: ["agents", "assistant", "tracker"] },
       setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
+      sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });
     const mounted = packsOf(app)!;
     linked = mounted.linked;

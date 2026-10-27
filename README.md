@@ -34,7 +34,7 @@ pnpm bridge
 
 On dovre.dev, pair a machine with the `dovre` launcher instead: `dovre bridge login <handle>`, then `dovre bridge install` to start it at login (`status`, `uninstall`, `logout` too).
 
-Your own server instead: [docs/SELF-HOST.md](docs/SELF-HOST.md). Reaching a local Dovre from another machine: [docs/REMOTE.md](docs/REMOTE.md).
+Your own server instead: [docs/SELF-HOST.md](docs/SELF-HOST.md). Reaching a local Dovre from another machine: [docs/REMOTE.md](docs/REMOTE.md). What Dovre sends to its own services, and how to check: [docs/SENT.md](docs/SENT.md).
 
 ## Packs
 

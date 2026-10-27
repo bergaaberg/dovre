@@ -32,6 +32,7 @@ import { createBino, type ConvStore, type Conv, type Engine } from "../packs/cor
 import { apiKeyRouteOf, gatewayRouteOf, openRouterRouteOf } from "../packs/core/assistant/bino/gateway.ts";
 import { loadMemory, noMemory } from "../packs/core/assistant/bino/memory.ts";
 import type { D1 } from "../db.ts";
+import { DAY_MS, frameKind, KEEP_DAYS } from "../sent.ts";
 import { type Call, type Channel, channel, type Down, helloOk, keyOk, LEGACY_MACHINE, machineKey, machineOk, type MacState, nonce, parseUp, sessionKey } from "../bridge/wire.ts";
 
 /** A hibernatable WebSocket, as much of one as this uses. */
@@ -62,6 +63,8 @@ type Attached = { challenge: string; machine?: string; owner?: string; key?: str
 export type MachineView = { id: string; name?: string; online: boolean; seen?: number; owner?: string; state?: MacState };
 /** The machines (H7), and whether a page is watching. */
 export type MacView = { watching: boolean; machines: MachineView[] };
+/** What the hub heard from each machine (#145): its frames, counted per day by kind. */
+export type ReceivedDay = { day: number; machine: string; name: string; kind: string; count: number; bytes: number };
 
 /** The worker names the machine on a /bridge upgrade it verified (src/worker.ts `bridgeIn`); only the worker reaches the hub. */
 export const MACHINE_HEADER = "x-dovre-machine";
@@ -174,8 +177,10 @@ export class DovreHub {
   /** The Mac's socket's channel, once its hello passed (rebuilt from the attachment after hibernation). */
   private chans = new WeakMap<HubSocket, Promise<Channel>>();
   /** Calls waiting on the Mac, by id: only while the request that made them is open. */
-  private waiting = new Map<string, { machine: string; done: (a: MacAnswer) => void }>();
+  private waiting = new Map<string, { machine: string; op: string; done: (a: MacAnswer) => void }>();
   private macSql = false;
+  private sentSql = false;
+  private prunedDay = 0;
   /** For tests: the clock. */
   now: () => number = Date.now;
 
@@ -192,6 +197,7 @@ export class DovreHub {
     if (path === "/bridge") return this.upgrade(req);
     if (path === "/live") return this.liveUpgrade(req);
     if (req.method === "GET" && path === "/mac") return json(this.mac());
+    if (req.method === "GET" && path === "/sent") return json(this.received());
     if (req.method === "POST" && path === "/mac/call") {
       const b = (await req.json().catch(() => ({}))) as { call?: unknown; ms?: unknown; machine?: unknown };
       const c = b.call as Call | undefined;
@@ -439,6 +445,37 @@ export class DovreHub {
    * A machine unpaired (POST /mac/revoke): its socket closes now, what it said goes, and it can't
    * open another until `until` (when the last token it was given runs out).
    */
+  /** A frame from a machine, counted in its hour (#145). Days past KEEP_DAYS go at the first frame of a new day. */
+  private heard(machine: string, kind: string, bytes: number) {
+    const sql = this.sql();
+    if (!this.sentSql) {
+      sql.exec("CREATE TABLE IF NOT EXISTS sent (hour INTEGER NOT NULL, machine TEXT NOT NULL, kind TEXT NOT NULL, count INTEGER NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY (hour, machine, kind))");
+      this.sentSql = true;
+    }
+    const at = this.now();
+    const hour = at - (at % 3600_000);
+    const day = at - (at % DAY_MS);
+    if (this.prunedDay !== day) {
+      sql.exec("DELETE FROM sent WHERE hour < ?", at - KEEP_DAYS * DAY_MS);
+      this.prunedDay = day;
+    }
+    sql.exec("INSERT INTO sent (hour, machine, kind, count, bytes) VALUES (?, ?, ?, 1, ?) ON CONFLICT(hour, machine, kind) DO UPDATE SET count = count + 1, bytes = bytes + excluded.bytes", hour, machine, kind, bytes);
+  }
+
+  /** The last KEEP_DAYS days of what machines sent here, per day, machine and kind, newest first. */
+  received(): ReceivedDay[] {
+    const sql = this.sql();
+    if (!sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sent'").toArray().length) return [];
+    const since = this.now() - KEEP_DAYS * DAY_MS;
+    return sql
+      .exec("SELECT hour - (hour % ?) AS day, machine, kind, SUM(count) AS count, SUM(bytes) AS bytes FROM sent WHERE hour >= ? GROUP BY day, machine, kind ORDER BY day DESC, machine, kind", DAY_MS, since)
+      .toArray()
+      .map((r) => {
+        const machine = String(r.machine);
+        return { day: Number(r.day), machine, name: this.stateOf(machine)?.name ?? (machine === LEGACY_MACHINE ? "Your Mac" : machine), kind: String(r.kind), count: Number(r.count), bytes: Number(r.bytes) };
+      });
+  }
+
   revoke(machine: string, until: number): void {
     if (!machineOk(machine)) return;
     this.keep(DovreHub.k("revoked", machine), String(Math.min(Math.max(until, this.now()), this.now() + REVOKE_MAX_MS)));
@@ -535,6 +572,7 @@ export class DovreHub {
       // Whose it is, as its newest token said: none makes it everyone's (a self-hosted bridge).
       if (a.owner) this.keep(DovreHub.k("owner", machine), a.owner);
       else this.sql().exec("DELETE FROM mac WHERE k = ?", DovreHub.k("owner", machine));
+      this.heard(machine, "hello", message.length);
       await this.send(ws, { t: "welcome", watching: this.watching() });
       this.publish(["mac", "snapshot"]);
       return;
@@ -542,6 +580,7 @@ export class DovreHub {
     const ch = await this.chan(ws, a);
     const up = parseUp(await ch.open(message));
     if (!up) return ws.close(4002, "bad frame");
+    this.heard(machine, frameKind(up.t, up.t === "reply" ? this.waiting.get(up.id)?.op : undefined), message.length);
     this.save(ws, ws.deserializeAttachment() as Attached, ch);
     if (up.t === "reply") {
       const w = this.waiting.get(up.id);
@@ -607,7 +646,7 @@ export class DovreHub {
     let t: ReturnType<typeof setTimeout> | undefined;
     const label = this.label(machine);
     const answer = new Promise<MacAnswer>((res) => {
-      this.waiting.set(id, { machine: machine!, done: res });
+      this.waiting.set(id, { machine: machine!, op: c.op, done: res });
       t = setTimeout(() => res({ ok: false, error: `${label} didn't answer in time.` }), ms);
     });
     if (!(await this.send(ws, { t: "call", id, call: c }))) {

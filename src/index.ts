@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSent, sentFiles } from "./bridge/sentfile.ts";
+import { recordOf } from "./sent.ts";
 import { serve } from "@hono/node-server";
 import { packsOf, createApp } from "./app.ts";
 import { createCopies } from "./packs/copies.ts";
@@ -443,6 +445,11 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   hub,
   notify,
   info: { version, startedAt: Date.now() },
+  // Settings → What Dovre sends: a bridge's record on this machine, when there is one (#145).
+  sent: async () => {
+    const file = sentFiles({ env: process.env, home: homedir(), platform: process.platform, checkout: fileURLToPath(new URL("..", import.meta.url)) }).find((f) => existsSync(f));
+    return { hosted: false, machine: file ? { ...recordOf(readSent(file)), file } : undefined };
+  },
   kept: keptAnswers,
   bino: { route: binoRoute, memory: binoMemory, file: join(dataDir, "bino.json"), log: (l) => console.log(l) },
   asks,

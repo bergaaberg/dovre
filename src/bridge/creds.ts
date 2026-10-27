@@ -6,6 +6,7 @@
  * its owner left the team: the bridge stops and says to log in again.
  */
 import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { type Ledger, recorded } from "../sent.ts";
 import { keyOk } from "./wire.ts";
 
 export type Creds = {
@@ -62,8 +63,9 @@ type Fetch = (url: string, init: { method: string; headers: Record<string, strin
  * The headers for each dial: a JWT, refreshed when the one held has under a minute left.
  * `save` gets every rotated refresh token before the JWT is handed out.
  */
-export function jwtHeaders(o: { creds: Creds; save: (c: Creds) => void; fetch?: Fetch; now?: () => number }): () => Promise<Record<string, string>> {
-  const f: Fetch = o.fetch ?? ((url, init) => fetch(url, init));
+export function jwtHeaders(o: { creds: Creds; save: (c: Creds) => void; fetch?: Fetch; now?: () => number; ledger?: Ledger }): () => Promise<Record<string, string>> {
+  // Each refresh is recorded (src/sent.ts): what was sent home, on this machine.
+  const f: Fetch = recorded(o.ledger, "bridge.token", o.fetch);
   const now = o.now ?? Date.now;
   let creds = o.creds;
   let held: { jwt: string; until: number } | undefined;
