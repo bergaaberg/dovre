@@ -8,7 +8,7 @@ import { currentActor } from "../actor.ts";
 import type { D1 } from "../db.ts";
 import { draftCounts, placeComments, replyTargets, type ReviewDraft, reviewRequest, type TriageDraft, type Verdict, withOutside } from "../reviews/draft.ts";
 import type { Ghe } from "../sources/ghe.ts";
-import { loadPrFiles } from "../sources/prview.ts";
+import { loadPrFiles, loadPrView, type PrFile, type Thread } from "../sources/prview.ts";
 import { logAction } from "./deploys.ts";
 
 type RawPr = { state: string; head: { sha: string }; user: { login: string } };
@@ -40,6 +40,15 @@ export async function checkReview(ghe: Ghe, repo: string, n: number, o: { review
   } catch (e) {
     return { ok: false, message: `Couldn't check ${repo}#${n}: ${String((e as Error).message ?? e)}` };
   }
+}
+
+/** The diff a review was of, for the draft page: its files and open threads, or the commit it's moved on to. Reads only. */
+export async function reviewedDiff(ghe: Ghe, repo: string, n: number, reviewed: string): Promise<{ files: PrFile[]; threads: Thread[] } | { moved: string }> {
+  const pr = await ghe.rest<RawPr>(`/repos/${repo}/pulls/${n}`);
+  if (!sameCommit(pr.head.sha, reviewed)) return { moved: pr.head.sha };
+  // Threads are a nicety: the diff shows without them.
+  const [files, view] = await Promise.all([loadPrFiles(ghe, repo, n), loadPrView(ghe, repo, n).catch(() => undefined)]);
+  return { files, threads: (view?.threads ?? []).filter((t) => !t.resolved && !t.outdated) };
 }
 
 /** The PR's line comments (a few pages), for where each reply goes. */

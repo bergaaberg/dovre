@@ -1076,6 +1076,8 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .d-hunk td { background: var(--accent-soft); color: var(--ink-2); padding-top: 2px; padding-bottom: 2px; }
 .d-note td { font-style: italic; }
 .d-threads td { padding: 8px 12px; background: var(--surface-2); white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
+.d-drafts td { padding: 4px 12px 8px; white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
+.d-drafts .draft-card { border-color: var(--accent, var(--line)); background: var(--surface); }
 .code-view tr:target td { background: var(--warn-soft); }
 .code-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 0 0 10px; }
 .code-bar form { display: flex; gap: 6px; align-items: center; margin: 0; }

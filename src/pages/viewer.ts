@@ -118,26 +118,30 @@ const STATUS_TONE: Record<string, "ok" | "bad" | "warn" | undefined> = { added: 
 
 const LINE_CLASS = { add: "d-add", del: "d-del", ctx: "d-ctx" } as const;
 
-function lineRow(l: DiffLine): Html {
+/** What goes under a line besides its threads (the draft page's comment cards). */
+export type LineExtra = (l: DiffLine) => Html | "";
+
+function lineRow(l: DiffLine, extra?: LineExtra): Html {
   if (l.kind === "hunk") return html`<tr class="d-hunk" data-stop="2"><td class="ln"></td><td class="ln"></td><td class="code"><code>${l.text}</code></td></tr>`;
   if (l.kind === "note") return html`<tr class="d-note"><td class="ln"></td><td class="ln"></td><td class="code t3">${l.text}</td></tr>`;
   const sign = l.kind === "add" ? "+" : l.kind === "del" ? "−" : " ";
   return html`<tr class="${LINE_CLASS[l.kind]}"><td class="ln">${l.old ?? ""}</td><td class="ln">${l.new ?? ""}</td><td class="code"><code><span class="d-sign" aria-hidden="true">${sign}</span>${l.text}</code></td></tr>${
     l.threads?.length ? html`<tr class="d-threads"><td colspan="3">${l.threads.map((t) => threadView(t))}</td></tr>` : ""
-  }`;
+  }${extra ? extra(l) : ""}`;
 }
 
-const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
+export const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
 
-function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean }): Html {
+/** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
+export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra }): Html {
   const f = fv.file;
   const name = f.previous && f.previous !== f.path ? html`<code>${f.previous}</code> → <code>${f.path}</code>` : html`<code>${f.path}</code>`;
   const view = o.dir && f.status !== "removed" ? (o.present ? html`<a class="btn sm ghost" href="${codeHref(o.dir, { ref: o.sha, path: f.path })}">View file</a>` : "") : "";
-  return html`<details class="dfile" id="${fileId(f.path)}" data-stop="1" data-stop-label="${f.path}"${fv.folded ? "" : html` open`}><summary><span class="dfile-name">${Pill({ tone: STATUS_TONE[f.status], children: f.status })} ${name}</span><span class="dfile-meta"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span>${
+  return html`<details class="dfile" id="${fileId(f.path)}" data-stop="1" data-stop-label="${f.path}"${fv.folded && !fv.drafts ? "" : html` open`}><summary><span class="dfile-name">${Pill({ tone: STATUS_TONE[f.status], children: f.status })} ${name}</span><span class="dfile-meta"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span>${
     fv.threads.length ? html` · ${fv.threads.length} ${fv.threads.length === 1 ? "thread" : "threads"}` : ""
-  } <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
+  }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
     fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true }))}</div>` : ""
-  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map(lineRow)}</tbody></table></div>` : ""}</details>`;
+  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map((l) => lineRow(l, o.extra))}</tbody></table></div>` : ""}</details>`;
 }
 
 export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string }): Html {

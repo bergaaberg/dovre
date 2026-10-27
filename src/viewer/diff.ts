@@ -6,7 +6,7 @@ import type { PrFile, Thread } from "../sources/prview.ts";
 
 export type DiffLine =
   | { kind: "hunk"; text: string; oldStart: number; newStart: number }
-  | { kind: "ctx" | "add" | "del"; text: string; old?: number; new?: number; threads?: Thread[] }
+  | { kind: "ctx" | "add" | "del"; text: string; old?: number; new?: number; threads?: Thread[]; /** Draft line comments here, by their index in the draft. */ drafts?: number[] }
   | { kind: "note"; text: string };
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
@@ -33,15 +33,39 @@ export function parsePatch(patch: string): DiffLine[] {
   return out;
 }
 
-/** Puts each thread on the line it's about: RIGHT by the new line number, LEFT by the old one. Unplaced ones are returned. */
+/** Where a comment sits: on its side's line number (RIGHT: the new file, LEFT: the old one). */
+export type Anchor = { line: number | null; side: "LEFT" | "RIGHT" };
+type Code = Extract<DiffLine, { kind: "ctx" | "add" | "del" }>;
+
+/** The line a comment is about, if it's in the diff: RIGHT by the new line number, LEFT by the old one. */
+export function lineAt(lines: DiffLine[], a: Anchor): Code | undefined {
+  if (a.line === null) return undefined;
+  return lines.find((l): l is Code => (l.kind === "add" || l.kind === "ctx" || l.kind === "del") && (a.side === "LEFT" ? l.old === a.line && l.kind !== "add" : l.new === a.line && l.kind !== "del"));
+}
+
+/** Puts each thread on the line it's about. Unplaced ones are returned. */
 export function placeThreads(lines: DiffLine[], threads: Thread[]): Thread[] {
   const unplaced: Thread[] = [];
   for (const t of threads) {
-    const hit = t.line === null ? undefined : lines.find((l) => (l.kind === "add" || l.kind === "ctx" || l.kind === "del") && (t.side === "LEFT" ? l.old === t.line : l.new === t.line) && (t.side === "LEFT" ? l.kind !== "add" : l.kind !== "del"));
-    if (hit && hit.kind !== "hunk" && hit.kind !== "note") (hit.threads ??= []).push(t);
+    const hit = lineAt(lines, t);
+    if (hit) (hit.threads ??= []).push(t);
     else unplaced.push(t);
   }
   return unplaced;
+}
+
+/** Puts each draft line comment on its file's line (by index). The indices of those off the diff are returned. */
+export function placeDrafts(views: FileView[], comments: (Anchor & { path: string })[]): number[] {
+  const off: number[] = [];
+  comments.forEach((c, i) => {
+    const fv = views.find((v) => v.file.path === c.path);
+    const hit = fv ? lineAt(fv.lines, c) : undefined;
+    if (hit && fv) {
+      (hit.drafts ??= []).push(i);
+      fv.drafts = (fv.drafts ?? 0) + 1;
+    } else off.push(i);
+  });
+  return off;
 }
 
 /** Files nobody reads line by line: shown folded, with a note. */
@@ -49,7 +73,7 @@ export const GENERATED = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|p
 /** Past this many changed lines a file starts folded. */
 export const BIG = 400;
 
-export type FileView = { file: PrFile; lines: DiffLine[]; folded: boolean; why?: string; unplaced: Thread[]; threads: Thread[] };
+export type FileView = { file: PrFile; lines: DiffLine[]; folded: boolean; why?: string; unplaced: Thread[]; threads: Thread[]; /** How many draft comments sit in it (placeDrafts). */ drafts?: number };
 
 /** Each file's lines and threads, and whether it starts folded (generated, big, binary, too large for GHE to send). */
 export function fileViews(files: PrFile[], threads: Thread[]): FileView[] {

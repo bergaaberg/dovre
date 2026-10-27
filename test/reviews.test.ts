@@ -272,6 +272,12 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
   assert.match(page.text, /value="comment" checked> Comment/, "Comment unless I pick otherwise");
   assert.match(page.text, /src\/a\.ts:2<\/code>/);
   assert.equal((page.text.match(/name="keep_\d" value="on" checked/g) ?? []).length, 3);
+  // #160: the diff, with the agent's comments at their lines and the one off the diff apart.
+  assert.match(page.text, /<p class="draft-h">The diff<\/p>/);
+  assert.match(page.text, /new2<\/code><\/td><\/tr><tr class="d-drafts"><td colspan="3"><div class="draft-card">\s*<div class="draft-card-h"><code class="draft-where">src\/a\.ts:2<\/code>/);
+  assert.match(page.text, /new3<\/code><\/td><\/tr><tr class="d-drafts">[^]*?src\/a\.ts:3<\/code>/);
+  assert.match(page.text, /Not on the diff<\/p><p class="hint">These go at the end of the summary\.<\/p><div class="draft-card">\s*<div class="draft-card-h"><code class="draft-where">src\/a\.ts:40<\/code>/);
+  assert.match(page.text, /2 from the agent/);
 
   const form = { run: "run-1", verdict: "comment", summary: "Ser greit ut", keep_0: "on", body_0: "Hva om lista er tom? (endret)", body_1: "Dropp denne", keep_2: "on", body_2: "Utenfor diffen" };
   const preview = await w.post("/prs/draft/preview", form);
@@ -335,6 +341,9 @@ test("new commits since the review, a closed PR, or my own PR: nothing is posted
   assert.equal(m.status, 409);
   assert.match(m.text, /new commits since the agent read it \(aaa1111 → bbb2222\): review it again/);
   assert.doesNotMatch(m.text, /Post the review…/);
+  const listed = (await moved.get("/prs/draft?run=run-1")).text;
+  assert.match(listed, /new commits since the review \(aaa1111 → bbb2222\), so the comments are listed here, not in the diff/);
+  assert.doesNotMatch(listed, /The diff<\/p>/);
 
   // Moved between the preview and the Post: the Post checks again.
   const late = await reviewed(REPORT);
