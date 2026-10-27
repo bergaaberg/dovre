@@ -10,7 +10,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { askOf, COPY_NOTE, type Question } from "./conversation.ts";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
@@ -70,13 +70,22 @@ export type Run = {
   machine?: string;
 };
 
-export type StartOpts = { harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[] };
+export type StartOpts = {
+  harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[];
+  /** Dovre's MCP server for this turn (src/mcp.ts): its address and the turn's own token. Set by the runner, not the caller. */
+  mcp?: { url: string; token: string };
+};
+
+/** The --mcp-config that names Dovre's MCP server for one turn (added to the user's own servers, not replacing them). */
+export const mcpConfig = (m: { url: string; token: string }) => JSON.stringify({ mcpServers: { dovre: { type: "http", url: m.url, headers: { Authorization: `Bearer ${m.token}` } } } });
 
 export function argsFor(o: StartOpts): string[] {
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", o.mode ?? "default"];
   if (o.model) args.push("--model", o.model);
   if (o.resume) args.push("--resume", o.resume);
   if (o.resume && o.fork) args.push("--fork-session");
+  if (o.mcp) args.push("--mcp-config", mcpConfig(o.mcp));
+  // Last: --allowedTools takes every argument after it.
   if (o.allowed?.length) args.push("--allowedTools", ...o.allowed);
   return args;
 }
@@ -157,6 +166,8 @@ export type Runner = {
   discard(id: string): boolean;
   /** Resolves when the run knows its session id (or ends), at most `ms` later. */
   sessionOf(id: string, ms?: number): Promise<string | undefined>;
+  /** The running turn an MCP token was made for (src/mcp.ts); undefined once it has ended. */
+  byMcpToken(token: string): Run | undefined;
 };
 
 type Spawn = (bin: string, args: string[], opts: { cwd: string }) => ChildProcess;
@@ -172,9 +183,13 @@ export const claudeHarness = (bin = "claude"): Harness => ({ id: "claude", bin, 
 export type RunHost = { exe: string; dir: string };
 
 /** A run as kept on disk: everything but what's rebuilt from its stream. */
-type Kept = Omit<Run, "events" | "partial"> & { pid?: number };
+type Kept = Omit<Run, "events" | "partial"> & { pid?: number; mcp?: string };
 
-export function createRunner(opts: { harnesses?: Partial<Record<HarnessId, Harness>>; spawnFn?: Spawn; onChange?: (run: Run) => void; host?: RunHost; now?: () => number } = {}): Runner {
+export function createRunner(opts: {
+  harnesses?: Partial<Record<HarnessId, Harness>>; spawnFn?: Spawn; onChange?: (run: Run) => void; host?: RunHost; now?: () => number;
+  /** Dovre's MCP server (src/mcp.ts): each Claude Code turn gets its address and a token of its own, while `on()` says packs offer tools. */
+  mcp?: { url: string; on?: () => boolean };
+} = {}): Runner {
   // Given harnesses are all there is (only what this machine has); without any, Claude Code's.
   const harnesses: Partial<Record<HarnessId, Harness>> = opts.harnesses ?? { claude: claudeHarness() };
   const spawnFn: Spawn = opts.spawnFn ?? ((b, a, o) => spawn(b, a, { cwd: o.cwd, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }));
@@ -183,6 +198,8 @@ export function createRunner(opts: { harnesses?: Partial<Record<HarnessId, Harne
   const runs = new Map<string, Run>();
   const children = new Map<string, ChildProcess>();
   const pids = new Map<string, number>();
+  /** Each turn's MCP token (run id → token): kept apart from the run, so it's never drawn or sent to the Worker. */
+  const mcpTokens = new Map<string, string>();
   const changed = (r: Run) => opts.onChange?.(r);
 
   // ── Turns apart from this process (host) ──
@@ -190,7 +207,7 @@ export function createRunner(opts: { harnesses?: Partial<Record<HarnessId, Harne
   const file = (id: string, ext: string) => resolve(host!.dir, `${id}.${ext}`);
   const keep = (run: Run) => {
     const { events: _e, partial: _p, ...rest } = run;
-    const kept: Kept = { ...rest, pid: pids.get(run.id) };
+    const kept: Kept = { ...rest, pid: pids.get(run.id), mcp: mcpTokens.get(run.id) };
     try {
       writeFileSync(file(run.id, "json"), JSON.stringify(kept));
     } catch {}
@@ -290,10 +307,11 @@ export function createRunner(opts: { harnesses?: Partial<Record<HarnessId, Harne
           const k = JSON.parse(readFileSync(path, "utf8")) as Kept;
           const h = harnesses[k.harness];
           if (!h || typeof k.id !== "string") continue;
-          const { pid, ...rest } = k;
+          const { pid, mcp, ...rest } = k;
           const run: Run = { ...rest, events: [], partial: "" };
           runs.set(run.id, run);
           if (pid) pids.set(run.id, pid);
+          if (typeof mcp === "string" && run.status === "running") mcpTokens.set(run.id, mcp);
           if (run.status === "running") follow(run, h);
           else {
             // Done: its events, once, from its stream.
@@ -318,6 +336,12 @@ export function createRunner(opts: { harnesses?: Partial<Record<HarnessId, Harne
         status: "running", startedAt: now(), events: [], partial: "", cost: 0,
       };
       runs.set(run.id, run);
+      // Claude Code only for now (its --mcp-config); a token per turn, good while the turn runs.
+      if (opts.mcp && h.id === "claude" && (opts.mcp.on?.() ?? true)) {
+        const token = randomBytes(32).toString("base64url");
+        mcpTokens.set(run.id, token);
+        o = { ...o, mcp: { url: opts.mcp.url, token } };
+      }
       const argv = [...(h.pre ?? []), ...(h.stdinPrompt ? h.args(o) : [...h.args(o), o.prompt])];
       if (host) {
         const child = spawn(host.exe, ["agent-host", "--out", file(run.id, "out.jsonl"), "--err", file(run.id, "err.txt"), "--exit", file(run.id, "exit.json"), "--", h.bin, ...argv], {
@@ -415,6 +439,21 @@ export function createRunner(opts: { harnesses?: Partial<Record<HarnessId, Harne
         await new Promise((res) => setTimeout(res, 150));
       }
       return runs.get(id)?.sessionId;
+    },
+    byMcpToken(token) {
+      if (typeof token !== "string" || token.length < 32) return undefined;
+      const given = Buffer.from(token);
+      for (const [id, t] of mcpTokens) {
+        const run = runs.get(id);
+        // A turn that ended (or was forgotten) takes its token with it.
+        if (!run || run.status !== "running") {
+          mcpTokens.delete(id);
+          continue;
+        }
+        const want = Buffer.from(t);
+        if (want.length === given.length && timingSafeEqual(want, given)) return run;
+      }
+      return undefined;
     },
   };
 }

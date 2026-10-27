@@ -82,6 +82,7 @@ function fakeRunner(harnesses: HarnessId[] = ["claude", "omp"]) {
     stop: () => true,
     discard: () => true,
     sessionOf: async () => undefined,
+    byMcpToken: () => undefined,
   };
   return { runner, runs, started };
 }
