@@ -108,9 +108,9 @@ export function Confirm(opts: { action: string; fields?: Record<string, string>;
  * each button asks twice (like Confirm) unless its `kind` is set to one click. The server checks
  * and logs every picked row on its own.
  */
-export function BulkBar(opts: { id: string; action: string; label: Child; buttons: { name: string; value: string; label: string; question: Child; kind?: string; danger?: boolean }[] }): Html {
+export function BulkBar(opts: { id: string; action: string; label: Child; fields?: Record<string, string>; buttons: { name: string; value: string; label: string; question: Child; kind?: string; danger?: boolean }[] }): Html {
   const press = (b: (typeof opts.buttons)[number]) => html`<button type="submit" form="${opts.id}" name="${b.name}" value="${b.value}"${b.danger ? html` class="danger"` : ""}>${b.label}</button>`;
-  return html`<div class="bulk"><form id="${opts.id}" method="post" action="${opts.action}"></form><span class="t3">${opts.label}</span>${opts.buttons.map((b) =>
+  return html`<div class="bulk"><form id="${opts.id}" method="post" action="${opts.action}">${Object.entries(opts.fields ?? {}).map(([n, v]) => html`<input type="hidden" name="${n}" value="${v}">`)}</form><span class="t3">${opts.label}</span>${opts.buttons.map((b) =>
     oneClickNow(b.kind) ? press(b) : html`<details class="confirm"><summary>${b.label}…</summary><div class="confirm-body"><p>${b.question}</p>${press(b)}</div></details>`,
   )}</div>`;
 }
