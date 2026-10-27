@@ -11,11 +11,11 @@
  * and everything it started with it (a job object).
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { repoDir } from "../../../agents/runner.ts";
+import { mcpConfig, mcpEnv, repoDir } from "../../../agents/runner.ts";
 import { listRepos } from "../../../sources/claude.ts";
 import { argvFor, type Program } from "./programs.ts";
 
@@ -36,7 +36,8 @@ export type Term = {
   reason?: string;
 };
 
-type Live = Term & { child: ChildProcess; tail: string; subs: Set<(c: Chunk) => void>; idleSince: number };
+/** `mcp`: the terminal's own token for Dovre's MCP server (#172), kept off `Term` so it's never drawn. */
+type Live = Term & { child: ChildProcess; tail: string; subs: Set<(c: Chunk) => void>; idleSince: number; mcp?: string };
 
 const TAIL = 256 * 1024;
 const IDLE_MS = 20 * 60_000;
@@ -56,7 +57,19 @@ export type Terminals = {
   input(id: string, data: string): boolean;
   resize(id: string, cols: number, rows: number): boolean;
   close(id: string): boolean;
+  /** The open terminal an MCP token was made for (src/mcp.ts); undefined once it has ended. */
+  byMcpToken(token: string): { id: string; repo: string; cwd: string } | undefined;
 };
+
+/**
+ * What a terminal's program gets to reach Dovre's MCP server while it's open (#172): Claude Code and
+ * Codex in their arguments, and everything in the environment, so omp and agy (through the stdio
+ * bridge) and agents started from a shell get it too.
+ */
+export function withMcp(p: Program, argv: string[], m: { url: string; token: string }): { argv: string[]; env: Record<string, string> } {
+  const extra = p.harness === "claude" ? ["--mcp-config", mcpConfig(m)] : p.harness === "codex" ? ["-c", `mcp_servers.dovre.url=${JSON.stringify(m.url)}`, "-c", 'mcp_servers.dovre.bearer_token_env_var="DOVRE_MCP_TOKEN"'] : [];
+  return { argv: [...argv, ...extra], env: mcpEnv(m) };
+}
 
 const frame = (kind: string, payload: Buffer) => {
   const b = Buffer.alloc(5 + payload.length);
@@ -73,13 +86,17 @@ const size = (cols: number, rows: number) => {
 };
 const clamp = (n: unknown, lo: number, hi: number, d: number) => (typeof n === "number" && Number.isInteger(n) ? Math.min(hi, Math.max(lo, n)) : d);
 
-export function createTerminals(opts: { hostExe: string; codeDir: string; programs: Program[]; onChange?: () => void; now?: () => number; spawnFn?: typeof spawn; warpDir?: string }): Terminals {
+export function createTerminals(opts: {
+  hostExe: string; codeDir: string; programs: Program[]; onChange?: () => void; now?: () => number; spawnFn?: typeof spawn; warpDir?: string;
+  /** Dovre's MCP server: each terminal gets its address and a token of its own while it's open, when `on()` says packs offer tools. */
+  mcp?: { url: string; on?: () => boolean };
+}): Terminals {
   const now = opts.now ?? Date.now;
   const spawnFn = opts.spawnFn ?? spawn;
   const terms = new Map<string, Live>();
   const changed = () => opts.onChange?.();
   const view = (l: Live): Term => {
-    const { child: _c, tail: _t, subs: _s, idleSince: _i, ...t } = l;
+    const { child: _c, tail: _t, subs: _s, idleSince: _i, mcp: _m, ...t } = l;
     return t;
   };
   const ended = (l: Live, code: number, reason?: string) => {
@@ -112,12 +129,19 @@ export function createTerminals(opts: { hostExe: string; codeDir: string; progra
       if (!p) return { problem: "That isn't one of the programs a terminal here can run." };
       const cwd = repoDir(opts.codeDir, o.repo);
       if (!cwd) return { problem: "Pick a checkout in your code folder." };
-      const argv = argvFor(p, o.resume);
+      let argv = argvFor(p, o.resume);
       if (!argv) return { problem: "Only an agent CLI resumes a session, and only by its id." };
       const cols = clamp(o.cols, 20, 400, 120);
       const rows = clamp(o.rows, 5, 200, 32);
-      const child = spawnFn(opts.hostExe, ["pty-host", "--cols", String(cols), "--rows", String(rows), "--cwd", cwd, "--", ...argv], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
-      const l: Live = { id: randomUUID(), program: p.id, label: p.label, repo: o.repo, cwd, resume: o.resume, startedAt: now(), child, tail: "", subs: new Set(), idleSince: now() };
+      const token = opts.mcp && (opts.mcp.on?.() ?? true) ? randomBytes(32).toString("base64url") : undefined;
+      let env: NodeJS.ProcessEnv | undefined;
+      if (token && opts.mcp) {
+        const w = withMcp(p, argv, { url: opts.mcp.url, token });
+        argv = w.argv;
+        env = { ...process.env, ...w.env };
+      }
+      const child = spawnFn(opts.hostExe, ["pty-host", "--cols", String(cols), "--rows", String(rows), "--cwd", cwd, "--", ...argv], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"], ...(env ? { env } : {}) });
+      const l: Live = { id: randomUUID(), program: p.id, label: p.label, repo: o.repo, cwd, resume: o.resume, startedAt: now(), child, tail: "", subs: new Set(), idleSince: now(), mcp: token };
       terms.set(l.id, l);
       const decoder = new TextDecoder("utf-8");
       let buf = Buffer.alloc(0);
@@ -181,6 +205,16 @@ export function createTerminals(opts: { hostExe: string; codeDir: string; progra
       return l ? view(l) : undefined;
     },
     list: () => [...terms.values()].sort((a, b) => b.startedAt - a.startedAt).map(view),
+    byMcpToken(token) {
+      if (typeof token !== "string" || token.length < 32) return undefined;
+      const given = Buffer.from(token);
+      for (const l of terms.values()) {
+        if (!l.mcp || l.endedAt) continue;
+        const want = Buffer.from(l.mcp);
+        if (want.length === given.length && timingSafeEqual(want, given)) return { id: `terminal:${l.id}`, repo: l.repo, cwd: l.cwd };
+      }
+      return undefined;
+    },
     attach(id, fn) {
       const l = terms.get(id);
       if (!l) return undefined;

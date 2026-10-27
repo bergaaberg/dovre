@@ -28,6 +28,7 @@ export const WRITES: WriteKind[] = [
   { kind: "issue.reopen", label: "Reopen an issue", group: "Issues" },
   { kind: "issue.comment", label: "Post a comment", group: "Issues" },
   { kind: "agents.clear", label: "Clear finished agent sessions", group: "Here" },
+  { kind: "agents.tools", label: "Give omp or agy the packs' tools (adds Dovre to its MCP config)", group: "Here" },
   { kind: "docker.engine-off", label: "Stop Docker", group: "Here" },
   { kind: "docker.remove", label: "Remove a container", group: "Here", floor: "twice" },
   { kind: "terminal.close", label: "Close a terminal", group: "Here", floor: "twice" },

@@ -18,6 +18,8 @@ import type { Harness, Run, StartOpts } from "./runner.ts";
 export function codexArgs(o: StartOpts): string[] {
   const args = ["exec", "--json", "--sandbox", o.mode === "acceptEdits" ? "workspace-write" : "read-only"];
   if (o.model) args.push("--model", o.model);
+  // Dovre's MCP server for this turn (#172): the address here, the token from the environment (mcpEnv), so it isn't in the arguments.
+  if (o.mcp) args.push("-c", `mcp_servers.dovre.url=${JSON.stringify(o.mcp.url)}`, "-c", 'mcp_servers.dovre.bearer_token_env_var="DOVRE_MCP_TOKEN"');
   // The prompt comes on stdin: `-` says so.
   return o.resume ? [...args, "resume", o.resume, "-"] : [...args, "-"];
 }
@@ -80,4 +82,5 @@ export const codexHarness = (bin = "codex"): Harness => ({
   apply: codexApply,
   stdinPrompt: true,
   canFork: false,
+  mcpEnv: true,
 });

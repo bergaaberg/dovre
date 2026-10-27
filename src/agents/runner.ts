@@ -45,6 +45,8 @@ export type Harness = {
   stdinPrompt: boolean;
   /** Whether it can continue a copy of a session (fork) instead of the session itself. */
   canFork: boolean;
+  /** It reaches Dovre's MCP server through the environment (mcpEnv), not only its arguments: Codex, omp, agy. */
+  mcpEnv?: boolean;
 };
 
 export type Run = {
@@ -78,6 +80,14 @@ export type StartOpts = {
 
 /** The --mcp-config that names Dovre's MCP server for one turn (added to the user's own servers, not replacing them). */
 export const mcpConfig = (m: { url: string; token: string }) => JSON.stringify({ mcpServers: { dovre: { type: "http", url: m.url, headers: { Authorization: `Bearer ${m.token}` } } } });
+
+/**
+ * The environment that carries a turn's MCP address and token (#172): Codex reads the token from it
+ * (`bearer_token_env_var`), and omp and agy's stdio bridge (src/mcp-stdio.ts) reads both. It's the
+ * agent's own environment, so a command it runs sees it too: such a command reaches the same tools
+ * with the same limits, only past the agent's own ask. Claude Code needs none of it (its --mcp-config).
+ */
+export const mcpEnv = (m: { url: string; token: string } | undefined): Record<string, string> => (m ? { DOVRE_MCP_URL: m.url, DOVRE_MCP_TOKEN: m.token } : {});
 
 /**
  * Added to every Claude Code turn. Headless, Claude Code refuses a command that touches a folder
@@ -178,7 +188,7 @@ export type Runner = {
   byMcpToken(token: string): Run | undefined;
 };
 
-type Spawn = (bin: string, args: string[], opts: { cwd: string }) => ChildProcess;
+type Spawn = (bin: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => ChildProcess;
 
 export const claudeHarness = (bin = "claude"): Harness => ({ id: "claude", bin, args: argsFor, apply, stdinPrompt: true, canFork: true });
 
@@ -195,12 +205,12 @@ type Kept = Omit<Run, "events" | "partial"> & { pid?: number; mcp?: string };
 
 export function createRunner(opts: {
   harnesses?: Partial<Record<HarnessId, Harness>>; spawnFn?: Spawn; onChange?: (run: Run) => void; host?: RunHost; now?: () => number;
-  /** Dovre's MCP server (src/mcp.ts): each Claude Code turn gets its address and a token of its own, while `on()` says packs offer tools. */
+  /** Dovre's MCP server (src/mcp.ts): each turn gets its address and a token of its own, while `on()` says packs offer tools. */
   mcp?: { url: string; on?: () => boolean };
 } = {}): Runner {
   // Given harnesses are all there is (only what this machine has); without any, Claude Code's.
   const harnesses: Partial<Record<HarnessId, Harness>> = opts.harnesses ?? { claude: claudeHarness() };
-  const spawnFn: Spawn = opts.spawnFn ?? ((b, a, o) => spawn(b, a, { cwd: o.cwd, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }));
+  const spawnFn: Spawn = opts.spawnFn ?? ((b, a, o) => spawn(b, a, { cwd: o.cwd, env: o.env ? { ...process.env, ...o.env } : undefined, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }));
   const host = opts.spawnFn ? undefined : opts.host;
   const now = opts.now ?? Date.now;
   const runs = new Map<string, Run>();
@@ -344,8 +354,9 @@ export function createRunner(opts: {
         status: "running", startedAt: now(), events: [], partial: "", cost: 0,
       };
       runs.set(run.id, run);
-      // Claude Code only for now (its --mcp-config); a token per turn, good while the turn runs.
-      if (opts.mcp && h.id === "claude" && (opts.mcp.on?.() ?? true)) {
+      // A token per turn, good while the turn runs: Claude Code and Codex get it in their arguments
+      // and environment, omp and agy in the environment for the stdio bridge (#172).
+      if (opts.mcp && (opts.mcp.on?.() ?? true)) {
         const token = randomBytes(32).toString("base64url");
         mcpTokens.set(run.id, token);
         o = { ...o, mcp: { url: opts.mcp.url, token } };
@@ -354,6 +365,7 @@ export function createRunner(opts: {
       if (host) {
         const child = spawn(host.exe, ["agent-host", "--out", file(run.id, "out.jsonl"), "--err", file(run.id, "err.txt"), "--exit", file(run.id, "exit.json"), "--", h.bin, ...argv], {
           cwd: o.cwd,
+          env: o.mcp && h.mcpEnv ? { ...process.env, ...mcpEnv(o.mcp) } : undefined,
           detached: true,
           windowsHide: true,
           stdio: ["pipe", "ignore", "ignore"],
@@ -372,7 +384,7 @@ export function createRunner(opts: {
         follow(run, h);
         return run;
       }
-      const child = spawnFn(h.bin, argv, { cwd: o.cwd });
+      const child = spawnFn(h.bin, argv, o.mcp && h.mcpEnv ? { cwd: o.cwd, env: mcpEnv(o.mcp) } : { cwd: o.cwd });
       children.set(run.id, child);
       let buf = "";
       let err = "";

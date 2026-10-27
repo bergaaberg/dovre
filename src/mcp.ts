@@ -2,13 +2,13 @@
  * Dovre's MCP server for the agent turns it starts (dovre#153): the packs' tools (`Pack.tools`),
  * over MCP's Streamable HTTP transport, answered as plain JSON (no stream: every call is one answer).
  *
- * Who can call: a turn Dovre started, while it runs. Each Claude Code turn gets its own random token
- * in its --mcp-config (src/agents/runner.ts); it isn't the launch token and opens nothing but
- * POST /mcp. Answered before the sign-in check, so it's held tighter than a page:
+ * Who can call: a turn or terminal Dovre started, while it runs. Each gets its own random token
+ * (src/agents/runner.ts, src/packs/core/terminal/terms.ts; omp and agy through src/mcp-stdio.ts);
+ * it isn't the launch token and opens nothing but POST /mcp. Answered before the sign-in check, so it's held tighter than a page:
  *  - local mode only, on a localhost Host (not PUBLIC_ORIGIN): a 404 otherwise, as if nothing were here;
  *  - no Origin header: a browser always sends one on a POST, an agent's MCP client doesn't;
  *  - the token of a running turn, compared in constant time; a turn that ended takes its token with it.
- * Permissions don't widen: Claude Code asks for each MCP tool as for any other, and a pack's tool
+ * Permissions don't widen: the agent asks for each MCP tool as for any other, and a pack's tool
  * enforces its own limits. Every call is logged (`mcp.call`: the tool and the repo, never the
  * arguments or what came back).
  */
@@ -17,8 +17,9 @@ import { logAction } from "./actions/deploys.ts";
 import type { D1 } from "./db.ts";
 import type { Pack, PackContext, PackTool, ToolCall } from "./packs/types.ts";
 
-/** Protocol versions this server speaks, newest first. */
-export const MCP_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+import { MCP_VERSIONS } from "./mcp-stdio.ts";
+
+export { MCP_VERSIONS };
 export const MAX_REQUEST = 256_000;
 export const MAX_RESULT = 60_000;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,40}$/;
