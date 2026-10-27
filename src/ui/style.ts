@@ -72,7 +72,17 @@ td.pulse-cell svg.pulse { height: 22px; }
 .issue-comment textarea { flex: 1 1 14rem; min-height: 2.4rem; }
 .issue-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 1rem; padding: .75rem 1rem; border-left: 3px solid var(--line); background: var(--surface-2); }
 .viz svg.narrow { display: none; }
+/* On a phone the narrow drawing replaces the wide one (its text stays readable instead of shrinking). */
+@media (max-width: 40rem) { .viz svg.wide { display: none; } .viz svg.narrow { display: block; } }
+.viz > * { min-width: 0; }
+.viz svg text { fill: var(--text-2); font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+.viz .grid { stroke: var(--line); stroke-width: 1; }
+.viz .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.viz circle.dot { stroke: var(--surface); stroke-width: 2; box-shadow: none; }
 .viz svg text.end { fill: var(--text); font-size: 12px; font-weight: 500; }
+/* A chart's day table: headers as written (they're often paths), and how many empty days it left out. */
+table.data.days th { text-transform: none; letter-spacing: 0; } table.data.days td:first-child { white-space: nowrap; }
+.viz .table-note { margin: .4rem 0 0; font-size: var(--fs-xs); color: var(--text-2); }
 .viz .base { stroke: var(--axis); stroke-width: 1; }
 .viz .limit { stroke: var(--warn); stroke-width: 1.25; stroke-dasharray: 4 3; }
 .viz svg text.limit-label { fill: var(--warn); font-weight: 600; }

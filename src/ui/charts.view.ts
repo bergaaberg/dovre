@@ -56,12 +56,19 @@ export function Legend({ series }: { series: Series[] }): Html | "" {
   return html`<div class="legend">${series.map((s) => html`<span><span class="key" style="${`background: var(--${s.color})`}"></span>${s.label}</span>`)}</div>`;
 }
 
-/** The table beside a chart: every value the chart shows, newest day first. */
+/**
+ * The table beside a chart: every value the chart shows, newest day first. Folded (it's for screen
+ * readers and exact numbers), in a scroll box so a wide one never widens the page, and days where
+ * every column is 0 are left out and counted instead.
+ */
 function DayTable({ days, columns, format = count }: { days: string[]; columns: { label: string; values: number[] }[]; format?: (n: number) => string }): Html {
   const order = days.map((_, i) => days.length - 1 - i);
-  return html`<details><summary>Table</summary><div class="table-wrap"><table class="data"><thead><tr><th>Day</th>${columns.map((c) => html`<th class="num">${c.label}</th>`)}</tr></thead><tbody>${order.map(
+  const kept = order.filter((i) => columns.some((c) => (c.values[i] ?? 0) !== 0));
+  const left = order.length - kept.length;
+  const note = left ? html`<p class="table-note">${left === 1 ? "1 day" : `${left} days`} with nothing left out.</p>` : "";
+  return html`<details><summary>Table</summary><div class="table-wrap"><table class="data days"><thead><tr><th>Day</th>${columns.map((c) => html`<th class="num">${c.label}</th>`)}</tr></thead><tbody>${kept.map(
     (i) => html`<tr><td>${shortDay(days[i] ?? "")}</td>${columns.map((c) => html`<td class="num">${format(c.values[i] ?? 0)}</td>`)}</tr>`,
-  )}</tbody></table></div></details>`;
+  )}</tbody></table></div>${note}</details>`;
 }
 
 /**
@@ -130,27 +137,47 @@ export function ColumnChart({ days, values, title, unit, half, format = count, l
   return html`<figure class="viz">${half ? draw(true) : html`${draw(false)}${draw(true)}`}${DayTable({ days, columns: [{ label: unit, values }], format })}</figure>`;
 }
 
-/** Rows × days, one blue from light (few) to dark (many); the row's total at the end. */
+/** A chart label's width per character, in drawing units (11px text in the page's monospace). */
+export const CHAR_W = 6.8;
+
+/** `text` cut to `chars` characters, keeping its end: a path's last part says the most ("…/innstillinger"). */
+export function fitLabel(text: string, chars: number): string {
+  const all = [...text];
+  return all.length <= chars ? text : `…${all.slice(all.length - Math.max(1, chars - 1)).join("")}`;
+}
+
+/**
+ * Rows × days, one blue from light (few) to dark (many); the row's total at the end. The wide drawing
+ * puts labels left of their row, shortened from the left to fit; the narrow one (a phone) puts each
+ * label above its row across the whole width. The full label is in each label's <title>.
+ */
 export function Heatmap({ days, rows, title }: { days: string[]; rows: { label: string; total: number; perDay: number[] }[]; title: string }): Html {
   const max = Math.max(0, ...rows.flatMap((r) => r.perDay));
   const draw = (narrow: boolean) => {
-    const labelW = narrow ? 118 : 150;
-    const totalW = narrow ? 40 : 48;
-    const cellH = narrow ? 16 : 18;
+    const width = narrow ? 360 : 800;
+    const labelW = narrow ? 0 : 150;
+    const totalW = narrow ? 36 : 48;
+    const cellH = narrow ? 14 : 18;
+    const labelH = narrow ? 15 : 0;
     const gap = narrow ? 1 : 2;
-    const width = narrow ? 440 : 800;
+    const rowH = labelH + cellH + (narrow ? 7 : gap);
     const cellW = (width - labelW - totalW) / Math.max(1, days.length);
-    const height = rows.length * (cellH + gap) + 22;
+    const height = rows.length * rowH + 22;
     const p: Plot = { width, height, left: labelW, right: totalW, top: 0, bottom: 0 };
+    const room = narrow ? width - totalW : labelW - 8;
     const lines = rows.map((r, j) => {
-      const y = j * (cellH + gap);
+      const y = j * rowH;
+      const cy = y + labelH;
       const cells = r.perDay.map((v, i) => {
         const level = heatLevel(v, max);
-        return html`<rect class="${level ? "cell" : "cell zero"}" x="${labelW + i * cellW}" y="${y}" width="${Math.max(1, cellW - gap)}" height="${cellH}" rx="2"${
+        return html`<rect class="${level ? "cell" : "cell zero"}" x="${labelW + i * cellW}" y="${cy}" width="${Math.max(1, cellW - gap)}" height="${cellH}" rx="2"${
           level ? html` style="${`fill: var(--h${level})`}"` : ""
         }><title>${`${r.label} · ${shortDay(days[i] ?? "")} · ${count(v)}`}</title></rect>`;
       });
-      return html`<g><text x="${labelW - 8}" y="${y + cellH - (narrow ? 4 : 5)}" text-anchor="end">${r.label}</text>${cells}<text class="end" x="${width - 4}" y="${y + cellH - (narrow ? 4 : 5)}" text-anchor="end">${count(r.total)}</text></g>`;
+      const label = narrow
+        ? html`<text x="0" y="${y + 11}">${fitLabel(r.label, Math.floor(room / CHAR_W))}<title>${r.label}</title></text>`
+        : html`<text x="${labelW - 8}" y="${cy + cellH - 5}" text-anchor="end">${fitLabel(r.label, Math.floor(room / CHAR_W))}<title>${r.label}</title></text>`;
+      return html`<g>${label}${cells}<text class="end" x="${width - 4}" y="${cy + cellH - (narrow ? 3 : 5)}" text-anchor="end">${count(r.total)}</text></g>`;
     });
     return Svg({ p, title, narrow, solo: false, children: html`${lines}${DayLabels({ p, days, x: (i) => labelW + i * cellW + cellW / 2 })}` });
   };

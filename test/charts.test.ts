@@ -1,7 +1,8 @@
 /** The numbers and charts packs build on (src/ui/kit.ts Stat…Gauge, src/ui/charts.view.ts): they draw, and hostile labels stay inert. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ColumnChart, DAY_LABEL_W, FunnelDiagram, HBars, Heatmap, LineChart, StackedBar } from "../src/ui/charts.view.ts";
+import { CHAR_W, ColumnChart, DAY_LABEL_W, FunnelDiagram, fitLabel, HBars, Heatmap, LineChart, StackedBar } from "../src/ui/charts.view.ts";
+import { STYLE } from "../src/ui/style.ts";
 import { Delta, Gauge, Post, Pulse, Spark, Stat, Stats } from "../src/ui/kit.ts";
 import { H, assertInert } from "./helpers.ts";
 
@@ -58,4 +59,39 @@ test("day labels never touch: the first hangs right, the last left, the rest are
       for (let i = 1; i < labels.length; i++) assert.ok(labels[i]!.from >= labels[i - 1]!.to - 1e-6, `${name}: label ${i} clears the one before`);
     }
   }
+});
+
+test("fitLabel keeps a label's end and its length", () => {
+  assert.equal(fitLabel("/oversikt", 20), "/oversikt");
+  assert.equal(fitLabel("/oversikt/innstillinger", 15), "…/innstillinger");
+  assert.equal([...fitLabel("/oversikt/innstillinger", 15)].length, 15);
+});
+
+test("Heatmap on a phone: labels above their rows fit the drawing, the full label in <title>, hostile ones inert", () => {
+  const long = `/oversikt/${"innstillinger/".repeat(6)}${H}`;
+  const out = String(Heatmap({ days, rows: [{ label: long, total: 2, perDay: [1, 0, 1] }, { label: "/x", total: 0, perDay: [0, 0, 0] }], title: "t" }));
+  const narrow = out.slice(out.indexOf('<svg class="narrow"'), out.indexOf("</svg>", out.indexOf('<svg class="narrow"')));
+  const width = Number(/viewBox="0 0 (\d+)/.exec(narrow)?.[1]);
+  for (const m of narrow.matchAll(/<text x="0" y="[\d.]+">([^<]*)<title>/g)) {
+    const shown = m[1]!.replace(/&[a-z#0-9]+;/g, "x");
+    assert.ok([...shown].length * CHAR_W <= width, `label "${m[1]}" fits ${width}`);
+  }
+  assert.match(narrow, /<text x="0" y="[\d.]+">…/);
+  assertInert("heatmap", out);
+});
+
+test("day table leaves out days where every column is 0, and counts them", () => {
+  const out = String(LineChart({ days, series: [{ label: "a", values: [0, 3, 0], color: "s1" }, { label: "b", values: [0, 1, 0], color: "s2" }], title: "t" }));
+  const body = out.slice(out.indexOf("<tbody>"), out.indexOf("</tbody>"));
+  assert.equal((body.match(/<tr>/g) ?? []).length, 1);
+  assert.match(out, /2 days with nothing left out\./);
+  assert.match(out, /<details><summary>Table/);
+  assert.match(out, /<div class="table-wrap"><table class="data days">/);
+});
+
+test("charts on a phone: the narrow drawing replaces the wide one, and text is themed", () => {
+  assert.match(STYLE, /@media \(max-width: 40rem\) \{ \.viz svg\.wide \{ display: none; \} \.viz svg\.narrow \{ display: block; \} \}/);
+  assert.match(STYLE, /\.viz svg text \{ fill: var\(--text-2\)/);
+  assert.match(STYLE, /\.viz \.line \{ fill: none;/);
+  assert.match(STYLE, /\.table-wrap \{ overflow-x: auto; \}/);
 });
