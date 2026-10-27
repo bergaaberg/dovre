@@ -14,5 +14,12 @@ services:
       - dovre-data:/app/data
       # Your checkouts, for the Code pane, worktrees and terminals (repos directly inside it).
       - ${DOVRE_CODE:-./code}:/code
+      # Opt-in, off by default: the Docker pane sees this host's containers. The socket is root on
+      # this host, so read "The Docker pane" in docs/SELF-HOST.md first. To turn it on, uncomment
+      # this line and the group_add below, and set DOCKER_GID=$(stat -c %g /var/run/docker.sock).
+      # - /var/run/docker.sock:/var/run/docker.sock
+    # The socket's group, so the container's node user may open it.
+    # group_add:
+    #   - "${DOCKER_GID:?set DOCKER_GID to the socket's group id}"
 volumes:
   dovre-data:

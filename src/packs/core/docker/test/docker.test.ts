@@ -1,6 +1,6 @@
 /** The docker pack (src/packs/core/docker/): the model reads strictly, the service only does what's on its list, the pages keep hostile names inert. */
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -285,4 +285,13 @@ test("no engine found: a Mac is pointed at scripts/docker.sh (Colima, #101); Dov
   const win = String(dockerPage({ ...none, ours: true }).body);
   assert.match(win, /pwsh scripts\/docker\.ps1/);
   assert.doesNotMatch(win, /docker\.sh/);
+});
+
+test("self-host compose: the host's Docker socket stays opt-in, and the container finds it once mounted (#102)", () => {
+  const compose = readFileSync(new URL("../../../../../deploy/compose.yaml", import.meta.url), "utf8");
+  const live = compose.split("\n").filter((l) => !l.trim().startsWith("#"));
+  assert.ok(compose.includes("# - /var/run/docker.sock:/var/run/docker.sock"), "the opt-in line is there to uncomment");
+  assert.ok(!live.some((l) => l.includes("docker.sock") || l.includes("group_add")), "the socket is never mounted by default");
+  // Inside the image: HOME is /home/node and nothing else points at an engine.
+  assert.equal(findEngineSocket({}, "/home/node", (p) => p === "/var/run/docker.sock"), "/var/run/docker.sock");
 });

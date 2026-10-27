@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **Self-host**: the Docker pane can see the host's containers when Dovre runs in Docker. It's opt-in, with a commented-out socket mount and `group_add` in `deploy/compose.yaml`; read the warning in docs/SELF-HOST.md first, since the socket is root on the host (#102).
+
 ## 0.5.0 (2026-10-27)
 
 Added:
