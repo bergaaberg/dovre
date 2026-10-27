@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { createDocker, type Docker, findEngineSocket, readPipe } from "../docker.ts";
 import { createEngine, demuxer } from "../engine.ts";
 import { allowed, groupsOf, parseContainers } from "../model.ts";
+import { dockerPage } from "../view.ts";
 import { dockerPack } from "../index.ts";
 import { dockerRoutes } from "../routes.ts";
 import type { AppEnv } from "../../../../env.ts";
@@ -274,4 +275,14 @@ test("off Windows: ours is false, no engine controls or wsl calls, containers st
   await settle();
   assert.ok(e.calls.includes(`POST /containers/${ID2}/start`));
   assert.deepEqual(logged, ["docker.start web true"]);
+});
+
+test("no engine found: a Mac is pointed at scripts/docker.sh (Colima, #101); Dovre's own engine at docker.ps1", () => {
+  const none = { state: "none" as const, containers: [], busy: {} };
+  const mac = String(dockerPage({ ...none, ours: false }).body);
+  assert.match(mac, /No Docker engine found/);
+  assert.match(mac, /<pre class="code">sh scripts\/docker\.sh<\/pre>/);
+  const win = String(dockerPage({ ...none, ours: true }).body);
+  assert.match(win, /pwsh scripts\/docker\.ps1/);
+  assert.doesNotMatch(win, /docker\.sh/);
 });
