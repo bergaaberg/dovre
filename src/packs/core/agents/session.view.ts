@@ -101,7 +101,7 @@ function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?
   }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model }))}${run.status !== "running" && turnCostOf ? html`<li class="turn-row meta t3">Last turn cost $${turnCostOf.toFixed(3)}</li>` : ""}`;
 }
 
-export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string }): PageOpts {
+export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string; /** Local, in a checkout: its diff page (dovre#105). */ diff?: string }): PageOpts {
   const { sessionId, session: s, turns, run } = opts;
   const running = run?.status === "running";
   const inTerminal = !!opts.replyCopies;
@@ -139,7 +139,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
     title,
     crumbs: [{ href: "/agents", label: "Agents" }],
     sub: html`${harnessTag(s?.harness ?? run?.harness, s?.model ?? run?.model)} ${s?.repo ?? run?.repo ?? ""}${s?.branch ? html` · ${s.branch}` : ""} · ${status}${s?.cost ? html` · <span class="t3">$${s.cost.toFixed(2)} so far</span>` : ""}`,
-    actions: html`${opts.discardable ? html`<form method="post" action="/agents/s/${sessionId}/discard"><button type="submit" class="ghost" title="Off Dovre's lists; the transcript stays, and replying brings it back">Clear away</button></form>` : ""}<a class="btn ghost" href="/agents/new">New session</a>`,
+    actions: html`${opts.diff ? html`<a class="btn ghost" href="${opts.diff}" title="What's changed in its checkout, committed or not">Diff</a>` : ""}${opts.discardable ? html`<form method="post" action="/agents/s/${sessionId}/discard"><button type="submit" class="ghost" title="Off Dovre's lists; the transcript stays, and replying brings it back">Clear away</button></form>` : ""}<a class="btn ghost" href="/agents/new">New session</a>`,
   })}
 ${opts.flash ? Notice({ tone: "bad", children: opts.flash }) : ""}
 ${macNotice(opts.mac)}

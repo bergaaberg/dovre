@@ -11,6 +11,7 @@ import type { Dismissed } from "../../../agents/dismissed.ts";
 import type { AppEnv } from "../../../env.ts";
 import type { Snapshot } from "../../../gather.ts";
 import type { MacStatus } from "../../../pages/parts.ts";
+import { diffHref } from "../../../pages/viewer.ts";
 import type { PackContext } from "../../types.ts";
 import type { Here } from "./here.ts";
 import { sessionsOf } from "./index.ts";
@@ -18,6 +19,16 @@ import { agentPage, newAgentPage } from "./session.view.ts";
 import { agentsPage, worktreesPage } from "./view.ts";
 
 type C = Context<AppEnv>;
+
+/** The diff page of the checkout an agent works in (dovre#105): only one directly under CODE_DIR, as /code has. */
+export function diffOf(codeDir: string | undefined, cwd: string | undefined): string | undefined {
+  if (!codeDir || !cwd) return undefined;
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const at = norm(cwd);
+  const i = at.lastIndexOf("/");
+  const dir = at.slice(i + 1);
+  return i > 0 && dir && at.slice(0, i) === norm(codeDir) ? diffHref(dir) : undefined;
+}
 
 /** This app's own page the form was on (path and query), else `to`. */
 function refBack(c: C, to: string): string {
@@ -100,7 +111,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const run = await desk.run(c.req.param("run"));
     if (!run) return c.notFound();
     if (run.sessionId) return c.redirect(`/agents/s/${run.sessionId}`, 303);
-    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, mac: macOf(run.id) }));
+    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, mac: macOf(run.id), diff: ctx.hosted ? undefined : diffOf(ctx.env.CODE_DIR, run.cwd) }));
   });
   app.get("/agents/s/:sid", async (c) => {
     const sid = c.req.param("sid");
@@ -109,7 +120,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     if (!v) return c.notFound();
     const flash = flashes.get(sid);
     flashes.delete(sid);
-    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf }));
+    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf, diff: ctx.hosted ? undefined : diffOf(ctx.env.CODE_DIR, v.session?.cwd ?? v.run?.cwd) }));
   });
   /** Answers to the agent's newest question (AskUserQuestion), as its next message. Only offered choices count. */
   app.post("/agents/s/:sid/answer", async (c) => {
