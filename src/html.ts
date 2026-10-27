@@ -110,12 +110,12 @@ const SEARCH_ICON = html`<svg viewBox="0 0 20 20" fill="none" stroke="currentCol
 
 
 /**
- * An MCP server asking for my OK (db-cli before it opens a production database), on every page,
+ * An MCP server asking for my OK (a database tool before it opens production), on every page,
  * above everything else. The safe answer is one click; anything else takes a second. Empty, it's
  * still there so a live update can fill it.
  */
 /**
- * Questions from one server with the same choices, two or more at once (db asking to open several
+ * Questions from one server with the same choices, two or more at once (a database tool asking to open several
  * production databases): answered together, the safe choice first, the rest behind a second click.
  */
 export function groupsOf(asks: AskView[]): { groups: AskView[][]; rest: AskView[] } {
