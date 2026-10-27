@@ -1,7 +1,7 @@
 /** Dependabot cleanup (dovre#108): the queue, combining a repo's bumps into one PR, and the page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addGroups, bumpedPackage, combine, combinedBody, loadQueue, withGroups } from "../src/actions/dependabot.ts";
+import { addGroups, bumpedPackage, combine, combinedBody, loadQueue, mergeCombined, withGroups } from "../src/actions/dependabot.ts";
 import { openDb } from "../src/db.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { H, assertInert, fakeGhe, signedIn, snapshot } from "./helpers.ts";
@@ -84,7 +84,7 @@ test("loadQueue: by repo, owners only, security fixes first, alerts unreadable s
           { number: 3, title: "Bump b from 1 to 2", url: "u3", createdAt: "2026-10-03T00:00:00Z", repository: { nameWithOwner: "ACME/api" } },
           { number: 4, title: "Bump c from 1 to 2", url: "u4", createdAt: "2026-10-03T00:00:00Z", repository: { nameWithOwner: "other/x" } },
         ] },
-        mine: { nodes: [{ number: 9, url: "u9", headRefName: "dovre/dependabot-1", repository: { nameWithOwner: "ACME/web" } }, { number: 8, url: "u8", headRefName: "feature", repository: { nameWithOwner: "ACME/api" } }] },
+        mine: { nodes: [{ number: 9, url: "u9", headRefName: "dovre/dependabot-1", mergeable: "MERGEABLE", commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, repository: { nameWithOwner: "ACME/web" } }, { number: 8, url: "u8", headRefName: "feature", repository: { nameWithOwner: "ACME/api" } }] },
       } as T;
     },
     async rest<T>(path: string) {
@@ -95,6 +95,82 @@ test("loadQueue: by repo, owners only, security fixes first, alerts unreadable s
   const q = await loadQueue(ghe, "ACME");
   assert.deepEqual(q.repos.map((r) => [r.repo, r.prs.map((p) => p.number), r.security, r.combined?.number]), [["ACME/web", [2, 1], 1, 9], ["ACME/api", [3], 0, undefined]]);
   assert.deepEqual(q.alertsUnread, ["ACME/api"]);
+  assert.deepEqual(q.repos[0]!.combined, { number: 9, url: "u9", checks: "SUCCESS", mergeable: "MERGEABLE", draft: false });
+});
+
+test("mergeCombined (#108): only an open, green, mergeable PR from one of Dovre's combine branches, squashed at its head; each refusal logged", async () => {
+  const pr = (o: Record<string, unknown> = {}) => ({ ...pull(99, "Dependency updates (3)", { login: "me", type: "User" }), head: { sha: "head99", ref: "dovre/dependabot-20261026-1000", repo: { full_name: "ACME/web" } }, mergeable: true, draft: false, ...o });
+  const run = async (o: { pr?: Record<string, unknown>; checks?: string | null; mergeFails?: boolean } = {}) => {
+    const db = openDb();
+    const calls: string[] = [];
+    const ghe: Ghe = {
+      host: "acme.ghe.com",
+      async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
+        calls.push(`${init.method ?? "GET"} ${path} ${init.body ? JSON.stringify(init.body) : ""}`.trim());
+        if (path === "/repos/ACME/web/pulls/99" && !init.method) return pr(o.pr) as T;
+        if (path === "/repos/ACME/web/pulls/99/merge" && init.method === "PUT") {
+          if (o.mergeFails) throw new Error("GHE PUT: 409 Head branch was modified");
+          return {} as T;
+        }
+        throw new Error(`GHE ${path}: 404`);
+      },
+      async graphql<T>(query: string) {
+        calls.push(`graphql ${/oid:"(\w+)"/.exec(query)?.[1]}`);
+        return { repository: { object: { statusCheckRollup: o.checks === null ? null : { state: o.checks ?? "SUCCESS" } } } } as T;
+      },
+    };
+    const r = await mergeCombined(ghe, db.DB, "ACME/web", 99);
+    const log = db.raw.prepare("SELECT kind, target, ok, error FROM actions").all().map((x) => ({ ...x }));
+    return { r, calls, log };
+  };
+  const ok = await run();
+  assert.equal(ok.r.ok, true);
+  assert.ok(ok.calls.includes('PUT /repos/ACME/web/pulls/99/merge {"sha":"head99","merge_method":"squash"}'), "merged at the head it checked");
+  assert.ok(ok.calls.includes("graphql head99"));
+  assert.deepEqual(ok.log, [{ kind: "pr.merge-combined", target: "ACME/web#99", ok: 1, error: null }]);
+  for (const [o, why] of [
+    [{ pr: { state: "closed", merged: true } }, /already merged/],
+    [{ pr: { head: { sha: "x", ref: "feature", repo: { full_name: "ACME/web" } } } }, /not a combined PR Dovre opened/],
+    [{ pr: { head: { sha: "x", ref: "dovre/dependabot-1", repo: { full_name: "evil/web" } } } }, /not a combined PR Dovre opened/],
+    [{ pr: { draft: true } }, /draft/],
+    [{ pr: { mergeable: null } }, /still working out/],
+    [{ pr: { mergeable: false } }, /doesn't merge cleanly/],
+    [{ checks: "PENDING" }, /checks are pending/],
+    [{ checks: null }, /no checks ran/],
+    [{ mergeFails: true }, /couldn't merge: .*409/],
+  ] as const) {
+    const r = await run(o);
+    assert.equal(r.r.ok, false, String(why));
+    assert.match(r.r.message, why);
+    assert.equal(r.log.length, 1, "logged");
+    assert.equal(r.log[0]!.ok, 0);
+    if (!("mergeFails" in o)) assert.ok(!r.calls.some((c) => c.startsWith("PUT")), `${why}: no merge tried`);
+  }
+});
+
+test("page: combined PRs list their state; only green ones can be ticked, then merged after the redirect, owners only", async () => {
+  const { dependabotPage } = await import("../src/pages/dependabot.ts");
+  const repo = (name: string, combined: Record<string, unknown>) => ({ repo: name, oldest: "2026-10-01T00:00:00Z", security: 0, prs: [{ repo: name, number: 1, title: "Bump a", url: "u", createdAt: "2026-10-01T00:00:00Z", security: false }], combined: { url: "u", draft: false, ...combined } as never });
+  const page = dependabotPage({ operator: "me", nav: [] }, {
+    org: "ACME",
+    repos: [repo("ACME/web", { number: 9, checks: "SUCCESS", mergeable: "MERGEABLE" }), repo("ACME/api", { number: 8, checks: "PENDING", mergeable: "MERGEABLE" }), repo("ACME/db", { number: 7, checks: "SUCCESS", mergeable: "CONFLICTING" })],
+  });
+  assert.match(page, /1 of 3 green/);
+  assert.match(page, /name="pick" value="ACME\/web#9"/);
+  assert.doesNotMatch(page, /value="ACME\/api#8"/);
+  assert.match(page, /checks running/);
+  assert.match(page, /conflicts/);
+  assert.match(page, /action="\/prs\/dependabot\/merge"/);
+
+  const { get, post } = signedIn(snapshot(), {});
+  const send = (body: string) => post("/prs/dependabot/merge", body);
+  assert.equal((await send("go=1")).status, 303);
+  assert.match(await (await get("/prs/dependabot")).text(), /Tick one or more combined PRs first/);
+  assert.equal((await send("go=1&pick=evil/web%239&pick=ACME/web%239")).status, 303);
+  let text = "";
+  for (let i = 0; i < 50 && !/Merged 0 of 2/.test((text = await (await get("/prs/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
+  assert.match(text, /Merged 0 of 2\. A PR outside the owners&#39;? repos was left alone\./);
+  assert.equal((await post("/prs/dependabot/merge", "pick=ACME/web%239", { origin: "https://evil.example" })).status, 403, "only from this app");
 });
 
 test("page: the Dependabot tab, a repo outside the owners refused, a combine runs after the redirect", async () => {
@@ -116,7 +192,7 @@ test("page: hostile titles and repo names are inert", async () => {
   const { dependabotPage } = await import("../src/pages/dependabot.ts");
   const html = dependabotPage({ operator: "me", nav: [] }, {
     org: H,
-    repos: [{ repo: H, oldest: "2026-10-01T00:00:00Z", security: 1, prs: [{ repo: H, number: 1, title: H, url: "javascript:alert(1)", createdAt: "2026-10-01T00:00:00Z", security: true }], combined: { number: 2, url: "javascript:alert(1)" } }],
+    repos: [{ repo: H, oldest: "2026-10-01T00:00:00Z", security: 1, prs: [{ repo: H, number: 1, title: H, url: "javascript:alert(1)", createdAt: "2026-10-01T00:00:00Z", security: true }], combined: { number: 2, url: "javascript:alert(1)", checks: "SUCCESS", mergeable: "MERGEABLE", draft: false } }],
     jobs: [{ repo: H, what: "combine", state: "done", ok: false, message: H, url: "javascript:alert(1)" }, { repo: H, what: "groups", state: "running" }],
   });
   assertInert("dependabot page", html);
