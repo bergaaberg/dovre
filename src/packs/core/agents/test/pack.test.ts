@@ -61,10 +61,10 @@ test("sessions I cleared away leave the lists; running ones always show, they're
   assert.deepEqual(finds.filter((f) => f.kind === "agents").map((f) => f.href), ["/agents/s/s-2", "/agents/s/s-3"], "s-2 once, as the live one");
 });
 
-test("what it tells the avatar: a turn here and its session count once; waiting is asking", () => {
+test("its pulse: a turn here and its session count once; waiting is asking", () => {
   const here = fixedHere({ live: [session({ sessionId: "a", status: "busy" }), session({ sessionId: "b", status: "waiting" }), session({ sessionId: "c", status: "probably-busy" })], recent: [] });
   const runs = [{ status: "running", sessionId: "a", events: [] }, { status: "running", sessionId: undefined, events: [] }, { status: "done", sessionId: "z", events: [] }] as never;
-  assert.deepEqual(agentsPack({ desk: desk({ runs }), dismissed: none, here }).avatar!(ctxOf()()), { working: 3, asking: 1 });
+  assert.deepEqual(agentsPack({ desk: desk({ runs }), dismissed: none, here }).pulse!(ctxOf()()), { working: 3, asking: 1 });
 });
 
 test("linked: the PRs the sessions opened, for the gather to look up", () => {

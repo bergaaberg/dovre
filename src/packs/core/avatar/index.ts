@@ -2,24 +2,22 @@
  * My avatar, a core pack (PLAN WP-X2): a creature I pick, shaped by what I do on GHE and set in a
  * scene by how things are. It shows in two core places through slots (Today's header, the Bino
  * button and Bino's header) and has its own page (/avatar). How things are comes from the snapshot,
- * My list and what the other packs tell it (their `avatar` hook: what works and waits, what's
- * wrong, whether I'm on duty), all counts.
+ * My list and the packs' pulse (PackContext.pulse: what works and waits, what's wrong, whether
+ * I'm on duty, whether Bino is answering), all counts.
  */
 import { needsOf } from "../../../home/needs.ts";
 import { listTodos } from "../../../todo/store.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
-import type { AvatarFeeds } from "../../registry.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { type Avatar, createAvatar } from "./avatar.ts";
 import { signalsFrom } from "./feed.ts";
+import { AVATAR_JS } from "./script.ts";
 import { type AvatarData, createAvatarData } from "./stats.ts";
 import { AVATAR_CSS, AVATAR_PAGE_CSS } from "./style.ts";
 import { avatarDock, avatarHero, avatarMini, avatarRoutes } from "./view.ts";
 import { hourAt } from "../../../when.ts";
 
 export type AvatarDeps = {
-  /** What works for me and waits on me across the packs, and whether anything has it at work (Bino answering). */
-  feeds: () => AvatarFeeds & { busy: boolean };
   /** GHE, for the numbers that shape it: without it, it keeps its starting shape. */
   ghe?: { ghe: Ghe; org: string; login: () => string | undefined };
   /** The idle picture whenever it changes (here: a copy for the starting page). */
@@ -28,7 +26,7 @@ export type AvatarDeps = {
 };
 
 
-export function avatarPack(o: AvatarDeps): Pack {
+export function avatarPack(o: AvatarDeps = {}): Pack {
   const clock = o.now ?? Date.now;
   let ctx: PackContext | undefined;
   /** My list: items I'm doing (read on refresh). */
@@ -39,11 +37,11 @@ export function avatarPack(o: AvatarDeps): Pack {
     data,
     onStart: o.onStart,
     now: clock,
-    busy: () => o.feeds().busy,
+    busy: () => ctx?.pulse().busy ?? false,
     signals: () => {
       const s = ctx?.snapshot();
       if (!s) return undefined;
-      return signalsFrom({ snap: s, needs: needsOf(s), feeds: o.feeds(), doing, mergedToday: 0, hour: hourAt(clock()) });
+      return signalsFrom({ snap: s, needs: needsOf(s), pulse: ctx!.pulse(), doing, mergedToday: 0, hour: hourAt(clock()) });
     },
   });
   return {
@@ -57,6 +55,7 @@ export function avatarPack(o: AvatarDeps): Pack {
       everyMs: 60_000,
     },
     styles: AVATAR_PAGE_CSS + AVATAR_CSS,
+    script: AVATAR_JS,
     async init(c) {
       ctx = c;
       await Promise.all([avatar.load(c.db), data?.load(c.db)]);
@@ -77,6 +76,9 @@ export function avatarPack(o: AvatarDeps): Pack {
       "today.hero": () => avatarHero(avatar.now(), avatar.today()),
       "bino.face": ({ place, thinking }) => (place === "dock" ? avatarDock(avatar.now()) : avatarMini(avatar.now(), thinking)),
     }),
-    routes: (app, c) => avatarRoutes(app, c, avatar),
+    routes: (app, c) => {
+      ctx = c;
+      avatarRoutes(app, c, avatar);
+    },
   };
 }

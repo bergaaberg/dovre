@@ -178,11 +178,11 @@ export type SlotMap = {
    * logged. The first pack that answers names it, cut to a line; undefined: as logged.
    */
   "actions.what": { arg: { kind: string }; out: string | undefined };
-  /** Today's header, before the glance (avatar: me in my scene). The first pack that answers fills it. */
+  /** Today's header, before the glance (a picture of how things are). The first pack that answers fills it. */
   "today.hero": { arg: Record<string, never>; out: Html | "" };
   /**
    * The Bino button at the bottom right (`dock`) and beside Bino's header (`mini`): what it looks
-   * like instead of the word (avatar: me, at work while Bino answers). The first pack that answers.
+   * like instead of the word (a face, at work while Bino answers). The first pack that answers.
    */
   "bino.face": { arg: { place: "dock" | "mini"; thinking?: boolean }; out: Html | "" };
   /**
@@ -233,6 +233,8 @@ export type PackContext = {
   ask(q: { from: string; message: string; schema: unknown }): Promise<Answer>;
   /** One of its questions is waiting in the bar now. */
   asking(): boolean;
+  /** How things are across the shown packs now (their `pulse`), and whether Bino is answering. */
+  pulse(): Pulse;
 };
 
 /** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */
@@ -286,12 +288,16 @@ export type ActKind = {
 };
 
 /**
- * What a pack tells the avatar, from memory: how many of its things work for me and wait on me
- * (it looks busy while anything works; a drone each), and what's wrong, if anything: rain for a
- * storm, flames for a fire. `why` is a short line of counts ("2 red signals"), never what a thing
- * says; `href` one of its own pages.
+ * A pack's pulse, from memory: how many of its things work for me and wait on me, and what's
+ * wrong, if anything (a storm, or a fire). `why` is a short line of counts ("2 red signals"),
+ * never what a thing says; `href` one of its own pages. Core sums them (PackContext.pulse) for any
+ * pack that shows how things are (a picture of me: busy while anything works, rain in a storm).
  */
-export type AvatarFeed = { working?: number; asking?: number; trouble?: { level: "storm" | "fire"; why: string; href?: string }; /** I'm on duty (an on-call rota): the avatar wears its beacon. */ onDuty?: boolean };
+export type PulseFeed = { working?: number; asking?: number; trouble?: { level: "storm" | "fire"; why: string; href?: string }; /** I'm on duty (an on-call rota). */ onDuty?: boolean };
+/** @deprecated The old name of PulseFeed. */
+export type AvatarFeed = PulseFeed;
+/** The packs' pulses summed (PackContext.pulse): counts kept to 0–99, a line per trouble. */
+export type Pulse = { working: number; asking: number; trouble: { level: "storm" | "fire"; why: string; href?: string }[]; /** A pack says I'm on duty. */ onDuty?: boolean; /** Something has me at work: a pack's thing working, or Bino answering. */ busy: boolean };
 
 export type ScheduledEvent = { cron: string; scheduledTime: number };
 /** A Worker's waitUntil, for work that finishes after the handler returns. */
@@ -324,6 +330,14 @@ export type Pack = {
   writes?: PackWrite[];
   /** CSS for its own classes, served beside the core's and linked from every page. */
   styles?: string;
+  /**
+   * Plain JS for its own pages and slots, served beside the core's script (CSP `script-src 'self'`)
+   * and run on every page while the pack is on, in a block of its own. Like the core's, it's an
+   * enhancement: what it adds works without it. It hears the core on `document`: `dovre:change`
+   * (detail: what the hub said changed: topics, notes) and `dovre:swap` (detail: { from, to }, a
+   * live region about to be swapped for a fresh one, so it can carry over what it shows).
+   */
+  script?: string;
   nav?(ctx: PackContext): NavItem[];
   /** Mounted after the core's guard (login or Access) and core routes: it can't shadow a core path. */
   routes?(app: Hono<AppEnv>, ctx: PackContext): void;
@@ -334,8 +348,10 @@ export type Pack = {
   finds?(ctx: PackContext): FindItem[];
   /** Its kinds of reference, linked wherever I write or a commit says them (My list, deploys). */
   refs?(ctx: PackContext): RefRule[];
-  /** What it tells the avatar now, from memory (agents: turns and sessions; signals: red ones). */
-  avatar?(ctx: PackContext): AvatarFeed | null | undefined;
+  /** Its pulse now, from memory (agents: turns and sessions; signals: red ones): see PulseFeed. */
+  pulse?(ctx: PackContext): PulseFeed | null | undefined;
+  /** @deprecated The old name of `pulse`, read when a pack has no `pulse`. */
+  avatar?(ctx: PackContext): PulseFeed | null | undefined;
   /**
    * PR links its pages show (URLs), from memory: the gather looks up each one's state and title
    * (Snapshot.refs), so a page can say it merged. Agents: the PRs their sessions opened.

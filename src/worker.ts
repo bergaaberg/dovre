@@ -27,7 +27,6 @@ import { agentsPack } from "./packs/core/agents/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { avatarPack } from "./packs/core/avatar/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
-import type { AvatarFeeds } from "./packs/registry.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
 import { createQueue } from "./agents/queue.ts";
@@ -262,10 +261,8 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // Without the bridge, a desk with nothing to run: the pages say so.
     const desk = hub && keyOk(bindings.BRIDGE_KEY) ? remoteDesk(hub) : localDesk({ env, queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
     const dismissed = createDismissed(bindings.DB);
-    // What the packs say works and waits, for the avatar: set once the app is built.
-    let feeds = (): AvatarFeeds & { busy: boolean } => ({ working: 0, asking: 0, trouble: [], busy: false });
     // My avatar: GitHub's numbers shape it; the snapshot, My list and the packs (signals) set its scene.
-    const avatar = avatarPack({ feeds: () => feeds(), ghe: { ghe, org: env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login } });
+    const avatar = avatarPack({ ghe: { ghe, org: env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login } });
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, assistant: Bino's switch, avatar, issues), then the instance's.
@@ -286,7 +283,6 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     });
     const mounted = packsOf(app)!;
     linked = mounted.linked;
-    feeds = mounted.feeds;
     const seeded = kept.load().then((s) => {
       if (!s) return;
       gatherer.seed?.(s);

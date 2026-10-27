@@ -9,8 +9,8 @@
  * Its pages: /agents (the list, a session, a new one) and /worktrees (routes.ts), on whose places
  * other packs put theirs through slots (terminal: its panel, a worktree's button, resume here).
  * It keeps this machine's sessions and worktrees itself (here.ts: read every 15 s and when Claude
- * Code's session files change), asks the gather for the PRs they link (`linked`), gives the avatar
- * its counts (`avatar`), and rings when a turn started here ends (turns.ts).
+ * Code's session files change), asks the gather for the PRs they link (`linked`), adds its
+ * counts to the pulse (`pulse`), and rings when a turn started here ends (turns.ts).
  * Runs locally and hosted ("any"); hosted, the sessions are the Mac's over the desk (brought up to
  * date before each page, `beforePage`), and worktrees aren't there to show.
  */
@@ -78,7 +78,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs }: Agents
       });
     },
     dispose: () => stop(),
-    avatar: () => agentActivity(sessions().live, desk.view().runs),
+    pulse: () => agentActivity(sessions().live, desk.view().runs),
     linked: () => [...sessions().live, ...sessions().recent].flatMap((x) => (x.prs ?? []).map((p) => p.url)),
     ...(desk.refresh ? { beforePage: () => desk.refresh!() } : {}),
     nav: (ctx) => {

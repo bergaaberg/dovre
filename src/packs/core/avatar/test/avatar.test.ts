@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { createAvatar } from "../avatar.ts";
 import { avatarPack } from "../index.ts";
 import { activePacks } from "../../../registry.ts";
+import { PACK_API, type Pack } from "../../../types.ts";
 import { isoSvg, shade } from "../iso.ts";
 import { signalsFrom } from "../feed.ts";
 import { buildAvatar, CREATURES, type Creature, DEFAULT_LOOK, effects, LAYER, lookOf, PARTS, statsOf, traits } from "../model.ts";
@@ -120,10 +121,10 @@ test("signals come from the snapshot, the packs' activity and duty, and My list 
     prs: { ok: true, value: { mine: [pr({ repo: "ACME/shop-api" })], review: [pr({ number: 7 }), pr({ number: 8 })] } },
   });
   // The agents pack counts its own (src/packs/core/agents/test/turns.test.ts).
-  const sig = signalsFrom({ snap: s, needs: needsOf(s), feeds: { working: 3, asking: 1, trouble: [{ level: "fire", why: "55 failed messages" }], onDuty: true }, doing: 2, mergedToday: 1, hour: 9 });
+  const sig = signalsFrom({ snap: s, needs: needsOf(s), pulse: { working: 3, asking: 1, trouble: [{ level: "fire", why: "55 failed messages" }], onDuty: true }, doing: 2, mergedToday: 1, hour: 9 });
   assert.deepEqual(sig, { redBuilds: 1, deploysWaiting: 0, agentsWorking: 3, agentsAsking: 1, reviewsAsked: 2, mergedToday: 1, doing: 2, hour: 9, trouble: [{ level: "fire", why: "55 failed messages" }], onCall: true });
   assert.equal(situationOf(sig).scene, "fire");
-  const off = signalsFrom({ snap: snapshot({ deploys: { ok: true, value: [deploy()] } }), needs: [], feeds: { working: 0, asking: 0, trouble: [] }, doing: 0, mergedToday: 0, hour: 9 });
+  const off = signalsFrom({ snap: snapshot({ deploys: { ok: true, value: [deploy()] } }), needs: [], pulse: { working: 0, asking: 0, trouble: [] }, doing: 0, mergedToday: 0, hour: 9 });
   assert.equal(off.onCall, undefined, "no pack on duty: nothing said about it");
 });
 
@@ -213,8 +214,10 @@ test("the pack: the image with its cache rules, what's going on now, Today and t
   setWhen({ tz: "UTC" });
   t.after(resetWhen);
   const s = snapshot();
-  const pack = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: true }), now: () => Date.parse("2026-10-22T10:00:00Z") });
-  const { get, post } = signedIn(s, {}, { packs: [pack] });
+  const pack = avatarPack({ now: () => Date.parse("2026-10-22T10:00:00Z") });
+  // Another pack with something at work: the pulse says busy.
+  const worker = { manifest: { api: PACK_API, id: "worker", name: "Worker", description: "Works", domain: "general", execution: "any" }, pulse: () => ({ working: 1 }) } as Pack;
+  const { get, post } = signedIn(s, {}, { packs: [pack, worker] });
   const now = await (await get("/avatar/now")).json();
   assert.equal(now.busy, true);
   assert.equal(now.scene, "calm");
@@ -228,6 +231,11 @@ test("the pack: the image with its cache rules, what's going on now, Today and t
   const today = await (await get("/")).text();
   assert.match(today, /class="av-hero"/);
   assert.match(today, /data-av="hero"/);
+  // Its script comes beside the core's, in a block of its own.
+  const js = today.match(/<script type="module" src="(\/assets\/packs\.[0-9a-z]+\.js)">/)?.[1];
+  assert.ok(js, "the packs' script is linked");
+  const body = await (await get(js)).text();
+  assert.match(body, /^\/\/ avatar\n\{\n[^]*addEventListener\("dovre:change"/);
   const face = pack.slots!({} as never)["bino.face"]!;
   assert.match(String(face({ place: "dock" })), /^<span class="av-face" data-scene="calm"><img [^>]*data-av="dock"/, "the Bino button's face");
   assert.match(String(face({ place: "mini", thinking: true })), /href="\/avatar"[^]*data-mood="working"/, "at work while Bino answers");
@@ -252,7 +260,7 @@ test("the pack: the image with its cache rules, what's going on now, Today and t
 
 test("Today's avatar: paused, played and hidden from Today, kept, and brought back from its page", async () => {
   const s = snapshot();
-  const pack = avatarPack({ feeds: () => ({ working: 0, asking: 0, trouble: [], busy: false }), now: () => Date.parse("2026-10-22T10:00:00Z") });
+  const pack = avatarPack({ now: () => Date.parse("2026-10-22T10:00:00Z") });
   const { get, post } = signedIn(s, {}, { packs: [pack] });
   let today = await (await get("/")).text();
   assert.match(today, /<form method="post" action="\/avatar\/today" class="av-ctl" data-av-ctl><button type="submit" name="mode" value="still"/, "moving: a pause button");
@@ -288,10 +296,10 @@ test("the animation suite: life on its own loops, a move per mood and scene, all
 
 test("without the avatar pack, the Bino button is the word and Today has no avatar", async () => {
   const today = await (await signedIn(snapshot()).get("/")).text();
-  assert.doesNotMatch(today, /av-hero|av-dock/);
+  assert.doesNotMatch(today, /av-hero|face-btn/);
 });
 
 test("the pack runs hosted too: nothing it needs is this machine's", () => {
-  const { on, off } = activePacks([avatarPack({ feeds: () => ({ working: 0, asking: 0, trouble: [], busy: false }) })], { env: {}, bindings: {}, hosted: true });
+  const { on, off } = activePacks([avatarPack()], { env: {}, bindings: {}, hosted: true });
   assert.deepEqual([on.length, off], [1, []]);
 });

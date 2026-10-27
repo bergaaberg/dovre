@@ -378,11 +378,8 @@ details > summary { cursor: pointer; }
   body:has(.tab-gap) #bdock-btn:active { transform: scale(.94); }
   body:has(.tab-gap) .bino-btn span { display: none; }
   body:has(.tab-gap) .bino-btn svg { width: 26px; height: 26px; }
-  body:has(.tab-gap) .av-say { position: fixed; left: 50%; right: auto; bottom: calc(86px + var(--sab)); max-width: calc(100vw - 32px); transform: translateX(-50%); }
-  body:has(.tab-gap) .av-say::after { right: calc(50% - 5px); }
-  body:has(.side.open) #bdock-btn, body:has(.side.open) .av-say { display: none; }
+  body:has(.side.open) #bdock-btn { display: none; }
 }
-.tdock.open > .av-say { display: none; }
 a.ava { text-decoration: none; }/* Search (Ctrl K): the button in the top bar, and the palette it opens (src/ui/app.js.ts) */
 .search-btn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 7px 5px 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-3); text-decoration: none; }
 .search-btn:hover { border-color: var(--accent-line); color: var(--ink-2); }
@@ -419,7 +416,8 @@ main.page { padding: 26px 0 0; min-width: 0; }
 /* ── Briefing and horizon (home) ────────────────────────────────────────── */
 .brief { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 24px 44px; padding: 4px 0 0; }
 .brief > div { max-width: 66ch; }
-.brief .av-hero { grid-column: 2; grid-row: 1; justify-self: start; }
+/* What a pack puts in today.hero sits right of the greeting (its own class, its own rule). */
+.brief > figure { grid-column: 2; grid-row: 1; justify-self: start; }
 .brief .glance { grid-column: 1 / -1; }
 .eyebrow { font: 600 var(--fs-xs)/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 14px; white-space: nowrap; }
 .brief h1 { font: 400 var(--fs-hero)/1.02 var(--serif); letter-spacing: -.012em; margin: 0 0 12px; }
@@ -870,7 +868,7 @@ button.link:hover { color: var(--ink); }
 @media (max-width: 860px) {
   .grid, .today-cols, .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); }
   .brief { grid-template-columns: 1fr; gap: 20px; }
-  .brief .av-hero { grid-column: auto; grid-row: auto; }
+  .brief > figure { grid-column: auto; grid-row: auto; }
   .brief .glance { grid-column: auto; }
   .brief h1 { font-size: 38px; } .page-head h1 { font-size: 32px; }
   ul.changes { columns: 1; }

@@ -117,12 +117,12 @@ const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? 
 
 /** Where Bino answers from, as a tag in the header: the harness and its model. */
 const binoTag = (b: Bino) => (b.route.via === "claude" ? harnessTag("claude", b.route.model) : "");
-/** My avatar beside Bino's header (the dock, where it usually is, isn't on Bino's pages): at work while Bino answers. */
-const binoAvatar = (frame: Frame, thinking = false) => frame.face?.({ place: "mini", thinking }) ?? "";
+/** A pack's face beside Bino's header (the dock, where it usually is, isn't on Bino's pages): at work while Bino answers. */
+const binoFace = (frame: Frame, thinking = false) => frame.face?.({ place: "mini", thinking }) ?? "";
 
 /** One conversation; the messages sit in a live region, the box to answer in outside it. */
 export function convPage(frame: Frame, b: Bino, c: Conv, target?: Todo, ax?: ActCtx): Html {
-  const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoAvatar(frame, c.thinking)}` })}
+  const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoFace(frame, c.thinking)}` })}
 <div class="bino-thread"><div data-live id="bino-conv"><ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => message(c, m, i, target, ax))}</ol>
 ${answering(c, false)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}</div>
@@ -154,7 +154,7 @@ export async function binoPage(frame: Frame, b: Bino, todos: Todo[] = []): Promi
         ? html`<ul class="bino-mems">${memories.map((m) => html`<li><span>${m.scope.startsWith("app:") ? html`<span class="tag">${m.scope.slice(4)}</span> ` : ""}${m.text}</span> ${Confirm({ kind: "bino.forget", action: `/bino/memory/${m.id}/forget`, label: "Forget", question: "Forget this?" })}</li>`)}</ul>`
         : html`<p class="notes">Nothing yet. Bino keeps a few short facts from your conversations, never secrets. You can make it forget any of them here.</p>`,
   });
-  const body = html`${PageHeader({ title: "Bino", sub: `Sees ${b.sees ?? "My list and pull requests"}. Changes nothing by itself.`, actions: html`${binoTag(b)}${binoAvatar(frame, convs.some((x) => x.thinking))}` })}
+  const body = html`${PageHeader({ title: "Bino", sub: `Sees ${b.sees ?? "My list and pull requests"}. Changes nothing by itself.`, actions: html`${binoTag(b)}${binoFace(frame, convs.some((x) => x.thinking))}` })}
 <div class="bino-hub"><div class="bino-main">${start}</div>
 <aside class="bino-side">${Panel({ title: "Conversations", meta: String(convs.length), children: list })}${remembered}</aside></div>`;
   return shell({ title: "Bino · Dovre", frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino">` });

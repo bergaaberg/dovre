@@ -22,7 +22,7 @@ export type Layout = {
   theme?: Theme;
   /** An accent besides fjord's blue (the default), each checked in both themes (WP-N5). */
   accent?: Accent;
-  /** What Bino's button shows: my avatar when a pack draws one (unset), or the assistant icon. */
+  /** What Bino's button shows: the face a pack draws, if any (unset), or the assistant icon. */
   binoButton?: "icon";
 };
 export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
