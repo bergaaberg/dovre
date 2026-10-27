@@ -39,11 +39,9 @@ import { checkoutOf, checkouts } from "./issues/tasks.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
-import { claudeHarness, createRunner, type Run } from "./agents/runner.ts";
+import { createRunner, HARNESSES, type Run } from "./agents/runner.ts";
+import { findHarnessTools, harnessesFor } from "./agents/harnesses/index.ts";
 import { addLeftOut } from "./actions/relock.ts";
-import { ompHarness } from "./agents/omp.ts";
-import { agyHarness } from "./agents/agy.ts";
-import { codexHarness } from "./agents/codex.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
 import { createHub, startRefresher, throttle } from "./live.ts";
@@ -179,13 +177,11 @@ const login = env.GHE_LOGIN ?? me.login;
 const name = me.name?.split(/\s+/)[0] || login;
 
 // The agent CLIs this machine has: only those are offered, polled and used (src/tools.ts).
-const claude = findTool("claude", env.CLAUDE_BIN);
-const omp = findTool("omp", env.OMP_BIN);
-const agy = findTool("agy", env.AGY_BIN);
-const codex = findTool("codex", env.CODEX_BIN);
+const tools = findHarnessTools(env);
+const { claude, omp, agy, codex } = tools;
 // The agents pack uses only the CLIs switched on (AGENT_HARNESSES, Settings); Bino and summaries pick their own.
 const harnessOn = harnessesOn(env.AGENT_HARNESSES);
-found.harnesses = [...(claude && harnessOn("claude") ? (["claude"] as const) : []), ...(omp && harnessOn("omp") ? (["omp"] as const) : []), ...(agy && harnessOn("agy") ? (["agy"] as const) : []), ...(codex && harnessOn("codex") ? (["codex"] as const) : [])];
+found.harnesses = HARNESSES.filter((h) => tools[h] && harnessOn(h));
 // Copilot CLI: Bino and summaries can ask through it (src/ai/copilotcli.ts); its sessions are read whether or not.
 const copilotTool = findTool("copilot", env.COPILOT_BIN);
 found.paths = { claude: claude?.path, omp: omp?.path, copilot: copilotTool?.path, agy: agy?.path, codex: codex?.path };
@@ -268,13 +264,7 @@ const runner = createRunner({
   // Each turn gets Dovre's MCP server, with its own token, when packs offer tools (omp and agy once Settings sets them up).
   mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() },
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
-  // omp turns always say how to ask before acting: the user's own omp config approves everything.
-  harnesses: {
-    ...(claude && harnessOn("claude") ? { claude: { ...claudeHarness(claude.bin), pre: claude.pre } } : {}),
-    ...(omp && harnessOn("omp") ? { omp: { ...ompHarness(omp.bin, { profileOf: (id) => ompProfileOf(id) }), pre: omp.pre } } : {}),
-    ...(agy && harnessOn("agy") ? { agy: { ...agyHarness(agy.bin), pre: agy.pre } } : {}),
-    ...(codex && harnessOn("codex") ? { codex: { ...codexHarness(codex.bin), pre: codex.pre } } : {}),
-  },
+  harnesses: harnessesFor(tools, harnessOn, { ompProfileOf }),
   onChange: (r) => {
     // A turn that ends lets the messages written meanwhile go; whether it rings is the agents pack's call.
     const was = runStatus.get(r.id);

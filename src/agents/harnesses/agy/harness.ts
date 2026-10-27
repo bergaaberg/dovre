@@ -2,8 +2,8 @@
  * agy (Antigravity CLI) as an agent harness: `agy --output-format stream-json` in a repo,
  * with prompt on stdin (PLAN D12, WP-G4).
  */
-import type { Harness, Run, StartOpts } from "./runner.ts";
-import { toolDetail, toolSpec } from "./runner.ts";
+import type { Harness, Run, StartOpts } from "../../runner.ts";
+import { type HarnessDef, toolDetail, toolSpec } from "../shared.ts";
 
 export type AgyHarnessOpts = {
   bin?: string;
@@ -113,3 +113,5 @@ export const agyHarness = (bin = "agy", opts: AgyHarnessOpts = {}): Harness => (
   canFork: false,
   mcpEnv: true,
 });
+
+export const agy: HarnessDef = { id: "agy", bin: "agy", binVar: "AGY_BIN", models: AGY_MODELS, keep: "launcher/keep_agy.go", make: (t) => ({ ...agyHarness(t.bin), pre: t.pre }) };

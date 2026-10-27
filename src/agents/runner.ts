@@ -9,15 +9,15 @@
  * spec allowed. Modes are limited to default, acceptEdits and plan: never bypass.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { askOf, COPY_NOTE, type Question } from "./conversation.ts";
+import { COPY_NOTE, type Question } from "./conversation.ts";
+import { claudeHarness } from "./harnesses/claude/harness.ts";
+import { mcpConfig, mcpEnv } from "./harnesses/shared.ts";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 export const MODES = ["default", "acceptEdits", "plan"] as const;
 export type Mode = (typeof MODES)[number];
-export const MODELS = ["", "opus", "sonnet", "haiku"] as const;
-export type Model = (typeof MODELS)[number];
 
 export type AgentEvent =
   | { t: "text"; text: string }
@@ -27,7 +27,7 @@ export type AgentEvent =
   | { t: "error"; text: string }
   | { t: "ask"; questions: Question[] };
 
-/** Which agent CLI runs a session. */
+/** Which agent CLI runs a session: each has its folder in src/agents/harnesses/<id>/ (src/agents/harnesses/index.ts). */
 export const HARNESSES = ["claude", "omp", "agy", "codex"] as const;
 export type HarnessId = (typeof HARNESSES)[number];
 
@@ -78,85 +78,6 @@ export type StartOpts = {
   mcp?: { url: string; token: string };
 };
 
-/** The --mcp-config that names Dovre's MCP server for one turn (added to the user's own servers, not replacing them). */
-export const mcpConfig = (m: { url: string; token: string }) => JSON.stringify({ mcpServers: { dovre: { type: "http", url: m.url, headers: { Authorization: `Bearer ${m.token}` } } } });
-
-/**
- * The environment that carries a turn's MCP address and token (#172): Codex reads the token from it
- * (`bearer_token_env_var`), and omp and agy's stdio bridge (src/mcp-stdio.ts) reads both. It's the
- * agent's own environment, so a command it runs sees it too: such a command reaches the same tools
- * with the same limits, only past the agent's own ask. Claude Code needs none of it (its --mcp-config).
- */
-export const mcpEnv = (m: { url: string; token: string } | undefined): Record<string, string> => (m ? { DOVRE_MCP_URL: m.url, DOVRE_MCP_TOKEN: m.token } : {});
-
-/**
- * Added to every Claude Code turn. Headless, Claude Code refuses a command that touches a folder
- * outside the project (`/tmp`, another checkout) whatever `--allowedTools` says, so the agent
- * keeps its work inside the repo (#163).
- */
-export const HEADLESS_NOTE =
-  "You are running headless from Dovre. Keep every command and file inside this repo's folder: a call that touches a folder outside it (such as /tmp or another checkout) is refused, and allowing it doesn't help. If you need a separate checkout, make a git worktree inside this folder (for example .worktrees/<name>).";
-
-export function argsFor(o: StartOpts): string[] {
-  const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", o.mode ?? "default", "--append-system-prompt", HEADLESS_NOTE];
-  if (o.model) args.push("--model", o.model);
-  if (o.resume) args.push("--resume", o.resume);
-  if (o.resume && o.fork) args.push("--fork-session");
-  if (o.mcp) args.push("--mcp-config", mcpConfig(o.mcp));
-  // Last: --allowedTools takes every argument after it.
-  if (o.allowed?.length) args.push("--allowedTools", ...o.allowed);
-  return args;
-}
-
-/** One line of what a tool call does: the command, the file, the pattern. */
-export function toolDetail(name: string, input: any): string {
-  if (!input || typeof input !== "object") return "";
-  const v = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.url ?? input.description ?? input.prompt ?? "";
-  return String(v).replace(/\s+/g, " ").slice(0, 160);
-}
-
-/** The narrowest allow rule for a denied call: this exact command or file, not the whole tool. */
-export function toolSpec(name: string, input: any): string {
-  if (name === "Bash" && typeof input?.command === "string") return `Bash(${input.command})`;
-  if (name === "PowerShell" && typeof input?.command === "string") return `PowerShell(${input.command})`;
-  if ((name === "Edit" || name === "Write" || name === "MultiEdit" || name === "NotebookEdit") && typeof (input?.file_path ?? input?.notebook_path) === "string") return `${name}(${input.file_path ?? input.notebook_path})`;
-  if (name === "WebFetch" && typeof input?.url === "string") {
-    try {
-      return `WebFetch(domain:${new URL(input.url).hostname})`;
-    } catch {}
-  }
-  return name;
-}
-
-/** Folds one stream-json line into the run. Unknown lines are ignored. */
-export function apply(run: Run, line: string) {
-  let j: any;
-  try {
-    j = JSON.parse(line);
-  } catch {
-    return;
-  }
-  if (j.session_id && !run.sessionId) run.sessionId = j.session_id;
-  if (j.type === "system" && j.subtype === "init" && j.session_id) run.sessionId = j.session_id;
-  if (j.type === "stream_event" && j.event?.type === "content_block_delta" && j.event.delta?.type === "text_delta") run.partial += j.event.delta.text ?? "";
-  if (j.type === "assistant" && Array.isArray(j.message?.content)) {
-    for (const b of j.message.content) {
-      if (b.type === "text" && b.text?.trim()) run.events.push({ t: "text", text: b.text });
-      const questions = b.type === "tool_use" && b.name === "AskUserQuestion" ? askOf(b.input) : null;
-      if (questions) run.events.push({ t: "ask", questions });
-      else if (b.type === "tool_use") run.events.push({ t: "tool", name: b.name, detail: toolDetail(b.name, b.input) });
-    }
-    run.partial = "";
-  }
-  if (j.type === "result") {
-    run.cost = Number(j.total_cost_usd ?? 0);
-    // A question can't be shown in a headless turn, so it ends denied: it's answered on the page instead (the "ask" event).
-    for (const d of (j.permission_denials ?? []).filter((d: { tool_name?: string }) => d.tool_name !== "AskUserQuestion")) run.events.push({ t: "denied", tool: d.tool_name, spec: toolSpec(d.tool_name, d.tool_input), detail: toolDetail(d.tool_name, d.tool_input) });
-    run.events.push({ t: "result", text: String(j.result ?? ""), cost: run.cost, error: !!j.is_error });
-    run.partial = "";
-  }
-}
-
 /** Repos the user may start agents in: folders right under the code folder that are git checkouts. */
 export function repoDir(codeDir: string, name: unknown): string | null {
   if (typeof name !== "string" || !/^[\w.-]+$/.test(name) || name === "." || name === "..") return null;
@@ -189,8 +110,6 @@ export type Runner = {
 };
 
 type Spawn = (bin: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => ChildProcess;
-
-export const claudeHarness = (bin = "claude"): Harness => ({ id: "claude", bin, args: argsFor, apply, stdinPrompt: true, canFork: true });
 
 /**
  * `host`: run each turn through `dovre agent-host` (launcher/agenthost.go), apart from this

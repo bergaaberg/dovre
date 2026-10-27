@@ -15,7 +15,8 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mcpConfig, mcpEnv, repoDir } from "../../../agents/runner.ts";
+import { mcpConfig, mcpEnv } from "../../../agents/harnesses/shared.ts";
+import { repoDir } from "../../../agents/runner.ts";
 import { listRepos } from "../../../sources/claude.ts";
 import { argvFor, type Program } from "./programs.ts";
 

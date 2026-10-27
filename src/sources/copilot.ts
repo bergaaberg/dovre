@@ -22,7 +22,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { repoOf } from "../format.ts";
 import { cleanUserText, type Turn } from "../agents/conversation.ts";
-import { ompToolDetail } from "../agents/omp.ts";
+import { ompToolDetail } from "../agents/harnesses/omp/harness.ts";
 import { alive, tail, type Session } from "./claude.ts";
 import { liveness } from "./omp.ts";
 import { argvOf, type ProcRow } from "./procs.ts";

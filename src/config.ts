@@ -13,11 +13,16 @@ import { viaOf } from "./packs/core/assistant/bino/route.ts";
 import { summariesVia } from "./tools.ts";
 
 export type Choice = { value: string; label: string };
-/** A setting: a choice (the first is the default), a number, or text matching `pattern`. `placeholder` shows the default. */
+/**
+ * A setting: a choice (the first is the default), a number, text matching `pattern`, or a set of
+ * choices ticked on their own (kept as a comma-separated list; all ticked is the default, empty).
+ * `placeholder` shows the default.
+ */
 export type Field =
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "choice"; choices: Choice[] }
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "number"; min: number; max: number }
-  | { key: string; label: string; hint?: string; placeholder?: string; kind: "text"; pattern: RegExp };
+  | { key: string; label: string; hint?: string; placeholder?: string; kind: "text"; pattern: RegExp }
+  | { key: string; label: string; hint?: string; placeholder?: string; kind: "set"; choices: Choice[] };
 
 export const PANE_IDS = ["bino", "terminal", "docker", "stats", "reviews", "summaries", "lab"] as const;
 export type PaneId = (typeof PANE_IDS)[number];
@@ -78,7 +83,13 @@ export const GENERAL: Field[] = [
   { key: "CODE_DIR", label: "Code folder", hint: "Your checkouts sit right in it (<folder>/<repo>)", kind: "text", pattern: /^[^"<>|?*\r\n]{1,260}$/ },
   { key: "TEAM", label: "Your team on GHE", hint: "The team's slug, for grouping work by the people in it", kind: "text", pattern: /^[\w.\-]{1,100}$/, placeholder: "my-team" },
   { key: "FORM_REPOS", label: "Repos with their own issue forms", hint: "comma-separated", kind: "text", pattern: LIST, placeholder: "forms-repo" },
-  { key: "AGENT_HARNESSES", label: "Agent CLIs to use", hint: "comma-separated, of claude, omp, copilot, agy, codex; empty: every one found here. Bino and summaries pick their own", kind: "text", pattern: /^(claude|omp|copilot|agy|codex)(\s*,\s*(claude|omp|copilot|agy|codex))*$/i, placeholder: "claude, codex" },
+  {
+    key: "AGENT_HARNESSES",
+    label: "Agent CLIs to use",
+    hint: "Ticked ones are offered for agent turns, in the model pickers and as terminal programs, and their sessions are listed (those this machine has). Bino and summaries pick their own",
+    kind: "set",
+    choices: [{ value: "claude", label: "Claude Code" }, { value: "omp", label: "Copilot · omp" }, { value: "copilot", label: "Copilot CLI" }, { value: "agy", label: "Antigravity · agy" }, { value: "codex", label: "Codex" }],
+  },
   { key: "SORTING_REPOS", label: "Repos where work is planned", hint: "comma-separated; dev tasks go under their issues", kind: "text", pattern: LIST, placeholder: "intake" },
   { key: "GREETING", label: "Greeting language", hint: "en (Good morning) or no (God morgen)", kind: "choice", choices: [{ value: "en", label: "English" }, { value: "no", label: "Norsk" }] },
   { key: "TZ_NAME", label: "Timezone", hint: "An IANA timezone name (e.g. Europe/Oslo). Empty or invalid: this machine's own zone (UTC when hosted)", kind: "text", pattern: /^[A-Za-z0-9_+\/-]{1,64}$/, placeholder: "this machine's zone" },
@@ -190,7 +201,20 @@ export async function saveConfig(db: D1, c: Config): Promise<void> {
   await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('config', ?, ?)").bind(JSON.stringify(clean), new Date().toISOString()).run();
 }
 
-const fieldValue = (f: Field, raw: unknown): string | undefined => {
+/** Which of a set's choices a value ticks: empty (the default) is all of them, and an unknown name none. */
+export const ticked = (f: Extract<Field, { kind: "set" }>, value: string | undefined): Set<string> => {
+  const list = (value ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return new Set(list.length ? list : f.choices.map((c) => c.value));
+};
+
+/** A posted set: `<key>.<choice>` per ticked box. All ticked is the default (""); none is "none". */
+const setValue = (f: Extract<Field, { kind: "set" }>, form: Record<string, unknown>): string => {
+  const on = f.choices.filter((c) => form[`${f.key}.${c.value}`] !== undefined).map((c) => c.value);
+  return on.length === f.choices.length ? "" : on.length ? on.join(", ") : "none";
+};
+
+const fieldValue = (f: Field, raw: unknown, form: Record<string, unknown> = {}): string | undefined => {
+  if (f.kind === "set") return setValue(f, form);
   if (typeof raw !== "string") return undefined;
   const s = raw.trim();
   if (f.kind === "choice") return f.choices.some((c) => c.value === s) ? s : undefined;
@@ -216,8 +240,8 @@ export function configFromForm(form: Record<string, unknown>, was: Config, fixed
     const on = form[`on.${p.id}`] !== undefined;
     const via = typeof form[`via.${p.id}`] === "string" ? String(form[`via.${p.id}`]) : p.on[0]!.value;
     put(p.key, !on ? "off" : p.on.some((c) => c.value === via) ? via : undefined, p.name);
-    for (const o of p.options) if (o.key in form) put(o.key, fieldValue(o, form[o.key]), `${p.name}: ${o.label}`);
+    for (const o of p.options) if (o.key in form) put(o.key, fieldValue(o, form[o.key], form), `${p.name}: ${o.label}`);
   }
-  if (opts.general) for (const g of GENERAL) if (g.key in form) put(g.key, fieldValue(g, form[g.key]), g.label);
+  if (opts.general) for (const g of GENERAL) if (g.key in form) put(g.key, fieldValue(g, form[g.key], form), g.label);
   return { config: next, bad };
 }

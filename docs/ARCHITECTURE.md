@@ -157,6 +157,11 @@ Also:
   manifest's `settings`, bindings in `requiredBindings` and the wrangler config.
 - **A new machine:** `pnpm instance new <folder>` writes packs.ts, worker.ts, wrangler.jsonc,
   package.json and a README with deploy steps.
+- **A new agent harness** (core only, not a pack: its flags and what's kept are the boundary,
+  #107): a folder `src/agents/harnesses/<id>/harness.ts` with its adapter (args per mode, never a
+  bypass; how its stream reads) and a `HarnessDef`; its filter `launcher/keep_<id>.go`, which
+  `Keep` dispatches to; and an entry in `HARNESS_DEFS` (`src/agents/harnesses/index.ts`).
+  `test/harnesses.test.ts` checks the pairs line up.
 - **A new place on a core page:** add a slot to `SlotMap` (`arg` in, `out` back); the page calls
   `fill(name, arg)`. Prefer slots.
 - **A new hook**, only when no slot fits:

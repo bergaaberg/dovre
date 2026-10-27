@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { OMP_MODELS, allowOverlay, ompApply, ompArgs, ompHarness, ompToolDetail } from "../src/agents/omp.ts";
+import { OMP_MODELS, allowOverlay, ompApply, ompArgs, ompHarness, ompToolDetail } from "../src/agents/harnesses/omp/harness.ts";
 import { createRunner, type Run } from "../src/agents/runner.ts";
 import { liveness, loadOmpSessions, ompAgentDirs, ompProfileOf, ompSessionById, ompTranscriptOf, ompTurnsOf, parseCollabHosts, parseOmpCommandLine, summarizeOmpTranscript } from "../src/sources/omp.ts";
 

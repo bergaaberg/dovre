@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { answersPrompt, askOf, turnsOf } from "../../../../agents/conversation.ts";
-import { apply, type Run } from "../../../../agents/runner.ts";
+import type { Run } from "../../../../agents/runner.ts";
+import { apply } from "../../../../agents/harnesses/claude/harness.ts";
 import { agentPage } from "../session.view.ts";
 import { assertInert, H } from "../../../../../test/helpers.ts";
 

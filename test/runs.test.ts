@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { apply, createRunner, type Harness, type Run } from "../src/agents/runner.ts";
+import { createRunner, type Harness, type Run } from "../src/agents/runner.ts";
+import { apply } from "../src/agents/harnesses/claude/harness.ts";
 
 const exe = fileURLToPath(new URL(`../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
 const skip = existsSync(exe) ? false : "the launcher isn't built (pwsh scripts/install.ps1, or go build in launcher/)";

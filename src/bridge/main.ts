@@ -20,11 +20,9 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localDesk } from "../agents/desk.ts";
-import { agyHarness } from "../agents/agy.ts";
-import { codexHarness } from "../agents/codex.ts";
-import { ompHarness } from "../agents/omp.ts";
 import { createQueue } from "../agents/queue.ts";
-import { claudeHarness, createRunner, type Run } from "../agents/runner.ts";
+import { createRunner, type Run } from "../agents/runner.ts";
+import { findHarnessTools, harnessesFor } from "../agents/harnesses/index.ts";
 import { loadEnv, rawVars } from "../env.ts";
 import { localSessions } from "../sources/sessions.ts";
 import { liveAgents, type Session } from "../sources/claude.ts";
@@ -99,10 +97,8 @@ if (credsFile) {
 const hostExe = process.env.DOVRE_HOST_EXE?.trim() || fileURLToPath(new URL(`../../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
 
 // The agent CLIs this machine has: only those are offered (src/tools.ts).
-const claude = findTool("claude", env.CLAUDE_BIN);
-const omp = findTool("omp", env.OMP_BIN);
-const agy = findTool("agy", env.AGY_BIN);
-const codex = findTool("codex", env.CODEX_BIN);
+const tools = findHarnessTools(env);
+const { claude, omp, agy, codex } = tools;
 // Only the CLIs switched on (AGENT_HARNESSES in .dev.vars); unset, every one found.
 const harnessOn = harnessesOn(env.AGENT_HARNESSES);
 
@@ -111,13 +107,7 @@ const queue = createQueue({ file: join(dataDir, "queue.json"), onChange: (sid) =
 const statusOf = new Map<string, Run["status"]>();
 const runner = createRunner({
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
-  // omp turns always say how to ask before acting: the user's own omp config approves everything.
-  harnesses: {
-    ...(claude && harnessOn("claude") ? { claude: { ...claudeHarness(claude.bin), pre: claude.pre } } : {}),
-    ...(omp && harnessOn("omp") ? { omp: { ...ompHarness(omp.bin, { profileOf: (id) => ompProfileOf(id) }), pre: omp.pre } } : {}),
-    ...(agy && harnessOn("agy") ? { agy: { ...agyHarness(agy.bin), pre: agy.pre } } : {}),
-    ...(codex && harnessOn("codex") ? { codex: { ...codexHarness(codex.bin), pre: codex.pre } } : {}),
-  },
+  harnesses: harnessesFor(tools, harnessOn, { ompProfileOf }),
   onChange: (r) => {
     const was = statusOf.get(r.id);
     statusOf.set(r.id, r.status);

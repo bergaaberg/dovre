@@ -3,7 +3,7 @@
  * a one-line note per tool call. Tool results are never read out (they can hold prod data and
  * secrets), nor are the system's own injected messages.
  */
-import { toolDetail } from "./runner.ts";
+import { toolDetail } from "./harnesses/shared.ts";
 
 /** One question an agent puts with AskUserQuestion: what it asks, and the choices it offers. */
 export type Question = { question: string; header: string; multiSelect: boolean; options: { label: string; description: string }[] };
