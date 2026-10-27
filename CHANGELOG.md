@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Breaking:
+
+- **Topo** left core for dovre-packs (#147). Add it with `pnpm packs add topo`, then `pnpm add github:bergaaberg/peak#v0.1.0` in your instance for the `peak.yaml` parser. `PACK_TOPO` is gone: Topo is on when it's installed. Packs get the code folder as `ctx.codeDir` (local only).
+
 Added:
 
 - **Settings** has an overview and a page per area: Look, Layout, Notifications, Writes, Keys, Panes, Work, Agents, Packs and About (#184). Find any setting by name on the overview or in the palette, and see what you changed from the default, there and on each area. Each pack's settings have one page, `/settings/packs/<id>`, and `/packs` links to it. Look and Layout save and reset apart.

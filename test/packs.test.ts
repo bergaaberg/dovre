@@ -14,7 +14,7 @@ import { activePacks, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, link
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
-import { testContext } from "../src/packs/testing.ts";
+import { packApp, testContext } from "../src/packs/testing.ts";
 import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
 import type { D1 } from "../src/db.ts";
 import { Card } from "../src/ui/kit.ts";
@@ -1037,4 +1037,11 @@ test(".dev.vars writes keep a value exactly, even with $& or $' in it, and remov
   assert.equal(readFileSync(file, "utf8"), "A_KEY=p$&w$'d$`x$1\nB_KEY=keep\n");
   removeDevVar(file, "A_KEY");
   assert.equal(readFileSync(file, "utf8"), "B_KEY=keep\n");
+});
+
+test("ctx.codeDir: a pack sees the code folder locally (#147)", async () => {
+  const seen: (string | undefined)[] = [];
+  const pack: Pack = { manifest: { api: PACK_API, id: "where", name: "Where", description: "x", domain: "general", execution: "any" }, routes: (app, ctx) => app.get("/where", (c) => (seen.push(ctx.codeDir), c.text("ok"))) };
+  await packApp([pack], { codeDir: "/code" }).get("/where");
+  assert.deepEqual(seen, ["/code"]);
 });

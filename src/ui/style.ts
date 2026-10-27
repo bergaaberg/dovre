@@ -652,9 +652,8 @@ form.settings-find input { flex: 1; min-width: 0; }
 .ingest h3 { font-size: var(--fs-s); margin: 0 0 6px; }
 .ingest-new { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
 code.secret { user-select: all; overflow-wrap: anywhere; }
-/* An topo panel's description line, and a component's rules note. */
+/* A panel's description line. */
 .panel-note { padding: .75rem 1rem; margin: 0; color: var(--ink-2); font-size: var(--fs-s); }
-.rule-note { margin-left: .5rem; opacity: .8; }
 
 /* ── The kit, in the morning view's language ────────────────────────────── */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 4px 0 18px; }

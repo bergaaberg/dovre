@@ -43,7 +43,7 @@ Each app Dovre works with is a pack. Six ship with core, each switched off with 
 | Pack | What it does |
 |---|---|
 | `agents` | Agent sessions, live turns, worktrees, tool approvals |
-| `assistant` | Bino, its [memlet](https://github.com/bergaaberg/memlet) memory, and Topo |
+| `assistant` | Bino and its [memlet](https://github.com/bergaaberg/memlet) memory |
 | `terminal` | Web terminals in your checkouts (local) |
 | `docker` | Containers, compose projects, logs (local; `sh scripts/docker.sh` sets up Colima on a Mac) |
 | `tracker` | Your open issues on `/tracker` |
@@ -62,7 +62,7 @@ A pack can also replace GitHub as the forge (`FORGE=<its id>`). How packs work: 
 
 ## Topo
 
-Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of a checkout to say what the repo is, how much care it gets, who owns which files and what to read first. Dovre shows it on `/topo`, gives it to Bino and agents, and shows the tier on pull requests.
+Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of a checkout to say what the repo is, how much care it gets, who owns which files and what to read first. The `topo` pack (local) shows it on `/topo`, gives it to Bino and agents, and shows the tier on pull requests. Add it with `pnpm packs add topo`.
 
 ## Code and diffs (local)
 

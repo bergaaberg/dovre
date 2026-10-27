@@ -85,12 +85,12 @@ export function testSnapshot(o: Partial<Snapshot> = {}): Snapshot {
  * app's own origin unless `headers` say otherwise) answer as the app would. GitHub answers nothing;
  * Bino is off.
  */
-export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instance's settings the packs read. */ env?: Record<string, string>; forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged">>; hosted?: boolean } = {}) {
+export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instance's settings the packs read. */ env?: Record<string, string>; forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged">>; hosted?: boolean; /** Local: the code folder packs see as `ctx.codeDir`. */ codeDir?: string } = {}) {
   const db = openDb();
   const s = o.snapshot ?? testSnapshot();
   const gatherer = { get: async () => s, stale: () => {}, gathering: () => false, peek: () => s };
   const ghe: Ghe = { host: "acme.ghe.com", rest: () => Promise.reject(new Error("no GitHub in tests")), graphql: () => Promise.reject(new Error("no GitHub in tests")) };
-  const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms", DB: db.DB } as Env;
+  const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: o.codeDir ?? "x", CLAUDE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms", DB: db.DB } as Env;
   const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {} } });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
