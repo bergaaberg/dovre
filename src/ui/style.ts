@@ -1078,6 +1078,14 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .d-threads td { padding: 8px 12px; background: var(--surface-2); white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
 .d-drafts td { padding: 4px 12px 8px; white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
 .d-drafts .draft-card { border-color: var(--accent, var(--line)); background: var(--surface); }
+.d-c { display: inline-block; width: 1.3em; margin-left: -.3em; text-align: center; color: var(--accent); font-weight: 700; text-decoration: none; border-radius: 4px; opacity: 0; user-select: none; }
+tr:hover > .code > .d-c, .d-c:focus-visible, .d-c.picked { opacity: 1; background: var(--accent-soft); }
+.d-picked td { box-shadow: inset 3px 0 0 var(--accent); }
+.d-form td { padding: 4px 12px 8px; white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
+.d-form .draft-card { border-color: var(--accent, var(--line)); background: var(--surface); }
+.review-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--accent-line, var(--line)); border-radius: var(--r-s); background: var(--accent-soft); font-size: var(--fs-s); }
+.review-bar .buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0; }
+@media (hover: none) { .d-c { opacity: .55; } }
 .sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
 .sb-pair h3 { margin: 0 0 6px; font-size: var(--fs-s); }
 .sb-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

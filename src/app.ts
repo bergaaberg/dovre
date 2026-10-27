@@ -77,6 +77,8 @@ import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
+import { splitDraft } from "./reviews/draft.ts";
+import { latestReviews } from "./reviews/store.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
 import { createStacks } from "./sources/stacks.ts";
 import { stacksPage } from "./pages/stacks.ts";
@@ -681,6 +683,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         const { s } = await page();
         const p = s.prs.ok ? [...s.prs.value.mine, ...s.prs.value.review].find((x) => x.repo === repo && x.number === n) : undefined;
         return p ? (await reviewViews(s))(p) : "";
+      },
+      db: env.DB,
+      login: async () => (await page()).s.login,
+      stale: () => gatherer.stale(),
+      agentDraft: async (repo, n) => {
+        if (off("reviews")) return undefined;
+        const r = (await latestReviews(env.DB)).get(`review:${repo}#${n}`);
+        if (!r || r.status !== "done" || r.posted) return undefined;
+        const d = splitDraft("review", reviewDeps.lastMessage(r) ?? "").draft;
+        return d?.kind === "review" ? { sha: r.headSha, draft: d } : undefined;
       },
       stackFor: async (repo, n) => {
         const { s } = await page();

@@ -6,7 +6,7 @@
  */
 import { currentActor } from "../actor.ts";
 import type { D1 } from "../db.ts";
-import { draftCounts, placeComments, replyTargets, type ReviewDraft, reviewRequest, type TriageDraft, type Verdict, withOutside } from "../reviews/draft.ts";
+import { draftCounts, placeComments, replyTargets, type ReviewDraft, reviewRequest, type TriageDraft, type Verdict, VERDICT_LABEL, withOutside } from "../reviews/draft.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { loadPrFiles, loadPrView, type PrFile, type Thread } from "../sources/prview.ts";
 import { logAction } from "./deploys.ts";
@@ -14,26 +14,37 @@ import { logAction } from "./deploys.ts";
 type RawPr = { state: string; head: { sha: string }; user: { login: string } };
 type RawComment = { id: number; in_reply_to_id?: number | null };
 
+/** Whose review it is: an agent's draft goes on someone else's PR only; my own may be a Comment on mine. */
+export type By = "agent" | "me";
+
 export type Checked<T> = { ok: true; draft: T; notes: string[] } | { ok: false; message: string };
 
 /** The reviewed commit and the PR's head, as the same commit: the store may hold a short sha. */
 const sameCommit = (head: string, reviewed: string) => !!reviewed && (head === reviewed || (reviewed.length >= 7 && head.startsWith(reviewed)));
 
-async function openAt(ghe: Ghe, repo: string, n: number, reviewed: string): Promise<{ ok: true; pr: RawPr } | { ok: false; message: string }> {
+async function openAt(ghe: Ghe, repo: string, n: number, reviewed: string, by: By = "agent"): Promise<{ ok: true; pr: RawPr } | { ok: false; message: string }> {
   const pr = await ghe.rest<RawPr>(`/repos/${repo}/pulls/${n}`);
   if (pr.state !== "open") return { ok: false, message: `${repo}#${n} isn't open any more: nothing posted.` };
-  if (!sameCommit(pr.head.sha, reviewed)) return { ok: false, message: `${repo}#${n} has new commits since the agent read it (${reviewed.slice(0, 7)} → ${pr.head.sha.slice(0, 7)}): review it again, then post.` };
+  if (!sameCommit(pr.head.sha, reviewed))
+    return {
+      ok: false,
+      message: by === "me" ? `${repo}#${n} has new commits since you started this review (${reviewed.slice(0, 7)} → ${pr.head.sha.slice(0, 7)}): move it to the new commit on the Files tab, then post.` : `${repo}#${n} has new commits since the agent read it (${reviewed.slice(0, 7)} → ${pr.head.sha.slice(0, 7)}): review it again, then post.`,
+    };
   return { ok: true, pr };
 }
 
 /** The review as it would go: comments that can't sit on a line moved into the summary. */
-export async function checkReview(ghe: Ghe, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft }): Promise<Checked<ReviewDraft> & { commit?: string }> {
+export async function checkReview(ghe: Ghe, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft; by?: By; verdict?: Verdict }): Promise<Checked<ReviewDraft> & { commit?: string }> {
   try {
-    const at = await openAt(ghe, repo, n, o.reviewed);
+    const by = o.by ?? "agent";
+    const at = await openAt(ghe, repo, n, o.reviewed, by);
     if (!at.ok) return at;
     // A member's write (hosted Team) is theirs: "your own PR" means the PRs they opened.
     const me = currentActor() ? (await ghe.rest<{ login?: string }>("/user"))?.login ?? "" : o.me;
-    if (me && at.pr.user.login.toLowerCase() === me.toLowerCase()) return { ok: false, message: `${repo}#${n} is your own PR: an agent's review goes on someone else's.` };
+    if (me && at.pr.user.login.toLowerCase() === me.toLowerCase()) {
+      if (by === "agent") return { ok: false, message: `${repo}#${n} is your own PR: an agent's review goes on someone else's.` };
+      if (o.verdict && o.verdict !== "comment") return { ok: false, message: `${repo}#${n} is your own PR: GHE takes only a Comment on it, not ${VERDICT_LABEL[o.verdict]}.` };
+    }
     const { inline, outside } = placeComments(o.draft.comments, await loadPrFiles(ghe, repo, n));
     const notes = outside.length ? [`${outside.length === 1 ? "One comment isn't" : `${outside.length} comments aren't`} on a line of the diff, so ${outside.length === 1 ? "it goes" : "they go"} at the end of the summary.`] : [];
     return { ok: true, draft: { kind: "review", summary: withOutside(o.draft.summary, outside), comments: inline }, notes, commit: at.pr.head.sha };
@@ -78,7 +89,7 @@ export async function checkReplies(ghe: Ghe, repo: string, n: number, o: { revie
 
 export type Posted = { ok: boolean; message: string; url?: string; what?: string; partial?: boolean };
 
-export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft; verdict: Verdict }): Promise<Posted> {
+export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft; verdict: Verdict; by?: By }): Promise<Posted> {
   const target = `${repo}#${n}`;
   const checked = await checkReview(ghe, repo, n, o);
   if (!checked.ok) return { ok: false, message: checked.message };

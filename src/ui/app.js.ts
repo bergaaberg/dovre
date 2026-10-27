@@ -137,6 +137,68 @@ function viewedBoxes(root) {
   }
 }
 
+// ── My review on a PR's files (dovre#106): a line's + opens the comment form under it; shift-click
+// another line's + in the same file and side for a range. Without this, the + is a link to the page
+// with the form open there. ──
+let picked = null;
+function unpick() {
+  for (const el of document.querySelectorAll(".d-picked")) el.classList.remove("d-picked");
+  for (const el of document.querySelectorAll(".d-c.picked")) el.classList.remove("picked");
+}
+/** The rows under a line that belong to it (its threads, comments): the form goes after them. */
+function lastOf(row) {
+  let r = row;
+  while (r.nextElementSibling && /\bd-(threads|drafts)\b/.test(r.nextElementSibling.className)) r = r.nextElementSibling;
+  return r;
+}
+function commentAt(a, shift) {
+  const tpl = $("c-form");
+  const file = a.closest("details[data-path]");
+  if (!tpl || !file) return false;
+  const side = a.dataset.side, line = Number(a.dataset.line);
+  const range = shift && picked && picked.file === file && picked.side === side && picked.line !== line;
+  const start = range ? Math.min(picked.line, line) : 0;
+  const end = range ? Math.max(picked.line, line) : line;
+  const endA = range && picked.line > line ? picked.a : a;
+  const was = document.getElementById("c-new");
+  const typed = was?.querySelector("textarea")?.value || "";
+  was?.remove();
+  unpick();
+  for (const el of file.querySelectorAll(".d-c")) {
+    const n = Number(el.dataset.line);
+    if (el.dataset.side === side && n >= (start || end) && n <= end) el.closest("tr")?.classList.add("d-picked");
+  }
+  a.classList.add("picked");
+  picked = range ? null : { file, side, line, a };
+  const row = tpl.content.firstElementChild.cloneNode(true);
+  row.dataset.js = "1";
+  const set = (name, v) => { const f = row.querySelector('[name="' + name + '"]'); if (f) f.value = String(v); };
+  set("path", file.dataset.path);
+  set("side", side);
+  set("line", end);
+  set("start", start || "");
+  const where = row.querySelector("[data-where]");
+  if (where) where.textContent = file.dataset.path + ":" + (start ? start + "–" : "") + end + (side === "LEFT" ? " (removed)" : "");
+  lastOf(endA.closest("tr")).after(row);
+  const box = row.querySelector("textarea");
+  if (box) { box.value = typed; box.focus(); }
+  return true;
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest?.("a.d-c");
+  if (a && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (commentAt(a, e.shiftKey)) e.preventDefault();
+    return;
+  }
+  const cancel = e.target.closest?.('#c-new[data-js] [data-cancel]');
+  if (cancel) {
+    e.preventDefault();
+    cancel.closest("#c-new").remove();
+    unpick();
+    picked = null;
+  }
+});
+
 function enhance(root) {
   tick(root);
   copyButtons(root);

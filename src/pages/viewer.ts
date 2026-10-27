@@ -18,8 +18,14 @@ import { type Child, Empty, type Html, Item, KeyValues, List, Notice, PageHeader
 import { markdown } from "../ui/markdown.ts";
 import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
-import { type DiffLine, type FileView, fileViews } from "../viewer/diff.ts";
+import { type DiffLine, type FileView, fileViews, placeMine } from "../viewer/diff.ts";
 import { Ago, Link } from "./parts.ts";
+import { createHash, randomUUID } from "node:crypto";
+import { checkReview, postReview } from "../actions/reviews.ts";
+import type { D1 } from "../db.ts";
+import { postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
+import { addComment, anchorOf, asDraft, clearReview, dropComment, editComment, importDraft, moveReview, type MyReview, myReview, saveSummary } from "../reviews/mine.ts";
+import { commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
 
 type Res<T> = { ok: true; value: T } | { ok: false; error: string };
 const settle = <T>(p: Promise<T>): Promise<Res<T>> =>
@@ -45,12 +51,13 @@ const RUN_TONE = { ok: "ok", bad: "bad", pending: "warn", skipped: undefined } a
 
 // ── PR: header and tabs ──────────────────────────────────────────────────────
 
-function header(v: PrView, current: "conversation" | "files", extra: { stack?: Child }) {
+function header(v: PrView, current: "conversation" | "files" | "review", extra: { stack?: Child; /** The Review tab (dovre#106), with my pending comments' count. */ review?: { n: number } }) {
   const tabs = Tabs({
     label: "Pull request",
     items: [
       { href: prHref(v.repo, v.number), label: "Conversation", current: current === "conversation" },
       { href: `${prHref(v.repo, v.number)}/files`, label: "Files", n: v.changedFiles, current: current === "files" },
+      ...(extra.review ? [{ href: `${prHref(v.repo, v.number)}/review`, label: "Your review", ...(extra.review.n ? { n: extra.review.n } : {}), current: current === "review" }] : []),
     ],
   });
   const sub = html`<span class="pr-meta">${Pill({ tone: v.draft ? undefined : STATE_TONE[v.state], children: v.draft ? "draft" : v.state.toLowerCase() })}${
@@ -121,11 +128,17 @@ const LINE_CLASS = { add: "d-add", del: "d-del", ctx: "d-ctx" } as const;
 /** What goes under a line besides its threads (the draft page's comment cards). */
 export type LineExtra = (l: DiffLine) => Html | "";
 
-function lineRow(l: DiffLine, extra?: LineExtra): Html {
+/** Where a line's "+" goes (my own review, dovre#106): a comment on that side's line number. */
+export type CommentAt = (side: "LEFT" | "RIGHT", line: number) => string;
+
+function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt): Html {
   if (l.kind === "hunk") return html`<tr class="d-hunk" data-stop="2"><td class="ln"></td><td class="ln"></td><td class="code"><code>${l.text}</code></td></tr>`;
   if (l.kind === "note") return html`<tr class="d-note"><td class="ln"></td><td class="ln"></td><td class="code t3">${l.text}</td></tr>`;
   const sign = l.kind === "add" ? "+" : l.kind === "del" ? "−" : " ";
-  return html`<tr class="${LINE_CLASS[l.kind]}"><td class="ln">${l.old ?? ""}</td><td class="ln">${l.new ?? ""}</td><td class="code"><code><span class="d-sign" aria-hidden="true">${sign}</span>${l.text}</code></td></tr>${
+  const side = l.kind === "del" ? "LEFT" : "RIGHT";
+  const line = side === "LEFT" ? l.old : l.new;
+  const plus = at && line ? html`<a class="d-c" href="${at(side, line)}" data-side="${side}" data-line="${line}" aria-label="Comment on line ${line}" title="Comment (c)">+</a>` : "";
+  return html`<tr class="${LINE_CLASS[l.kind]}"><td class="ln">${l.old ?? ""}</td><td class="ln">${l.new ?? ""}</td><td class="code">${plus}<code><span class="d-sign" aria-hidden="true">${sign}</span>${l.text}</code></td></tr>${
     l.threads?.length ? html`<tr class="d-threads"><td colspan="3">${l.threads.map((t) => threadView(t))}</td></tr>` : ""
   }${extra ? extra(l) : ""}`;
 }
@@ -133,34 +146,57 @@ function lineRow(l: DiffLine, extra?: LineExtra): Html {
 export const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
 
 /** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
-export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra }): Html {
+export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt }): Html {
   const f = fv.file;
   const name = f.previous && f.previous !== f.path ? html`<code>${f.previous}</code> → <code>${f.path}</code>` : html`<code>${f.path}</code>`;
   const view = o.dir && f.status !== "removed" ? (o.present ? html`<a class="btn sm ghost" href="${codeHref(o.dir, { ref: o.sha, path: f.path })}">View file</a>` : "") : "";
-  return html`<details class="dfile" id="${fileId(f.path)}" data-stop="1" data-stop-label="${f.path}"${fv.folded && !fv.drafts ? "" : html` open`}><summary><span class="dfile-name">${Pill({ tone: STATUS_TONE[f.status], children: f.status })} ${name}</span><span class="dfile-meta"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span>${
+  const at = o.comment && f.patch !== undefined ? o.comment(f.path) : undefined;
+  return html`<details class="dfile" id="${fileId(f.path)}" data-stop="1" data-stop-label="${f.path}"${at ? html` data-path="${f.path}"` : ""}${fv.folded && !fv.drafts && !fv.mine ? "" : html` open`}><summary><span class="dfile-name">${Pill({ tone: STATUS_TONE[f.status], children: f.status })} ${name}</span><span class="dfile-meta"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span>${
     fv.threads.length ? html` · ${fv.threads.length} ${fv.threads.length === 1 ? "thread" : "threads"}` : ""
-  }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
+  }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""}${fv.mine ? html` · <span class="spark">${fv.mine} pending</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
     fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true }))}</div>` : ""
-  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map((l) => lineRow(l, o.extra))}</tbody></table></div>` : ""}</details>`;
+  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map((l) => lineRow(l, o.extra, at))}</tbody></table></div>` : ""}</details>`;
 }
 
-export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string }): Html {
+/** My own review on the Files tab (dovre#106): pending comments, the form open at a line (no script), the agent's draft to start from. */
+export type MineOnFiles = { review?: MyReview; at?: { path: string; side: Side; line: number }; agent?: number; flash?: Flash };
+
+export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string; mine?: MineOnFiles }): Html {
   const v = o.view;
+  const base = prHref(v.repo, v.number);
+  const m = o.mine;
+  const moved = !!m?.review && m.review.sha !== v.headSha;
   let inner: Html;
   if (!o.files) inner = html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">Reading the files from GHE…</p></section>`;
   else if (!o.files.ok) inner = Notice({ tone: "bad", children: html`<strong>The files didn't load.</strong> ${o.files.error}` });
   else {
     const views = fileViews(o.files.value, v.threads);
+    const pending = m?.review?.comments ?? [];
+    const off = m && !moved ? placeMine(views, pending) : pending.map((_, i) => i);
+    const extra: LineExtra = (l) => {
+      if (l.kind === "hunk" || l.kind === "note") return "";
+      const cards = l.mine?.length ? html`<tr class="d-drafts"><td colspan="3">${l.mine.map((i) => pendingCard(pending[i]!, base))}</td></tr>` : "";
+      const a = m?.at;
+      const here = a && !moved && (a.side === "LEFT" ? l.kind !== "add" && l.old === a.line : l.kind !== "del" && l.new === a.line);
+      return html`${cards}${here ? commentForm({ base, sha: v.headSha, path: a.path, side: a.side, line: a.line }) : ""}`;
+    };
+    const comment = m && !moved ? (path: string): CommentAt => (side, line) => commentHref(base, path, side, line) : undefined;
+    // The no-script form opens in its own file only.
+    const fileExtra = (path: string): LineExtra => (l) => (m?.at && m.at.path !== path && !(l.kind !== "hunk" && l.kind !== "note" && l.mine?.length) ? "" : extra(l));
     const fetch = o.dir && !o.present ? html`<p class="t3">${v.headSha.slice(0, 7)} isn't in your checkout yet: <code data-copy>git -C ${o.dir} fetch origin ${v.head}</code></p>` : "";
-    inner = html`<nav class="dfile-index" aria-label="Files"><ul>${views.map(
+    const bar = m ? reviewBar({ base, review: m.review, head: v.headSha, agent: m.agent, flash: m.flash }) : "";
+    const template = comment ? commentForm({ base, sha: v.headSha, template: true }) : "";
+    inner = html`${bar}<nav class="dfile-index" aria-label="Files"><ul>${views.map(
       (fv) => html`<li><a href="#${fileId(fv.file.path)}"><code>${fv.file.path}</code></a> <span class="add">+${fv.file.additions}</span> <span class="del">−${fv.file.deletions}</span></li>`,
-    )}</ul></nav>${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present }))}`;
+    )}</ul></nav>${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment }))}${
+      m ? offDiff(off.map((i) => pending[i]!), base, moved ? "Your review is on an older commit." : "These go at the end of the summary when you post.") : ""
+    }${template}`;
   }
   return shell({
     title: `Files · #${v.number} ${v.title} · Dovre`,
     frame,
     current: "/prs",
-    body: html`${header(v, "files", {})}<div data-live id="pr-files">${inner}</div>`,
+    body: html`${header(v, "files", { review: m ? { n: m.review?.comments.length ?? 0 } : undefined })}<div data-live id="pr-files">${inner}</div>`,
     head: html`<meta name="u-topics" content="${o.topic}">`,
   });
 }
@@ -243,9 +279,18 @@ export type ViewerDeps = {
   facts?: (pr: PrSlotArg) => [Child, Child][];
   checkouts?: () => Checkout[];
   git?: Git;
+  /** My own reviews (dovre#106): where they're kept. Without it, the viewer stays read-only. */
+  db?: D1;
+  /** My login, to tell my own PRs. */
+  login?: () => Promise<string>;
+  /** The agent's unposted review draft of this PR, and the commit it read. */
+  agentDraft?: (repo: string, n: number) => Promise<{ sha: string; draft: ReviewDraft } | undefined>;
+  stale?: () => void;
 };
 
 const SHA = /^[0-9a-f]{40}$/;
+/** The head and a commit as stored (perhaps short) are the same one. */
+const sameSha = (head: string, sha: string) => sha.length >= 7 && head.startsWith(sha);
 
 /** /prs/:owner/:repo/:n(/files) and /code: mounted at "/" by app.ts, behind its cookie and same-origin checks. */
 export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
@@ -274,6 +319,32 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     return present.get(key)!;
   }
 
+  /** What my review's last action said, shown once (keyed by person and PR). */
+  const flashes = new Map<string, Flash>();
+  const flashOf = (key: string) => {
+    const f = flashes.get(key);
+    flashes.delete(key);
+    return f;
+  };
+  const setFlash = (key: string, f: Flash) => {
+    if (flashes.size > 100) flashes.delete(flashes.keys().next().value as string);
+    flashes.set(key, f);
+  };
+  /** My review on the Files tab: what's pending, the line asked for with ?c=SIDE:LINE&p=path, the agent's draft. */
+  async function mineOn(c: { req: { query: (k: string) => string | undefined }; get: (k: "who") => string | undefined }, at: { repo: string; n: number }, v: PrView): Promise<MineOnFiles> {
+    const who = c.get("who") ?? "";
+    const key = `${at.repo}#${at.n}`;
+    const m = /^(LEFT|RIGHT):(\d{1,6})$/.exec(c.req.query("c") ?? "");
+    const a = m ? anchorOf({ side: m[1], line: m[2], path: c.req.query("p") }) : null;
+    const d = await deps.agentDraft?.(at.repo, at.n).catch(() => undefined);
+    return {
+      review: await myReview(deps.db!, who, key),
+      at: a ?? undefined,
+      agent: d && sameSha(v.headSha, d.sha) && d.draft.comments.length ? d.draft.comments.length : undefined,
+      flash: flashOf(`${who}|${key}`),
+    };
+  }
+
   const parse = (owner: string, repo: string, n: string) => {
     const full = /^[\w.-]{1,100}$/.test(repo) && !repo.includes("..") ? repoIn(ownersIn(env), `${owner}/${repo}`) : null;
     return full && /^\d{1,7}$/.test(n) ? { repo: full, n: Number(n) } : null;
@@ -300,8 +371,161 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const loading = settle(files(`files:${at.repo}#${at.n}@${v.headSha}`, () => loadPrFiles(deps.ghe, at.repo, at.n).then((f) => (deps.hub?.publish([topic]), f))));
     const fs = await Promise.race([loading, new Promise<undefined>((res) => setTimeout(res, 1500))]);
     const co = checkoutOf(list(), at.repo);
-    return c.html(filesPage(frame, { view: v, files: fs, dir: co?.dir, present: co ? await hasCommit(co.dir, v.headSha) : false, topic }));
+    const mine = deps.db ? await mineOn(c, at, v) : undefined;
+    return c.html(filesPage(frame, { view: v, files: fs, dir: co?.dir, present: co ? await hasCommit(co.dir, v.headSha) : false, topic, mine }));
   });
+
+  // ── My own review (dovre#106): kept per person until posted ──
+  const db = deps.db;
+  if (db) {
+    const whoOf = (c: { get: (k: "who") => string | undefined }) => c.get("who") ?? "";
+    const spent = new Set<string>();
+    /** The agent's draft of this PR, when it read the commit the PR is at now: how many comments it would add. */
+    const agentCount = async (repo: string, n: number, head: string) => {
+      const d = await deps.agentDraft?.(repo, n).catch(() => undefined);
+      return d && sameSha(head, d.sha) && d.draft.comments.length ? d : undefined;
+    };
+    /** Where an action came from (a PR of the org), the PR as last read, and my review of it. */
+    const ctxOf = async (c: { req: { param: (k: string) => string }; get: (k: "who") => string | undefined }) => {
+      const at = parse(c.req.param("owner"), c.req.param("repo"), c.req.param("n"));
+      if (!at) return undefined;
+      const got = await viewOf(at.repo, at.n);
+      if (!got?.ok) return undefined;
+      const who = whoOf(c);
+      const key = `${at.repo}#${at.n}`;
+      return { ...at, v: got.value, who, key, flashKey: `${who}|${key}`, base: prHref(at.repo, at.n), review: await myReview(db, who, key) };
+    };
+    const print = (d: ReviewDraft, verdict: string, sha: string) => createHash("sha256").update(JSON.stringify([d, verdict, sha])).digest("hex").slice(0, 32);
+    const own = async (v: PrView) => {
+      const me = deps.login ? await deps.login().catch(() => "") : "";
+      return !!me && v.author.toLowerCase() === me.toLowerCase();
+    };
+    const page = async (x: NonNullable<Awaited<ReturnType<typeof ctxOf>>>, o: { summary?: string; verdict?: string; preview?: Parameters<typeof reviewPage>[1]["preview"]; review?: MyReview } = {}) => {
+      const review = o.review ?? x.review;
+      const mine = await own(x.v);
+      return reviewPage(await deps.frame(), {
+        header: header(x.v, "review", { review: { n: review?.comments.length ?? 0 } }),
+        title: `#${x.v.number} ${x.v.title}`,
+        base: x.base,
+        head: x.v.headSha,
+        review,
+        summary: o.summary ?? review?.summary ?? "",
+        verdict: mine ? "comment" : verdictOf(o.verdict),
+        own: mine,
+        agent: (await agentCount(x.repo, x.n, x.v.headSha))?.draft.comments.length,
+        preview: o.preview,
+        flash: flashOf(x.flashKey),
+      });
+    };
+
+    app.get("/prs/:owner/:repo/:n/review", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      return c.html(await page(x));
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/comments", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      const a = anchorOf(form);
+      const sha = typeof form.sha === "string" && /^[0-9a-f]{40}$/.test(form.sha) ? form.sha : "";
+      if (!a || !sha) return c.text("That isn't a line to comment on.", 400);
+      const r = await addComment(db, x.who, x.key, sha, { ...a, body: typeof form.body === "string" ? form.body : "" });
+      if (!r.ok) setFlash(x.flashKey, { ok: false, message: r.message });
+      return c.redirect(`${x.base}/files${r.ok ? `#c-${r.id}` : ""}`, 303);
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/comments/:id", async (c) => {
+      const x = await ctxOf(c);
+      const id = Number(c.req.param("id"));
+      if (!x || !Number.isSafeInteger(id) || id <= 0) return c.notFound();
+      const form = await c.req.parseBody();
+      if (form.do === "drop") await dropComment(db, x.who, x.key, id);
+      else await editComment(db, x.who, x.key, id, form.body);
+      return c.redirect(`${x.base}/files${form.do === "drop" ? "" : `#c-${id}`}`, 303);
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/import", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const d = await agentCount(x.repo, x.n, x.v.headSha);
+      if (!d) setFlash(x.flashKey, { ok: false, message: "There's no agent draft for the commit the PR is at now." });
+      else {
+        const n = await importDraft(db, x.who, x.key, x.v.headSha, d.draft);
+        setFlash(x.flashKey, n ? { ok: true, message: `Added the agent's ${n} ${n === 1 ? "comment" : "comments"} to your review.` } : { ok: false, message: "Nothing added: your review is on another commit, or full." });
+      }
+      return c.redirect(`${x.base}/files`, 303);
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/move", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      // Only to the commit the PR is at now, and only from the page that showed it.
+      if (x.review && form.sha === x.v.headSha) await moveReview(db, x.who, x.key, x.v.headSha);
+      return c.redirect(`${x.base}/files`, 303);
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/discard", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      await clearReview(db, x.who, x.key);
+      setFlash(x.flashKey, { ok: true, message: "Your review is discarded. Nothing was posted." });
+      return c.redirect(`${x.base}/review`, 303);
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/preview", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      const sha = x.review?.sha ?? x.v.headSha;
+      await saveSummary(db, x.who, x.key, sha, form.summary);
+      const review = (await myReview(db, x.who, x.key))!;
+      const mine = await own(x.v);
+      const verdict = mine ? "comment" : verdictOf(form.verdict);
+      const draft = asDraft(review);
+      const problem = postProblem(draft, verdict);
+      if (problem) return c.html(await page(x, { review, verdict, preview: { problem } }), 400);
+      const me = deps.login ? await deps.login().catch(() => "") : "";
+      const checked = await checkReview(deps.ghe, x.repo, x.n, { reviewed: review.sha, me, draft, by: "me", verdict });
+      if (!checked.ok) return c.html(await page(x, { review, verdict, preview: { problem: checked.message } }), 409);
+      return c.html(await page(x, { review, verdict, preview: { draft: checked.draft, notes: checked.notes, nonce: randomUUID(), print: print(draft, verdict, review.sha) } }));
+    });
+
+    app.post("/prs/:owner/:repo/:n/review/post", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      const back = `${x.base}/review`;
+      const nonce = typeof form.nonce === "string" ? form.nonce : "";
+      if (!/^[0-9a-f-]{36}$/.test(nonce) || spent.has(nonce) || !x.review) return c.redirect(back, 303);
+      const verdict = verdictOf(form.verdict);
+      const draft = asDraft(x.review);
+      // What goes is what the preview showed: a review changed since (another tab) previews again.
+      if (form.print !== print(draft, verdict, x.review.sha)) {
+        setFlash(x.flashKey, { ok: false, message: "Your review changed since the preview: nothing posted. Preview it again." });
+        return c.redirect(back, 303);
+      }
+      const problem = postProblem(draft, verdict);
+      if (problem) {
+        setFlash(x.flashKey, { ok: false, message: problem });
+        return c.redirect(back, 303);
+      }
+      if (spent.size > 200) spent.delete(spent.values().next().value as string);
+      spent.add(nonce);
+      const me = deps.login ? await deps.login().catch(() => "") : "";
+      const res = await postReview(deps.ghe, db, x.repo, x.n, { reviewed: x.review.sha, me, draft, verdict, by: "me" });
+      if (res.ok) {
+        await clearReview(db, x.who, x.key);
+        deps.stale?.();
+        deps.hub?.publish([topicOf(x.repo, x.n)]);
+      }
+      const url = res.url && res.url.startsWith(`https://${deps.ghe.host}/`) ? res.url : undefined;
+      setFlash(x.flashKey, { ok: res.ok, message: res.message, url });
+      return c.redirect(back, 303);
+    });
+  }
 
   app.get("/code", async (c) => env.IS_HOSTED === "1" ? c.notFound() : c.html(codeListPage(await deps.frame(), list())));
 

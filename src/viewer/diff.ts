@@ -6,7 +6,7 @@ import type { PrFile, Thread } from "../sources/prview.ts";
 
 export type DiffLine =
   | { kind: "hunk"; text: string; oldStart: number; newStart: number }
-  | { kind: "ctx" | "add" | "del"; text: string; old?: number; new?: number; threads?: Thread[]; /** Draft line comments here, by their index in the draft. */ drafts?: number[] }
+  | { kind: "ctx" | "add" | "del"; text: string; old?: number; new?: number; threads?: Thread[]; /** Draft line comments here, by their index in the draft. */ drafts?: number[]; /** My pending review's comments here, by index (dovre#106). */ mine?: number[] }
   | { kind: "note"; text: string };
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
@@ -54,26 +54,31 @@ export function placeThreads(lines: DiffLine[], threads: Thread[]): Thread[] {
   return unplaced;
 }
 
-/** Puts each draft line comment on its file's line (by index). The indices of those off the diff are returned. */
-export function placeDrafts(views: FileView[], comments: (Anchor & { path: string })[]): number[] {
+/** Puts each comment on its file's line (by index) under `key`. The indices of those off the diff are returned. */
+function placeOn(views: FileView[], comments: (Anchor & { path: string })[], key: "drafts" | "mine"): number[] {
   const off: number[] = [];
   comments.forEach((c, i) => {
     const fv = views.find((v) => v.file.path === c.path);
     const hit = fv ? lineAt(fv.lines, c) : undefined;
     if (hit && fv) {
-      (hit.drafts ??= []).push(i);
-      fv.drafts = (fv.drafts ?? 0) + 1;
+      (hit[key] ??= []).push(i);
+      fv[key] = (fv[key] ?? 0) + 1;
     } else off.push(i);
   });
   return off;
 }
+
+/** Puts each draft line comment on its file's line (by index). The indices of those off the diff are returned. */
+export const placeDrafts = (views: FileView[], comments: (Anchor & { path: string })[]) => placeOn(views, comments, "drafts");
+/** The same for my pending review's comments. */
+export const placeMine = (views: FileView[], comments: (Anchor & { path: string })[]) => placeOn(views, comments, "mine");
 
 /** Files nobody reads line by line: shown folded, with a note. */
 export const GENERATED = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|packages\.lock\.json|Cargo\.lock|go\.sum|composer\.lock|poetry\.lock)$|\.min\.(js|css)$|\.snap$|(^|\/)(dist|build|out|bin|obj|node_modules|vendor)\/|\.designer\.cs$|\.g\.cs$|\.generated\.\w+$/i;
 /** Past this many changed lines a file starts folded. */
 export const BIG = 400;
 
-export type FileView = { file: PrFile; lines: DiffLine[]; folded: boolean; why?: string; unplaced: Thread[]; threads: Thread[]; /** How many draft comments sit in it (placeDrafts). */ drafts?: number };
+export type FileView = { file: PrFile; lines: DiffLine[]; folded: boolean; why?: string; unplaced: Thread[]; threads: Thread[]; /** How many draft comments sit in it (placeDrafts). */ drafts?: number; /** How many of my pending comments (placeMine). */ mine?: number };
 
 /** Each file's lines and threads, and whether it starts folded (generated, big, binary, too large for GHE to send). */
 export function fileViews(files: PrFile[], threads: Thread[]): FileView[] {
