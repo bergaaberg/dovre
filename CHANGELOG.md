@@ -2,11 +2,33 @@
 
 ## Unreleased
 
-- **Code**: `/code/<checkout>/diff` shows a checkout's own changes in the PR viewer's diff: what's uncommitted (untracked files too), a branch against another ref, or one commit. Local only (#105, part 1). An agent session working in a checkout links to it with **Diff** (#105).
-- **Diffs**: the words that changed in a line are marked, in pull requests and local diffs; a local diff can be read side by side (#105).
-- **Compare**: `/compare` (from Code) diffs two pasted texts, or two JSON documents with their keys sorted. Local only (#105).
-- **Docker**: `sh scripts/docker.sh` sets up Colima on a Mac and starts it at login (#101).
-- **Topo**: `range.yaml`, `peak.yaml`'s old name, is no longer read, and `/topo` no longer shows the rename notice. Rename the file to `peak.yaml`; the format is the same (#138).
+## 0.3.0 (2026-10-27)
+
+Breaking:
+
+- **Topo**: Atlas is now Topo (`/topo`; `/atlas` redirects; `PACK_TOPO=off`, `PACK_ATLAS` still read) (#148). The catalog is `peak.yaml` from [bergaaberg/peak](https://github.com/bergaaberg/peak) (#128); `range.yaml`, its old name, is no longer read, so rename the file. The format is the same (#138).
+- **Avatar**: the avatar left core for dovre-packs (#130). Add it with `pnpm packs add avatar`.
+
+Added:
+
+- **Pull requests**: review a PR yourself: comment on lines and ranges, then post as Comment, Approve or Request changes, starting from the agent's draft if you like (#106). Reply to and resolve threads; `c` comments on a line, `v` marks a file viewed. List views, filters and sorts (Needs me, Open threads, CI failing, …), kept per viewer (#157). An agent's review draft shows its comments at their lines in the diff, editable in place (#160).
+- **Diffs**: `/code/<checkout>/diff` shows a checkout's own changes: uncommitted (untracked files too), a branch against a ref, or one commit; an agent session links to its checkout's diff. Changed words are marked in every diff, and a local diff can be read side by side. `/compare` diffs two pasted texts, or two JSON documents with keys sorted. Local only (#105).
+- **Dependabot**: a Dependabot tab combines a repo's bumps into one PR, merges green combined PRs at once, and adds groups to `dependabot.yml`; lockfiles made again in local mode, Python and .NET included (#108).
+- **Storybook**: a PR's stories before and after, side by side, from the Storybook CI publishes, or built here when CI publishes none (local only) (#160, #166).
+- **Stats**: packs add panels; Settings chooses what Stats shows, in what order, over 14 or 28 days or 4, 12 or 26 weeks (#93, #142).
+- **Packs**: ingest routes, token-checked POSTs from apps into a pack (#109); packs list their own write kinds (#104); MCP tools for agent turns over `POST /mcp`, each turn with its own token, in Claude Code, Codex, omp, agy and terminals (#153, #172); `.pack.json` on add and `pnpm packs outdated / update / track`, with the Packs page updating a copied pack locally (#152); `span.actions` slot (#165); packs read the forge and give the starting page a picture (#130); a test kit for packs (#130).
+- **Bulk actions**: tick several waiting deploy runs or issues and act on them at once; Settings chooses which writes take one click (#104).
+- **Look**: three more themes, Birch, Polar and Ember (#95); font, text size and line height under Look and layout (#183).
+- **Keys**: Settings → Keys sets how far j/k scroll and which shortcut groups are on (#87); `a` adds to My list, with details in one form (#86).
+- **Bino**: keyboard-first chat (Enter sends, ↑ last message, `g b`) (#85); stop an answer mid-way (#119); an assistant icon instead of the avatar (#131).
+- **Self-host**: `PUBLIC_ORIGIN` behind a sign-in proxy, and a server recipe with Docker, systemd and Caddy (#74, #99). `sh scripts/docker.sh` sets up Colima on a Mac (#101).
+- **Bridge**: `dovre bridge logout` stops, revokes the sign-in and forgets it.
+
+Fixes:
+
+- An allowed agent call that's refused again says why (#163); Claude Code turns are told to keep work inside the repo.
+- A `.cmd` shim that runs a program (pnpm 12) starts as that program on Windows (#168).
+- Charts are readable on a phone (#149, #150); settings forms line up (#155); Look and layout saves as you change it (#146); a refused button in the demo explains itself (#90).
 
 ## 0.2.1 (2026-10-26)
 
