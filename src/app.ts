@@ -1350,12 +1350,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   return app;
 }
 
-/** A pack's `frames` entry as a CSP source: an `https://` origin (no path, user or wildcard), or undefined. */
+/** A pack's `frames` entry as a CSP source: an `https://` origin, or `http://localhost:<port>` / `http://127.0.0.1:<port>` (no path, user or wildcard); else undefined. */
 export function frameOrigin(raw: unknown): string | undefined {
   if (typeof raw !== "string" || raw.length > 300) return undefined;
   try {
     const u = new URL(raw);
-    if (u.protocol !== "https:" || u.username || u.password || !/^[a-z0-9.-]+(:\d+)?$/i.test(u.host)) return undefined;
+    if (u.username || u.password || !/^[a-z0-9.-]+(:\d+)?$/i.test(u.host)) return undefined;
+    // http only for this machine on a port of its own (a build served apart from Dovre, #166).
+    if (u.protocol === "http:" ? !/^(localhost|127\.0\.0\.1)$/.test(u.hostname) || !u.port : u.protocol !== "https:") return undefined;
     return u.origin;
   } catch {
     return undefined;

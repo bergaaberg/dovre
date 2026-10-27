@@ -3,9 +3,13 @@ import { test } from "node:test";
 import { frameOrigin } from "../../../../app.ts";
 import { autoTitle, booksOf, originOf, parseStories, storyId, storyName, touched, urlOf } from "../model.ts";
 
-test("STORYBOOK: repo and two https templates per entry; anything else is left out", () => {
-  const books = booksOf("acme/web https://a.io/web/pr-{pr}/ https://a.io/web/{base}/;\n bad https://a.io/ https://a.io/ ; acme/x http://a.io/ https://a.io/ ; acme/y https://{pr}.a.io/ https://a.io/ ; acme/web https://b.io/ https://b.io/");
-  assert.deepEqual(books, [{ repo: "acme/web", head: "https://a.io/web/pr-{pr}/", base: "https://a.io/web/{base}/" }]);
+test("STORYBOOK: a repo, then two https templates, only the base's, or none (built here); anything else is left out", () => {
+  const books = booksOf("acme/web https://a.io/web/pr-{pr}/ https://a.io/web/{base}/;\n bad https://a.io/ https://a.io/ ; acme/x http://a.io/ https://a.io/ ; acme/y https://{pr}.a.io/ https://a.io/ ; acme/web https://b.io/ https://b.io/ ; acme/mw https://mw.io/ ; acme/both ; acme/z https://a.io/ https://a.io/ https://a.io/");
+  assert.deepEqual(books, [
+    { repo: "acme/web", head: "https://a.io/web/pr-{pr}/", base: "https://a.io/web/{base}/" },
+    { repo: "acme/mw", base: "https://mw.io/" },
+    { repo: "acme/both" },
+  ]);
   assert.equal(originOf("https://{pr}.a.io/"), undefined);
   assert.equal(originOf("https://a.io:8443/x"), "https://a.io:8443");
 });
@@ -44,7 +48,9 @@ test("touched: changed stories, and the folders of changed source files (not tes
   assert.deepEqual(t.dirs, ["src/b"]);
 });
 
-test("frames: https origins only", () => {
+test("frames: https origins, and http only for this machine on a port", () => {
   assert.equal(frameOrigin("https://a.io/x/y"), "https://a.io");
-  for (const bad of ["http://a.io", "javascript:alert(1)", "https://u:p@a.io", "*", 3, "https://*.a.io"]) assert.equal(frameOrigin(bad), undefined, String(bad));
+  assert.equal(frameOrigin("http://localhost:4849/"), "http://localhost:4849");
+  assert.equal(frameOrigin("http://127.0.0.1:4849"), "http://127.0.0.1:4849");
+  for (const bad of ["http://a.io", "http://localhost", "http://127.0.0.2:4849", "http://localhost.a.io:80", "javascript:alert(1)", "https://u:p@a.io", "*", 3, "https://*.a.io"]) assert.equal(frameOrigin(bad), undefined, String(bad));
 });

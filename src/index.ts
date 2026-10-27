@@ -58,6 +58,8 @@ import { assistantPack } from "./packs/core/assistant/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
 import { terminalPack } from "./packs/core/terminal/index.ts";
 import { storybookPack } from "./packs/core/storybook/index.ts";
+import { createBuilds } from "./packs/core/storybook/build.ts";
+import { buildServer } from "./packs/core/storybook/serve.ts";
 import { findPrograms } from "./packs/core/terminal/programs.ts";
 import { createTerminals } from "./packs/core/terminal/terms.ts";
 import { type Need, needsOf } from "./home/needs.ts";
@@ -341,6 +343,20 @@ const here = createHere({
 });
 const dismissed = createDismissed(db.DB);
 const desk = localDesk({ env, runner, queue, sessions: () => here.ready(), onStarted: (sid) => dismissed.remove(sid) });
+// Storybooks built here (#166): in Dovre's data folder, served apart from Dovre on the next port (STORYBOOK_PORT).
+const storybookPort = Number(process.env.STORYBOOK_PORT ?? port + 1);
+const storybookBuilds = createBuilds({
+  dir: join(dataDir, "storybook"),
+  tools: { git: findTool("git"), pnpm: findTool("pnpm"), npm: findTool("npm") },
+  checkout: (repo) => {
+    const c = checkoutOf(checkouts(env.CODE_DIR, forge.host, ownersIn(env)), repo);
+    return c ? join(env.CODE_DIR, c.dir) : undefined;
+  },
+  onChange: () => hub.publish(["storybook"]),
+  log: (l) => console.log(l),
+});
+const storybookServer = buildServer(storybookBuilds.outDir, storybookPort, (l) => console.log(l));
+const storybookBuild = { builds: storybookBuilds, port: storybookPort, ensure: () => storybookServer.ensure() };
 const corePacks = [
   agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000 }),
   // Bino's switch, and Topo (the peak.yaml files under CODE_DIR) unless PACK_TOPO=off (PACK_ATLAS, its old name, still read).
@@ -362,8 +378,8 @@ const corePacks = [
       : {}),
   }),
   ...(terminals ? [terminalPack(terminals)] : []),
-  // A PR's stories before and after; off unless STORYBOOK names a repo.
-  storybookPack({ ghe, owners: () => ownersIn(env) }),
+  // A PR's stories before and after, published or built here; off unless STORYBOOK names a repo.
+  storybookPack({ ghe, owners: () => ownersIn(env), build: storybookBuild }),
   ...(on.docker
     ? [
         dockerPack((ctx) =>

@@ -461,7 +461,9 @@ export type Pack = {
   slots?(ctx: PackContext): Slots;
   /**
    * Other sites its own pages (/<id>, /<id>/…) may show in a frame, from memory: `https://` origins
-   * (a published Storybook). Anything else is dropped; core pages never frame them.
+   * (a published Storybook), or this machine on a port of its own (`http://localhost:<port>`,
+   * `http://127.0.0.1:<port>`: a build served apart from Dovre). Anything else is dropped; core
+   * pages never frame them.
    */
   frames?(ctx: PackContext): string[];
   /** Its button beside Bino's (see Dock), from memory; undefined: none right now. Its /<id>/dock pages may be framed by Dovre's own. */

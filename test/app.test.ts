@@ -335,3 +335,53 @@ test("Storybook (#160): hostile stories files, titles and branches stay inert; f
   const off = signedIn(snapshot(), {}, { packs: [storybookPack({ ghe, owners: () => "ACME" })] });
   assert.equal((await off.get("/storybook/ACME/web/7")).status, 404);
 });
+
+test("Storybook built here (#166): Build here starts the PR's build (from Dovre only, logged), a failure's output stays inert, a build is framed from the other host", async () => {
+  const { storybookPack } = await import("../src/packs/core/storybook/index.ts");
+  const { fakeGhe } = await import("./helpers.ts");
+  const HEAD = "1".repeat(40), BASE = "2".repeat(40);
+  const env = { STORYBOOK: "ACME/web https://acme.example.io/web/" };
+  const src = "export default {};\nexport const Primary = {};";
+  const { ghe } = fakeGhe({
+    "GET /repos/ACME/web/pulls/7": { head: { ref: "feat/x", sha: HEAD }, base: { ref: "main", sha: BASE } },
+    "GET /repos/ACME/web/pulls/7/files?per_page=100&page=1": [{ filename: "src/b/Button.stories.ts", status: "modified" }],
+    [`GET /repos/ACME/web/contents/src/b/Button.stories.ts?ref=${HEAD}`]: { type: "file", encoding: "base64", content: Buffer.from(src).toString("base64"), size: src.length },
+  });
+  type S = import("../src/packs/core/storybook/build.ts").BuildState;
+  let state: S = { status: "none" };
+  const started: [string, string[]][] = [];
+  const builds = { outDir: "x", state: () => state, start: (repo: string, shas: string[]) => (started.push([repo, shas]), true), url: (o: string, _r: string, sha: string) => `${o}/acme__web/${sha}/` };
+  const pack = storybookPack({ ghe, owners: () => "ACME", build: { builds, port: 4849, ensure: () => {} } });
+  const { get, post, db } = signedIn(snapshot(), {}, { packs: [pack], packEnv: env });
+  const page = async () => {
+    await get("/storybook/ACME/web/7");
+    return (await get("/storybook/ACME/web/7")).text();
+  };
+  let out = await page();
+  assert.match(out, /action="\/storybook\/ACME\/web\/7\/build"/);
+  assert.match(out, /Not built yet/);
+  assert.match(out, /https:\/\/acme\.example\.io\/web\/iframe\.html/, "the published base is framed");
+  // Only Dovre's own pages start a build.
+  assert.equal((await post("/storybook/ACME/web/7/build", {}, { origin: "https://evil.example", "sec-fetch-site": "cross-site" })).status, 403);
+  assert.equal((await post("/storybook/ACME/web/7/build", {}, { "sec-fetch-site": "same-site" })).status, 404, "a sibling site (a build on the other host) can't either");
+  assert.equal(started.length, 0);
+  const res = await post("/storybook/ACME/web/7/build", {}, { "sec-fetch-site": "same-origin" });
+  assert.equal(res.status, 303);
+  assert.deepEqual(started, [["ACME/web", [HEAD]]], "only the side CI doesn't publish");
+  const logged = await db.DB.prepare("SELECT kind, target FROM actions WHERE kind = 'storybook.build'").all<{ kind: string; target: string }>();
+  assert.deepEqual(logged.results.map((r) => r.target), ["ACME/web#7"]);
+  state = { status: "building", step: "Installing packages", startedAt: 1 };
+  out = await page();
+  assert.match(out, /data-pending/);
+  assert.match(out, /Installing packages/);
+  state = { status: "failed", why: `storybook build failed: ${H}`, tail: H, at: 1 };
+  out = await page();
+  assertInert("/storybook build failed", out);
+  assert.match(out, /Build again/);
+  state = { status: "ready" };
+  const ready = await get("/storybook/ACME/web/7");
+  out = await ready.text();
+  assert.match(out, new RegExp(`http://127\\.0\\.0\\.1:4849/acme__web/${HEAD}/iframe\\.html`), "Dovre on localhost: the build from 127.0.0.1");
+  assert.match(ready.headers.get("content-security-policy") ?? "", /frame-src 'self' https:\/\/acme\.example\.io http:\/\/localhost:4849 http:\/\/127\.0\.0\.1:4849/);
+  assert.doesNotMatch(out, /action="\/storybook\/ACME\/web\/7\/build"/, "nothing left to build");
+});

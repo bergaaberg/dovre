@@ -6,8 +6,11 @@
  * named exports).
  */
 
-/** Where one repo's Storybook is published: `head` for a PR, `base` for the branch it targets. */
-export type Book = { repo: string; head: string; base: string };
+/**
+ * Where one repo's Storybook is: `head` for a PR, `base` for the branch it targets, each a published
+ * URL template, or undefined when Dovre builds that side here (#166).
+ */
+export type Book = { repo: string; head?: string; base?: string };
 
 /** What a template's placeholders become. */
 export type Vars = { pr: number; branch: string; base: string; sha: string };
@@ -16,18 +19,19 @@ const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
 const PLACE = /\{(pr|branch|base|sha)\}/g;
 
 /**
- * STORYBOOK: entries split by `;` or new lines, each `owner/repo <PR url> <base url>`, the URLs
- * with {pr}, {branch}, {base} or {sha} in their path (never the host). An entry that isn't that is
- * left out.
+ * STORYBOOK: entries split by `;` or new lines, each `owner/repo`, then the URLs it's published
+ * at: `<PR url> <base url>`, only `<base url>` (the PR built here), or none (both built here). The
+ * URLs are https, with {pr}, {branch}, {base} or {sha} in their path (never the host). An entry
+ * that isn't that is left out.
  */
 export function booksOf(raw: string | undefined): Book[] {
   const out: Book[] = [];
   for (const entry of String(raw ?? "").split(/[;\n]/)) {
-    const [repo, head, base, ...rest] = entry.trim().split(/\s+/);
-    if (!repo || !head || !base || rest.length || !REPO.test(repo)) continue;
-    if (!originOf(head) || !originOf(base)) continue;
+    const [repo, ...urls] = entry.trim().split(/\s+/);
+    if (!repo || urls.length > 2 || !REPO.test(repo) || urls.some((u) => !originOf(u))) continue;
     if (out.some((b) => b.repo.toLowerCase() === repo.toLowerCase())) continue;
-    out.push({ repo, head, base });
+    const [head, base] = urls.length === 2 ? urls : [undefined, urls[0]];
+    out.push({ repo, ...(head ? { head } : {}), ...(base ? { base } : {}) });
   }
   return out;
 }
