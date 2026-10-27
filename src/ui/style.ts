@@ -798,6 +798,26 @@ input[type=text], input[type=search], input[type=email], input[type=number], inp
   font: var(--fs-m)/1.4 var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-s); padding: 9px 12px; max-width: 100%; }
 textarea { width: 100%; resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--ink-3); }
+/* A dropdown, where one is the right control: its own chevron (two gradients, no image), room for it,
+   a hover, and the text cut short rather than wrapped. Where the browser lets the list itself be styled
+   (appearance: base-select), the open list is a panel in the theme: surface, line, shadow, the picked one marked. */
+select { appearance: none; -webkit-appearance: none; cursor: pointer; min-height: 40px; padding-right: 34px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+select:hover:not(:disabled) { border-color: var(--accent-line); background-color: var(--hover); }
+select:disabled { cursor: not-allowed; opacity: .6; }
+@supports (appearance: base-select) {
+  select, ::picker(select) { appearance: base-select; }
+  select { background-image: none; display: inline-flex; align-items: center; gap: 8px; }
+  select::picker-icon { content: ""; width: 7px; height: 7px; margin-left: auto; border: solid var(--ink-2); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
+  select:open::picker-icon { transform: translateY(2px) rotate(-135deg); }
+  select > button { all: unset; }
+  ::picker(select) { background: var(--surface); color: var(--ink); border: 1px solid var(--line-2); border-radius: var(--r-s); box-shadow: var(--shadow); padding: 4px; margin-top: 4px; max-height: min(60vh, 22rem); overflow-y: auto; }
+  select option { padding: 8px 10px; border-radius: calc(var(--r-s) - 2px); white-space: normal; gap: 8px; }
+  select option:hover, select option:focus-visible { background: var(--hover); outline: none; }
+  select option:checked { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+  select option::checkmark { color: var(--accent); }
+}
 input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 0; border-color: var(--accent); }
 form.post { display: inline-block; margin: 0; }
 details.confirm { display: inline-block; margin: 0; }
