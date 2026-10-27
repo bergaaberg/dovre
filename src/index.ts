@@ -86,7 +86,7 @@ const version: string = JSON.parse(readFileSync(new URL("../package.json", impor
 const supervised = process.env.DOVRE_SUPERVISED === "1";
 // The launcher's starting page (launcher/ opens it before there's a server to ask).
 try {
-  writeFileSync(join(dataDir, `starting-${port}.html`), String(startingPage({ file: { base: `http://127.0.0.1:${port}`, up: `up-${port}.js`, icon: new URL("../assets/icon-192.png", import.meta.url).href, font: new URL("../assets/fonts/NordwandMono-Regular.woff2", import.meta.url).href, avatar: existsSync(join(dataDir, "avatar-start.svg")) ? "avatar-start.svg" : undefined } })));
+  writeFileSync(join(dataDir, `starting-${port}.html`), String(startingPage({ file: { base: `http://127.0.0.1:${port}`, up: `up-${port}.js`, icon: new URL("../assets/icon-192.png", import.meta.url).href, font: new URL("../assets/fonts/NordwandMono-Regular.woff2", import.meta.url).href, picture: existsSync(join(dataDir, "start-picture.svg")) ? "start-picture.svg" : undefined } })));
 } catch (e) {
   console.error("couldn't write the starting page:", (e as Error).message);
 }
@@ -340,11 +340,8 @@ const corePacks = [
   agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000 }),
   // Bino's switch, and Atlas (the range.yaml manifests under CODE_DIR) unless PACK_ATLAS=off.
   assistantPack({ codeDir: /^(off|false|no|0)$/i.test((rawVars(config).PACK_ATLAS ?? "").trim()) ? undefined : env.CODE_DIR }),
-  // My avatar: GHE's numbers shape it, the snapshot, My list and the packs set its scene.
-  avatarPack({
-    ghe: { ghe, org: ownersIn(env), login: () => gatherer.peek()?.login },
-    onStart: (svg) => writeFileSync(join(dataDir, "avatar-start.svg"), svg),
-  }),
+  // My avatar: the forge's numbers shape it, the snapshot, My list and the packs set its scene.
+  avatarPack(),
   // My open issues from the forge (/tracker), where the forge has them.
   // Each row can start a new agent session on its issue, in the repo's checkout, when an agent can run here.
   issuesPack({
@@ -398,6 +395,8 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   gatherer,
   ghe,
   forge,
+  // A pack's picture for the starting page (written next to it, read at the next start).
+  startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
   summaries,
   runner,
   relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n),

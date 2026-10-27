@@ -109,6 +109,8 @@ It keeps core's safety boundary intact:
 | Core pages | `slots` (SlotMap: thirteen places) | from memory |
 | Links | `refs` (ticket keys in text), `linked` (PR links for the gather to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
+| Forge | `ctx.forge()`: who I am, the owners, and what the forge answers packs (`work`, `merged`); read-only | on request |
+| Starting page | `ctx.startPicture(svg)`: a picture beside the starting page (local) | when it changes |
 | Pulse | `pulse` (old name `avatar`): working / asking counts, trouble (storm or fire, why, link), on duty; any pack reads the sum as `ctx.pulse()` | from memory |
 | Lifecycle | `available`, `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s for all |
 | Outside callers | `callback` (local), `ingest` (token), `scheduled`, `email` (hosted) | as the platform calls |
@@ -218,7 +220,9 @@ their code, panes, settings, routes or styles come back to core. DROPS is next (
    packs tell it is one hook, `avatar`: working and asking counts (agents), and trouble, a storm
    or a fire with a line of counts and a link (signals: red signals). `activity` is gone.
    *Since #130:* that hook is `pulse`, summed for any pack as `ctx.pulse()`; the avatar's client
-   code is its own `script`. Next, the avatar moves to dovre-packs as an optional pack.
+   code is its own `script`; it reads the forge through `ctx.forge()` and gives the starting page
+   its picture through `ctx.startPicture()`. Packs for fun have the domain `fun`, listed apart on
+   the Packs page. Next, the avatar moves to dovre-packs as an optional pack.
 2. *Settled (H9f, 2026-10-26):* **a pack's options are its manifest `settings`** (.dev.vars, shown
    and saved on the Packs page). The config store's keys stay a fixed list (src/config.ts `KEYS`)
    for core's own panes, so Teams' options (TEAMS_CRAWL, TEAMS_SINCE_DAYS, OUTLOOK) left it with

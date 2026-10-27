@@ -586,6 +586,38 @@ test("script and pulse: the packs' scripts in one file after the core's, a block
   assert.doesNotMatch(await (await signedIn(snapshot(), {}, { packs: [pack({ id: "plain" })] }).get("/prs")).text(), /assets\/packs\.[^"]+\.js/, "no pack script: none linked");
 });
 
+test("forge and startPicture: a pack reads the forge as me, in the owners' repos; its picture goes to the starting page, if it's an SVG and not too big", async () => {
+  const asked: string[] = [];
+  const work = { merged: 1, reviewed: 2, days: [], commits: [], languages: {} };
+  const reader = pack(
+    { id: "reader" },
+    {
+      routes: (app, ctx) => {
+        app.get("/reader", async (c) => {
+          const f = ctx.forge();
+          ctx.startPicture("<svg viewBox='0 0 1 1'></svg>");
+          ctx.startPicture(`<script>${H}</script>`);
+          ctx.startPicture(`<svg>${"x".repeat(200_001)}</svg>`);
+          return c.json({ id: f?.id, host: f?.host, login: f?.login, owners: f?.owners, work: await f?.work?.("2026-08-01"), merged: await f?.merged?.("2026-10-26T10:00:00Z") });
+        });
+      },
+    },
+  );
+  const pictures: string[] = [];
+  const { get } = signedIn(snapshot(), {}, { packs: [reader], startPicture: (svg) => pictures.push(svg), forge: { id: "github", name: "GitHub", can: [], host: "github.com", work: async (login, owners, since) => (asked.push(`${login} ${owners} ${since}`), work), merged: async (login, owners, since) => (asked.push(`${login} ${owners} ${since}`), 4) } });
+  assert.deepEqual(await (await get("/reader")).json(), { id: "github", host: "github.com", login: snapshot().login, owners: "ACME", work, merged: 4 });
+  assert.deepEqual(asked, [`${snapshot().login} ACME 2026-08-01`, `${snapshot().login} ACME 2026-10-26T10:00:00Z`]);
+  assert.deepEqual(pictures, ["<svg viewBox='0 0 1 1'></svg>"], "only an SVG, 200 kB at most");
+});
+
+test("the Packs page lists the fun ones apart", async () => {
+  const toy = pack({ id: "toy", name: "Toy", domain: "fun" });
+  const page = await (await signedIn(snapshot(), {}, { packs: [toy] }).get("/packs")).text();
+  const fun = page.indexOf('<p class="eyebrow">Fun</p>');
+  assert.ok(fun > 0 && page.indexOf('id="pack-toy"') > fun && page.indexOf('id="pack-agents"') < fun);
+  assert.doesNotMatch(await (await signedIn(snapshot()).get("/packs")).text(), /eyebrow">Fun/, "none: no group");
+});
+
 test("beforePage: the core waits for the packs together, 1.5 s at most; one that throws or hangs leaves the page whole", async () => {
   let fresh = 0;
   const quick = pack({ id: "quick" }, { beforePage: async () => void fresh++ });

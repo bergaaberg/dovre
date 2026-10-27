@@ -65,7 +65,7 @@ export const SPLASH_CSS = String.raw`
 .splash-go .btn { min-height: 48px; padding: 0 26px; font-size: 16px; text-decoration: none; }
 .splash-note { color: var(--ink-3); font-size: var(--fs-s); }
 .splash-foot { position: absolute; left: clamp(24px, 9vw, 120px); bottom: 28px; margin: 0; font-size: var(--fs-xs); color: var(--ink-3); }
-.splash-av { position: absolute; right: clamp(16px, 8vw, 140px); bottom: 6vh; width: clamp(160px, 24vw, 300px); height: auto; animation: sp-fade .9s ease-out .8s both; }
+.splash-pic { position: absolute; right: clamp(16px, 8vw, 140px); bottom: 6vh; width: clamp(160px, 24vw, 300px); height: auto; animation: sp-fade .9s ease-out .8s both; }
 .splash-fade { animation: sp-fade .9s ease-out 1.2s both; }
 .splash-fade-2 { animation: sp-fade .9s ease-out 1.7s both; }
 @keyframes sp-draw { to { stroke-dashoffset: 0; } }
@@ -75,7 +75,7 @@ export const SPLASH_CSS = String.raw`
 /* By day there are no stars. */
 @media (prefers-color-scheme: light) { .sp-star { display: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .sp-star, .sp-sun, .sp-line, .splash-fade, .splash-fade-2, .splash-av { animation: none; }
+  .sp-star, .sp-sun, .sp-line, .splash-fade, .splash-fade-2, .splash-pic { animation: none; }
   .sp-line { stroke-dashoffset: 0; }
 }
 `;

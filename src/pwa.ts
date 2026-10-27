@@ -151,7 +151,7 @@ look();
  * with the script inline and the server's address spelled out. Its styles are inline (a file page has
  * no server to ask), on the same tokens as the stylesheet's.
  */
-export function startingPage(opts: { file?: { base: string; up: string; icon: string; font?: string; /** My avatar beside it (a file next to the page). */ avatar?: string } } = {}) {
+export function startingPage(opts: { file?: { base: string; up: string; icon: string; font?: string; /** A pack's picture beside it (PackContext.startPicture: a file next to the page). */ picture?: string } } = {}) {
   const f = opts.file;
   const font = f?.font ?? "/assets/fonts/NordwandMono-Regular.woff2";
   return html`<!doctype html>
@@ -176,7 +176,7 @@ a.btn { display: inline-block; padding: 9px 15px; border-radius: 9px; background
 code { font: 13px "Nordwand Mono", "Cascadia Mono", Consolas, monospace; }
 @media (prefers-reduced-motion: reduce) { #bar { transition: none; } }
 </style></head>
-<body class="splash-page"><main class="splash" data-probe="${f ? "file" : "health"}" data-base="${f?.base ?? ""}" data-up="${f?.up ?? ""}">${RIDGE_ART}${f?.avatar ? html`<img class="splash-av" src="${f.avatar}" alt="">` : ""}
+<body class="splash-page"><main class="splash" data-probe="${f ? "file" : "health"}" data-base="${f?.base ?? ""}" data-up="${f?.up ?? ""}">${RIDGE_ART}${f?.picture ? html`<img class="splash-pic" src="${f.picture}" alt="">` : ""}
 <div class="splash-text"><div class="splash-brand">${MARK}<h1>Dovre</h1></div>
 <div id="track" role="progressbar" aria-label="Starting Dovre"><div id="bar"></div></div>
 <p id="status" aria-live="polite">Starting…</p>

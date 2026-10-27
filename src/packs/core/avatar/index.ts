@@ -1,13 +1,12 @@
 /**
- * My avatar, a core pack (PLAN WP-X2): a creature I pick, shaped by what I do on GHE and set in a
- * scene by how things are. It shows in two core places through slots (Today's header, the Bino
+ * My avatar, a core pack (PLAN WP-X2): a creature I pick, shaped by what I do on the forge and set in a
+ * scene by how things are. For fun: nothing in Dovre needs it. It shows in two core places through slots (Today's header, the Bino
  * button and Bino's header) and has its own page (/avatar). How things are comes from the snapshot,
  * My list and the packs' pulse (PackContext.pulse: what works and waits, what's wrong, whether
  * I'm on duty, whether Bino is answering), all counts.
  */
 import { needsOf } from "../../../home/needs.ts";
 import { listTodos } from "../../../todo/store.ts";
-import type { Ghe } from "../../../sources/ghe.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { type Avatar, createAvatar } from "./avatar.ts";
 import { signalsFrom } from "./feed.ts";
@@ -18,10 +17,6 @@ import { avatarDock, avatarHero, avatarMini, avatarRoutes } from "./view.ts";
 import { hourAt } from "../../../when.ts";
 
 export type AvatarDeps = {
-  /** GHE, for the numbers that shape it: without it, it keeps its starting shape. */
-  ghe?: { ghe: Ghe; org: string; login: () => string | undefined };
-  /** The idle picture whenever it changes (here: a copy for the starting page). */
-  onStart?: (svg: string) => void;
   now?: () => number;
 };
 
@@ -32,10 +27,12 @@ export function avatarPack(o: AvatarDeps = {}): Pack {
   /** My list: items I'm doing (read on refresh). */
   let doing = 0;
   let shown = "";
-  const data: AvatarData | undefined = o.ghe ? createAvatarData({ ...o.ghe, now: clock, onChange: () => ctx?.publish(["avatar"]), log: (l) => ctx?.log(l) }) : undefined;
+  // The forge's numbers shape it; a forge that doesn't say leaves its starting shape.
+  const data: AvatarData = createAvatarData({ forge: () => ctx?.forge(), now: clock, onChange: () => ctx?.publish(["avatar"]), log: (l) => ctx?.log(l) });
   const avatar: Avatar = createAvatar({
     data,
-    onStart: o.onStart,
+    // The idle picture whenever it changes: a copy for the starting page.
+    onStart: (svg) => ctx?.startPicture(svg),
     now: clock,
     busy: () => ctx?.pulse().busy ?? false,
     signals: () => {
@@ -49,8 +46,8 @@ export function avatarPack(o: AvatarDeps = {}): Pack {
       api: PACK_API,
       id: "avatar",
       name: "Avatar",
-      description: "Me in Dovre: a creature shaped by what I do on GHE, in a scene set by how things are",
-      domain: "general",
+      description: "Me in Dovre: a creature shaped by what I do on the forge, in a scene set by how things are",
+      domain: "fun",
       execution: "any",
       everyMs: 60_000,
     },
@@ -58,14 +55,14 @@ export function avatarPack(o: AvatarDeps = {}): Pack {
     script: AVATAR_JS,
     async init(c) {
       ctx = c;
-      await Promise.all([avatar.load(c.db), data?.load(c.db)]);
+      await Promise.all([avatar.load(c.db), data.load(c.db)]);
     },
     async refresh(c) {
       ctx = c;
       try {
         doing = (await listTodos(c.db)).filter((t) => t.state === "doing" && !t.parent).length;
       } catch {}
-      await data?.refresh(c.db);
+      await data.refresh(c.db);
       // Open pages ask /avatar/now on every change; this covers what changes on its own (the hour, My list).
       const key = avatar.now().key;
       if (shown && key !== shown) c.publish(["avatar"]);

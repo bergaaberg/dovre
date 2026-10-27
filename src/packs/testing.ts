@@ -23,6 +23,8 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     ask: async () => ({ action: "cancel" }),
     asking: () => false,
     pulse: () => ({ working: 0, asking: 0, trouble: [], busy: false }),
+    forge: () => undefined,
+    startPicture: () => {},
     ...over,
   };
 }

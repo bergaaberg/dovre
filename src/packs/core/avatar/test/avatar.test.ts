@@ -4,12 +4,12 @@ import { test } from "node:test";
 import { createAvatar } from "../avatar.ts";
 import { avatarPack } from "../index.ts";
 import { activePacks } from "../../../registry.ts";
-import { PACK_API, type Pack } from "../../../types.ts";
+import { PACK_API, type Pack, type PackForge } from "../../../types.ts";
 import { isoSvg, shade } from "../iso.ts";
 import { signalsFrom } from "../feed.ts";
 import { buildAvatar, CREATURES, type Creature, DEFAULT_LOOK, effects, LAYER, lookOf, PARTS, statsOf, traits } from "../model.ts";
 import { type Signals, situationKey, situationOf } from "../mood.ts";
-import { createAvatarData, nightShareOf, statsFrom, streakOf } from "../stats.ts";
+import { createAvatarData, gatherAvatarStats, gatherMerges, nightShareOf, statsFrom, streakOf } from "../stats.ts";
 import { openDb } from "../../../../db.ts";
 import { needsOf } from "../../../../home/needs.ts";
 import { AVATAR_CSS } from "../style.ts";
@@ -128,7 +128,7 @@ test("signals come from the snapshot, the packs' activity and duty, and My list 
   assert.equal(off.onCall, undefined, "no pack on duty: nothing said about it");
 });
 
-test("GHE's numbers: streaks skip weekends and allow an empty today, late commits by their own clock", () => {
+test("the forge's numbers: streaks skip weekends and allow an empty today, late commits by their own clock", () => {
   const cal = (days: [string, number][]) => days.map(([date, count]) => ({ date, count }));
   // 2026-10-23 is a Friday.
   assert.equal(streakOf(cal([["2026-10-19", 1], ["2026-10-20", 2], ["2026-10-21", 1], ["2026-10-22", 3], ["2026-10-23", 0]]), "2026-10-23"), 4, "today without a commit yet doesn't break it");
@@ -140,12 +140,26 @@ test("GHE's numbers: streaks skip weekends and allow an empty today, late commit
   assert.deepEqual(s, { prs: 12, reviews: 30, repos: 2, streak: 0, night: 33, langs: ["C#", "HCL", "TypeScript", "Shell"] });
 });
 
-test("GHE's numbers are gathered in the background, kept, and the merges read more often", async () => {
+const FORGE: PackForge = { id: "github", name: "GitHub", host: "github.com", login: "me", owners: "ACME" };
+
+test("from the forge's work: the numbers it shapes; a forge that doesn't say leaves its starting shape", async () => {
+  const at = Date.parse("2026-10-23T10:00:00Z");
+  let since = "";
+  const work = { merged: 12, reviewed: 30, days: [], commits: [{ repo: "ACME/a", date: "2026-10-13T22:00:00+02:00" }], languages: { "ACME/a": ["C#"] } };
+  const s = await gatherAvatarStats({ ...FORGE, work: async (d) => ((since = d), work) }, at);
+  assert.equal(since, "2026-07-31", "twelve weeks back");
+  assert.deepEqual(s, { prs: 12, reviews: 30, repos: 1, streak: 0, night: 100, langs: ["C#"] });
+  assert.deepEqual(await gatherAvatarStats(FORGE, at), statsOf({}));
+  assert.equal(await gatherMerges(FORGE, at), 0);
+  assert.equal(await gatherMerges({ ...FORGE, merged: async (t) => (t === "2026-10-22T10:00:00Z" ? 3 : -1) }, at), 3, "the last 24 hours");
+});
+
+test("the forge's numbers are gathered in the background, kept, and the merges read more often", async () => {
   const db = openDb();
   let t = Date.parse("2026-10-22T10:00:00Z");
   let gathers = 0, merges = 0;
   const changed: number[] = [];
-  const data = createAvatarData({ ghe: {} as never, org: "ACME", login: () => "me", now: () => t, onChange: () => changed.push(t), gather: async () => (gathers++, STATS), merges: async () => (merges++, 2) });
+  const data = createAvatarData({ forge: () => FORGE, now: () => t, onChange: () => changed.push(t), gather: async () => (gathers++, STATS), merges: async () => (merges++, 2) });
   await data.refresh(db.DB);
   assert.deepEqual(data.facts(), { stats: STATS, mergedToday: 2, at: t, mergesAt: t, login: "me" });
   t += 11 * 60e3;
@@ -153,12 +167,12 @@ test("GHE's numbers are gathered in the background, kept, and the merges read mo
   assert.deepEqual([gathers, merges], [1, 2], "merges every ten minutes, the rest every six hours");
   await data.refresh(db.DB);
   assert.deepEqual([gathers, merges], [1, 2], "nothing due, nothing read");
-  const again = createAvatarData({ ghe: {} as never, org: "ACME", login: () => "me", now: () => t });
+  const again = createAvatarData({ forge: () => FORGE, now: () => t });
   await again.load(db.DB);
   assert.deepEqual(again.facts()?.stats, STATS, "kept across a restart");
   const kept = await db.DB.prepare("SELECT value FROM settings WHERE key = 'avatar-stats'").first<{ value: string }>();
   assert.ok(kept && !kept.value.includes("title"));
-  const failing = createAvatarData({ ghe: {} as never, org: "ACME", login: () => "me", now: () => t, gather: async () => Promise.reject(new Error("GHE down")), log: (l) => changed.push(l.length) });
+  const failing = createAvatarData({ forge: () => FORGE, now: () => t, gather: async () => Promise.reject(new Error("GHE down")), log: (l) => changed.push(l.length) });
   await failing.refresh(db.DB);
   assert.equal(failing.facts(), undefined);
 });
