@@ -45,7 +45,7 @@ export function welcomePage(frame: Frame, o: { setup: SetupLine[]; panes: PanesV
 ${o.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${o.bad.join(", ")} ${o.bad.length > 1 ? "aren't values they take" : "isn't a value it takes"}.` }) : ""}
 ${setupPanel(o.setup, "Found here")}
 <form method="post" action="/welcome" id="welcome">
-${Panel({ title: "Your work", children: html`<div class="fields">${GENERAL.map((g) => fieldInput(g, o.panes.values[g.key], o.panes.fixed.has(g.key), g.key === "TEAM" ? o.teams : undefined))}</div>` })}
+${Panel({ title: "Your work", children: html`<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, o.panes.values[g.key], o.panes.fixed.has(g.key), g.key === "TEAM" ? o.teams : undefined))}</div>` })}
 ${Panel({ title: "Panes", children: html`<p class="notes">Turn off what you don't use: it's gone from the menu and does nothing in the background.</p>${paneSets(o.panes)}` })}
 <div class="buttons"><button type="submit" class="primary" data-busy="Starting">Start</button></div>
 </form>

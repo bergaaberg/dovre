@@ -74,7 +74,7 @@ export function paneSets(v: PanesView) {
     const via = p.on.length > 1 ? html`<label class="field"><span class="label">Through</span><select name="via.${p.id}"${fixed ? html` disabled` : ""}>${p.on.map((c) => html`<option value="${c.value}"${st.via === c.value ? html` selected` : ""}>${c.label}</option>`)}</select></label>` : "";
     const opts = p.options.map((o) => fieldInput(o, v.values[o.key], v.fixed.has(o.key)));
     return html`<fieldset class="pane-set" id="pane-${p.id}"><legend><label class="check"><input type="checkbox" name="on.${p.id}" value="on"${st.wanted ? html` checked` : ""}${fixed ? html` disabled` : ""}> <strong>${p.name}</strong></label>${st.wanted && !st.on ? html` <span class="pane-why">${st.why ?? "Can't run here."}</span>` : ""}${fixed ? html` <span class="t3">Set in .dev.vars (${p.key})</span>` : ""}</legend>
-<p class="pane-what">${p.what}</p>${via || opts.length ? html`<div class="fields">${via}${opts}</div>` : ""}</fieldset>`;
+<p class="pane-what">${p.what}</p>${via || opts.length ? html`<div class="fields aligned">${via}${opts}</div>` : ""}</fieldset>`;
   });
 }
 
@@ -102,7 +102,7 @@ function workPanel(v: PanesView, canRestart: boolean, teams?: Choice[]) {
     title: "Work",
     id: "work",
     children: html`<form method="post" action="/settings/work">
-<div class="fields">${GENERAL.map((g) => fieldInput(g, v.values[g.key], v.fixed.has(g.key), g.key === "TEAM" ? teams : undefined))}</div>
+<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, v.values[g.key], v.fixed.has(g.key), g.key === "TEAM" ? teams : undefined))}</div>
 <div class="buttons"><button type="submit" class="primary" data-busy="Saving">${canRestart ? "Save and restart" : "Save"}</button></div>
 </form>`,
   });
@@ -151,7 +151,7 @@ export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notif
 <div class="field"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...(opts.rings ?? [])].map(
     (k) => html`<label class="check"><input type="checkbox" name="kind" value="${k.kind}"${p.kinds[k.kind] !== false ? html` checked` : ""}> ${k.label}${k.hint ? html` <span class="t3">· ${k.hint}</span>` : ""}</label><br>`,
   )}</fieldset></div>
-<div class="fields">
+<div class="fields aligned">
 <label class="field"><span class="label">A long agent turn is at least</span><input type="number" name="longTurnMin" min="0" max="240" value="${p.longTurnMin}"><span class="hint">minutes. Ordinary replies never ring.</span></label>
 <label class="field"><span class="label">Bundle what follows for</span><input type="number" name="bundleSec" min="0" max="600" value="${p.bundleSec}"><span class="hint">seconds after a notification: the rest come as one. 0 rings each.</span></label>
 </div>

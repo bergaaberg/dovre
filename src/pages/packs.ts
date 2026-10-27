@@ -47,7 +47,7 @@ function settingItem(s: PackSetting, env: PacksView["env"]) {
 function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"], openByDefault: boolean) {
   return html`<details${openByDefault ? html` open` : ""}><summary class="t2">Configure in <code>.dev.vars</code></summary>
 <form method="post" action="/packs/${encodeURIComponent(id)}/settings">
-  <div class="fields">${settings.map((s) => {
+  <div class="fields aligned">${settings.map((s) => {
     const v = env[s.key]?.trim();
     return s.secret
       ? html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="password" name="${s.key}" value="" placeholder="${v ? "(set — leave blank to keep)" : s.help ?? ""}" maxlength="2000" spellcheck="false" autocomplete="off">${v ? html`<label class="check"><input type="checkbox" name="clear.${s.key}" value="1"> Clear saved secret</label>` : ""}${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`
