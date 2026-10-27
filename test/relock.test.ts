@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { addLeftOut, remoteIs, type Run, runFile } from "../src/actions/relock.ts";
+import { addLeftOut, LOCKFILES, remoteIs, type Run, runFile } from "../src/actions/relock.ts";
 import { dependabotPage } from "../src/pages/dependabot.ts";
 import { openDb } from "../src/db.ts";
 import { fakeGhe } from "./helpers.ts";
@@ -118,4 +118,20 @@ test("the page offers to add left-out bumps only in local mode, with a combined 
   const repos = [{ repo: "ACME/web", prs: [{ repo: "ACME/web", number: 2, title: "Bump b", url: "https://x/2", createdAt: "2026-10-01T00:00:00Z", security: false }], oldest: "2026-10-01T00:00:00Z", security: 0, combined: { number: 99, url: "https://x/99", checks: null, mergeable: null, draft: false } }];
   assert.match(dependabotPage(frame, { org: "ACME", repos, relock: true }), /Add left-out bumps[\s\S]*name="number" value="99"/);
   assert.doesNotMatch(dependabotPage(frame, { org: "ACME", repos }), /Add left-out bumps/);
+});
+
+test("LOCKFILES: Python and .NET are made again; Poetry 1 keeps its pins with --no-update, Poetry 2 by default", async () => {
+  for (const f of ["uv.lock", "poetry.lock", "pdm.lock", "packages.lock.json"]) assert.ok(LOCKFILES[f], f);
+  assert.equal(LOCKFILES["Pipfile.lock"], undefined, "pipenv lock moves every pin");
+  assert.equal(LOCKFILES["uv.lock"]!.label, "uv lock");
+  assert.equal(LOCKFILES["pdm.lock"]!.label, "pdm lock --update-reuse");
+  assert.equal(LOCKFILES["packages.lock.json"]!.label, "dotnet restore --force-evaluate");
+  for (const [version, args] of [["Poetry (version 1.8.3)", "lock --no-update"], ["Poetry (version 2.1.0)", "lock"]] as const) {
+    const ran: string[] = [];
+    const run: Run = async (cmd, a) => (ran.push(`${cmd} ${a.join(" ")}`), { code: 0, out: a[0] === "--version" ? version : "" });
+    assert.equal(await LOCKFILES["poetry.lock"]!.make(run, "/x"), 0);
+    assert.deepEqual(ran, ["poetry --version", `poetry ${args}`]);
+  }
+  const missing: Run = async () => ({ code: 127, out: "poetry: not found" });
+  assert.equal(await LOCKFILES["poetry.lock"]!.make(missing, "/x"), 127);
 });
