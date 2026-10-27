@@ -40,7 +40,7 @@ what the core promises, and what is still open.
 | Where the packs come from | `PACKS` in .dev.vars: folders, each one's `packs.ts` imported at start (src/packs/load.ts) | The instance's own worker.ts calls `createWorker({ packs })`; esbuild bundles them |
 | Core's packs | agents, assistant (Bino and Topo), terminal (when terminals run), docker (when its pane is on) | agents (the Mac's sessions, over the bridge), assistant (Bino, no Topo) |
 | Refresh | an interval, checked every 30 s | after a response (`waitUntil`) and on cron |
-| Also | `callback` (an OAuth return), `ingest` (apps POST in), `acts` (Bino's proposals) | `scheduled` (cron), `email` (Email Routing) |
+| Also | `callback` (an OAuth return), `ingest` (apps POST in), `acts` (Bino's proposals), `tools` (for agent turns, over MCP) | `scheduled` (cron), `email` (Email Routing) |
 
 Both put core's packs first, then the instance's, and hand the list to `activePacks`.
 
@@ -114,7 +114,7 @@ It keeps core's safety boundary intact:
 | Starting page | `ctx.startPicture(svg)`: a picture beside the starting page (local) | when it changes |
 | Pulse | `pulse` (old name `avatar`): working / asking counts, trouble (storm or fire, why, link), on duty; any pack reads the sum as `ctx.pulse()` | from memory |
 | Lifecycle | `available`, `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s for all |
-| Outside callers | `callback` (local), `ingest` (token), `scheduled`, `email` (hosted) | as the platform calls |
+| Outside callers | `callback` (local), `ingest` (token), `tools` (local agent turns, MCP), `scheduled`, `email` (hosted) | as the platform calls |
 | The forge | `forge` (`ForgeDecl`, `src/forge/types.ts`): PRs/MRs, CI, notifications, movement and deploys instead of GitHub when `FORGE` is its id | made once at start, before `init` |
 
 **The time rule:** anything drawn on a page answers from memory. A pack reads its app in
@@ -152,6 +152,12 @@ The registry does this for every hook, so a pack can't break a page or another p
     Only its SHA-256 is kept. Core checks the token, the body cap and the per-token rate before the
     pack sees the body. The pack never gets the token or any other header. Locally it answers on this
     machine's own address only. Hosted, it needs an Access Bypass policy for that path.
+    `POST /mcp` (dovre#153, src/mcp.ts) serves the packs' `tools` to the agent turns Dovre starts.
+    Each Claude Code turn gets `--mcp-config` with a random token of its own, good only while that
+    turn runs and only for `/mcp` (it isn't the launch token). Local mode only, on a localhost Host,
+    and never with an Origin header (no browser page). Claude Code still asks before each tool, so
+    no permission widens. A pack's tool enforces its own limits. Every call is logged as `mcp.call`
+    (the tool and the repo, never arguments or results).
   - Only a pack's `/<id>/dock` pages may be framed by Dovre's own pages.
   - A pack's act is checked against its declared fields before the card is drawn. Pressing it
     asks a second time unless the act is `oneClick`.

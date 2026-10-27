@@ -467,11 +467,32 @@ export type Pack = {
    * Write-only: what it answers is a status and a short body, never data it keeps.
    */
   ingest?: IngestSpec;
+  /**
+   * Tools for the agent turns Dovre starts (local mode, Claude Code), on core's MCP server (src/mcp.ts)
+   * as `<id>_<name>`. Each call comes from a turn that's running, with that turn's own token; Claude
+   * Code still asks before each tool as for any other. The tool enforces its own limits (what it may
+   * reach, how much it answers): its arguments are the model's, so treat them as hostile.
+   */
+  tools?(ctx: PackContext): PackTool[];
   /** Hosted cron (wrangler triggers). */
   scheduled?(event: ScheduledEvent, ctx: PackContext, defer: Defer): Promise<void>;
   /** Hosted Email Routing: a message to an address routed to this Worker. Return true when handled. */
   email?(message: unknown, ctx: PackContext, defer: Defer): Promise<boolean>;
 };
+
+/** One tool a pack offers agent turns (see Pack.tools). */
+export type PackTool = {
+  /** Lowercase letters, digits and underscores (`send`); offered as `<pack id>_<name>`. */
+  name: string;
+  /** For the model: what it does and its limits, in a few sentences. */
+  description: string;
+  /** A JSON Schema object for its arguments. */
+  input: { type: "object"; properties?: Record<string, unknown>; required?: string[]; [k: string]: unknown };
+  /** `call`: the turn asking (its repo folder and run id). The text goes to the model: keep secrets out of it. */
+  run(args: Record<string, unknown>, ctx: PackContext, call: ToolCall): Promise<ToolResult> | ToolResult;
+};
+export type ToolCall = { run: string; repo: string; cwd: string };
+export type ToolResult = { text: string; error?: boolean };
 
 /** What an ingest request brings the pack (see Pack.ingest). */
 export type IngestInput = {

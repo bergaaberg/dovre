@@ -56,6 +56,7 @@ import { mountPwa } from "./pwa.ts";
 import type { Html } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
+import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { packsPage } from "./pages/packs.ts";
@@ -268,6 +269,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     }
   // A pack's ingest (dovre#109): apps POST in with a token made on Settings, before the guard.
   mountIngest(app, { packs: deps.packs?.on ?? [], shown: () => shown(), ctxOf: (p) => ctxOf(p), db: () => env.DB, hosted, isLocal: (req) => isLocal(req, publicOrigin), log: (id, line) => packLog(id)(line) });
+  // The agent turns' MCP server (dovre#153): a running turn's own token, before the guard, local only.
+  if (deps.runner && !hosted) {
+    const runner = deps.runner;
+    mountMcp(app, { shown: () => shown(), ctxOf: (p) => ctxOf(p), turnOf: (t) => runner.byMcpToken(t), hosted, isLocal: (req) => isLocal(req), db: () => env.DB, log: (line) => console.log(line), version: deps.info?.version });
+  }
   app.use(async (c, next) => {
     let viewer: string | undefined;
     // Hosted is the Worker's setting, never something a request can claim (src/access.ts).

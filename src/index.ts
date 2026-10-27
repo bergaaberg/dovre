@@ -253,7 +253,11 @@ const runStatus = new Map<string, Run["status"]>();
 let turnChanged = (_r: Run) => {};
 // Agent turns run through the launcher's agent host when it's built: they go on when the server
 // restarts, and are picked up again from data/runs (launcher/agenthost.go keeps tool results out).
+/** Whether any pack offers agent turns tools (src/mcp.ts); set once the packs are loaded. */
+let mcpOn = () => false;
 const runner = createRunner({
+  // Each Claude Code turn gets Dovre's MCP server, with its own token, when packs offer tools.
+  mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() },
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
   // omp turns always say how to ask before acting: the user's own omp config approves everything.
   harnesses: {
@@ -384,6 +388,7 @@ if (stats) {
 // Packs (PLAN D23): those PACKS loaded above that can run here, after the core's.
 const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, hosted: false, which: (b) => which(b) }), env: packEnv, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars" };
 packSet.off.push(...loaded.failed);
+mcpOn = () => packSet.on.some((p) => p.tools);
 for (const o of packSet.off) console.log(`pack ${o.id}: off, ${o.why}`);
 
 const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {

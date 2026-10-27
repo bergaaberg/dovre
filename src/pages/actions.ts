@@ -21,6 +21,7 @@ const WHAT: Record<string, string> = {
   "pr.review": "Posted an agent's review",
   "pr.replies": "Posted replies on a pull request",
   "relay.answer": "Answered a question",
+  "mcp.call": "An agent used a pack's tool",
 };
 /** What a pack calls a kind of entry it logged ("actions.what"); undefined: none says. */
 export type Said = (kind: string) => string | undefined;
