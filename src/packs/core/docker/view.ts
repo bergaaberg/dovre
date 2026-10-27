@@ -51,7 +51,7 @@ function engineNote(v: DockerView): Html {
     return Notice({
       children: v.ours
         ? html`<p><strong>No Docker engine here yet.</strong> Dovre runs Docker Engine in a WSL distro of its own, without Docker Desktop:</p><pre class="code">pwsh scripts/docker.ps1</pre><p>Then restart Dovre (Settings → Restart): the launcher serves the engine to the docker CLI, Testcontainers and this page.</p>`
-        : html`<p><strong>No Docker engine found.</strong> Start Docker Desktop, OrbStack, Colima, or native dockerd.</p>`,
+        : html`<p><strong>No Docker engine found.</strong> Start Docker Desktop, OrbStack, Colima, or native dockerd. On a Mac without one, this sets up Colima and starts it at login:</p><pre class="code">sh scripts/docker.sh</pre>`,
     });
   if (v.state === "off") return Notice({ children: html`<p><strong>Docker is off.</strong> Its containers stopped with it; the ones with a restart policy come back when it starts.</p><div class="buttons">${btn("/docker/engine/on", "Start Docker", "Starting", "primary")}</div>` });
   if (v.state === "starting") return Notice({ children: html`<p><strong>Starting Docker…</strong> The distro and the engine take a few seconds; this fills in by itself.</p>` });
