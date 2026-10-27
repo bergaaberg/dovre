@@ -16,14 +16,29 @@ export const DEPENDABOT = "dependabot[bot]";
 export const MAX_COMBINE = 30;
 
 export type BotPr = { repo: string; number: number; title: string; url: string; createdAt: string; security: boolean };
-export type RepoQueue = { repo: string; prs: BotPr[]; oldest: string; security: number; combined?: { number: number; url: string } };
+/** A combined PR Dovre opened: its checks (the head commit's rollup, null without any) and whether it can merge now. */
+export type Combined = { number: number; url: string; checks: string | null; mergeable: string | null; draft: boolean };
+/** Green, mergeable and not a draft: what may be ticked to merge. */
+export const combinedReady = (c: Combined) => !c.draft && c.mergeable === "MERGEABLE" && c.checks === "SUCCESS";
+export type RepoQueue = { repo: string; prs: BotPr[]; oldest: string; security: number; combined?: Combined };
 
 /** The package a bump names: "Bump lodash from 4.17.20 to 4.17.21" → "lodash"; grouped bumps have none. */
 export function bumpedPackage(title: string): string | undefined {
   return /\b[Bb]ump (\S+) from \S+ to \S+/.exec(title)?.[1]?.toLowerCase();
 }
 
-type SearchNode = { number?: number; title?: string; url?: string; createdAt?: string; headRefName?: string; author?: { login: string } | null; repository?: { nameWithOwner: string } | null };
+type SearchNode = {
+  number?: number;
+  title?: string;
+  url?: string;
+  createdAt?: string;
+  headRefName?: string;
+  isDraft?: boolean;
+  mergeable?: string;
+  commits?: { nodes?: { commit?: { statusCheckRollup?: { state?: string } | null } }[] };
+  author?: { login: string } | null;
+  repository?: { nameWithOwner: string } | null;
+};
 const q = (s: string) => JSON.stringify(s);
 
 /**
@@ -34,7 +49,7 @@ const q = (s: string) => JSON.stringify(s);
 export async function loadQueue(ghe: Ghe, owners: string): Promise<{ repos: RepoQueue[]; alertsUnread: string[] }> {
   const d = await ghe.graphql<{ bots: { nodes: SearchNode[] }; mine: { nodes: SearchNode[] } }>(`{
     bots: search(query:${q(`is:pr is:open author:app/dependabot ${ownerQuery(owners)} archived:false sort:created-asc`)}, type:ISSUE, first:100){ nodes{ ... on PullRequest { number title url createdAt repository{nameWithOwner} } } }
-    mine: search(query:${q(`is:pr is:open in:title \"Dependency updates\" ${ownerQuery(owners)} archived:false`)}, type:ISSUE, first:50){ nodes{ ... on PullRequest { number url headRefName repository{nameWithOwner} } } }
+    mine: search(query:${q(`is:pr is:open in:title \"Dependency updates\" ${ownerQuery(owners)} archived:false`)}, type:ISSUE, first:50){ nodes{ ... on PullRequest { number url headRefName isDraft mergeable repository{nameWithOwner} commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } } } }
   }`);
   const by = new Map<string, BotPr[]>();
   for (const n of d.bots?.nodes ?? []) {
@@ -56,8 +71,16 @@ export async function loadQueue(ghe: Ghe, owners: string): Promise<{ repos: Repo
       }
     }),
   );
-  const combined = new Map<string, { number: number; url: string }>();
-  for (const n of d.mine?.nodes ?? []) if (n.repository?.nameWithOwner && typeof n.number === "number" && n.headRefName?.startsWith("dovre/dependabot-")) combined.set(n.repository.nameWithOwner, { number: n.number, url: String(n.url ?? "") });
+  const combined = new Map<string, Combined>();
+  for (const n of d.mine?.nodes ?? [])
+    if (n.repository?.nameWithOwner && typeof n.number === "number" && n.headRefName?.startsWith(BRANCH))
+      combined.set(n.repository.nameWithOwner, {
+        number: n.number,
+        url: String(n.url ?? ""),
+        checks: n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
+        mergeable: n.mergeable ?? null,
+        draft: n.isDraft === true,
+      });
   const repos = [...by.entries()].map(([repo, prs]): RepoQueue => {
     prs.sort((a, b) => Number(b.security) - Number(a.security) || a.createdAt.localeCompare(b.createdAt));
     return { repo, prs, oldest: prs.reduce((m, p) => (p.createdAt < m ? p.createdAt : m), prs[0]!.createdAt), security: prs.filter((p) => p.security).length, combined: combined.get(repo) };
@@ -69,6 +92,9 @@ export async function loadQueue(ghe: Ghe, owners: string): Promise<{ repos: Repo
 type RawPull = { number: number; title: string; html_url: string; state: string; created_at: string; user: { login: string; type: string } | null; head: { sha: string; ref: string; repo: { full_name: string } | null } };
 
 export type CombineResult = { ok: boolean; message: string; url?: string; merged?: number[]; skipped?: { number: number; why: string }[] };
+
+/** The branches combine() opens its PRs from. */
+const BRANCH = "dovre/dependabot-";
 
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
@@ -109,7 +135,7 @@ export async function combine(ghe: Ghe, db: D1, repo: string, opts: { only?: num
     const info = await ghe.rest<{ default_branch: string }>(`/repos/${repo}`);
     const base = info.default_branch;
     const ref = await ghe.rest<{ object: { sha: string } }>(`/repos/${repo}/git/ref/heads/${encodeURIComponent(base)}`);
-    branch = `dovre/dependabot-${stamp(now)}`;
+    branch = `${BRANCH}${stamp(now)}`;
     await ghe.rest(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: `refs/heads/${branch}`, sha: ref.object.sha } });
     const merged: RawPull[] = [];
     const skipped: { pr: RawPull; why: string }[] = [];
@@ -143,6 +169,42 @@ export async function combine(ghe: Ghe, db: D1, repo: string, opts: { only?: num
     const error = String((e as Error)?.message ?? e);
     if (branch) await ghe.rest(`/repos/${repo}/git/refs/heads/${branch}`, { method: "DELETE" }).catch(() => {});
     return fail(`Couldn't combine the Dependabot PRs in ${repo}: ${error}`, error);
+  }
+}
+
+/** How many combined PRs one bulk merge takes. */
+export const MAX_MERGE = 20;
+
+/**
+ * Merges a combined PR Dovre opened, once green (dovre#108, bulk via #104): re-read now, still open,
+ * from one of combine()'s branches in the repo itself, mergeable, its head's checks all passed, and
+ * merged at that head only (a push since is refused by GitHub). Squashed, so main gets one commit.
+ */
+export async function mergeCombined(ghe: Ghe, db: D1, repo: string, number: number): Promise<CombineResult> {
+  const target = `${repo}#${number}`;
+  const fail = async (message: string, error?: string) => {
+    await logAction(db, { kind: "pr.merge-combined", target, ok: false, error: error ?? message });
+    return { ok: false, message: `${target}: ${message}` };
+  };
+  try {
+    const pr = await ghe.rest<RawPull & { mergeable: boolean | null; draft?: boolean; merged?: boolean }>(`/repos/${repo}/pulls/${number}`);
+    if (pr.state !== "open") return fail(pr.merged ? "already merged." : "it's closed.");
+    if (!pr.head.ref.startsWith(BRANCH) || pr.head.repo?.full_name !== repo) return fail("not a combined PR Dovre opened.");
+    if (pr.draft) return fail("it's a draft.");
+    if (pr.mergeable === null) return fail("GitHub is still working out whether it merges; try again in a moment.");
+    if (!pr.mergeable) return fail("it doesn't merge cleanly.");
+    const [owner, name] = repo.split("/");
+    const c = await ghe.graphql<{ repository?: { object?: { statusCheckRollup?: { state?: string } | null } | null } | null }>(
+      `{ repository(owner:${q(owner!)}, name:${q(name!)}){ object(oid:${q(pr.head.sha)}){ ... on Commit { statusCheckRollup{ state } } } } }`,
+    );
+    const checks = c.repository?.object?.statusCheckRollup?.state ?? null;
+    if (checks !== "SUCCESS") return fail(checks ? `its checks are ${checks.toLowerCase()}.` : "no checks ran on it.");
+    await ghe.rest(`/repos/${repo}/pulls/${number}/merge`, { method: "PUT", body: { sha: pr.head.sha, merge_method: "squash" } });
+    await logAction(db, { kind: "pr.merge-combined", target, detail: pr.head.sha.slice(0, 7), ok: true });
+    return { ok: true, message: `Merged ${target}.`, url: pr.html_url };
+  } catch (e) {
+    const error = String((e as Error)?.message ?? e);
+    return fail(`couldn't merge: ${error.slice(0, 200)}`, error);
   }
 }
 

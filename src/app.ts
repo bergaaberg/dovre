@@ -79,7 +79,7 @@ import { stacksPage } from "./pages/stacks.ts";
 import { dependabotPage, type Job as BotJob } from "./pages/dependabot.ts";
 import { DEFAULT_KEYS, KEY_GROUPS, keyPrefsStore } from "./keys.ts";
 import { keysPanel } from "./pages/keys.ts";
-import { addGroups, combine, loadQueue } from "./actions/dependabot.ts";
+import { addGroups, combine, loadQueue, MAX_MERGE, mergeCombined } from "./actions/dependabot.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
@@ -667,6 +667,45 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     botWrite("combine", (repo) => combine(ghe, env.DB, repo, { security: botQueue?.value.repos.find((r) => r.repo === repo)?.prs.filter((p) => p.security).map((p) => p.number) ?? [] })),
   );
   app.post("/prs/dependabot/groups", botWrite("groups", (repo) => addGroups(ghe, env.DB, repo)));
+  // Bulk merge of green combined PRs (dovre#108): each re-checked on its own after the redirect; MAX_MERGE at most.
+  app.post("/prs/dependabot/merge", async (c) => {
+    const form = await c.req.parseBody({ all: true });
+    const picks = ([] as unknown[]).concat(form.pick ?? []).filter((v): v is string => typeof v === "string").slice(0, MAX_MERGE);
+    const key = "merge:combined PRs";
+    if (!picks.length) {
+      botJobs.set(key, { repo: "combined PRs", what: "merge", state: "done", ok: false, message: "Tick one or more combined PRs first." });
+      return c.redirect("/prs/dependabot", 303);
+    }
+    if (botJobs.get(key)?.state === "running") return c.redirect("/prs/dependabot", 303);
+    botJobs.set(key, { repo: "combined PRs", what: "merge", state: "running" });
+    const job = (async () => {
+      const lines: string[] = [];
+      let done = 0;
+      for (const p of picks) {
+        const at = p.lastIndexOf("#");
+        const repo = repoIn(ownersIn(env), p.slice(0, at));
+        const n = /^\d{1,9}$/.test(p.slice(at + 1)) ? Number(p.slice(at + 1)) : 0;
+        if (!repo || !n) {
+          lines.push("A PR outside the owners' repos was left alone.");
+          continue;
+        }
+        const r = await mergeCombined(ghe, env.DB, repo, n);
+        if (r.ok) done++;
+        else lines.push(r.message);
+      }
+      botJobs.set(key, { repo: "combined PRs", what: "merge", state: "done", ok: done === picks.length, message: `Merged ${done} of ${picks.length}.${lines.length ? ` ${lines.slice(0, 5).join(" ")}` : ""}` });
+    })()
+      .catch((e) => botJobs.set(key, { repo: "combined PRs", what: "merge", state: "done", ok: false, message: String((e as Error)?.message ?? e) }))
+      .then(() => loadBots(true).catch(() => undefined))
+      .finally(() => {
+        gatherer.stale();
+        deps.hub?.publish(["dependabot", "snapshot"]);
+      });
+    try {
+      c.executionCtx.waitUntil(job);
+    } catch {}
+    return c.redirect("/prs/dependabot", 303);
+  });
   app.get("/movement", async (c) => {
     const { s, frame } = await page();
     const view = ["timeline", "me", "bots"].includes(c.req.query("view") ?? "") ? c.req.query("view")! : "people";
