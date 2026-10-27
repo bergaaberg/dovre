@@ -57,6 +57,7 @@ import { localDesk } from "./agents/desk.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
 import { terminalPack } from "./packs/core/terminal/index.ts";
+import { storybookPack } from "./packs/core/storybook/index.ts";
 import { findPrograms } from "./packs/core/terminal/programs.ts";
 import { createTerminals } from "./packs/core/terminal/terms.ts";
 import { type Need, needsOf } from "./home/needs.ts";
@@ -361,6 +362,8 @@ const corePacks = [
       : {}),
   }),
   ...(terminals ? [terminalPack(terminals)] : []),
+  // A PR's stories before and after; off unless STORYBOOK names a repo.
+  storybookPack({ ghe, owners: () => ownersIn(env) }),
   ...(on.docker
     ? [
         dockerPack((ctx) =>

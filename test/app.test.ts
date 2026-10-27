@@ -296,3 +296,42 @@ test("Issues actions (#40): the owners' repos only, re-checked, written once, lo
     ["issues.close", "ACME/a#1", 1],
   ]);
 });
+
+test("Storybook (#160): hostile stories files, titles and branches stay inert; frames only on its own page, for its origins; off and unknown repos 404", async () => {
+  const { storybookPack } = await import("../src/packs/core/storybook/index.ts");
+  const env = { STORYBOOK: "ACME/web https://acme.example.io/web/pr-{pr}/ https://acme.example.io/web/{base}/; OTHER/x https://other.example.io/{pr}/ https://other.example.io/main/" };
+  const path = `src/${H}/Button.stories.tsx`;
+  const enc = (p: string) => p.split("/").map(encodeURIComponent).join("/");
+  const src = `const meta = { title: "<script>x</script>/Button", component: Button };\nexport default meta;\nexport const Primary = {};\nexport const WithIcon = { args: { title: "${H}" } };`;
+  const b64 = Buffer.from(src).toString("base64");
+  const routes = {
+    "GET /repos/ACME/web/pulls/7": { head: { ref: H, sha: "abc123" }, base: { ref: "main" } },
+    "GET /repos/ACME/web/pulls/7/files?per_page=100&page=1": [{ filename: path, status: "modified" }, { filename: `src/${H}/Button.tsx`, status: "modified" }],
+    [`GET /repos/ACME/web/contents/${enc(`src/${H}`)}?ref=abc123`]: [{ type: "file", path }, { type: "file", path: `src/${H}/Other.stories.tsx` }],
+    [`GET /repos/ACME/web/contents/${enc(path)}?ref=abc123`]: { type: "file", encoding: "base64", content: b64, size: src.length },
+    [`GET /repos/ACME/web/contents/${enc(`src/${H}/Other.stories.tsx`)}?ref=abc123`]: { type: "file", encoding: "base64", content: Buffer.from("export default {};\nexport const Big = {};").toString("base64"), size: 40 },
+  };
+  const { fakeGhe } = await import("./helpers.ts");
+  const { ghe } = fakeGhe(routes);
+  const pack = storybookPack({ ghe, owners: () => "ACME" });
+  const { get } = signedIn(snapshot(), {}, { packs: [pack], packEnv: env });
+  const res = await get("/storybook/ACME/web/7");
+  assert.equal(res.status, 200);
+  const out = await res.text();
+  assertInert("/storybook", out);
+  assert.ok(!out.includes('href="javascript:') && !out.includes('src="javascript:'));
+  assert.match(out, /iframe\.html\?id=script-x-script-button--primary&amp;viewMode=story/);
+  assert.match(out, /https:\/\/acme\.example\.io\/web\/main\/iframe\.html/);
+  assert.match(out, /https:\/\/acme\.example\.io\/web\/pr-7\/iframe\.html/);
+  assert.ok(out.includes("other--big") || out.includes("Big"), "the stories beside a changed file are found too");
+  const csp = res.headers.get("content-security-policy") ?? "";
+  assert.match(csp, /frame-src 'self' https:\/\/acme\.example\.io https:\/\/other\.example\.io/);
+  // Core pages never frame them.
+  assert.doesNotMatch((await get("/prs")).headers.get("content-security-policy") ?? "", /example\.io/);
+  // A repo STORYBOOK doesn't name, or one outside the owners: not found.
+  assert.equal((await get("/storybook/ACME/api/7")).status, 404);
+  assert.equal((await get("/storybook/OTHER/x/7")).status, 404);
+  // Without STORYBOOK the pack is off: no page, no frames.
+  const off = signedIn(snapshot(), {}, { packs: [storybookPack({ ghe, owners: () => "ACME" })] });
+  assert.equal((await off.get("/storybook/ACME/web/7")).status, 404);
+});

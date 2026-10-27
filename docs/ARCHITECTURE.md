@@ -108,6 +108,7 @@ It keeps core's safety boundary intact:
 | Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` (with a `key` letter) | from memory |
 | Bino | `bino`, `about` (not asked for a manifest-`private` pack), `acts` (local only) | from memory; an act's `run` in the background |
 | Core pages | `slots` (SlotMap: thirteen places) | from memory |
+| Frames | `frames`: `https://` origins its own pages (`/<id>/…`) may frame (Storybook) | from memory |
 | Links | `refs` (ticket keys in text), `linked` (PR links for the gather to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
 | Forge | `ctx.forge()`: who I am, the owners, and what the forge answers packs (`work`, `merged`); read-only | on request |
@@ -159,6 +160,8 @@ The registry does this for every hook, so a pack can't break a page or another p
     no permission widens. A pack's tool enforces its own limits. Every call is logged as `mcp.call`
     (the tool and the repo, never arguments or results).
   - Only a pack's `/<id>/dock` pages may be framed by Dovre's own pages.
+  - A pack's own pages may frame other sites only for the `https://` origins its `frames` names
+    (CSP `frame-src`, per pack); core pages never do.
   - A pack's act is checked against its declared fields before the card is drawn. Pressing it
     asks a second time unless the act is `oneClick`.
 
