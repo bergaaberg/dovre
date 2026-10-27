@@ -47,7 +47,7 @@ export function themeColor(theme?: string) {
 <meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;
 }
 
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the assistant icon (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** The theme when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string; /** Bino's button: the assistant icon even when a pack draws a face (Settings → Layout). */ binoIcon?: boolean }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the assistant icon (the packs' `bino.face` slot). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Scripts after the core's: the packs'. */ scripts?: string[]; /** The theme when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string; /** Bino's button: the assistant icon even when a pack draws a face (Settings → Layout). */ binoIcon?: boolean }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
 
 /**
  * Bino's pane, docked at the bottom right of every page but Bino's own. Without script it's a link
@@ -55,8 +55,8 @@ export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?
  * its place while I move between pages.
  */
 function binoDock(face: Html | ""): Html {
-  // With a face (the avatar pack's), the button is it: it works, hops and says what happened (src/ui/app.js.ts).
-  if (face) return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn av-dock" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino (B)" aria-label="Bino" data-av-box>${face}</a></div>`;
+  // With a face (a pack's `bino.face`), the button is it; the pack's script may bring it to life.
+  if (face) return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn face-btn" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino (B)" aria-label="Bino">${face}</a></div>`;
   return html`<div class="tdock" id="bdock"><div class="tdock-panel" id="bdock-panel" hidden></div><a class="tdock-btn bino-btn" id="bdock-btn" href="/bino" aria-controls="bdock-panel" aria-expanded="false" title="Bino, your assistant (B)" aria-label="Bino">${icon("bino")}<span>Ask Bino</span></a></div>`;
 }
 
@@ -71,7 +71,7 @@ function packDock(d: DockView): Html {
 }
 
 /** A page shown inside a dock (Bino's, a pack's): no top bar or footer, the same style and script. */
-export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[] }): Html {
+export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[]; /** Scripts after the core's (the packs'). */ scripts?: string[] }): Html {
   return html`<!doctype html>
 <html lang="en">
 <head>
@@ -82,6 +82,7 @@ export function dockShell(opts: { title: string; body: Html | string; head?: Htm
 <link rel="stylesheet" href="${STYLE_PATH}">
 ${(opts.styles ?? []).map((h) => html`<link rel="stylesheet" href="${h}">`)}
 <script type="module" src="${SCRIPT_PATH}"></script>
+${(opts.scripts ?? []).map((h) => html`<script type="module" src="${h}"></script>`)}
 ${opts.head ?? ""}
 </head>
 <body class="dock-page">
@@ -219,6 +220,7 @@ ${themeColor(frame.look?.theme)}
 <meta name="u-live" content="${frame.live}">` : ""}
 <script src="${SIDE_PATH}"></script>
 <script type="module" src="${SCRIPT_PATH}"></script>
+${(frame.scripts ?? []).map((h) => html`<script type="module" src="${h}"></script>`)}
 ${head}
 </head>
 <body>

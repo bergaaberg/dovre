@@ -204,7 +204,7 @@ test("demo: phone-width bottom tab bar shows with Bino in the middle, and the Mo
     const html = await res.text();
     assert.match(html, /class="tabbar gap-32"/, `${path} has tabbar gap-32`);
     assert.match(html, /<span class="tab-gap" aria-hidden="true"><\/span>/, `${path} has middle gap for Bino`);
-    assert.match(html, /id="bdock-btn"[^>]*data-av-box/, `${path} has Bino dock button with avatar`);
+    assert.match(html, /id="bdock-btn"[^]*av-face/, `${path} has Bino dock button with avatar`);
     assert.match(html, /data-av="dock"/, `${path} has avatar dock face`);
     assert.match(html, /id="tab-more"[^>]*aria-controls="side-sheet"/, `${path} has More button pointing to side sheet`);
     assert.match(html, /id="side-sheet"/, `${path} has More sheet`);

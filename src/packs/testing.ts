@@ -22,6 +22,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     ring: () => {},
     ask: async () => ({ action: "cancel" }),
     asking: () => false,
+    pulse: () => ({ working: 0, asking: 0, trouble: [], busy: false }),
     ...over,
   };
 }

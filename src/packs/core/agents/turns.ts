@@ -1,11 +1,11 @@
 /**
  * Agent turns as news (PLAN WP-H9d4): a turn started here that just ended rings when it stopped
  * on a tool it was refused ("agent-ask"), or when a long one finished or failed ("agent-done").
- * An ordinary reply doesn't ring. And how many agents work and wait, for the avatar. Pure.
+ * An ordinary reply doesn't ring. And how many agents work and wait, for the packs' pulse. Pure.
  */
 import type { Run } from "../../../agents/runner.ts";
 import type { Session } from "../../../sources/claude.ts";
-import type { AvatarFeed, PackNote } from "../../types.ts";
+import type { PulseFeed, PackNote } from "../../types.ts";
 
 /** What a turn that just ended rings, if anything; `longMs`: how long counts as long (Settings → Notifications). */
 export function turnNote(r: Run, longMs: number, now = Date.now()): PackNote | undefined {
@@ -35,7 +35,7 @@ export function turnWatch(): { ended(r: Run): boolean } {
 const state = (x: Session) => (x.status ?? "").replace(/^probably-/, "");
 
 /** Agents working (a turn here and its session count once) and agents waiting for an answer in a terminal. */
-export function agentActivity(live: Session[], runs: Run[]): Required<Pick<AvatarFeed, "working" | "asking">> {
+export function agentActivity(live: Session[], runs: Run[]): Required<Pick<PulseFeed, "working" | "asking">> {
   const running = runs.filter((r) => r.status === "running");
   const sids = new Set(running.map((r) => r.sessionId).filter(Boolean));
   return {

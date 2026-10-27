@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
-import { activePacks, avatarFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
+import { activePacks, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -537,22 +537,53 @@ test("ring: only a kind the pack declared and I have on; text cut, link made saf
   q.ctxOf(q.on.find((c) => c.manifest.id === "bell")!).ring({ kind: "bell-done", title: "No notifier", href: "/", tag: "x" });
 });
 
-test("avatar and linked: summed and kept to size across the packs; troubles a line each, links only to this app; junk and a pack that throws add none", () => {
-  const a = pack({ id: "a" }, { avatar: () => ({ working: 2.6, asking: -4, trouble: { level: "storm", why: `  2 red\n signals ${"x".repeat(200)}`, href: "/signals" } }), linked: () => ["https://acme.ghe.com/ACME/x/pull/1", "javascript:alert(1)", 7 as never, `https://acme.ghe.com/${"x".repeat(600)}`, "https://acme.ghe.com/ACME/x/pull/1"] });
-  const b = pack({ id: "b" }, { avatar: () => ({ working: 1e9, asking: Number.NaN, trouble: { level: "fire", why: "burning", href: "//evil.example/x" } }) });
-  const c = pack({ id: "c" }, { avatar: () => ({ trouble: { level: "flood" as never, why: "odd" } }) });
-  const boom = pack({ id: "boom" }, { avatar: () => { throw new Error("no"); }, linked: () => { throw new Error("no"); } });
-  const odd = pack({ id: "odd" }, { avatar: () => null, linked: () => "https://not-a-list" as never });
+test("pulse and linked: summed and kept to size across the packs; troubles a line each, links only to this app; junk and a pack that throws add none", () => {
+  const a = pack({ id: "a" }, { pulse: () => ({ working: 2.6, asking: -4, trouble: { level: "storm", why: `  2 red\n signals ${"x".repeat(200)}`, href: "/signals" } }), linked: () => ["https://acme.ghe.com/ACME/x/pull/1", "javascript:alert(1)", 7 as never, `https://acme.ghe.com/${"x".repeat(600)}`, "https://acme.ghe.com/ACME/x/pull/1"] });
+  const b = pack({ id: "b" }, { pulse: () => ({ working: 1e9, asking: Number.NaN, trouble: { level: "fire", why: "burning", href: "//evil.example/x" } }) });
+  const c = pack({ id: "c" }, { pulse: () => ({ trouble: { level: "flood" as never, why: "odd" } }) });
+  const boom = pack({ id: "boom" }, { pulse: () => { throw new Error("no"); }, linked: () => { throw new Error("no"); } });
+  const odd = pack({ id: "odd" }, { pulse: () => null, linked: () => "https://not-a-list" as never });
   const logged: string[] = [];
   const log = (id: string, line: string) => logged.push(`${id}: ${line}`);
-  assert.deepEqual(avatarFrom([a, b, c, boom, odd], () => ({}) as never, log), { working: 3 + 99, asking: 0, trouble: [{ level: "storm", why: `2 red signals ${"x".repeat(66)}`, href: "/signals" }, { level: "fire", why: "burning" }] });
+  assert.deepEqual(pulseFrom([a, b, c, boom, odd], () => ({}) as never, log), { working: 3 + 99, asking: 0, trouble: [{ level: "storm", why: `2 red signals ${"x".repeat(66)}`, href: "/signals" }, { level: "fire", why: "burning" }] });
   assert.deepEqual(linkedFrom([a, b, boom, odd], () => ({}) as never, log), ["https://acme.ghe.com/ACME/x/pull/1"]);
-  assert.deepEqual(logged, ["boom: avatar: no", "boom: linked: no"]);
+  assert.deepEqual(logged, ["boom: pulse: no", "boom: linked: no"]);
   // On duty: one pack saying so is enough; anything but true says nothing.
+  // The old name (`avatar`) still counts; with both, `pulse` is read.
   const duty = pack({ id: "duty" }, { avatar: () => ({ onDuty: true }) });
-  const maybe = pack({ id: "maybe" }, { avatar: () => ({ onDuty: "yes" as never }) });
-  assert.equal(avatarFrom([a, duty], () => ({}) as never, log).onDuty, true);
-  assert.equal(avatarFrom([a, maybe], () => ({}) as never, log).onDuty, undefined);
+  const both = pack({ id: "both" }, { pulse: () => ({ working: 1 }), avatar: () => ({ working: 50 }) });
+  assert.equal(pulseFrom([both], () => ({}) as never, log).working, 1);
+  const maybe = pack({ id: "maybe" }, { pulse: () => ({ onDuty: "yes" as never }) });
+  assert.equal(pulseFrom([a, duty], () => ({}) as never, log).onDuty, true);
+  assert.equal(pulseFrom([a, maybe], () => ({}) as never, log).onDuty, undefined);
+});
+
+test("script and pulse: the packs' scripts in one file after the core's, a block each, on pages and dock pages; none without one; ctx.pulse sums the shown packs", async () => {
+  const seen: unknown[] = [];
+  const glow = pack(
+    { id: "glow" },
+    {
+      script: `document.addEventListener("dovre:change", () => {});`,
+      routes: (app, ctx) => {
+        app.get("/glow/dock", (c) => ctx.dockPage(c, { title: "Glow", body: "docked" }));
+        app.get("/glow/pulse", (c) => c.json(ctx.pulse()));
+      },
+      pulse: (ctx) => (seen.push(ctx.pulse()), { asking: 2 }),
+    },
+  );
+  const busy = pack({ id: "busy" }, { pulse: () => ({ working: 1, trouble: { level: "storm", why: "1 red signal" } }), script: "let n = 1;" });
+  const { get } = signedIn(snapshot(), {}, { packs: [glow, busy] });
+  const page = await (await get("/prs")).text();
+  const src = page.match(/<script type="module" src="\/assets\/app\.[^"]+\.js"><\/script>\n<script type="module" src="(\/assets\/packs\.[0-9a-z]+\.js)"><\/script>/)?.[1];
+  assert.ok(src, "linked right after the core's");
+  const js = await get(src);
+  assert.match(js.headers.get("content-type") ?? "", /text\/javascript/);
+  assert.match(js.headers.get("cache-control") ?? "", /immutable/);
+  assert.equal(await js.text(), `// glow\n{\ndocument.addEventListener("dovre:change", () => {});\n}\n// busy\n{\nlet n = 1;\n}`);
+  assert.match(await (await get("/glow/dock")).text(), new RegExp(`<script type="module" src="${src.replace(/\./g, "\\.")}">`), "dock pages too");
+  assert.deepEqual(await (await get("/glow/pulse")).json(), { working: 1, asking: 2, trouble: [{ level: "storm", why: "1 red signal" }], busy: true });
+  assert.deepEqual(seen.at(-1), { working: 0, asking: 0, trouble: [], busy: false }, "a pack reading the pulse from its own pulse gets nothing back");
+  assert.doesNotMatch(await (await signedIn(snapshot(), {}, { packs: [pack({ id: "plain" })] }).get("/prs")).text(), /assets\/packs\.[^"]+\.js/, "no pack script: none linked");
 });
 
 test("beforePage: the core waits for the packs together, 1.5 s at most; one that throws or hangs leaves the page whole", async () => {

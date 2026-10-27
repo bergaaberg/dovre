@@ -73,7 +73,9 @@ It keeps core's safety boundary intact:
    `available` answers no (or throws) is off now, saying so, before anything of it is mounted. Its routes go on a
    sub-app of their own, mounted after the guard and every core route. The mount is refused if a
    route is outside `/<id>` and the manifest's `paths`, if a path is a core path or another
-   pack's, or if `routes` throws. The packs' `styles` are served as one hashed stylesheet.
+   pack's, or if `routes` throws. The packs' `styles` are served as one hashed stylesheet, and their `script`s as one
+   hashed script after the core's (a block each), which hears the core through `dovre:change`
+   and `dovre:swap` events on `document`.
 5. **Started** (`initAll`). A pack whose `init` throws is taken off.
 6. **Refreshed** (`refresher`). On the pack's `everyMs` (default 5 min), one run at a time per
    pack. A run that takes longer than `maxMs` is given up, and the next due one starts again.
@@ -99,7 +101,7 @@ It keeps core's safety boundary intact:
 
 | Where | Hooks | Timing |
 |---|---|---|
-| Its own pages | `routes`, `styles`, `nav`, `paths` (manifest) | routes on request |
+| Its own pages | `routes`, `styles`, `script`, `nav`, `paths` (manifest) | routes on request |
 | Today | `today` (cards), `glance`, `brief`, `lane`, `feed` | cards: 250 ms for all; the rest from memory |
 | Search | `pages`, `finds` (with `kind`: agents, code, actions) | from memory |
 | Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` (with a `key` letter) | from memory |
@@ -107,7 +109,7 @@ It keeps core's safety boundary intact:
 | Core pages | `slots` (SlotMap: thirteen places) | from memory |
 | Links | `refs` (ticket keys in text), `linked` (PR links for the gather to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
-| Avatar | `avatar`: working / asking counts, trouble (storm or fire, why, link) | from memory |
+| Pulse | `pulse` (old name `avatar`): working / asking counts, trouble (storm or fire, why, link), on duty; any pack reads the sum as `ctx.pulse()` | from memory |
 | Lifecycle | `available`, `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s for all |
 | Outside callers | `callback` (local), `ingest` (token), `scheduled`, `email` (hosted) | as the platform calls |
 | The forge | `forge` (`ForgeDecl`, `src/forge/types.ts`): PRs/MRs, CI, notifications, movement and deploys instead of GitHub when `FORGE` is its id | made once at start, before `init` |
@@ -135,7 +137,7 @@ The registry does this for every hook, so a pack can't break a page or another p
     - acts: 5 per pack, 8 fields each, 12 in all;
     - finds: 500 per pack; linked PRs: 200;
     - glance: 2 numbers; brief: 12 bits; lane: 200 marks;
-    - avatar: counts 0–99; 5 troubles, a line of 80 each, links to this app's paths only.
+    - pulse: counts 0–99; 5 troubles, a line of 80 each, links to this app's paths only.
 - **Namespaces.**
   - A pack's need keys, ring tags and Bino act kinds are kept under its id.
   - A ring kind the core or another pack already has is refused.
@@ -215,6 +217,8 @@ their code, panes, settings, routes or styles come back to core. DROPS is next (
    and hosted. It shows on core pages through two slots (`today.hero`, `bino.face`). What other
    packs tell it is one hook, `avatar`: working and asking counts (agents), and trouble, a storm
    or a fire with a line of counts and a link (signals: red signals). `activity` is gone.
+   *Since #130:* that hook is `pulse`, summed for any pack as `ctx.pulse()`; the avatar's client
+   code is its own `script`. Next, the avatar moves to dovre-packs as an optional pack.
 2. *Settled (H9f, 2026-10-26):* **a pack's options are its manifest `settings`** (.dev.vars, shown
    and saved on the Packs page). The config store's keys stay a fixed list (src/config.ts `KEYS`)
    for core's own panes, so Teams' options (TEAMS_CRAWL, TEAMS_SINCE_DAYS, OUTLOOK) left it with

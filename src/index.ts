@@ -60,7 +60,6 @@ import { findPrograms } from "./packs/core/terminal/programs.ts";
 import { createTerminals } from "./packs/core/terminal/terms.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { avatarPack } from "./packs/core/avatar/index.ts";
-import type { AvatarFeeds } from "./packs/registry.ts";
 import { listRepos } from "./sources/claude.ts";
 import { listTodos } from "./todo/store.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
@@ -285,9 +284,8 @@ const runner = createRunner({
     fn(r);
   },
 });
-/** What the packs say needs me (agents waiting…), what works and waits (the avatar's), and the PRs their pages link; set once the app is built. */
+/** What the packs say needs me (agents waiting…) and the PRs their pages link; set once the app is built. */
 let packNeeds: () => Need[] = () => [];
-let packFeeds = (): AvatarFeeds & { busy: boolean } => ({ working: 0, asking: 0, trouble: [], busy: false });
 let packLinked = (): string[] => [];
 const refresher = startRefresher({ gatherer, hub });
 // What needs me rings once, checked again whenever pages are told something changed: a gather, or a
@@ -344,7 +342,6 @@ const corePacks = [
   assistantPack({ codeDir: /^(off|false|no|0)$/i.test((rawVars(config).PACK_ATLAS ?? "").trim()) ? undefined : env.CODE_DIR }),
   // My avatar: GHE's numbers shape it, the snapshot, My list and the packs set its scene.
   avatarPack({
-    feeds: () => packFeeds(),
     ghe: { ghe, org: ownersIn(env), login: () => gatherer.peek()?.login },
     onStart: (svg) => writeFileSync(join(dataDir, "avatar-start.svg"), svg),
   }),
@@ -424,7 +421,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
 // Packs start, then refresh on their own schedule (checked every 30 s); pages never wait for either.
 const mountedPacks = packsOf(app)!;
 packNeeds = mountedPacks.needs;
-packFeeds = mountedPacks.feeds;
 packLinked = mountedPacks.linked;
 await initAll(mountedPacks, mountedPacks.ctxOf, (l) => console.log(l));
 if (mountedPacks.on.length) {

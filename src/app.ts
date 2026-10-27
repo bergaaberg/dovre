@@ -56,7 +56,7 @@ import type { Html } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { type AvatarFeeds, avatarFrom, actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
+import { actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { packsPage } from "./pages/packs.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
 import { strictOrigin } from "./strict.ts";
@@ -64,7 +64,7 @@ import { type LayoutStore, layoutFromForm, layoutStore, withTabs } from "./layou
 import { type LayoutView, layoutPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
 import { safeUrl } from "./pages/parts.ts";
-import type { Pack, PackContext, TodayCard } from "./packs/types.ts";
+import type { Pack, PackContext, Pulse, TodayCard } from "./packs/types.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
 import { listRepos } from "./sources/claude.ts";
@@ -131,7 +131,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 }
 
 /** A built app's packs, for the composition roots (their refresh schedule, cron, email). */
-const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** What the packs tell the avatar (avatarFrom), and whether anything has it at work (a pack's thing working, or Bino answering). */ feeds: () => AvatarFeeds & { busy: boolean }; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
+const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
 export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
@@ -347,11 +347,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
           snapshot: () => gatherer.peek(),
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),
           fill: (name, arg) => fill(name, arg),
+          pulse: () => pulseNow(),
           page: async (cx, o) => {
             const { frame } = await page({ path: cx.req.path });
             return cx.html(shell({ title: o.title, frame, current: o.current ?? cx.req.path, body: o.body, head: o.head }));
           },
-          dockPage: (cx, o) => cx.html(dockShell({ title: o.title, body: o.body, head: o.head, styles: PACK_CSS ? [PACK_CSS.path] : undefined })),
+          dockPage: (cx, o) => cx.html(dockShell({ title: o.title, body: o.body, head: o.head, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined })),
           log: packLog(c.manifest.id),
           ring: (n) => {
             const note = noteFrom(c.manifest.id, n, packRings);
@@ -390,6 +391,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
   const packCss = packs.on.filter((c) => c.styles).map((c) => `/* ${c.manifest.id} */\n${c.styles}`).join("\n");
   const PACK_CSS = packCss ? { path: `/assets/packs.${hashOf(packCss)}.css`, body: packCss } : undefined;
+  // Their scripts (`script`): one file after the core's, each pack's in a block of its own.
+  const packJs = packs.on.filter((c) => c.script).map((c) => `// ${c.manifest.id}\n{\n${c.script}\n}`).join("\n");
+  const PACK_JS = packJs ? { path: `/assets/packs.${hashOf(packJs)}.js`, body: packJs } : undefined;
   const packNav = () => shown().flatMap((c) => (c.nav ? safely(() => c.nav!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`nav: ${(e as Error)?.message ?? e}`)) : []));
   const packFeed = () =>
     packFeedOf(
@@ -429,15 +433,30 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const packNeeds = () => needsFrom(shown(), ctxOf, packRings, (id, line) => packLog(id)(line));
   const refreshes = refreshLog(() => deps.hub?.publish(["packs"]));
   const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), { record: refreshes, skip: hidden });
-  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, feeds: () => {
-      const a = avatarFrom(shown(), ctxOf, (id, line) => packLog(id)(line));
+  /** How things are across the shown packs (`pulse`); a pack reading it from its own `pulse` gets nothing back. */
+  let pulsing = false;
+  const pulseNow = (): Pulse => {
+    if (pulsing) return { working: 0, asking: 0, trouble: [], busy: false };
+    pulsing = true;
+    try {
+      const a = pulseFrom(shown(), ctxOf, (id, line) => packLog(id)(line));
       return { ...a, busy: a.working > 0 || !!engine?.list().some((x) => x.thinking) };
-    }, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)) });
+    } finally {
+      pulsing = false;
+    }
+  };
+  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)) });
   if (PACK_CSS)
     app.get(PACK_CSS.path, (c) => {
       c.header("Content-Type", "text/css; charset=utf-8");
       c.header("Cache-Control", "private, max-age=31536000, immutable");
       return c.body(PACK_CSS.body);
+    });
+  if (PACK_JS)
+    app.get(PACK_JS.path, (c) => {
+      c.header("Content-Type", "text/javascript; charset=utf-8");
+      c.header("Cache-Control", "private, max-age=31536000, immutable");
+      return c.body(PACK_JS.body);
     });
 
   /**
@@ -445,7 +464,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
    * start), a page waits a little, then shows "Gathering…" and swaps itself in when it lands.
    */
   /** Every page's frame: menu, docks, styles, sync state. */
-  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, binoIcon: layout.get().binoButton === "icon" }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, binoIcon: layout.get().binoButton === "icon" }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
@@ -464,7 +483,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const todo = todoCard(await listTodos(env.DB), linkCtxOf(env, s, packRefs()));
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
-    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), avatar: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: await reviewViews(s), todo, actions}));
+    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: await reviewViews(s), todo, actions}));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {

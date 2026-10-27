@@ -237,7 +237,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
         return session ? { session, turns: turnsFn(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;
       },
     };
-    const avatar = avatarPack({ feeds: () => ({ working: 1, asking: 0, trouble: [], busy: false }) });
+    const avatar = avatarPack();
     const settings = { ...opts.settings };
     const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const stats = (fx.stats ?? demoStats)();

@@ -8,7 +8,7 @@ import { safeUrl } from "../pages/parts.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
-import { type ActDone, type ActKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
+import { type ActDone, type ActKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type Pulse, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /** A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page shows its settings). */
 export type Off = { id: string; name: string; why: string; manifest?: PackManifest; pack?: Pack };
@@ -173,13 +173,13 @@ export function noteFrom(id: string, n: PackNote, rings: { pack: string; kind: s
 
 const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(99, Math.round(v))) : 0);
 
-/** What the avatar is told across the packs (`avatar`): counts summed, each kept to 0–99; troubles a line each, cut to size, links only to this app's paths. One that throws adds none. */
-export type AvatarFeeds = { working: number; asking: number; trouble: { level: "storm" | "fire"; why: string; href?: string }[]; /** A pack says I'm on duty. */ onDuty?: boolean };
-export function avatarFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): AvatarFeeds {
-  const out: AvatarFeeds = { working: 0, asking: 0, trouble: [] };
+/** The packs' pulses summed (`pulse`, or the old `avatar`): counts each kept to 0–99; troubles a line each, cut to size, links only to this app's paths. One that throws adds none. */
+export function pulseFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): Omit<Pulse, "busy"> {
+  const out: Omit<Pulse, "busy"> = { working: 0, asking: 0, trouble: [] };
   for (const c of on) {
-    if (!c.avatar) continue;
-    const a = safely(() => c.avatar!(ctxOf(c)), undefined, (e) => log(c.manifest.id, `avatar: ${(e as Error)?.message ?? e}`));
+    const f = c.pulse ?? c.avatar;
+    if (!f) continue;
+    const a = safely(() => f.call(c, ctxOf(c)), undefined, (e) => log(c.manifest.id, `pulse: ${(e as Error)?.message ?? e}`));
     if (!a || typeof a !== "object") continue;
     out.working += count(a.working);
     out.asking += count(a.asking);
@@ -528,7 +528,7 @@ export function hooksOf(c: Pack): string[] {
     [c.dock, "dock"],
     [c.callback, "sign-in return"],
     [c.ingest, "ingest"],
-    [c.avatar, "avatar"],
+    [c.pulse || c.avatar, "pulse"],
     [c.refresh || c.beforePage, "refresh"],
     [c.scheduled, "cron"],
     [c.email, "mail"],

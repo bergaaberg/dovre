@@ -165,13 +165,13 @@ test("Today's header and horizon are responsive: wide screen brief has readable 
   // Wide screen layout rules
   assert.match(STYLE, /\.brief\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto/);
   assert.match(STYLE, /\.brief\s*>\s*div\s*\{[^}]*max-width:\s*66ch/);
-  assert.match(STYLE, /\.brief\s*\.av-hero\s*\{[^}]*grid-column:\s*2/);
+  assert.match(STYLE, /\.brief\s*>\s*figure\s*\{[^}]*grid-column:\s*2/);
   assert.match(STYLE, /\.brief\s*\.glance\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
   assert.match(STYLE, /\.eyebrow\s*\{[^}]*white-space:\s*nowrap/);
 
   // Phone / narrow width stacking under 860px
   assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*\{[^}]*grid-template-columns:\s*1fr/);
-  assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*\.av-hero\s*\{[^}]*grid-column:\s*auto/);
+  assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*>\s*figure\s*\{[^}]*grid-column:\s*auto/);
   assert.match(STYLE, /@media\s*\(max-width:\s*860px\)[\s\S]*?\.brief\s*\.glance\s*\{[^}]*grid-column:\s*auto/);
 
   // Horizon peak near now leaves room for the fixed dock button

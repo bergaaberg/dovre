@@ -166,7 +166,7 @@ test("Bino's button: the assistant icon without an avatar; with one, the avatar 
   assert.match(icon, /href="#i-bino"/);
   assert.match(icon, /aria-label="Bino"/);
   const { get, post } = appWith([face]);
-  assert.match(button(await (await get("/prs")).text()), /av-dock[^]*av-face/);
+  assert.match(button(await (await get("/prs")).text()), /face-btn[^]*av-face/);
   await post("/settings/layout", { binoButton: "icon" });
   assert.match(button(await (await get("/prs")).text()), /href="#i-bino"/);
   assert.match(await (await get("/settings")).text(), /<option value="icon" selected>The assistant icon/);
