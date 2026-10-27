@@ -155,7 +155,9 @@ The registry does this for every hook, so a pack can't break a page or another p
 
 - One pack reaches another's page only through a slot, never an import.
 - A pack's writes to its own app re-check the current state first, log to the `actions` table,
-  and go through a Confirm (or `oneClick` where I decided so, like Teams' send).
+  and go through a Confirm (or `oneClick` where I decided so, like Teams' send). Its kinds of write
+  are listed in `writes` and passed as `kind: "<id>.<kind>"`: Settings → Writes can set each one
+  to one click, unless it has a `twice` floor.
 - A pack whose pages show what isn't mine to hand a model (chats, mail, query results) says
   `private` in its manifest: asked from one of its pages, Bino hears only the pack's name.
 - What Bino may know (`bino`, `about`) is names, states and counts. Never what someone wrote, an
