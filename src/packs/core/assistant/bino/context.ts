@@ -64,7 +64,7 @@ export function contextOf(o: {
   /** Who the user is (ABOUT_ME). */
   about?: string;
   /** What each app's pack says Bino may know (packBinoOf, src/packs/registry.ts). */
-  apps?: { name: string; text: string; /** Dovre's own pack (topo), not one of my apps. */ own?: boolean }[];
+  apps?: { name: string; text: string; /** Dovre's own pack (a core pack), not one of my apps. */ own?: boolean }[];
 }): string {
   const now = o.now ?? Date.now();
   const s = o.s;

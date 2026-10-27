@@ -35,7 +35,7 @@ The words Dovre uses, so the site, README, app and docs say the same thing.
 | **Verified write** | A write that re-checks state, is logged, and asks to confirm |
 | **Bino** | The built-in assistant |
 | **memlet** | Bino's scoped memory (`operator`, `app:<id>`) |
-| **Topo** | The repo map built from each checkout's `peak.yaml` |
+| **Topo** | The repo map built from each checkout's `peak.yaml` (a pack in dovre-packs) |
 | **Agent host** | `dovre agent-host`: runs agent turns apart from the web server |
 | **Bridge** | Your machine dialing out to hosted Dovre to run agents (`pnpm bridge`, `dovre bridge`) |
 | **Local / self-hosted / hosted** | Your machine on `127.0.0.1:4848` / your own server behind a sign-in proxy / Cloudflare Workers behind Access |

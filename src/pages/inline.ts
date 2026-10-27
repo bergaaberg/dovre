@@ -54,7 +54,7 @@ function checksLine(runs: Pr["runs"]): Child {
 }
 
 /** What a PR opened in place shows: the summary, who reviewed, checks, where it changes things, the description. */
-/** What packs put on a PR (the "pr.lead" and "pr.facts" slots: topo's tier and docs). */
+/** What packs put on a PR (the "pr.lead" and "pr.facts" slots: a catalog pack's tier and docs). */
 export type PrSlots = { lead(pr: PrSlotArg): Child[]; facts(pr: PrSlotArg): [Child, Child][] };
 
 export function prBody(p: Pr, opts: { summary: SummaryOf; agent?: AgentOf; slots?: PrSlots; /** The forge: without Dovre's viewer, the PR opens on the forge. */ forge?: ForgeView }): Html {

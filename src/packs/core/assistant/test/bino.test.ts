@@ -8,6 +8,8 @@ import { loadMemory, noMemory } from "../bino/memory.ts";
 import { createCfGatewayAsk } from "../bino/gateway.ts";
 import { binoArgs, type Route, routeOf, viaOf } from "../bino/route.ts";
 import { openDb } from "../../../../db.ts";
+import { activePacks } from "../../../registry.ts";
+import { assistantPack } from "../index.ts";
 import { addTodo, listTodos } from "../../../../todo/store.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
 
@@ -223,4 +225,18 @@ test("Stop cancels a gateway request in flight", async () => {
   ctl.abort();
   await assert.rejects(pending);
   assert.equal(seen?.aborted, true);
+});
+
+test("the assistant pack is Bino's switch: PACK_ASSISTANT=off and there's no Bino, nor its menu entry", async () => {
+  const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async () => ({ text: "Ok.", cost: 0 }) };
+  const appWith = (env: Record<string, string>) =>
+    createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: { ...activePacks([assistantPack()], { env, hosted: false }), env, core: ["assistant"] } });
+  const get = (app: ReturnType<typeof appWith>, path: string) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
+  const on = appWith({});
+  assert.equal((await get(on, "/bino")).status, 200);
+  assert.match(await (await get(on, "/")).text(), /href="\/bino"/);
+  assert.equal((await get(on, "/topo")).status, 404, "Topo is a pack in dovre-packs now (#147)");
+  const off = appWith({ PACK_ASSISTANT: "off" });
+  assert.equal((await get(off, "/bino")).status, 404);
+  assert.doesNotMatch(await (await get(off, "/")).text(), /href="\/bino"/);
 });

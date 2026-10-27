@@ -379,6 +379,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
           env: packs.env,
           bindings: packs.bindings ?? {},
           hosted,
+          ...(hosted ? {} : { codeDir: env.CODE_DIR }),
           db: env.DB,
           publish: (topics) => deps.hub?.publish(topics),
           snapshot: () => gatherer.peek(),

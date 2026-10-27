@@ -28,7 +28,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Packs from | `PACKS` folders, each `packs.ts` imported at start (`src/packs/load.ts`) | The instance's worker.ts calls `createWorker({ packs })` |
-| Core's packs | all six (terminal and docker when enabled) | agents (over the bridge), assistant (no Topo), tracker |
+| Core's packs | all six (terminal and docker when enabled) | agents (over the bridge), assistant, tracker |
 | Refresh | interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Extra hooks | `callback`, `ingest`, `acts`, `tools` | `scheduled`, `email` |
 
