@@ -33,6 +33,16 @@ DOVRE_CODE=/srv/code docker compose -f deploy/compose.yaml up -d --build
 
 The image includes the agent host, so terminals work. Coding agents (`claude`, `codex`, …) aren't in it: build your own image `FROM` this one and install the ones you use.
 
+**The Docker pane** is off in the container: the image doesn't see the host's Docker engine. To let it, uncomment the socket line and `group_add` in `deploy/compose.yaml`, then start it with the socket's group:
+
+```bash
+DOCKER_GID=$(stat -c %g /var/run/docker.sock) DOVRE_CODE=/srv/code docker compose -f deploy/compose.yaml up -d
+```
+
+> **Warning:** access to the Docker socket is root on the host. Anyone who can use Dovre can then start a container that mounts `/` and do anything on this machine. `:ro` on the mount doesn't help, since it limits the file, not the API calls made through it. Turn it on only when the sign-in in front of Dovre lets in no one but you.
+
+The pane finds the socket at `/var/run/docker.sock` by itself, and Settings → Panes shows Docker once it's there.
+
 **Without Docker** (Node 24, pnpm, git): `deploy/dovre.service` is a systemd unit. Its comments have the install steps.
 
 ### 2. Put a sign-in in front
