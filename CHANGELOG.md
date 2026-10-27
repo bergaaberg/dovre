@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Code**: `/code/<checkout>/diff` shows a checkout's own changes in the PR viewer's diff: what's uncommitted (untracked files too), a branch against another ref, or one commit. Local only (#105, part 1). An agent session working in a checkout links to it with **Diff** (#105).
+- **Diffs**: the words that changed in a line are marked, in pull requests and local diffs; a local diff can be read side by side (#105).
 - **Docker**: `sh scripts/docker.sh` sets up Colima on a Mac and starts it at login (#101).
 - **Topo**: `range.yaml`, `peak.yaml`'s old name, is no longer read, and `/topo` no longer shows the rename notice. Rename the file to `peak.yaml`; the format is the same (#138).
 
