@@ -291,6 +291,14 @@ export type PackForge = {
   work?(since: string): Promise<ForgeWork>;
   /** How many of my PRs merged since a time (ISO). Absent: this forge doesn't say. */
   merged?(since: string): Promise<number>;
+  /** The owners' repos that aren't archived (`owner/name`), kept a few minutes. Absent: this forge doesn't say. */
+  repos?(): Promise<string[]>;
+  /**
+   * One file's text on a repo's default branch (a peak.yaml, say), kept a few minutes; undefined
+   * when there's none. Only the owners' repos and plain relative paths: anything else throws.
+   * Absent: this forge doesn't say.
+   */
+  file?(repo: string, path: string): Promise<string | undefined>;
 };
 
 /** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */
