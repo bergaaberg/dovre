@@ -1,9 +1,8 @@
 # Dovre's architecture: core, packs, instances
 
-How Dovre is put together after WP-H9a–e (2026-10-25), and how to extend it. PLAN.md holds the
-decisions (D15, D22, D23) and their history; README.md's "A pack's shape" describes each hook in
-detail. This document sits between them: the parts, how a pack gets from a folder to a page,
-what the core promises, and what is still open.
+How Dovre is put together, and how to extend it. PLAN.md holds the locked decisions;
+src/packs/types.ts describes each hook in its doc comments. This document sits between them: the
+parts, how a pack gets from a folder to a page, what the core promises, and what is still open.
 
 ## The three layers
 
@@ -15,7 +14,8 @@ what the core promises, and what is still open.
  └───────────────┬──────────────────────────────────────────────────────────┘
                  │ imports core as `dovre/…` (pnpm link:), never the other way
  ┌───────────────▼──────────────────────────────────────────────────────────┐
- │ Core's own packs (src/packs/core/): agents, assistant, terminal, docker  │
+ │ Core's own packs (src/packs/core/): agents, assistant, terminal, docker, │
+ │   tracker (issues), storybook                                            │
  │   the same shape and hooks as any pack; only the entry points add them   │
  ├──────────────────────────────────────────────────────────────────────────┤
  │ Core (this repo)                                                         │
@@ -28,7 +28,7 @@ what the core promises, and what is still open.
 
 - **Core** holds what every Dovre needs, whatever apps it works with. It never names, imports or
   defaults to an instance or an instance's pack.
-- **Core's own packs** (agents, assistant, terminal, docker) are features of core built as packs, so
+- **Core's own packs** (agents, assistant, terminal, docker, tracker, storybook) are features of core built as packs, so
   they can be switched off and nothing reaches them except through hooks. A test
   (test/packs.test.ts) fails if anything in core other than the entry points imports them.
 - **An instance** is a repo (`../my-dovre`) with one machine's or team's packs and config. Neither instance ever touches another machine's data.
@@ -38,7 +38,7 @@ what the core promises, and what is still open.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Where the packs come from | `PACKS` in .dev.vars: folders, each one's `packs.ts` imported at start (src/packs/load.ts) | The instance's own worker.ts calls `createWorker({ packs })`; esbuild bundles them |
-| Core's packs | agents, assistant (Bino and Topo), terminal (when terminals run), docker (when its pane is on) | agents (the Mac's sessions, over the bridge), assistant (Bino, no Topo) |
+| Core's packs | agents, assistant (Bino and Topo), tracker, terminal (when terminals run), docker (when its pane is on), storybook | agents (the Mac's sessions, over the bridge), assistant (Bino, no Topo), tracker |
 | Refresh | an interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Also | `callback` (an OAuth return), `ingest` (apps POST in), `acts` (Bino's proposals), `tools` (for agent turns, over MCP) | `scheduled` (cron), `email` (Email Routing) |
 
@@ -107,7 +107,7 @@ It keeps core's safety boundary intact:
 | Search | `pages`, `finds` (with `kind`: agents, code, actions) | from memory |
 | Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` (with a `key` letter) | from memory |
 | Bino | `bino`, `about` (not asked for a manifest-`private` pack), `acts` (local only) | from memory; an act's `run` in the background |
-| Core pages | `slots` (SlotMap: thirteen places) | from memory |
+| Core pages | `slots` (SlotMap: fourteen places) | from memory |
 | Frames | `frames`: `https://` origins its own pages (`/<id>/…`) may frame (Storybook) | from memory |
 | Links | `refs` (ticket keys in text), `linked` (PR links for the gather to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
@@ -174,7 +174,7 @@ The registry does this for every hook, so a pack can't break a page or another p
 
 - One pack reaches another's page only through a slot, never an import.
 - A pack's writes to its own app re-check the current state first, log to the `actions` table,
-  and go through a Confirm (or `oneClick` where I decided so, like Teams' send). Its kinds of write
+  and go through a Confirm (or `oneClick` where I decided so). Its kinds of write
   are listed in `writes` and passed as `kind: "<id>.<kind>"`: Settings → Writes can set each one
   to one click, unless it has a `twice` floor.
 - A pack whose pages show what isn't mine to hand a model (chats, mail, query results) says
@@ -212,7 +212,7 @@ or a new outside caller. The steps, as H9e did them:
 2. Add a `…From` function in registry.ts that calls it isolated, cuts and checks what comes back,
    and logs a failure under the pack's id.
 3. Use it in app.ts (or the entry point), only for `shown()` packs.
-4. Add its label to `hooksOf` for the Packs page, and a paragraph to README's "A pack's shape".
+4. Add its label to `hooksOf` for the Packs page, and say what it's for in its doc comment in types.ts.
 5. Test it with a fake pack in test/packs.test.ts: a hostile answer, one that throws, and a
    hidden pack.
 
@@ -221,38 +221,17 @@ just don't answer it. Removing or changing a hook, a field's meaning, or a slot'
 breaking: bump `PACK_API`, and every pack built for the old number shows as off until it's
 updated. Every change since H1 has been additive, so the contract is still 1.
 
-## Where it stands, and what's open
+## What's open
 
-**Done here (H9a–e):** agents, topo, terminal and docker are packs. The hooks the work packs
-need exist and are tested with fake packs: dock, callback, acts, settings, and the slots
-deploy.prod, todo.proposals and actions.where. A pack's own page can host others' slots through
-`ctx.fill` (`span.actions`: otel-sink's trace page, filled by http). In this write-up (WP-X1), "Start an agent" left
-core's search actions for the agents pack: `finds` can now put rows in search's "Do" group
-(`kind: "actions"`).
+Teams and Data left core for an instance's packs (2026-10-26), and the avatar for dovre-packs
+(#130, 2026-10-27); test/boundary.test.ts fails if their code comes back to core. A pack's options
+are its manifest `settings`; the config store's keys (src/config.ts `KEYS`) are only core's own.
 
-**Moved out (H9f):** Teams (with mail and channels) and Data are an instance's packs now
-(2026-10-26). For them the contract grew four additive things: a dock's `key` (Teams' T), the
-`actions.what` slot (what a pack's log entry was, in words), the manifest's `private`, and
-`ctx.ask` / `ctx.asking` (Data's production questions in the bar). test/boundary.test.ts fails if
-their code, panes, settings, routes or styles come back to core. DROPS is next (rebuilt).
-
-**Open points:**
-
-1. *Settled (#130, 2026-10-27):* **the avatar is a pack for fun in dovre-packs**, no longer in
-   core. Core keeps what any pack can use: the two slots it fills (`today.hero`, `bino.face`),
-   the pulse (`pulse`, old name `avatar`, summed as `ctx.pulse()`), pack scripts (`script`),
-   reading the forge (`ctx.forge()`), the starting page's picture (`ctx.startPicture()`), and
-   the `fun` domain, listed apart on the Packs page. Locally it's on where PACKS lists it;
-   dovre-home and dovre-cloud's tenants bundle it (a new tenant starts with it hidden).
-2. *Settled (H9f, 2026-10-26):* **a pack's options are its manifest `settings`** (.dev.vars, shown
-   and saved on the Packs page). The config store's keys stay a fixed list (src/config.ts `KEYS`)
-   for core's own panes, so Teams' options (TEAMS_CRAWL, TEAMS_SINCE_DAYS, OUTLOOK) left it with
-   Teams.
-3. **Core pages link to the agents pack's routes.** My list, New work, tasks, reviews and the
+1. **Core pages link to the agents pack's routes.** My list, New work, tasks, reviews and the
    desk link to `/agents/new`, and `/agents/s/…` is linked from several places. With
    `PACK_AGENTS=off`, those links answer 404. Acceptable while agents is core's own pack (the
    runner, the desk, is core). If it should ever be optional for real, the links become a slot
    ("start an agent on this").
-4. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs. So
+2. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs. So
    `acts`, and Bino's own proposals, are local only. Hosted Bino does get the packs' `bino` lines
    through the page's context.

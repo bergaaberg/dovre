@@ -48,20 +48,19 @@ PORT=4848
 # 2. Agents Pack — Enabled Harnesses (agy, claude, codex, omp, copilot)
 AGENT_HARNESSES=agy,claude,codex,omp
 
-# 3. Assistant Pack — Route (direct-api | cf-gateway | openrouter | local-cli | off)
-ASSISTANT_VIA=direct-api
-ASSISTANT_MODEL=claude-haiku-4-5
-ASSISTANT_REFLECT_MODEL=claude-haiku-4-5
-ASSISTANT_MEMORY=on
-ASSISTANT_CATALOG=on
-ASSISTANT_ACTS=on
-# If direct-api: set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY
-# If cf-gateway: set CF_ACCOUNT_ID, AI_GATEWAY=dovre, CF_AIG_TOKEN
+# 3. Assistant Pack — Route (api-key | cf-gateway | openrouter | claude | codex | omp | copilot | agy | off)
+#    Unset: the best harness found on PATH.
+ASSISTANT_VIA=api-key
+ASSISTANT_MODEL=claude-haiku-5-5
+BINO_REFLECT_MODEL=claude-haiku-5-5
+# If api-key: set ASSISTANT_API_KEY (or ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)
+# If cf-gateway: set CF_ACCOUNT_ID, CF_AIG_TOKEN
 # If openrouter: set OPENROUTER_API_KEY
-# If local-cli: reuses your existing local CLI login ($0 extra API token burn)
+# If a harness name: reuses that CLI's own login ($0 extra API token burn)
+# PACK_TOPO=off leaves out Topo (the peak.yaml catalog) and keeps Bino.
 
-# 4. Operations, Terminal & Docker Packs
-OPS_PROVIDER=cf-health
+# 4. Packs: core's are on unless PACK_<ID>=off; instance packs are listed in PACKS
+# PACKS=../my-dovre
 ```
 
 ## 4. Start or Deploy According to the Chosen Topology
@@ -99,4 +98,4 @@ Always run:
 ```sh
 pnpm typecheck && pnpm test
 ```
-Then open `/welcome` or `/settings` in the browser to confirm all expected packs and harnesses show as green.
+Then open `/settings` and `/packs` in the browser to confirm the expected harnesses and packs are on.
