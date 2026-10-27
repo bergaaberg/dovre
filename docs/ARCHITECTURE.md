@@ -1,237 +1,182 @@
-# Dovre's architecture: core, packs, instances
+# Architecture
 
-How Dovre is put together, and how to extend it. PLAN.md holds the locked decisions;
-src/packs/types.ts describes each hook in its doc comments. This document sits between them: the
-parts, how a pack gets from a folder to a page, what the core promises, and what is still open.
+Core, packs and instances, and how a pack gets from a folder to a page. Locked decisions are in
+PLAN.md. Each hook is documented in `src/packs/types.ts`.
 
-## The three layers
+## Layers
 
 ```
- ┌──────────────────────────────────────────────────────────────────────────┐
- │ Instance repo (one per machine / setup)                                  │
- │   my-dovre: hosted Cloudflare Worker      acme-dovre: local workstation  │
- │   packs/<id>/ …   packs.ts   worker.ts + wrangler config   .dev.vars     │
- └───────────────┬──────────────────────────────────────────────────────────┘
-                 │ imports core as `dovre/…` (pnpm link:), never the other way
- ┌───────────────▼──────────────────────────────────────────────────────────┐
- │ Core's own packs (src/packs/core/): agents, assistant, terminal, docker, │
- │   tracker (issues), storybook                                            │
- │   the same shape and hooks as any pack; only the entry points add them   │
- ├──────────────────────────────────────────────────────────────────────────┤
- │ Core (this repo)                                                         │
- │   shell + kit, hub (live.ts), gather + snapshot, agent runner (desk),    │
- │   search, My list, Bino, notifications, actions log, Settings            │
- │   src/packs/types.ts   the contract (PACK_API = 1)                       │
- │   src/packs/registry.ts the core's side of every hook                    │
- └──────────────────────────────────────────────────────────────────────────┘
+ Instance repo (one per machine or setup)
+   packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
+        │ imports core as `dovre/…`; core never imports an instance
+ Core's packs (src/packs/core/)
+   agents, assistant, terminal, docker, tracker, storybook
+ Core (this repo)
+   shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
+   My list, Bino, notifications, actions log, Settings
+   src/packs/types.ts     the contract (PACK_API = 1)
+   src/packs/registry.ts  core's side of every hook
 ```
 
-- **Core** holds what every Dovre needs, whatever apps it works with. It never names, imports or
-  defaults to an instance or an instance's pack.
-- **Core's own packs** (agents, assistant, terminal, docker, tracker, storybook) are features of core built as packs, so
-  they can be switched off and nothing reaches them except through hooks. A test
-  (test/packs.test.ts) fails if anything in core other than the entry points imports them.
-- **An instance** is a repo (`../my-dovre`) with one machine's or team's packs and config. Neither instance ever touches another machine's data.
+- **Core** never names, imports or defaults to an instance or its packs.
+- **Core's packs** use the same contract as any pack, so they can be switched off.
+  `test/packs.test.ts` fails if core imports them anywhere but the entry points.
+- **An instance** is a repo such as `../my-dovre` holding one setup's packs and config.
 
-### The two entry points
+## Entry points
 
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
-| Where the packs come from | `PACKS` in .dev.vars: folders, each one's `packs.ts` imported at start (src/packs/load.ts) | The instance's own worker.ts calls `createWorker({ packs })`; esbuild bundles them |
-| Core's packs | agents, assistant (Bino and Topo), tracker, terminal (when terminals run), docker (when its pane is on), storybook | agents (the Mac's sessions, over the bridge), assistant (Bino, no Topo), tracker |
-| Refresh | an interval, checked every 30 s | after a response (`waitUntil`) and on cron |
-| Also | `callback` (an OAuth return), `ingest` (apps POST in), `acts` (Bino's proposals), `tools` (for agent turns, over MCP) | `scheduled` (cron), `email` (Email Routing) |
+| Packs from | `PACKS` folders, each `packs.ts` imported at start (`src/packs/load.ts`) | The instance's worker.ts calls `createWorker({ packs })` |
+| Core's packs | all six (terminal and docker when enabled) | agents (over the bridge), assistant (no Topo), tracker |
+| Refresh | interval, checked every 30 s | after a response (`waitUntil`) and on cron |
+| Extra hooks | `callback`, `ingest`, `acts`, `tools` | `scheduled`, `email` |
 
-Both put core's packs first, then the instance's, and hand the list to `activePacks`.
+Both put core's packs first, then the instance's, and pass the list to `activePacks`.
 
-### The public demo entry (`createDemoWorker`)
-
-The public demo (`demo.dovre.dev`) runs from its own instance repo, through a third, safety-bounded entry point: `createDemoWorker({ packs, settings, answers, fixtures, allowWrite, layout, version })` exported from `dovre/demo/worker.ts`. Core has no demo deploy of its own.
-
-It keeps core's safety boundary intact:
-- **No real bindings:** reads zero secrets, no real D1, no Cloudflare Access, and no bridge (`/bridge` returns 404).
-- **In-memory empty D1:** every database read returns empty results; every write is dropped.
-- **Isolated open door:** bypasses authentication only for the visitor identity (`visitor@demo.dovre.dev`); this bypass cannot be enabled in a real instance by any setting.
-- **Strict write boundary:** every non-`GET`/`HEAD` request returns a 403 read-only page except asking the scripted Bino, and what `allowWrite(req)` permits.
-- **Pluggable demo packs and fixtures:** the calling demo repo supplies fictional fixtures and packs, while core ensures isolation. A real pack runs on made-up data when the demo gives it a fake `fetch`, made-up values for its required `settings` (never real secrets), and its refresh runs before each page when it's due. `answers` adds scripted Bino answers (say, about that pack's data) ahead of core's own.
+The public demo uses a third entry, `createDemoWorker` (`dovre/demo/worker.ts`), from its own
+repo. It has no secrets, no D1 (reads return nothing, writes are dropped), no Access and no
+bridge. Every visitor is `visitor@demo.dovre.dev`, which no setting can enable in a real
+instance. Non-GET requests get a read-only 403, except scripted Bino and what `allowWrite`
+allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted `answers`.
 
 ## A pack's life
 
-1. **Declared.** A pack is an object: a `manifest` and the hooks it answers. A packs module's
-   default export is a list of packs, or a function from the instance's settings to that list.
-2. **Loaded.** Local: `loadPacks` imports each folder in `PACKS`. A folder that fails to import
-   becomes an "off" row with the error, and the rest still load.
-3. **Sorted** (`activePacks`). Each pack is checked in this order, and the first failure keeps it
-   off, with the reason shown on the Packs page:
-   - its id is lowercase and unique;
-   - it was written for this `PACK_API`;
-   - `PACK_<ID>` isn't `off`;
-   - its `execution` fits (local-only, hosted-only, any);
-   - hosted, its `requiredBindings` exist; local, its `requiredBinaries` are on PATH;
-   - its required settings are set.
-4. **Mounted** (`createApp`). Each pack gets its own `PackContext` (`ctxOf`). A pack whose
-   `available` answers no (or throws) is off now, saying so, before anything of it is mounted. Its routes go on a
-   sub-app of their own, mounted after the guard and every core route. The mount is refused if a
-   route is outside `/<id>` and the manifest's `paths`, if a path is a core path or another
-   pack's, or if `routes` throws. The packs' `styles` are served as one hashed stylesheet, and their `script`s as one
-   hashed script after the core's (a block each), which hears the core through `dovre:change`
-   and `dovre:swap` events on `document`.
-5. **Started** (`initAll`). A pack whose `init` throws is taken off.
-6. **Refreshed** (`refresher`). On the pack's `everyMs` (default 5 min), one run at a time per
-   pack. A run that takes longer than `maxMs` is given up, and the next due one starts again.
-   Each run's start, end and error go to the Packs page.
-7. **Hidden or off.** Settings → Layout hides a pack. A hidden pack drops out of every hook,
-   its routes answer 404, and it isn't refreshed. `PACK_<ID>=off` keeps it from loading at all.
+1. **Declared.** A pack is a `manifest` plus hooks. A packs module exports a list of packs, or a
+   function from settings to that list.
+2. **Loaded.** `loadPacks` imports each `PACKS` folder. One that fails to import shows as off
+   with the error; the rest still load.
+3. **Sorted** (`activePacks`). The first failed check keeps a pack off, shown on the Packs page:
+   lowercase unique id; built for this `PACK_API`; `PACK_<ID>` isn't `off`; `execution` fits;
+   `requiredBindings` (hosted) or `requiredBinaries` (local) exist; required settings are set.
+4. **Mounted** (`createApp`). Each pack gets its own `PackContext`. If `available` says no or
+   throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
+   The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
+   another pack owns, or a `routes` that throws. Pack `styles` and `script`s are served as one
+   hashed file each; scripts listen for `dovre:change` and `dovre:swap` on `document`.
+5. **Started** (`initAll`). A pack whose `init` throws is turned off.
+6. **Refreshed** (`refresher`). Every `everyMs` (default 5 min), one run at a time per pack.
+   Runs longer than `maxMs` are abandoned. Starts, ends and errors go to the Packs page.
+7. **Hidden.** Settings → Layout hides a pack: it leaves every hook, its routes 404 and it
+   isn't refreshed. `PACK_<ID>=off` stops it loading at all.
 
 ## The contract
 
 `src/packs/types.ts` is the whole contract.
 
-**What a pack gets** (`PackContext`):
-- `env`, `bindings`, `hosted`, `db`;
-- `publish(topics)` to tell open pages that a region changed;
-- `snapshot()` and `gathered()`: what the gather fetched from the forge (GitHub, or a pack's);
-- `fill(slot, arg)` to host other packs' slots on its own pages;
-- `page()` and `dockPage()` to draw inside Dovre's shell;
-- `log()`, and `ring()` for a one-off notification;
-- `ask()` to put a question in the bar at the top of every page and wait for my answer (an MCP
-  server's, such as a database CLI's before it opens production; local only), and `asking()`.
+**`PackContext`** gives a pack:
+- `env`, `bindings`, `hosted`, `db`
+- `publish(topics)`: tell open pages a region changed
+- `snapshot()`, `gathered()`: what the gather read from the forge
+- `fill(slot, arg)`: host other packs' slots on its pages
+- `page()`, `dockPage()`: draw inside the shell
+- `log()`, `ring()`: log, or a one-off notification
+- `ask()`, `asking()`: put a question in the top bar and wait for the answer (local only)
+- `forge()`: user, owners, and the forge's `work` and `merged` (read-only)
+- `startPicture(svg)`, `pulse()`
 
-**What a pack answers**, grouped by where it lands:
+**Hooks**, by where they land:
 
 | Where | Hooks | Timing |
 |---|---|---|
-| Its own pages | `routes`, `styles`, `script`, `nav`, `paths` (manifest) | routes on request |
-| Today | `today` (cards), `glance`, `brief`, `lane`, `feed` | cards: 250 ms for all; the rest from memory |
-| Stats | `stats` (PackStat: a chart over labels with one or two series, or a headline number; `unit`, `empty`), shown, hidden and ordered on Settings → Look and layout with core's own | from memory |
-| Search | `pages`, `finds` (with `kind`: agents, code, actions) | from memory |
-| Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` (with a `key` letter) | from memory |
-| Bino | `bino`, `about` (not asked for a manifest-`private` pack), `acts` (local only) | from memory; an act's `run` in the background |
-| Core pages | `slots` (SlotMap: fourteen places) | from memory |
-| Frames | `frames`: `https://` origins its own pages (`/<id>/…`) may frame (Storybook) | from memory |
-| Links | `refs` (ticket keys in text), `linked` (PR links for the gather to look up) | from memory |
+| Own pages | `routes`, `styles`, `script`, `nav`, manifest `paths` | on request |
+| Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
+| Stats | `stats` (chart or headline number) | from memory |
+| Search | `pages`, `finds` | from memory |
+| Attention | `needs` (+ manifest `rings`), `banner`, `dock` | from memory |
+| Bino | `bino`, `about`, `acts` (local) | from memory; acts run in the background |
+| Core pages | `slots` (14 in `SlotMap`) | from memory |
+| Framing | `frames`: `https://` origins its pages may frame | from memory |
+| Links | `refs` (ticket keys), `linked` (PR links to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
-| Forge | `ctx.forge()`: who I am, the owners, and what the forge answers packs (`work`, `merged`); read-only | on request |
-| Starting page | `ctx.startPicture(svg)`: a picture beside the starting page (local) | when it changes |
-| Pulse | `pulse` (old name `avatar`): working / asking counts, trouble (storm or fire, why, link), on duty; any pack reads the sum as `ctx.pulse()` | from memory |
-| Lifecycle | `available`, `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s for all |
-| Outside callers | `callback` (local), `ingest` (token), `tools` (local agent turns, MCP), `scheduled`, `email` (hosted) | as the platform calls |
-| The forge | `forge` (`ForgeDecl`, `src/forge/types.ts`): PRs/MRs, CI, notifications, movement and deploys instead of GitHub when `FORGE` is its id | made once at start, before `init` |
+| Pulse | `pulse`: working/asking counts, trouble, on duty | from memory |
+| Lifecycle | `available`, `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s total |
+| Outside callers | `callback`, `ingest`, `tools`, `scheduled`, `email` | when called |
+| Forge | `forge` (`src/forge/types.ts`): PRs, CI, notifications, deploys when `FORGE` is its id | once, before `init` |
 
-**The time rule:** anything drawn on a page answers from memory. A pack reads its app in
-`refresh` (or `scheduled`), keeps what it read, and `publish`es when it changes. The only waits
-are Today's cards (250 ms for all of them) and `beforePage` (1.5 s for all of them). After that
-the page is drawn anyway, and a slow pack is named on it.
+**Pages draw from memory.** A pack reads its app in `refresh` or `scheduled`, keeps the result,
+and `publish`es on change. The only waits are Today's cards (250 ms for all) and `beforePage`
+(1.5 s for all). After that the page renders and names the slow pack.
 
-## What the core promises
+## What core enforces
 
-The registry does this for every hook, so a pack can't break a page or another pack:
+**Isolation.** Every hook call goes through `safely` (sync) or `within` (async, time-boxed). A
+throw adds nothing and is logged. A failed Today card shows "Didn't answer".
 
-- **Isolation.** Every call goes through `safely` (sync) or `within` (async, time-boxed). A pack
-  that throws adds nothing and gets a line in its log. A failing Today card shows as "Didn't
-  answer", never as an empty card.
-- **Sanitising.**
-  - Text is cut to size and kept to one line where a line is drawn.
-  - Every `href` goes through `safeUrl`. A link that isn't a path on this app or http(s) is
-    dropped or made harmless.
-  - Tones come from fixed lists.
-  - Counts are capped:
-    - docks: 3; a dock's `key` is one capital letter the page doesn't use already (B is Bino's;
-      F, G, H, J, K, L move about), and the first dock to ask for it gets it;
-    - acts: 5 per pack, 8 fields each, 12 in all;
-    - finds: 500 per pack; linked PRs: 200;
-    - glance: 2 numbers; brief: 12 bits; lane: 200 marks;
-    - pulse: counts 0–99; 5 troubles, a line of 80 each, links to this app's paths only.
-- **Namespaces.**
-  - A pack's need keys, ring tags and Bino act kinds are kept under its id.
-  - A ring kind the core or another pack already has is refused.
-  - A route can't shadow a core path or another pack's.
-- **Gates that stay core's.**
-  - The guard (launch token locally, Access hosted) runs before every pack route. There are two
-    exceptions. `/<id>/callback` is local only and a 404 when the pack is hidden.
-    `POST /<id>/ingest/*` (an app sending data in, dovre#109) needs an ingest token made on Settings.
-    Only its SHA-256 is kept. Core checks the token, the body cap and the per-token rate before the
-    pack sees the body. The pack never gets the token or any other header. Locally it answers on this
-    machine's own address only. Hosted, it needs an Access Bypass policy for that path.
-    `POST /mcp` (dovre#153, src/mcp.ts) serves the packs' `tools` to the agent turns Dovre starts.
-    Each turn, and each open terminal, gets a random token of its own, good only while it runs and
-    only for `/mcp` (it isn't the launch token): Claude Code in `--mcp-config`, Codex in `-c
-    mcp_servers.dovre.*` with the token in its environment, omp and agy through a stdio bridge
-    (src/mcp-stdio.ts) that Settings registers once in their own MCP config (no secret in it) and
-    that reads `DOVRE_MCP_URL`/`DOVRE_MCP_TOKEN` from the environment (dovre#172). Local mode only,
-    on a localhost Host, and never with an Origin header (no browser page). The agent still asks
-    before each tool as it asks for any other (agy, which can't ask headless, needs its own allow
-    rule; omp runs MCP tools without asking, even at always-ask), so no permission widens, and each
-    pack tool holds its own limits. A pack's tool enforces its own limits. Every call is logged as `mcp.call`
-    (the tool and the repo, never arguments or results).
-  - Only a pack's `/<id>/dock` pages may be framed by Dovre's own pages.
-  - A pack's own pages may frame other sites only for the `https://` origins its `frames` names
-    (CSP `frame-src`, per pack); core pages never do.
-  - A pack's act is checked against its declared fields before the card is drawn. Pressing it
-    asks a second time unless the act is `oneClick`.
+**Sanitising.**
+- Text is truncated, and single-line where a line is drawn.
+- Every `href` goes through `safeUrl`; anything but a local path or http(s) is dropped.
+- Tones come from fixed lists.
+- Caps: 3 docks; acts 5 per pack, 8 fields each, 12 total; finds 500 per pack; linked PRs 200;
+  glance 2; brief 12; lane 200; pulse counts 0–99 and 5 troubles of 80 chars, local links only.
+- A dock's `key` is one free capital letter (B is Bino's), first come first served.
+
+**Namespaces.** Need keys, ring tags and act kinds are prefixed with the pack id. A ring kind
+already taken is refused. A route can't shadow core or another pack.
+
+**Gates.** The guard (launch token locally, Access hosted) runs before every pack route, except:
+- `/<id>/callback`: local only, 404 when hidden.
+- `POST /<id>/ingest/*`: needs an ingest token made on Settings (only its SHA-256 is stored).
+  Core checks token, body size and rate before the pack sees the body; the pack gets no headers.
+  Local: this machine's address only. Hosted: needs an Access Bypass policy for the path.
+- `POST /mcp` (`src/mcp.ts`): serves pack `tools` to agent turns. Each turn or terminal gets its
+  own random token, valid only for `/mcp` while it runs. Claude Code gets it via `--mcp-config`,
+  Codex via `-c mcp_servers.dovre.*`, omp and agy via a stdio bridge (`src/mcp-stdio.ts`)
+  reading `DOVRE_MCP_URL`/`DOVRE_MCP_TOKEN`. Local only, localhost Host, no Origin header.
+  Agents still ask before each tool (agy needs its own allow rule; omp doesn't ask for MCP
+  tools). Calls are logged as `mcp.call` with tool and repo, never arguments or results.
+
+Also:
+- Only `/<id>/dock` pages may be framed by Dovre's pages.
+- A pack's pages may frame only the origins in its `frames` (CSP `frame-src`); core pages never do.
+- An act is checked against its declared fields before drawing, and asks twice unless `oneClick`.
 
 ## Rules for packs
 
-- One pack reaches another's page only through a slot, never an import.
-- A pack's writes to its own app re-check the current state first, log to the `actions` table,
-  and go through a Confirm (or `oneClick` where I decided so). Its kinds of write
-  are listed in `writes` and passed as `kind: "<id>.<kind>"`: Settings → Writes can set each one
-  to one click, unless it has a `twice` floor.
-- A pack whose pages show what isn't mine to hand a model (chats, mail, query results) says
-  `private` in its manifest: asked from one of its pages, Bino hears only the pack's name.
-- What Bino may know (`bino`, `about`) is names, states and counts. Never what someone wrote, an
-  address, or a token.
-- A pack's tests live with it (`packs/<id>/test/`), with a hostile-input case for each page.
-  `testContext()` (`dovre/packs/testing.ts`) gives harmless defaults.
-- The shape: `index.ts` holds the manifest and hooks, `data.ts` reads the app, `view.ts` draws.
-  `pnpm packs new <id> --into <instance>` starts one in that shape.
+- Packs reach each other's pages through slots, never imports.
+- Writes to a pack's own app re-check state, log to `actions`, and go through a Confirm with
+  `kind: "<id>.<kind>"` (listed in `writes`). Settings → Writes can make a kind one click
+  unless it has a `twice` floor.
+- A pack showing content not fit for a model (chats, mail, query results) sets `private`: from
+  its pages, Bino hears only the pack's name.
+- `bino` and `about` give names, states and counts. Never content, addresses or tokens.
+- Tests live in `packs/<id>/test/`, with a hostile-input case per page. `testContext()`
+  (`dovre/packs/testing.ts`) gives safe defaults.
+- Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).
+  `pnpm packs new <id> --into <instance>` scaffolds it.
 - A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, `PACK_API`,
-  a hash per file). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare
-  against the local dovre-packs checkout. An update is all or nothing, and it never runs on its own.
-  Locally, the Packs page shows the same state (`src/packs/copies.ts`, kept and worked out again in
-  the background) and an **Update**. It's a verified write that always asks twice (`packs.update`).
-  After the update, the instance's typecheck and tests run, and the files go back if either fails.
-  The new code loads on a restart.
+  file hashes). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare it with
+  the local dovre-packs checkout. `update` takes upstream for untouched files, `git merge-file`s
+  the rest, writes nothing on a conflict, and refuses a newer `PACK_API` or a source outside
+  `REPO_OWNERS`. Locally the Packs page has an **Update** (`packs.update`, always asks twice)
+  that runs the instance's typecheck and tests and rolls back on failure. New code loads on restart.
 
-## Extending Dovre
+## Extending
 
-**A new app** is a new pack in the instance repo: `pnpm packs new`, then add it to the instance's
-`packs.ts`. Nothing in core changes. If it needs config, list the keys in the manifest's
-`settings`. If it needs a binding, list it in `requiredBindings` and add it to the wrangler config.
+- **A new app:** `pnpm packs new`, add it to the instance's `packs.ts`. Config keys go in the
+  manifest's `settings`, bindings in `requiredBindings` and the wrangler config.
+- **A new machine:** `pnpm instance new <folder>` writes packs.ts, worker.ts, wrangler.jsonc,
+  package.json and a README with deploy steps.
+- **A new place on a core page:** add a slot to `SlotMap` (`arg` in, `out` back); the page calls
+  `fill(name, arg)`. Prefer slots.
+- **A new hook**, only when no slot fits:
+  1. Add it to `Pack` in types.ts with when it's called and its time limit.
+  2. Add a `…From` in registry.ts that calls it isolated, validates the result, and logs failures.
+  3. Call it from app.ts or the entry point, for `shown()` packs only.
+  4. Add its label to `hooksOf` and document it in types.ts.
+  5. Test it in test/packs.test.ts: hostile answer, throwing pack, hidden pack.
+- **Changing the contract:** a new optional hook or slot is additive. Removing or changing a
+  hook, a field's meaning or a slot's `arg` is breaking: bump `PACK_API`, and older packs show as
+  off until updated. Every change so far has been additive.
 
-**A new machine** is a new instance repo: `pnpm instance new <folder>` writes packs.ts, worker.ts,
-wrangler.jsonc, package.json and a README that walks through deploying.
+## Open questions
 
-**A new place on a core page** is a slot. Add an entry to `SlotMap` saying what the page knows
-there (`arg`) and what goes in (`out`). The page calls `fill(name, arg)` and draws what comes
-back. Most new needs should be slots: they're cheap, typed, and isolated already.
+Teams and Data moved to instance packs (2026-10-26), the avatar to dovre-packs (#130,
+2026-10-27); `test/boundary.test.ts` keeps them out of core. Pack options live in manifest
+`settings`; `src/config.ts` `KEYS` is core's only.
 
-**A new hook** is needed only when no slot fits: something every page draws, a new kind of event,
-or a new outside caller. The steps, as H9e did them:
-1. Add it to `Pack` in types.ts, saying when it's called and how fast it must answer.
-2. Add a `…From` function in registry.ts that calls it isolated, cuts and checks what comes back,
-   and logs a failure under the pack's id.
-3. Use it in app.ts (or the entry point), only for `shown()` packs.
-4. Add its label to `hooksOf` for the Packs page, and say what it's for in its doc comment in types.ts.
-5. Test it with a fake pack in test/packs.test.ts: a hostile answer, one that throws, and a
-   hidden pack.
-
-**Changing the contract.** Adding an optional hook or slot isn't a breaking change: older packs
-just don't answer it. Removing or changing a hook, a field's meaning, or a slot's `arg` is
-breaking: bump `PACK_API`, and every pack built for the old number shows as off until it's
-updated. Every change since H1 has been additive, so the contract is still 1.
-
-## What's open
-
-Teams and Data left core for an instance's packs (2026-10-26), and the avatar for dovre-packs
-(#130, 2026-10-27); test/boundary.test.ts fails if their code comes back to core. A pack's options
-are its manifest `settings`; the config store's keys (src/config.ts `KEYS`) are only core's own.
-
-1. **Core pages link to the agents pack's routes.** My list, New work, tasks, reviews and the
-   desk link to `/agents/new`, and `/agents/s/…` is linked from several places. With
-   `PACK_AGENTS=off`, those links answer 404. Acceptable while agents is core's own pack (the
-   runner, the desk, is core). If it should ever be optional for real, the links become a slot
-   ("start an agent on this").
-2. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs. So
-   `acts`, and Bino's own proposals, are local only. Hosted Bino does get the packs' `bino` lines
-   through the page's context.
+1. **Core links to agents routes.** My list, New work, tasks, reviews and the desk link to
+   `/agents/new` and `/agents/s/…`, which 404 with `PACK_AGENTS=off`. Fine while agents is a
+   core pack. If it ever becomes truly optional, those links become a slot.
+2. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs, so
+   `acts` are local only. It does get packs' `bino` lines through the page context.

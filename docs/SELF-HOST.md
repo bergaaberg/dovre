@@ -5,7 +5,7 @@ Dovre is open source and runs wherever you put it. There are two ways to host it
 | | **Cloudflare Workers** (the easy path) | **Your own server** (VPS, home server, any cloud) |
 |---|---|---|
 | What runs | The hosted build on Workers + D1, behind Cloudflare Access | The ordinary Node server and SQLite, behind a sign-in proxy you choose |
-| Setup | Scripted: `pnpm instance new` + `pnpm instance provision --deploy` (README, "Hosted on Cloudflare Workers") | A Docker image or a systemd unit, plus a proxy (this page) |
+| Setup | Scripted: `pnpm instance new` + `pnpm instance provision --deploy` (README, "Run it hosted") | A Docker image or a systemd unit, plus a proxy (this page) |
 | Agents and terminals | On your laptop, through `dovre bridge` | On the server itself, in its checkouts |
 | Cost | Cloudflare's free tier covers one person | Whatever the box costs |
 

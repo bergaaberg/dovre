@@ -40,7 +40,7 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
       name: "The Mac's agents (bridge)",
       on: bridge[0]! && bridge[1]!,
       what: bridge[0] !== bridge[1] ? "Half set up: it needs both, so /bridge stays closed" : "Your Mac's agent sessions, from here",
-      fix: "An Access service token with a Service Auth policy: its client id as the var BRIDGE_CLIENT_ID, and `wrangler secret put BRIDGE_KEY` (the same key as the Mac's .dev.vars). README: Hosted, with the Mac's agents.",
+      fix: "An Access service token with a Service Auth policy: its client id as the var BRIDGE_CLIENT_ID, and `wrangler secret put BRIDGE_KEY` (the same key as the Mac's .dev.vars). README: Run it hosted.",
     },
   ];
   for (const c of o.off ?? []) lines.push({ name: `Pack: ${c.name}`, on: false, what: c.why, fix: "Packs (under You) says what it needs." });
