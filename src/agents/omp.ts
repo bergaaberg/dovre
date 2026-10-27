@@ -30,6 +30,11 @@
  * goes in as a `--config` overlay file (the flag only takes a path). That allows every call of
  * that tool for that one turn, which is broader than Claude's exact-command rules.
  *
+ * Dovre's MCP tools (#172) reach omp through the stdio bridge (src/mcp-stdio.ts), registered once
+ * from Settings; the turn's address and token come in the environment (`mcpEnv`). omp runs MCP
+ * tools without asking even at always-ask (checked against omp 18.12.6), so a pack's tool must hold
+ * its own limits, as every pack tool already must.
+ *
  * Plan mode: omp's plan mode is TUI-only (`plan.defaultOnStartup` is ignored in print mode;
  * `--plan-yolo` approves the plan itself and implements it, so it's out). Here plan is
  * always-ask (nothing but reads can run) plus an appended instruction to stop at a plan.
@@ -209,4 +214,5 @@ export const ompHarness = (bin = "omp", opts: OmpHarnessOpts = {}): Harness => (
   // flag and long prompts don't hit Windows' command-line limit.
   stdinPrompt: true,
   canFork: true,
+  mcpEnv: true,
 });

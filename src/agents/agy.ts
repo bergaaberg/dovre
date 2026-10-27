@@ -68,6 +68,13 @@ export function agyApply(run: Run, line: string): void {
     }
   }
 
+  // agy refuses an MCP call it can't ask about (headless) unless its own settings allow it. It has no
+  // per-turn allow, so say which rule would (#172) instead of offering "Allow and continue".
+  if (j.event === "step_update" && j.step_update?.state === "ERROR") {
+    const m = /permission check failed for mcp "([\w.-]{1,80}\/[\w.-]{1,80})"/.exec(String(j.step_update.tool_info?.error?.message ?? ""));
+    if (m) run.events.push({ t: "error", text: `agy refused ${m[1]}: it can't ask in a turn Dovre runs. To allow it, add mcp(${m[1]}) to permissions.allow in agy's settings.` });
+  }
+
   // Final result
   if (j.event === "result" && j.result) {
     const r = j.result;
@@ -104,4 +111,5 @@ export const agyHarness = (bin = "agy", opts: AgyHarnessOpts = {}): Harness => (
   apply: agyApply,
   stdinPrompt: true,
   canFork: false,
+  mcpEnv: true,
 });

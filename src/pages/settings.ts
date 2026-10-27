@@ -6,7 +6,8 @@ import { type Frame, shell } from "../html.ts";
 import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState } from "../config.ts";
 import { currentTz } from "../when.ts";
 import { type Policy, RING_KINDS, type Rung } from "../notify.ts";
-import { Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
+import type { Reg, ToolsHarness } from "../agents/mcpsetup.ts";
+import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
 
 /** What this machine has, for the Setup panel: each a line saying what it does, and how to turn it on when it's off. Panes have their own panel. */
@@ -133,6 +134,60 @@ export function setupPanel(lines: SetupLine[], title = "Setup") {
   });
 }
 
+/** Settings → Pack tools for agents (#172): which agent CLIs here get the packs' tools, and the button for omp and agy. */
+export type AgentToolsView = {
+  /** Whether any pack on offers tools now. */
+  offered: boolean;
+  rows: { id: "claude" | "codex" | ToolsHarness; state?: Reg }[];
+  /** What the last Register said, once. */
+  said?: { ok: boolean; text: string };
+};
+
+const TOOL_NAMES: Record<AgentToolsView["rows"][number]["id"], string> = { claude: "Claude Code", codex: "Codex", omp: "omp", agy: "agy" };
+
+export function agentToolsPanel(v: AgentToolsView): Html {
+  const line = (r: AgentToolsView["rows"][number]) => {
+    if (r.id === "claude" || r.id === "codex") return { on: true, what: "Gets them in each turn and terminal by itself.", act: "" };
+    const on = r.state === "yes";
+    const what =
+      r.state === "yes"
+        ? "Set up: each turn and terminal gets them."
+        : r.state === "stale"
+          ? "Set up for an older Dovre (it moved or was updated): set it up again."
+          : r.state === "unreadable"
+            ? "Its MCP config isn't JSON Dovre can read."
+            : "Not set up. It only reads MCP servers from its own config, so Dovre adds a \"dovre\" server there once (no secret in it).";
+    const act =
+      r.state === "yes"
+        ? ""
+        : Confirm({
+            action: `/settings/agent-tools/${r.id}`,
+            label: `Set up ${TOOL_NAMES[r.id]}`,
+            kind: "agents.tools",
+            question: r.id === "omp" ? html`Add a "dovre" server to omp's <code>mcp.json</code> (and each profile's)? Its other servers stay as they are.` : html`Run <code>agy mcp add dovre …</code>? Its other servers stay as they are.`,
+          });
+    return { on, what, act };
+  };
+  const notes = html`<p class="notes">Packs' tools (such as HTTP's <code>http_send</code>) reach the agents Dovre starts here, with a token that lasts as long as the turn or terminal.${v.rows.some((r) => r.id === "agy") ? html` agy asks before each MCP call and can't ask in a turn Dovre runs: allow the ones you want in agy's settings, e.g. <code>mcp(dovre/http_send)</code> under <code>permissions.allow</code>.` : ""}</p>`;
+  return Panel({
+    title: "Pack tools for agents",
+    id: "agent-tools",
+    meta: v.offered ? undefined : "no pack offers any now",
+    children: html`${v.said ? Notice({ tone: v.said.ok ? "ok" : "bad", children: v.said.text }) : ""}${List(
+      v.rows.map((r) => {
+        const l = line(r);
+        return Item({
+          lead: html`<span class="dot${l.on ? " ok" : ""}" role="img" aria-label="${l.on ? "on" : "off"}"></span>`,
+          title: html`<strong>${TOOL_NAMES[r.id]}</strong>`,
+          line: l.what,
+          more: l.act || undefined,
+          quiet: !l.on,
+        });
+      }),
+    )}${notes}`,
+  });
+}
+
 function appPanel(info: { version: string; startedAt: number } | undefined, canRestart: boolean, tz = currentTz()) {
   return Panel({
     title: "The app",
@@ -145,7 +200,7 @@ function appPanel(info: { version: string; startedAt: number } | undefined, canR
   });
 }
 
-export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html; /** Settings → Writes (src/pages/writes.ts). */ writes?: Html; /** Settings → Keys (src/pages/keys.ts). */ keys?: Html }) {
+export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html; /** Settings → Writes (src/pages/writes.ts). */ writes?: Html; /** Settings → Keys (src/pages/keys.ts). */ keys?: Html; /** Settings → Pack tools for agents (local). */ agentTools?: AgentToolsView }) {
   const p = opts.policy;
   const form = html`<form method="post" action="/settings/notify">
 <div class="field"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...(opts.rings ?? [])].map(
@@ -178,6 +233,7 @@ ${opts.layout ?? ""}
 ${opts.writes ?? ""}
 ${opts.keys ?? ""}
 ${opts.setup ? setupPanel(opts.setup) : ""}
+${opts.agentTools ? agentToolsPanel(opts.agentTools) : ""}
 ${opts.panes ? panesPanel(opts.panes, !!opts.canRestart) : ""}
 ${opts.panes ? workPanel(opts.panes, !!opts.canRestart, opts.teams) : ""}
 ${(opts.packs ?? []).map((x) => Panel({ title: x.name, id: `pack-${x.id}`, children: x.body }))}

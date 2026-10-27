@@ -154,10 +154,15 @@ The registry does this for every hook, so a pack can't break a page or another p
     pack sees the body. The pack never gets the token or any other header. Locally it answers on this
     machine's own address only. Hosted, it needs an Access Bypass policy for that path.
     `POST /mcp` (dovre#153, src/mcp.ts) serves the packs' `tools` to the agent turns Dovre starts.
-    Each Claude Code turn gets `--mcp-config` with a random token of its own, good only while that
-    turn runs and only for `/mcp` (it isn't the launch token). Local mode only, on a localhost Host,
-    and never with an Origin header (no browser page). Claude Code still asks before each tool, so
-    no permission widens. A pack's tool enforces its own limits. Every call is logged as `mcp.call`
+    Each turn, and each open terminal, gets a random token of its own, good only while it runs and
+    only for `/mcp` (it isn't the launch token): Claude Code in `--mcp-config`, Codex in `-c
+    mcp_servers.dovre.*` with the token in its environment, omp and agy through a stdio bridge
+    (src/mcp-stdio.ts) that Settings registers once in their own MCP config (no secret in it) and
+    that reads `DOVRE_MCP_URL`/`DOVRE_MCP_TOKEN` from the environment (dovre#172). Local mode only,
+    on a localhost Host, and never with an Origin header (no browser page). The agent still asks
+    before each tool as it asks for any other (agy, which can't ask headless, needs its own allow
+    rule; omp runs MCP tools without asking, even at always-ask), so no permission widens, and each
+    pack tool holds its own limits. A pack's tool enforces its own limits. Every call is logged as `mcp.call`
     (the tool and the repo, never arguments or results).
   - Only a pack's `/<id>/dock` pages may be framed by Dovre's own pages.
   - A pack's own pages may frame other sites only for the `https://` origins its `frames` names

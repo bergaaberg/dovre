@@ -62,6 +62,7 @@ import { createBuilds } from "./packs/core/storybook/build.ts";
 import { buildServer } from "./packs/core/storybook/serve.ts";
 import { findPrograms } from "./packs/core/terminal/programs.ts";
 import { createTerminals } from "./packs/core/terminal/terms.ts";
+import { bridgeEntry, registerTools, toolsState } from "./agents/mcpsetup.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { listRepos } from "./sources/claude.ts";
 import { listTodos } from "./todo/store.ts";
@@ -259,8 +260,10 @@ let turnChanged = (_r: Run) => {};
 // restarts, and are picked up again from data/runs (launcher/agenthost.go keeps tool results out).
 /** Whether any pack offers agent turns tools (src/mcp.ts); set once the packs are loaded. */
 let mcpOn = () => false;
+/** How omp and agy start Dovre's stdio MCP bridge (src/mcp-stdio.ts). */
+const toolsEntry = bridgeEntry();
 const runner = createRunner({
-  // Each Claude Code turn gets Dovre's MCP server, with its own token, when packs offer tools.
+  // Each turn gets Dovre's MCP server, with its own token, when packs offer tools (omp and agy once Settings sets them up).
   mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() },
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
   // omp turns always say how to ask before acting: the user's own omp config approves everything.
@@ -325,7 +328,8 @@ const notify = {
 const keptAnswers = keptFile(join(dataDir, "catalog.json"));
 // Terminals in Dovre run in the launcher's pty host (launcher/pty.go): a shell or agent CLI from the
 // fixed list, in a checkout under CODE_DIR. They need the launcher built (`bin/dovre` / `bin/dovre.exe`).
-const terminals = on.terminal ? createTerminals({ hostExe, codeDir: env.CODE_DIR, programs: findPrograms({ copilotBin: env.COPILOT_BIN, agyBin: env.AGY_BIN, codexBin: env.CODEX_BIN, on: harnessOn }), onChange: () => hub.publish(["snapshot"]) }) : undefined;
+// Each terminal gets Dovre's MCP server too, with its own token, while packs offer tools (#172).
+const terminals = on.terminal ? createTerminals({ hostExe, codeDir: env.CODE_DIR, programs: findPrograms({ copilotBin: env.COPILOT_BIN, agyBin: env.AGY_BIN, codexBin: env.CODEX_BIN, on: harnessOn }), onChange: () => hub.publish(["snapshot"]), mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() } }) : undefined;
 if (terminals) console.log(`terminals: ${terminals.programs().map((p) => p.id).join(", ")}`);
 
 // Dovre's own packs (PLAN WP-H9), before the instance's. Assistant: Bino and Topo, the peak.yaml files under
@@ -422,6 +426,20 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
   summaries,
   runner,
+  mcpTurns: (t) => terminals?.byMcpToken(t),
+  // Settings → Pack tools for agents: omp and agy read MCP servers only from their own config (#172).
+  agentTools: {
+    view: () => ({
+      offered: mcpOn(),
+      rows: [
+        ...(claude && harnessOn("claude") ? [{ id: "claude" as const }] : []),
+        ...(codex && harnessOn("codex") ? [{ id: "codex" as const }] : []),
+        ...(omp && harnessOn("omp") ? [{ id: "omp" as const, state: toolsState("omp", homedir(), toolsEntry) }] : []),
+        ...(agy && harnessOn("agy") ? [{ id: "agy" as const, state: toolsState("agy", homedir(), toolsEntry) }] : []),
+      ],
+    }),
+    register: (h) => registerTools(h, { home: homedir(), want: toolsEntry, agy: agy ? [agy.bin, ...agy.pre] : undefined }),
+  },
   relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n),
   hub,
   notify,
