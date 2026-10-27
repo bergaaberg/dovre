@@ -22,6 +22,8 @@ export type Layout = {
   theme?: Theme;
   /** An accent besides fjord's blue (the default), each checked in both themes (WP-N5). */
   accent?: Accent;
+  /** What Bino's button shows: my avatar when a pack draws one (unset), or the assistant icon. */
+  binoButton?: "icon";
 };
 export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
@@ -56,6 +58,7 @@ export function layoutOf(raw: unknown): Layout {
   if (packsOff) out.packsOff = packsOff;
   if (THEMES.includes(v.theme as Theme)) out.theme = v.theme as Theme;
   if (ACCENTS.includes(v.accent as Accent)) out.accent = v.accent as Accent;
+  if (v.binoButton === "icon") out.binoButton = "icon";
   return out;
 }
 
@@ -99,7 +102,7 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
   }
   const fed = new Set(many("feed"));
   const shown = new Set(many("pack"));
-  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent") });
+  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), binoButton: one("binoButton") });
 }
 
 /**
