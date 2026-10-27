@@ -103,6 +103,12 @@ export function Confirm(opts: { action: string; fields?: Record<string, string>;
   )}<button type="submit"${opts.danger ? html` class="danger"` : ""}>${opts.label}</button></form></div></details>`;
 }
 
+/** The submit of a form with fields to fill (a reply): asks twice like Confirm unless its `kind` is set to one click. */
+export function ConfirmSubmit(opts: { label: string; question: Child; kind?: string; danger?: boolean }): Html {
+  const press = html`<button type="submit"${opts.danger ? html` class="danger"` : ""}>${opts.label}</button>`;
+  return oneClickNow(opts.kind) ? press : html`<details class="confirm"><summary>${opts.label}…</summary><div class="confirm-body"><p>${opts.question}</p>${press}</div></details>`;
+}
+
 /**
  * Bulk (dovre#104): one form for many rows. Each row gets a `Pick` tickbox tied to the form by id;
  * each button asks twice (like Confirm) unless its `kind` is set to one click. The server checks

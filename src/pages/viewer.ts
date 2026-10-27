@@ -14,7 +14,7 @@ import { type Kept, memoize } from "../issues/templates.ts";
 import type { Hub } from "../live.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { loadPrFiles, loadPrView, type PrFile, type PrView, type Thread } from "../sources/prview.ts";
-import { type Child, Empty, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
+import { Confirm, ConfirmSubmit, type Child, Empty, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
 import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
@@ -22,8 +22,9 @@ import { type DiffLine, type FileView, fileViews, placeMine } from "../viewer/di
 import { Ago, Link } from "./parts.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { checkReview, postReview } from "../actions/reviews.ts";
+import { replyToThread, resolveThread } from "../actions/threads.ts";
 import type { D1 } from "../db.ts";
-import { postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
+import { cleanText, MAX_BODY, postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
 import { addComment, anchorOf, asDraft, clearReview, dropComment, editComment, importDraft, moveReview, type MyReview, myReview, saveSummary } from "../reviews/mine.ts";
 import { commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
 
@@ -83,15 +84,29 @@ function comment(c: { author: string; body: string; at: string; url: string }): 
   return html`<li class="pr-comment" data-stop="2"><div class="pr-who"><strong>${c.author}</strong> ${Ago(c.at)}${c.url ? html` · ${Link(c.url, "↗")}` : ""}</div>${c.body.trim() ? html`<div class="description">${markdown(c.body, { headingOffset: 3 })}</div>` : ""}</li>`;
 }
 
-function threadView(t: Thread, o: { showPath?: boolean } = {}): Html {
+/** Replying to and resolving a thread (dovre#106), where the PR's page can: its base, and the tab to come back to. */
+type ThreadActs = { base: string; back: "files" | "conversation" };
+
+function threadActs(t: Thread, a: ThreadActs): Html | "" {
+  if (!t.id) return "";
+  const fields = { thread: t.id, back: a.back };
+  const reply = t.firstId
+    ? html`<details class="thread-reply"><summary>Reply</summary><form method="post" action="${a.base}/threads/reply">${Object.entries(fields).map(([n, v]) => html`<input type="hidden" name="${n}" value="${v}">`)}<textarea name="body" rows="3" maxlength="${MAX_BODY}" required aria-label="Your reply" placeholder="Your reply (Markdown)"></textarea><div class="buttons">${ConfirmSubmit({ kind: "review.reply", label: "Reply", question: "Post this reply as you?" })}</div></form></details>`
+    : "";
+  const resolve = Confirm({ kind: "review.resolve", action: `${a.base}/threads/resolve`, fields: { ...fields, resolve: t.resolved ? "0" : "1" }, label: t.resolved ? "Reopen" : "Resolve", question: t.resolved ? "Reopen this thread?" : "Resolve this thread?" });
+  return html`<div class="thread-acts">${reply}<div class="buttons">${resolve}</div></div>`;
+}
+
+function threadView(t: Thread, o: { showPath?: boolean; acts?: ThreadActs } = {}): Html {
   const label = html`${o.showPath ? html`<code>${t.path}${t.line !== null ? `:${t.line}` : ""}</code> · ` : ""}${t.comments.length} ${t.comments.length === 1 ? "comment" : "comments"}${t.resolved ? " · resolved" : ""}${t.outdated ? " · outdated" : ""}`;
-  return html`<details class="pr-thread" data-stop="2"${t.resolved || t.outdated ? "" : html` open`}><summary>${label}</summary><ol class="pr-comments">${t.comments.map(comment)}</ol></details>`;
+  return html`<details class="pr-thread" data-stop="2"${t.resolved || t.outdated ? "" : html` open`}><summary>${label}</summary><ol class="pr-comments">${t.comments.map(comment)}</ol>${o.acts ? threadActs(t, o.acts) : ""}</details>`;
 }
 
 const TIMELINE_WORD: Record<string, string> = { commit: "pushed", "force-push": "force-pushed", "review-requested": "asked for a review from", ready: "marked it ready for review", draft: "made it a draft", merged: "merged it", closed: "closed it", reopened: "reopened it" };
 
-export function prPage(frame: Frame, o: { view: PrView; agent?: Html | ""; stack?: Child; /** Pack facts for this PR ("pr.facts" slot). */ facts?: (pr: PrSlotArg) => [Child, Child][]; topic: string }): Html {
+export function prPage(frame: Frame, o: { view: PrView; agent?: Html | ""; stack?: Child; /** Pack facts for this PR ("pr.facts" slot). */ facts?: (pr: PrSlotArg) => [Child, Child][]; topic: string; /** Threads take replies and resolve here (dovre#106). */ acts?: boolean; flash?: Flash; review?: { n: number } }): Html {
   const v = o.view;
+  const acts: ThreadActs | undefined = o.acts && v.state === "OPEN" ? { base: prHref(v.repo, v.number), back: "conversation" } : undefined;
   const open = v.threads.filter((t) => !t.resolved && !t.outdated);
   const folded = v.threads.filter((t) => t.resolved || t.outdated);
   const reviews = v.reviews.filter((r) => r.state !== "PENDING" && (r.body.trim() || r.state !== "COMMENTED"));
@@ -108,7 +123,7 @@ ${Panel({
 ${Panel({
   title: "Review threads",
   meta: `${open.length} open${folded.length ? `, ${folded.length} resolved or outdated` : ""}`,
-  children: v.threads.length ? html`${open.map((t) => threadView(t, { showPath: true }))}${folded.length ? html`<details class="pr-folded"><summary>${folded.length} resolved or outdated</summary>${folded.map((t) => threadView(t, { showPath: true }))}</details>` : ""}` : html`<p class="t3">No review threads.</p>`,
+  children: v.threads.length ? html`${open.map((t) => threadView(t, { showPath: true, acts }))}${folded.length ? html`<details class="pr-folded"><summary>${folded.length} resolved or outdated</summary>${folded.map((t) => threadView(t, { showPath: true, acts }))}</details>` : ""}` : html`<p class="t3">No review threads.</p>`,
 })}
 ${Panel({
   title: "Timeline",
@@ -116,7 +131,7 @@ ${Panel({
   children: v.timeline.length ? List([...v.timeline].reverse().slice(0, 30).map((t) => Item({ title: html`<strong>${t.who}</strong> ${TIMELINE_WORD[t.what] ?? t.what}${t.detail ? html` <code>${t.detail}</code>` : ""}`, trail: Ago(t.at), quiet: t.what === "commit" }))) : Empty({ title: "Nothing yet" }),
 })}
 </div>`;
-  return shell({ title: `#${v.number} ${v.title} · Dovre`, frame, current: "/prs", body: html`${header(v, "conversation", { stack: o.stack })}${body}`, head: html`<meta name="u-topics" content="snapshot ${o.topic}">` });
+  return shell({ title: `#${v.number} ${v.title} · Dovre`, frame, current: "/prs", body: html`${header(v, "conversation", { stack: o.stack, review: o.review })}${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${body}`, head: html`<meta name="u-topics" content="snapshot ${o.topic}">` });
 }
 
 // ── PR: files ────────────────────────────────────────────────────────────────
@@ -131,7 +146,7 @@ export type LineExtra = (l: DiffLine) => Html | "";
 /** Where a line's "+" goes (my own review, dovre#106): a comment on that side's line number. */
 export type CommentAt = (side: "LEFT" | "RIGHT", line: number) => string;
 
-function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt): Html {
+function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt, acts?: ThreadActs): Html {
   if (l.kind === "hunk") return html`<tr class="d-hunk" data-stop="2"><td class="ln"></td><td class="ln"></td><td class="code"><code>${l.text}</code></td></tr>`;
   if (l.kind === "note") return html`<tr class="d-note"><td class="ln"></td><td class="ln"></td><td class="code t3">${l.text}</td></tr>`;
   const sign = l.kind === "add" ? "+" : l.kind === "del" ? "−" : " ";
@@ -139,14 +154,14 @@ function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt): Html {
   const line = side === "LEFT" ? l.old : l.new;
   const plus = at && line ? html`<a class="d-c" href="${at(side, line)}" data-side="${side}" data-line="${line}" aria-label="Comment on line ${line}" title="Comment (c)">+</a>` : "";
   return html`<tr class="${LINE_CLASS[l.kind]}"><td class="ln">${l.old ?? ""}</td><td class="ln">${l.new ?? ""}</td><td class="code">${plus}<code><span class="d-sign" aria-hidden="true">${sign}</span>${l.text}</code></td></tr>${
-    l.threads?.length ? html`<tr class="d-threads"><td colspan="3">${l.threads.map((t) => threadView(t))}</td></tr>` : ""
+    l.threads?.length ? html`<tr class="d-threads"><td colspan="3">${l.threads.map((t) => threadView(t, { acts }))}</td></tr>` : ""
   }${extra ? extra(l) : ""}`;
 }
 
 export const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
 
 /** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
-export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt }): Html {
+export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt; acts?: ThreadActs }): Html {
   const f = fv.file;
   const name = f.previous && f.previous !== f.path ? html`<code>${f.previous}</code> → <code>${f.path}</code>` : html`<code>${f.path}</code>`;
   const view = o.dir && f.status !== "removed" ? (o.present ? html`<a class="btn sm ghost" href="${codeHref(o.dir, { ref: o.sha, path: f.path })}">View file</a>` : "") : "";
@@ -154,8 +169,8 @@ export function fileView(fv: FileView, o: { sha: string; dir?: string; present: 
   return html`<details class="dfile" id="${fileId(f.path)}" data-stop="1" data-stop-label="${f.path}"${at ? html` data-path="${f.path}"` : ""}${fv.folded && !fv.drafts && !fv.mine ? "" : html` open`}><summary><span class="dfile-name">${Pill({ tone: STATUS_TONE[f.status], children: f.status })} ${name}</span><span class="dfile-meta"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span>${
     fv.threads.length ? html` · ${fv.threads.length} ${fv.threads.length === 1 ? "thread" : "threads"}` : ""
   }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""}${fv.mine ? html` · <span class="spark">${fv.mine} pending</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
-    fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true }))}</div>` : ""
-  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map((l) => lineRow(l, o.extra, at))}</tbody></table></div>` : ""}</details>`;
+    fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true, acts: o.acts }))}</div>` : ""
+  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff"><tbody>${fv.lines.map((l) => lineRow(l, o.extra, at, o.acts))}</tbody></table></div>` : ""}</details>`;
 }
 
 /** My own review on the Files tab (dovre#106): pending comments, the form open at a line (no script), the agent's draft to start from. */
@@ -188,7 +203,7 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
     const template = comment ? commentForm({ base, sha: v.headSha, template: true }) : "";
     inner = html`${bar}<nav class="dfile-index" aria-label="Files"><ul>${views.map(
       (fv) => html`<li><a href="#${fileId(fv.file.path)}"><code>${fv.file.path}</code></a> <span class="add">+${fv.file.additions}</span> <span class="del">−${fv.file.deletions}</span></li>`,
-    )}</ul></nav>${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment }))}${
+    )}</ul></nav>${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment, acts: m && v.state === "OPEN" ? { base, back: "files" } : undefined }))}${
       m ? offDiff(off.map((i) => pending[i]!), base, moved ? "Your review is on an older commit." : "These go at the end of the summary when you post.") : ""
     }${template}`;
   }
@@ -357,7 +372,21 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const topic = topicOf(at.repo, at.n);
     const got = await viewOf(at.repo, at.n);
     if (!got || !got.ok) return c.html(readingPage(frame, { ...at, topic, error: got && !got.ok ? got.error : undefined }), got ? 502 : 200);
-    return c.html(prPage(frame, { view: got.value, agent: (await deps.agentFor?.(at.repo, at.n)) ?? "", stack: await deps.stackFor?.(at.repo, at.n), facts: deps.facts, topic }));
+    const who = c.get("who") ?? "";
+    const key = `${at.repo}#${at.n}`;
+    const mine = deps.db ? await myReview(deps.db, who, key) : undefined;
+    return c.html(
+      prPage(frame, {
+        view: got.value,
+        agent: (await deps.agentFor?.(at.repo, at.n)) ?? "",
+        stack: await deps.stackFor?.(at.repo, at.n),
+        facts: deps.facts,
+        topic,
+        acts: !!deps.db,
+        flash: flashOf(`${who}|${key}`),
+        review: deps.db ? { n: mine?.comments.length ?? 0 } : undefined,
+      }),
+    );
   });
 
   app.get("/prs/:owner/:repo/:n/files", async (c) => {
@@ -467,6 +496,33 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       return c.redirect(`${x.base}/files`, 303);
     });
 
+    /** After a write: the PR read again, so the page it goes back to shows it. */
+    const reread = (repo: string, n: number) => views(`prview:${repo}#${n}`, () => loadPrView(deps.ghe, repo, n), { fresh: true }).then(() => deps.hub?.publish([topicOf(repo, n)]), () => undefined);
+    const backOf = (x: { base: string }, back: unknown) => (back === "files" ? `${x.base}/files` : x.base);
+
+    app.post("/prs/:owner/:repo/:n/threads/reply", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      const body = cleanText(form.body, MAX_BODY);
+      const thread = typeof form.thread === "string" ? form.thread : "";
+      const res = body ? await replyToThread(deps.ghe, db, x.repo, x.n, { thread, body }) : { ok: false, message: "The reply is empty: nothing posted." };
+      if (res.ok) await reread(x.repo, x.n);
+      setFlash(x.flashKey, res);
+      return c.redirect(backOf(x, form.back), 303);
+    });
+
+    app.post("/prs/:owner/:repo/:n/threads/resolve", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      const thread = typeof form.thread === "string" ? form.thread : "";
+      const res = await resolveThread(deps.ghe, db, x.repo, x.n, { thread, resolve: form.resolve !== "0" });
+      if (res.ok) await reread(x.repo, x.n);
+      setFlash(x.flashKey, res);
+      return c.redirect(backOf(x, form.back), 303);
+    });
+
     app.post("/prs/:owner/:repo/:n/review/discard", async (c) => {
       const x = await ctxOf(c);
       if (!x) return c.notFound();
@@ -519,7 +575,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       if (res.ok) {
         await clearReview(db, x.who, x.key);
         deps.stale?.();
-        deps.hub?.publish([topicOf(x.repo, x.n)]);
+        await reread(x.repo, x.n);
       }
       const url = res.url && res.url.startsWith(`https://${deps.ghe.host}/`) ? res.url : undefined;
       setFlash(x.flashKey, { ok: res.ok, message: res.message, url });

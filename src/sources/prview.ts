@@ -7,7 +7,8 @@ import type { Ghe } from "./ghe.ts";
 import { checkState } from "./ghe.ts";
 
 export type ThreadComment = { author: string; body: string; at: string; url: string };
-export type Thread = { path: string; line: number | null; side: "LEFT" | "RIGHT"; resolved: boolean; outdated: boolean; comments: ThreadComment[] };
+/** `id`: GHE's node id (to resolve it); `firstId`: its first comment's id (replies go to it). Empty when not known. */
+export type Thread = { path: string; line: number | null; side: "LEFT" | "RIGHT"; resolved: boolean; outdated: boolean; comments: ThreadComment[]; id?: string; firstId?: number };
 export type ReviewItem = { author: string; state: string; body: string; at: string; url: string };
 export type TimelineItem = { at: string; what: "commit" | "force-push" | "review-requested" | "ready" | "draft" | "merged" | "closed" | "reopened"; who: string; detail: string };
 
@@ -40,6 +41,8 @@ export type PrView = {
 
 export type PrFile = { path: string; previous?: string; status: string; additions: number; deletions: number; patch?: string; sha: string };
 
+/** A GraphQL node id, as GHE gives a review thread's ("PRRT_kwDO…"). */
+export const THREAD_ID = /^[A-Za-z0-9_=-]{4,120}$/;
 const str = (v: unknown, max = 100_000) => (typeof v === "string" ? v.slice(0, max) : "");
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
@@ -48,7 +51,7 @@ const query = (owner: string, name: string, n: number) => `{repository(owner:${J
   createdAt updatedAt reviewDecision labels(first:20){nodes{name}}
   reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{name}}}}
   reviews(last:50){nodes{author{login} state body submittedAt url}}
-  reviewThreads(first:100){nodes{isResolved isOutdated path line originalLine diffSide comments(first:30){nodes{author{login} body createdAt url}}}}
+  reviewThreads(first:100){nodes{id isResolved isOutdated path line originalLine diffSide comments(first:30){nodes{databaseId author{login} body createdAt url}}}}
   commits(last:1){nodes{commit{statusCheckRollup{contexts(first:60){nodes{
     ... on CheckRun{name conclusion status detailsUrl}
     ... on StatusContext{context state targetUrl}}}}}}}
@@ -138,6 +141,8 @@ export function normalizePrView(repo: string, raw: unknown): PrView | null {
       resolved: t?.isResolved === true,
       outdated: t?.isOutdated === true,
       comments: ((t?.comments?.nodes ?? []) as any[]).map((c) => ({ author: who(c?.author), body: str(c?.body, 60_000), at: str(c?.createdAt, 40), url: str(c?.url, 2000) })),
+      ...(THREAD_ID.test(str(t?.id, 200)) ? { id: str(t?.id, 200) } : {}),
+      ...(Number.isSafeInteger(t?.comments?.nodes?.[0]?.databaseId) && t.comments.nodes[0].databaseId > 0 ? { firstId: t.comments.nodes[0].databaseId as number } : {}),
     })),
     timeline: timeline.sort((a, b) => a.at.localeCompare(b.at)),
   };
