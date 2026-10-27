@@ -8,7 +8,7 @@ import { safeUrl } from "../pages/parts.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
-import { type ActDone, type ActKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type Pulse, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
+import { type ActDone, type ActKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /** A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page shows its settings). */
 export type Off = { id: string; name: string; why: string; manifest?: PackManifest; pack?: Pack };
@@ -124,6 +124,43 @@ export function ringsOf(on: Pack[], taken: string[], log: (id: string, line: str
       out.push({ pack: c.manifest.id, kind: r.kind, label: cut(r.label, 120) || r.kind, hint: cut(r.hint, 160) || undefined });
     }
   return out;
+}
+
+/** A pack's stat after the checks: ids under the pack's, text cut, numbers finite or left out. */
+export type StatOut = { id: string; pack: string; packName: string; title: string; meta?: string; unit: StatUnit; empty?: string } & (
+  | { kind: "chart"; chart: "columns" | "lines"; stacked: boolean; labels: string[]; tips: string[]; series: { name: string; values: (number | undefined)[] }[] }
+  | { kind: "tile"; value?: number; note?: string; trend?: (number | undefined)[] }
+);
+
+const UNITS = new Set<StatUnit>(["count", "money", "hours", "days", "percent"]);
+const STAT_ID = /^[a-z][a-z0-9-]{0,40}$/;
+const nums = (v: unknown, n: number) => (Array.isArray(v) ? v.slice(0, n).map(num) : []);
+
+/**
+ * Every pack's panels for /stats (PackStat), checked: at most 12 a pack, ids under the pack's
+ * (`<pack>:<id>`, unique), 60 labels, two series, text cut to size. A pack that throws adds nothing and is logged.
+ */
+export function statsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, weeks: number, log: (id: string, line: string) => void): StatOut[] {
+  return on.flatMap((c) => {
+    if (!c.stats) return [];
+    const pack = c.manifest.id;
+    const got = safely(() => c.stats!(ctxOf(c), { weeks }), [] as PackStat[], (e) => log(pack, `stats: ${(e as Error)?.message ?? e}`));
+    if (!Array.isArray(got)) return [];
+    const seen = new Set<string>();
+    return got.slice(0, 12).flatMap((st): StatOut[] => {
+      if (!st || typeof st.id !== "string" || !STAT_ID.test(st.id) || seen.has(st.id) || typeof st.title !== "string" || !st.title.trim()) return [];
+      seen.add(st.id);
+      const base = { id: `${pack}:${st.id}`, pack, packName: c.manifest.name, title: st.title.slice(0, 80), meta: cut(st.meta, 80) || undefined, unit: UNITS.has(st.unit as StatUnit) ? (st.unit as StatUnit) : "count", empty: cut(st.empty, 200) || undefined };
+      if ("labels" in st && Array.isArray(st.labels)) {
+        const labels = st.labels.slice(0, 60).map((l) => cut(l, 24));
+        const tips = labels.map((l, i) => cut(Array.isArray(st.tips) ? st.tips[i] : undefined, 80) || l);
+        const series = (Array.isArray(st.series) ? st.series : []).slice(0, 2).filter((x) => x && typeof x.name === "string").map((x) => ({ name: x.name.slice(0, 40), values: nums(x.values, labels.length) }));
+        return [{ ...base, kind: "chart", chart: st.chart === "lines" ? "lines" : "columns", stacked: st.stacked === true, labels, tips, series }];
+      }
+      if ("value" in st) return [{ ...base, kind: "tile", value: num(st.value), note: cut(st.note, 120) || undefined, trend: Array.isArray(st.trend) ? nums(st.trend, 60) : undefined }];
+      return [];
+    });
+  });
 }
 
 /**

@@ -32,7 +32,8 @@ import type { Run } from "./agents/runner.ts";
 import type { Runner } from "./agents/runner.ts";
 import { SID, findSession, modelOf } from "./agents/desk.ts";
 import { createStats, type Stats } from "./stats/stats.ts";
-import { statsPage } from "./pages/stats.ts";
+import { statOffers, statsPage } from "./pages/stats.ts";
+import { WEEKS } from "./stats/history.ts";
 import { actionsCard, actionsPage } from "./pages/actions.ts";
 import { pagesOf, parseQuery, type Row as SearchRow, search } from "./search/search.ts";
 import { createGheSearch } from "./search/ghe.ts";
@@ -56,7 +57,7 @@ import type { Html } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
+import { actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { packsPage } from "./pages/packs.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
 import { strictOrigin } from "./strict.ts";
@@ -150,7 +151,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const summary = (key: string) => deps.summaries?.get(key);
   let flash: { ok: boolean; message: string } | undefined;
   const asks = deps.asks ?? createAsks();
-  const stats = deps.stats ?? createStats({ ghe, org: ownersIn(env), login: () => gatherer.peek()?.login, onChange: () => deps.hub?.publish(["stats"]) });
+  const stats = deps.stats ?? createStats({ ghe, org: ownersIn(env), login: () => gatherer.peek()?.login, github: () => can("stats"), onChange: () => deps.hub?.publish(["stats"]) });
   // Bino: what it's told comes from what's gathered, my list and what each pack says it may know, never more (src/packs/core/assistant/bino/context.ts).
   // Hosted, GitHub's snapshot stays out: the apps' packs say what matters there.
   const hostedMode = env.IS_HOSTED === "1";
@@ -183,7 +184,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const forge = deps.forge ?? githubForge(ghe);
   const can = (what: ForgeCan) => forgeCan(forge, what);
   /** A pane switched off on Settings (src/config.ts), or one the forge can't serve. */
-  const off = (id: PaneId) => deps.panes?.[id] === false || (id === "stats" && !can("stats")) || (id === "reviews" && !can("reviews"));
+  const off = (id: PaneId) => deps.panes?.[id] === false || (id === "stats" && !can("stats") && !shown().some((p) => p.stats)) || (id === "reviews" && !can("reviews"));
   /** A core path the forge can't serve (FORGE_PATHS): it 404s, and menus and search leave it out. */
   const forgeHidden = (href: string) => {
     const path = href.split(/[?#]/)[0]!;
@@ -570,10 +571,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   // ── Search (src/search/search.ts): /search as a page; with frag=1, just the list the palette swaps in ──
   const gheSearch = createGheSearch(ghe, ownersIn(env));
   // ── Stats (src/stats/): drawn from what's kept; a visit gathers again when it's due ──
+  /** The packs' panels for /stats, over the weeks I picked (Settings → Look and layout). */
+  const packStats = () => statsFrom(shown(), ctxOf, layout.get().statsWeeks ?? WEEKS, (id, line) => packLog(id)(line));
   app.get("/stats", async (c) => {
     const { frame } = await page();
     stats.refresh();
-    return c.html(statsPage(frame, stats.view(), { forge }));
+    return c.html(statsPage(frame, stats.view(), { forge, packs: packStats(), layout: layout.get(), github: can("stats") }));
   });
   app.post("/stats/refresh", async (c) => {
     stats.refresh(true);
@@ -892,14 +895,17 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       ],
       feeds: packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
       packs: packs.on.map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
+      stats: off("stats")
+        ? []
+        : statOffers(stats.view(), { now: Date.now(), forge, packs: packStats(), github: can("stats") }).map((o, i) => ({ id: o.id, label: o.label, from: o.from, show: l.stats?.[o.id]?.show ?? true, order: l.stats?.[o.id]?.order ?? (i + 1) * 10 })),
     };
   };
   app.post("/settings/layout", async (c) => {
     const { frame } = await page();
     const v = await layoutView(frame);
-    const next = layoutFromForm(await c.req.parseBody({ all: true }), { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id) });
-    // Cards not drawn just now (a pack hidden or slow) keep where I put them.
-    await layout.save({ ...next, cards: { ...v.layout.cards, ...next.cards } });
+    const next = layoutFromForm(await c.req.parseBody({ all: true }), { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id), stats: v.stats.map((x) => x.id) });
+    // Cards not drawn and stats not offered just now (a pack hidden or slow) keep where I put them.
+    await layout.save({ ...next, cards: { ...v.layout.cards, ...next.cards }, stats: { ...v.layout.stats, ...next.stats } });
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
     return c.redirect("/settings#layout", 303);

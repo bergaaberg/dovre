@@ -1,4 +1,4 @@
-/** Settings → Look and layout (src/layout.ts): light or dark, the accent, the phone's tabs, Today's cards, the feed's sources, packs shown. */
+/** Settings → Look and layout (src/layout.ts): light or dark, the accent, the phone's tabs, Today's cards, Stats' panels, the feed's sources, packs shown. */
 import { html } from "hono/html";
 import type { Layout } from "../layout.ts";
 import { Panel } from "../ui/kit.ts";
@@ -14,6 +14,8 @@ export type LayoutView = {
   /** Packs that give the feed events. */
   feeds: { id: string; name: string }[];
   packs: { id: string; name: string }[];
+  /** What /stats can show: id, name, where it's from, shown or not, its order. */
+  stats: { id: string; label: string; from: string; show: boolean; order: number }[];
 };
 
 const COLS = [
@@ -27,6 +29,8 @@ export function layoutPanel(v: LayoutView) {
     html`<label class="field"><span class="label">Tab ${i + 2}</span><select name="tab${i + 1}"><option value="">None</option>${v.pages.map((p) => html`<option value="${p.href}"${v.tabs[i] === p.href ? html` selected` : ""}>${p.title}</option>`)}</select></label>`;
   const card = (c: LayoutView["cards"][number]) =>
     html`<div class="layout-row"><span>${c.label}</span><select name="col:${c.id}" aria-label="${c.label}: column">${COLS.map((o) => html`<option value="${o.value}"${c.col === o.value ? html` selected` : ""}>${o.label}</option>`)}</select><input type="number" name="order:${c.id}" min="0" max="999" value="${c.order}" aria-label="${c.label}: order"></div>`;
+  const stat = (x: LayoutView["stats"][number]) =>
+    html`<div class="layout-row"><span>${x.label} <span class="t3">${x.from}</span></span><select name="stat:${x.id}" aria-label="${x.label}: shown"><option value="on"${x.show ? html` selected` : ""}>Shown</option><option value="off"${x.show ? "" : html` selected`}>Hidden</option></select><input type="number" name="statorder:${x.id}" min="0" max="999" value="${x.order}" aria-label="${x.label}: order"></div>`;
   const off = (list: string[] | undefined, id: string) => !!list?.includes(id);
   const pick = (name: string, label: string, value: string | undefined, choices: { value: string; label: string }[]) =>
     html`<label class="field"><span class="label">${label}</span><select name="${name}">${choices.map((o) => html`<option value="${o.value}"${(value ?? "") === o.value ? html` selected` : ""}>${o.label}</option>`)}</select></label>`;
@@ -37,6 +41,11 @@ export function layoutPanel(v: LayoutView) {
 ${v.cards.length
   ? html`<div class="field"><span class="label">Today's cards</span><span class="hint">Each in a column, lowest number first; hidden ones aren't drawn.</span></div>
 <div class="layout-rows">${v.cards.map(card)}</div>`
+  : ""}
+${v.stats.length
+  ? html`<div class="field"><span class="label">Stats</span><span class="hint">What the Stats page shows, lowest number first, and how far back its weekly charts reach.</span></div>
+<div class="fields">${pick("statsWeeks", "Weeks on Stats", v.layout.statsWeeks ? String(v.layout.statsWeeks) : "", [{ value: "", label: "12 weeks" }, { value: "4", label: "4 weeks" }])}</div>
+<div class="layout-rows">${v.stats.map(stat)}</div>`
   : ""}
 ${v.feeds.length
   ? html`<div class="field"><span class="label">What's happening</span><fieldset>${v.feeds.map((f) => html`<label class="check"><input type="checkbox" name="feed" value="${f.id}"${off(v.layout.feedOff, f.id) ? "" : html` checked`}> ${f.name}</label><br>`)}</fieldset><span class="hint">The apps whose events reach the feed.</span></div>`

@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createApp } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
-import { statsPage } from "../src/pages/stats.ts";
+import { statOffers, statsPage } from "../src/pages/stats.ts";
+import { layoutFromForm, layoutOf, placeStats } from "../src/layout.ts";
+import { statsFrom } from "../src/packs/registry.ts";
+import { PACK_API, type Pack, type PackContext, type PackStat, type StatUnit } from "../src/packs/types.ts";
+import { packApp } from "../src/packs/testing.ts";
 import { type History, historyOf, isBot, median, weekly, weeksOf } from "../src/stats/history.ts";
 import { claudeCostDays, createSpend, ompCostDays } from "../src/stats/spend.ts";
 import { createStats } from "../src/stats/stats.ts";
@@ -176,4 +180,80 @@ test("/stats in the app: in the menu, a visit gathers when due, Gather again ask
   assert.equal(res.status, 303);
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 2);
+});
+
+// ── #93: packs add stats, and I choose what Stats shows ──
+
+const statPack = (stats: Pack["stats"], id = "linear"): Pack => ({ manifest: { api: PACK_API, id, name: id === "linear" ? "Linear" : id, description: "", domain: "work" }, stats });
+const cycle: PackStat = { id: "cycle", title: "Issues closed per week", unit: "count", labels: ["w41", "w42", "w43"], series: [{ name: "Closed", values: [4, 7, 2] }] };
+
+test("layout: stats placements and weeks read strictly; placeStats hides and orders, the rest keep the code's order", () => {
+  assert.deepEqual(layoutOf({ stats: { "you-weekly": { show: false, order: 3 }, "linear:cycle": { show: true, order: 1.6 }, "Bad Id": { show: true, order: 1 }, x: { show: "yes" } }, statsWeeks: 4 }), {
+    stats: { "you-weekly": { show: false, order: 3 }, "linear:cycle": { show: true, order: 2 } },
+    statsWeeks: 4,
+  });
+  assert.deepEqual(layoutOf({ statsWeeks: 26 }), {}, "26 weeks isn't on offer (yet)");
+  const offers = ["a", "b", "c", "d"].map((id) => ({ id }));
+  assert.deepEqual(placeStats(offers, { c: { show: true, order: 1 }, b: { show: false, order: 0 } }).map((o) => o.id), ["c", "a", "d"]);
+  assert.deepEqual(placeStats(offers, undefined).map((o) => o.id), ["a", "b", "c", "d"]);
+  const form = layoutFromForm({ "stat:a": "off", "statorder:a": "5", "stat:linear:cycle": "on", "statorder:linear:cycle": "1", "stat:nope": "on", statsWeeks: "4" }, { hrefs: [], cards: [], feeds: [], packs: [], stats: ["a", "linear:cycle"] });
+  assert.deepEqual([form.stats, form.statsWeeks], [{ a: { show: false, order: 5 }, "linear:cycle": { show: true, order: 1 } }, 4]);
+});
+
+test("statsFrom: ids under the pack's, text cut, two series, finite numbers; a pack that throws adds nothing", () => {
+  const logged: string[] = [];
+  const out = statsFrom(
+    [
+      statPack(() => [cycle, { ...cycle }, { id: "Bad Id", title: "x", value: 1 }, { id: "big", title: "x".repeat(300), unit: "nope" as StatUnit, labels: ["a"], series: [{ name: "1", values: [Infinity] }, { name: "2", values: [1] }, { name: "3", values: [2] }] }, { id: "open", title: "Open", value: Number.NaN, empty: "Connect Linear" }]),
+      statPack(() => {
+        throw new Error("down");
+      }, "broken"),
+    ],
+    () => ({}) as PackContext,
+    12,
+    (id, line) => logged.push(`${id}: ${line}`),
+  );
+  assert.deepEqual(out.map((s) => s.id), ["linear:cycle", "linear:big", "linear:open"]);
+  const big = out[1]!;
+  assert.ok(big.kind === "chart" && big.series.length === 2 && big.series[0]!.values[0] === undefined);
+  assert.equal(big.title.length, 80);
+  assert.equal(big.unit, "count");
+  assert.ok(out[2]!.kind === "tile" && out[2]!.value === undefined);
+  assert.deepEqual(logged, ["broken: stats: down"]);
+});
+
+test("the page: my order, hidden panels gone, 4 weeks, pack panels and tiles with empty states; hostile pack text is inert", () => {
+  const h: History = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW });
+  const packs = statsFrom([statPack(() => [cycle, { id: "open", title: "Open issues", value: 12, note: "3 urgent", trend: [10, 11, 12] }, { id: "later", title: "Sentry", empty: "Connect Sentry to see errors", labels: [], series: [] }])], () => ({}) as PackContext, 4, () => {});
+  const page = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false }, { now: NOW, packs, layout: { stats: { "linear:cycle": { show: true, order: 1 }, "org-merged": { show: false, order: 0 } }, statsWeeks: 4 } }));
+  assert.ok(page.indexOf("Issues closed per week") < page.indexOf("You, per week"), "my order");
+  assert.doesNotMatch(page, /The org, merged PRs per week/, "hidden");
+  assert.match(page, /Last 4 weeks/);
+  assert.match(page, /<p class="kpi-l">Open issues<\/p><p class="kpi-v">12<\/p><p class="kpi-n">3 urgent<\/p>/);
+  assert.match(page, /Connect Sentry to see errors/);
+  assert.equal((page.match(/<details class="vtable">[^]*?<\/details>/)![0].match(/<tr><th scope="row">/g) ?? []).length, 3, "the first chart (the pack's) has its three weeks");
+  assert.match(page, /data-tip="2 Merged\n0 Reviews given\nw43|data-tip="[^"]*w40/, "the GitHub charts span 4 weeks");
+  assert.doesNotMatch(page, /w32/, "not twelve");
+  const all = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false }, { now: NOW, layout: { stats: Object.fromEntries(statOffers({ history: h, gathering: false }, { now: NOW }).map((o) => [o.id, { show: false, order: 0 }])) } }));
+  assert.match(all, /Every panel is hidden/);
+  const hostile = statsFrom([statPack(() => [{ id: "h", title: H, meta: H, empty: H, labels: [H], tips: [H], series: [{ name: H, values: [1] }] }, { id: "t", title: H, value: 1, note: H }, { id: "e", title: H, empty: H, labels: [], series: [] }])], () => ({}) as PackContext, 12, () => {});
+  assertInert("pack stats", String(statsPage({ operator: "me", nav: [] }, { gathering: false }, { now: NOW, packs: hostile, github: false })));
+});
+
+test("/stats without GitHub stats: the packs' panels and spend only, no Gather again; Settings chooses, and /stats follows", async () => {
+  const { get, post } = packApp([statPack(() => [cycle])], { forge: { id: "plain", name: "Plain", can: [] } });
+  const page = await (await get("/stats")).text();
+  assert.match(page, /Issues closed per week/);
+  assert.doesNotMatch(page, /Gather again|Merged, this week|Gathering twelve weeks/);
+  const settings = await (await get("/settings")).text();
+  assert.match(settings, /name="stat:linear:cycle"/);
+  assert.match(settings, /name="statsWeeks"/);
+  const saved = await post("/settings/layout", { pack: "linear", "stat:linear:cycle": "off", "statorder:linear:cycle": "10", statsWeeks: "4" });
+  assert.equal(saved.status, 303);
+  const after = await (await get("/stats")).text();
+  assert.doesNotMatch(after, /Issues closed per week/);
+  assert.match(after, /Last 4 weeks/);
+  assert.match(after, /Every panel is hidden/, "spend isn't read in this app, so the pack's panel was the only one");
+  // No pack with stats and no forge stats: no Stats page at all.
+  assert.equal((await packApp([], { forge: { id: "plain", name: "Plain", can: [] } }).get("/stats")).status, 404);
 });

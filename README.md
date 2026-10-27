@@ -98,7 +98,7 @@ pnpm packs add cf-health --into ../my-dovre
 pnpm packs new my-app --into ../my-dovre
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full `Pack` contract (`src/packs/types.ts`), hooks (`today`, `routes`, `slots`, `needs`, `bino`, `acts`, `dock`, `scheduled`, `email`), and isolation guarantees.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full `Pack` contract (`src/packs/types.ts`), hooks (`today`, `routes`, `slots`, `needs`, `stats`, `bino`, `acts`, `dock`, `scheduled`, `email`), and isolation guarantees.
 
 ---
 
