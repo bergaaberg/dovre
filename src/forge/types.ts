@@ -67,6 +67,10 @@ export type Forge = {
   work?(login: string, owners: string, since: string): Promise<ForgeWork>;
   /** How many of my PRs merged in the owners' repos since a time (ISO). Absent: packs read none. */
   merged?(login: string, owners: string, since: string): Promise<number>;
+  /** The owners' repos that aren't archived (`owner/name`). Absent: packs read none. */
+  repos?(owners: string): Promise<string[]>;
+  /** One file's text on a repo's default branch; undefined when there's none. Absent: packs read none. */
+  file?(repo: string, path: string): Promise<string | undefined>;
 };
 
 /**
