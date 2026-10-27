@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { agyArgs, agyApply, agyHarness } from "../src/agents/agy.ts";
+import { agyArgs, agyApply, agyHarness } from "../src/agents/harnesses/agy/harness.ts";
 import type { Run } from "../src/agents/runner.ts";
 import { loadAgySessions, parseHistoryLine } from "../src/sources/agy.ts";
 import { createCfGatewayAsk, routeOf, viaOf } from "../src/packs/core/assistant/bino/route.ts";

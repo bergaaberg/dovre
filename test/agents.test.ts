@@ -8,7 +8,9 @@ import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { cleanUserText, turnsOf } from "../src/agents/conversation.ts";
-import { apply, argsFor, createRunner, HEADLESS_NOTE, repoDir, type Run, toolSpec } from "../src/agents/runner.ts";
+import { createRunner, repoDir, type Run } from "../src/agents/runner.ts";
+import { apply, argsFor, HEADLESS_NOTE } from "../src/agents/harnesses/claude/harness.ts";
+import { toolSpec } from "../src/agents/harnesses/shared.ts";
 
 const line = (o: object) => JSON.stringify(o);
 

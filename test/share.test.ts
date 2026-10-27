@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createRunner } from "../src/agents/runner.ts";
-import { ompHarness } from "../src/agents/omp.ts";
+import { ompHarness } from "../src/agents/harnesses/omp/harness.ts";
 import { launchToken, maskedLogin, serveSetup } from "../src/boot.ts";
 import { loadEnv, reposOf } from "../src/env.ts";
 import { newAgentPage } from "../src/packs/core/agents/session.view.ts";

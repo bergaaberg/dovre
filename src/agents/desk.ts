@@ -13,12 +13,10 @@ import { type Session, listRepos, sessionById, tail, transcriptOf } from "../sou
 import { ompAgentDirs, ompSessionById, ompTranscriptOf, ompTurnsOf } from "../sources/omp.ts";
 import { COPILOT_DIR, copilotEventsOf, copilotSessionById, copilotTurnsOf } from "../sources/copilot.ts";
 import { allowedPrompt, answersPrompt, type Turn, turnsOf as claudeTurns } from "./conversation.ts";
-import { OMP_MODELS } from "./omp.ts";
 import { joined, type Queue, type Queued } from "./queue.ts";
 import { turnCost as turnCostOf } from "./latest.ts";
-import { AGY_MODELS } from "./agy.ts";
-import { CODEX_MODELS } from "./codex.ts";
-import { HARNESSES, type HarnessId, MODELS, MODES, type Mode, type Run, type Runner, repoDir } from "./runner.ts";
+import { modelsOf } from "./harnesses/index.ts";
+import { HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
 
 export const SID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -92,7 +90,7 @@ export type Desk = {
 export const modeOf = (v: unknown): Mode => ((MODES as readonly string[]).includes(String(v)) ? (v as Mode) : "default");
 /** A model the harness knows, else its default. */
 export const modelOf = (v: unknown, h: HarnessId = "claude"): string => {
-  const known: readonly string[] = h === "omp" ? OMP_MODELS.map((m) => m.value) : h === "agy" ? AGY_MODELS.map((m) => m.value) : h === "codex" ? CODEX_MODELS.map((m) => m.value) : MODELS;
+  const known = modelsOf(h).map((m) => m.value);
   return known.includes(String(v)) ? String(v) : "";
 };
 export const promptOf = (v: unknown) => (typeof v === "string" && v.trim() && v.length <= 20_000 ? v.trim() : null);

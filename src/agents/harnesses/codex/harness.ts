@@ -13,7 +13,8 @@
  * status), file_change (changes: path, kind), mcp_tool_call (server, tool), web_search (query),
  * error (message). Reasoning and command output are never read (the agent host drops them too).
  */
-import type { Harness, Run, StartOpts } from "./runner.ts";
+import type { Harness, Run, StartOpts } from "../../runner.ts";
+import { type HarnessDef } from "../shared.ts";
 
 export function codexArgs(o: StartOpts): string[] {
   const args = ["exec", "--json", "--sandbox", o.mode === "acceptEdits" ? "workspace-write" : "read-only"];
@@ -84,3 +85,5 @@ export const codexHarness = (bin = "codex"): Harness => ({
   canFork: false,
   mcpEnv: true,
 });
+
+export const codex: HarnessDef = { id: "codex", bin: "codex", binVar: "CODEX_BIN", models: CODEX_MODELS, keep: "launcher/keep_codex.go", make: (t) => ({ ...codexHarness(t.bin), pre: t.pre }) };

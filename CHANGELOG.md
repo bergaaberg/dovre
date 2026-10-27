@@ -5,6 +5,11 @@
 Added:
 
 - **Self-host**: the Docker pane can see the host's containers when Dovre runs in Docker. It's opt-in, with a commented-out socket mount and `group_add` in `deploy/compose.yaml`; read the warning in docs/SELF-HOST.md first, since the socket is root on the host (#102).
+- **Agent CLIs**: Settings → Work has a box per agent CLI (Claude Code, omp, Copilot CLI, agy, Codex) instead of a comma-separated list, and marks the ones not found here. Only ticked, installed ones are offered for turns and in the model pickers. `AGENT_HARNESSES` keeps its format (#107).
+
+Changed:
+
+- **Harnesses** have one folder each in core, `src/agents/harnesses/<id>/`, with the agent host's filter split to match (`launcher/keep_<id>.go`). Adding one touches its folder, its keep file and one list (docs/ARCHITECTURE.md, "Extending") (#107).
 
 ## 0.5.0 (2026-10-27)
 

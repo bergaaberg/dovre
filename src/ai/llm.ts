@@ -8,7 +8,7 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OmpAsker } from "./omp.ts";
-import { codexCost } from "../agents/codex.ts";
+import { codexCost } from "../agents/harnesses/codex/harness.ts";
 
 export type Complete = (p: { system: string; user: string; model?: string; signal?: AbortSignal }) => Promise<{ text: string; cost: number }>;
 
@@ -106,7 +106,7 @@ export function agyCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number;
  * Codex, only when chosen (BINO_VIA / SUMMARIES=codex; PLAN WP-M1): `codex exec --json` read-only
  * (`--sandbox read-only`), in an empty folder of its own (`--skip-git-repo-check`: it isn't a
  * checkout), the text on stdin. Like agy it keeps its tools, so it's never picked by itself. The
- * reply is the turn's last agent message; the cost an estimate from its tokens (src/agents/codex.ts).
+ * reply is the turn's last agent message; the cost an estimate from its tokens (src/agents/harnesses/codex/).
  */
 export const CODEX_LLM_DIR = join(tmpdir(), "dovre-llm-codex");
 export function codexCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number; run?: RunFn } = {}): Complete {

@@ -43,7 +43,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Harness, Run, StartOpts } from "./runner.ts";
+import type { Harness, Run, StartOpts } from "../../runner.ts";
+import { type HarnessDef } from "../shared.ts";
 
 /**
  * Models for the "Model" select. "" is omp's configured default (modelRoles.default, for this
@@ -216,3 +217,6 @@ export const ompHarness = (bin = "omp", opts: OmpHarnessOpts = {}): Harness => (
   canFork: true,
   mcpEnv: true,
 });
+
+// Every turn says how to ask before acting: the user's own omp config approves everything.
+export const omp: HarnessDef = { id: "omp", bin: "omp", binVar: "OMP_BIN", models: OMP_MODELS, keep: "launcher/keep_omp.go", make: (t, ctx) => ({ ...ompHarness(t.bin, { profileOf: (id) => ctx.ompProfileOf?.(id) }), pre: t.pre }) };

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { codexApply, codexArgs, codexCost, codexHarness } from "../src/agents/codex.ts";
+import { codexApply, codexArgs, codexCost, codexHarness } from "../src/agents/harnesses/codex/harness.ts";
 import { modelOf } from "../src/agents/desk.ts";
 import type { Run } from "../src/agents/runner.ts";
 import { codexCli } from "../src/ai/llm.ts";
@@ -122,6 +122,6 @@ test("each agent CLI switches off on its own (AGENT_HARNESSES); unset, all of th
   assert.equal(some("codex"), true);
   assert.equal(some("omp"), false);
   assert.equal(some("agy"), false);
-  assert.equal(configFromForm({ AGENT_HARNESSES: "claude, codex" }, {}, new Set(), { general: true }).config.AGENT_HARNESSES, "claude, codex");
-  assert.deepEqual(configFromForm({ AGENT_HARNESSES: "claude; rm -rf" }, {}, new Set(), { general: true }).bad, ["Agent CLIs to use"]);
+  // Settings posts one box per CLI (#107), kept as the same list.
+  assert.equal(configFromForm({ AGENT_HARNESSES: "", "AGENT_HARNESSES.claude": "on", "AGENT_HARNESSES.codex": "on" }, {}, new Set(), { general: true }).config.AGENT_HARNESSES, "claude, codex");
 });

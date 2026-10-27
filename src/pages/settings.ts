@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
-import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState } from "../config.ts";
+import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState, ticked } from "../config.ts";
+import { found } from "../tools.ts";
 import { currentTz } from "../when.ts";
 import { DEFAULT_POLICY, type Policy, RING_KINDS, type Rung } from "../notify.ts";
 import type { Layout } from "../layout.ts";
@@ -58,6 +59,14 @@ export function setupLines(f: SetupFacts): SetupLine[] {
  */
 export function fieldInput(f: Field, value: string | undefined, fixed: boolean, pick?: Choice[]) {
   const dis = fixed ? html` disabled` : "";
+  const fixedHint = fixed ? html`<span class="hint">Set in .dev.vars (${f.key})</span>` : f.hint ? html`<span class="hint">${f.hint}</span>` : "";
+  if (f.kind === "set") {
+    // Each choice ticked on its own; the hidden field says the set was on the form, so none ticked is "none", not "unchanged".
+    const on = ticked(f, value);
+    const here = found.paths as Record<string, string | undefined> | undefined;
+    const boxes = f.choices.map((c) => html`<label class="check"><input type="checkbox" name="${f.key}.${c.value}" value="on"${on.has(c.value) ? html` checked` : ""}${dis}> ${c.label}${here && !here[c.value] ? html` <span class="t3">· not found here</span>` : ""}</label><br>`);
+    return html`<div class="field"><span class="label">${f.label}</span><input type="hidden" name="${f.key}" value=""><fieldset>${boxes}</fieldset>${fixedHint}</div>`;
+  }
   const picks = pick?.length ? [...pick, ...(value && !pick.some((c) => c.value === value) ? [{ value, label: value }] : [])] : undefined;
   const input = picks
     ? html`<select name="${f.key}"${dis}><option value="">None</option>${picks.map((c) => html`<option value="${c.value}"${value === c.value ? html` selected` : ""}>${c.label}</option>`)}</select>`
@@ -66,7 +75,7 @@ export function fieldInput(f: Field, value: string | undefined, fixed: boolean, 
       : f.kind === "number"
         ? html`<input type="number" name="${f.key}" min="${f.min}" max="${f.max}" value="${value ?? ""}" placeholder="${f.placeholder ?? ""}"${dis}>`
         : html`<input type="text" name="${f.key}" value="${value ?? ""}" placeholder="${f.placeholder ?? ""}" maxlength="260" spellcheck="false"${dis}>`;
-  return html`<label class="field"><span class="label">${f.label}</span>${input}${fixed ? html`<span class="hint">Set in .dev.vars (${f.key})</span>` : f.hint ? html`<span class="hint">${f.hint}</span>` : ""}</label>`;
+  return html`<label class="field"><span class="label">${f.label}</span>${input}${fixedHint}</label>`;
 }
 
 export type PanesView = { panes: Record<PaneId, PaneState>; values: Record<string, string | undefined>; fixed: Set<string> };
