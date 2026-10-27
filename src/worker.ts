@@ -26,6 +26,7 @@ import { remoteDesk } from "./bridge/remote.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
+import { storybookPack } from "./packs/core/storybook/index.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
 import { createQueue } from "./agents/queue.ts";
@@ -263,7 +264,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed }), assistantPack(), issues, ...instancePacks], { env: strings, bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed }), assistantPack(), issues, storybookPack({ ghe, owners: () => env.OWNERS ?? env.GHE_ORG }), ...instancePacks], { env: strings, bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
@@ -275,7 +276,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       forge,
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
-      packs: { on, off, env: strings, bindings, core: ["agents", "assistant", "tracker"] },
+      packs: { on, off, env: strings, bindings, core: ["agents", "assistant", "tracker", "storybook"] },
       setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
     });
     const mounted = packsOf(app)!;

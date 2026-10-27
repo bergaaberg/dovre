@@ -195,19 +195,44 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   };
   const hasLab = () => env.IS_HOSTED !== "1" && !off("lab") && existsSync(resolve(labDir, "index.html"));
 
-  const appHeaders = secureHeaders({
-    referrerPolicy: "same-origin",
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      baseUri: ["'none'"],
-      objectSrc: ["'none'"],
-    },
-  });
+  const appPolicy = (frames: string[] = []) =>
+    secureHeaders({
+      referrerPolicy: "same-origin",
+      contentSecurityPolicy: {
+        defaultSrc: ["'self'"],
+        ...(frames.length ? { frameSrc: ["'self'", ...frames] } : {}),
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'none'"],
+        objectSrc: ["'none'"],
+      },
+    });
+  const appHeaders = appPolicy();
+  /** A pack's own pages with `frames`: the app's policy, plus those origins as frame-src (one policy per set). */
+  const framedHeaders = new Map<string, ReturnType<typeof appPolicy>>();
+  const packFrames = (path: string): string[] => {
+    const m = /^\/([a-z][a-z0-9-]*)(\/|$)/.exec(path);
+    const p = m && packs.on.find((x) => x.manifest.id === m[1] && !!x.frames);
+    if (!p) return [];
+    let got: unknown;
+    try {
+      got = p.frames!(ctxOf(p));
+    } catch {
+      return [];
+    }
+    return Array.isArray(got) ? [...new Set(got.map(frameOrigin).filter((o): o is string => !!o))].slice(0, 20) : [];
+  };
+  const withPackFrames: typeof appHeaders = (c, next) => {
+    const frames = packFrames(c.req.path);
+    if (!frames.length) return appHeaders(c, next);
+    const key = frames.join(" ");
+    let h = framedHeaders.get(key);
+    if (!h) framedHeaders.set(key, (h = appPolicy(frames)));
+    return h(c, next);
+  };
   // The docks' pages (Bino's, a pack's) are framed by the app's own pages (src/html.ts), and only by them.
   const dockHeaders = secureHeaders({
     referrerPolicy: "same-origin",
@@ -230,7 +255,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const m = /^\/([a-z][a-z0-9-]*)\/dock(\/|$)/.exec(path);
     return !!m && (m[1] === "bino" || packs.on.some((x) => x.manifest.id === m[1] && !!x.dock));
   };
-  app.use((c, next) => (c.req.path.startsWith("/lab/") ? labHeaders(c, next) : dockPath(c.req.path) ? dockHeaders(c, next) : appHeaders(c, next)));
+  app.use((c, next) => (c.req.path.startsWith("/lab/") ? labHeaders(c, next) : dockPath(c.req.path) ? dockHeaders(c, next) : withPackFrames(c, next)));
 
   /** Exchanges the launch token for a cookie, on localhost only. */
   mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1" });
@@ -1323,4 +1348,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     return c.text(`Something broke: ${err.message}`, 500);
   });
   return app;
+}
+
+/** A pack's `frames` entry as a CSP source: an `https://` origin (no path, user or wildcard), or undefined. */
+export function frameOrigin(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || raw.length > 300) return undefined;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" || u.username || u.password || !/^[a-z0-9.-]+(:\d+)?$/i.test(u.host)) return undefined;
+    return u.origin;
+  } catch {
+    return undefined;
+  }
 }

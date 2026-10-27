@@ -1078,6 +1078,14 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .d-threads td { padding: 8px 12px; background: var(--surface-2); white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
 .d-drafts td { padding: 4px 12px 8px; white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }
 .d-drafts .draft-card { border-color: var(--accent, var(--line)); background: var(--surface); }
+.sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.sb-pair h3 { margin: 0 0 6px; font-size: var(--fs-s); }
+.sb-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sb-side { margin: 0; min-width: 0; }
+.sb-side figcaption { display: flex; gap: 8px; align-items: baseline; font-size: var(--fs-s); color: var(--ink-2); margin-bottom: 4px; }
+.sb-frame { display: block; width: 100%; height: 360px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+.sb-gone { display: grid; place-items: center; height: 120px; border: 1px dashed var(--line); border-radius: var(--r); }
+@media (max-width: 720px) { .sb-sides { grid-template-columns: 1fr; } }
 .code-view tr:target td { background: var(--warn-soft); }
 .code-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 0 0 10px; }
 .code-bar form { display: flex; gap: 6px; align-items: center; margin: 0; }

@@ -451,6 +451,11 @@ export type Pack = {
   settings?(ctx: PackContext): Html | "";
   /** What it puts in core pages' named places (SlotMap), from memory. */
   slots?(ctx: PackContext): Slots;
+  /**
+   * Other sites its own pages (/<id>, /<id>/…) may show in a frame, from memory: `https://` origins
+   * (a published Storybook). Anything else is dropped; core pages never frame them.
+   */
+  frames?(ctx: PackContext): string[];
   /** Its button beside Bino's (see Dock), from memory; undefined: none right now. Its /<id>/dock pages may be framed by Dovre's own. */
   dock?(ctx: PackContext): Dock | undefined;
   /**
