@@ -7,7 +7,8 @@ import { appendFileSync, existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { type Context, Hono } from "hono";
-import { setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { parsePrQuery, PRS_COOKIE, PRS_KEYS, prQueryString } from "./pages/prlist.ts";
 import { contextStorage, tryGetContext } from "hono/context-storage";
 import { secureHeaders } from "hono/secure-headers";
 import { type AccessVerifier, COOKIE, allowed, isLocal, isOwnOrigin, publicOriginOf, sameSecret, secureCookie } from "./access.ts";
@@ -609,8 +610,24 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   });
 
   app.get("/prs", async (c) => {
+    // The view, filters and sort (dovre#157): from the link, else as this viewer left them (a cookie).
+    const url = new URL(c.req.url);
+    const keep = { httpOnly: true, sameSite: "Lax" as const, path: "/prs", maxAge: 400 * 86400, secure: url.protocol === "https:" };
+    if (url.searchParams.has("reset")) {
+      deleteCookie(c, PRS_COOKIE, { path: "/prs" });
+      return c.redirect("/prs", 303);
+    }
+    const asked = PRS_KEYS.some((k) => url.searchParams.has(k));
+    const q = parsePrQuery(asked ? url.searchParams : new URLSearchParams(getCookie(c, PRS_COOKIE) ?? ""));
+    if (asked) {
+      const str = prQueryString(q);
+      if (str) setCookie(c, PRS_COOKIE, str, keep);
+      else deleteCookie(c, PRS_COOKIE, { path: "/prs" });
+      // An all-defaults form goes back to the plain address; anything else stays a link to share.
+      if (url.search.slice(1) !== str) return c.redirect(str ? `/prs?${str}` : "/prs", 303);
+    }
     const { s, frame } = await page();
-    return c.html(prsPage(frame, s, summary, await reviewViews(s), { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge));
+    return c.html(prsPage(frame, s, summary, await reviewViews(s), { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge, q));
   });
   // ── Stacked PRs (src/home/stacks.ts, src/sources/stacks.ts) ──
   const stackSource = createStacks(ghe, ownersIn(env), { kept: deps.kept });

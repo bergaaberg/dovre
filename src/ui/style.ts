@@ -723,6 +723,10 @@ label.check { display: inline-flex; gap: .4rem; align-items: center; margin: .15
 .fields { display: flex; flex-wrap: wrap; gap: 0 1rem; align-items: flex-end; }
 .fields > .field { flex: 1 1 11rem; min-width: 0; }
 /* Label, input and hint forms: the three parts of each field share rows with its neighbours, so inputs line up whatever the label or hint length. */
+.pr-views { margin: 0 0 16px; }
+.pr-filter { margin: 0 0 .4rem; }
+.pr-filter .fields > .field { flex: 1 1 9rem; margin-bottom: .6rem; }
+.pr-filter .field.buttons { flex: 0 0 auto; flex-direction: row; }
 .fields.aligned { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); align-items: start; }
 .fields.aligned > .field { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: .3rem; }
 .fields.aligned > .field > .label { align-self: end; }

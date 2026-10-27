@@ -25,6 +25,7 @@ const pr = (now: number, o: Partial<Pr> & Pick<Pr, "repo" | "number" | "title">)
   url: `${base}/${o.repo}/pull/${o.number}`,
   draft: false,
   updatedAt: ago(now, 30),
+  createdAt: ago(now, 60 * 26),
   branch: "feat/change",
   author: DEMO_LOGIN,
   review: "REVIEW_REQUIRED",
