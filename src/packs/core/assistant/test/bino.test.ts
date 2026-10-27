@@ -151,7 +151,7 @@ test("the Bino page offers openings and my open items to break down, each a one-
   const open = (await addTodo(db.DB, { title: "Move the CI pipelines" }))!;
   const done = (await addTodo(db.DB, { title: "Old thing", state: "done" }))!;
   const page = await (await app.request("http://localhost/bino", { headers: { cookie: "u_tk=test-token" } })).text();
-  assert.match(page, /<form method="post" action="\/bino\/new" class="bino-compose" data-ctrl-enter>/);
+  assert.match(page, /<form method="post" action="\/bino\/new" class="bino-compose" data-ctrl-enter data-chat>/);
   assert.match(page, /name="q" value="What should I do first today\?" formnovalidate/);
   assert.match(page, new RegExp(`name="todo" value="${open.id}" formnovalidate`));
   assert.doesNotMatch(page, new RegExp(`name="todo" value="${done.id}"`), "done items aren't offered");

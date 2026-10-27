@@ -100,10 +100,10 @@ function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx): Html {
   return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}</li>`;
 }
 
-/** The box Bino is talked to in: one field, the send button in its own footer, Ctrl+Enter sends. */
+/** The box Bino is talked to in: one field, the send button in its own footer. Enter sends, Shift+Enter is a new line, ↑ in an empty box brings back what I last sent (src/ui/app.js.ts). */
 function composer(o: { action: string; label: string; placeholder: string; button: string; busy: string; extra?: Html; dock?: boolean }): Html {
-  return html`<form method="post" action="${o.action}" class="bino-compose${o.dock ? " dock-compose" : ""}" data-ctrl-enter>${o.dock ? DOCK_FIELD : ""}<textarea name="text" rows="${o.dock ? 3 : 4}" maxlength="${MAX_SAY}" required aria-label="${o.label}" placeholder="${o.placeholder}"></textarea>
-<div class="bino-compose-f"><span class="hint">Ctrl+Enter sends</span><button type="submit" class="primary" data-busy="${o.busy}">${o.button}</button></div>${o.extra ?? ""}</form>`;
+  return html`<form method="post" action="${o.action}" class="bino-compose${o.dock ? " dock-compose" : ""}" data-ctrl-enter data-chat>${o.dock ? DOCK_FIELD : ""}<textarea name="text" rows="${o.dock ? 3 : 4}" maxlength="${MAX_SAY}" required aria-label="${o.label}" placeholder="${o.placeholder}"></textarea>
+<div class="bino-compose-f"><span class="hint">Enter sends · Shift+Enter new line · ↑ last message</span><button type="submit" class="primary" data-busy="${o.busy}">${o.button}</button></div>${o.extra ?? ""}</form>`;
 }
 
 const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? "Bino can't answer here." });

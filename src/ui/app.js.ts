@@ -748,12 +748,13 @@ document.addEventListener("click", (e) => {
 // ── Keys, the way Vimium has them: f puts letters on everything clickable (type them to press it),
 // j/k scroll, gg/G top and bottom, H/L back and forward, g <letter> goes to a section, ? lists them.
 // They never fire while typing in a field, in a dialog, or with Ctrl/Alt/Meta held. ──
-const GO = { h: "/", d: "/deploys", a: "/agents", p: "/prs", m: "/movement", w: "/worktrees", n: "/agents/new", c: "/issues/new", t: "/todo" };
+const GO = { h: "/", d: "/deploys", a: "/agents", p: "/prs", m: "/movement", w: "/worktrees", n: "/agents/new", c: "/issues/new", t: "/todo", b: "/bino" };
 const KEYS = [
   ["Hints", [["f", "Letters on everything clickable: type them to press it"], ["F", "The same, links open in a new window"], ["Backspace", "Take back a letter"], ["Esc", "Put the letters away"]]],
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
-  ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["H / L", "Back / forward"]]],
-  ["This page", [["r", "Refresh the data"], ["B", "Bino: open or close its panel, told which page you are on"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
+  ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["g b", "Bino"], ["H / L", "Back / forward"]]],
+  ["This page", [["r", "Refresh the data"], ["B", "Bino: open its panel, told which page you are on; into it when it's open"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
+  ["Bino", [["Enter", "Send"], ["Shift Enter", "A new line"], ["↑", "In an empty box: what you last sent"], ["Esc", "Out of the box; again closes the panel"], ["B", "In the panel: close it"]]],
 ];
 let help = null;
 function showHelp() {
@@ -770,7 +771,7 @@ function showHelp() {
       const keys = name === "This page" ? [...listed.slice(0, 1), ...docked, ...listed.slice(1)] : listed;
       const group = document.createElement("section");
       const h = document.createElement("h3");
-      h.textContent = name + (keysOff({ Hints: "hints", Moving: "moving", "Going to": "going", "This page": "page" }[name]) ? " (off in Settings)" : "");
+      h.textContent = name + (keysOff({ Hints: "hints", Moving: "moving", "Going to": "going", "This page": "page", Bino: "docks" }[name]) ? " (off in Settings)" : "");
       const list = document.createElement("dl");
       for (const [key, what] of keys) {
         const dt = document.createElement("dt");
@@ -947,6 +948,12 @@ function firstField() {
   f.scrollIntoView({ block: "nearest" });
 }
 
+// What I send from a chat box, for ↑ to bring back (this tab only).
+document.addEventListener("submit", (e) => {
+  const box = e.target.matches?.("form[data-chat]") && e.target.querySelector("textarea");
+  if (box && box.value.trim()) try { sessionStorage.setItem("u-chat-last", box.value.slice(0, 4000)); } catch {}
+}, true);
+
 let prefix = "";
 let prefixTimer = 0;
 document.addEventListener("keydown", (e) => {
@@ -958,10 +965,25 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   // Ctrl+Enter sends a message box that says it may (Bino's); never a form behind a Confirm.
-  const sendable = (e.ctrlKey || e.metaKey) && e.key === "Enter" && e.target.matches?.("textarea") && e.target.closest?.("form[data-ctrl-enter]");
+  // A chat box (data-chat) sends on Enter too, Shift+Enter is a new line, and not mid-composition (an IME's Enter picks a word).
+  const box = e.target.matches?.("textarea") ? e.target : null;
+  const chat = box && box.closest?.("form[data-chat]");
+  const enter = box && e.key === "Enter" && !e.isComposing && !e.altKey;
+  const sendable = !enter ? null : e.ctrlKey || e.metaKey ? box.closest?.("form[data-ctrl-enter]") : e.shiftKey ? null : chat;
   if (sendable) {
     e.preventDefault();
-    sendable.requestSubmit();
+    if (box.value.trim()) sendable.requestSubmit();
+    return;
+  }
+  // ↑ in an empty chat box: what I last sent, to send again or change.
+  if (chat && e.key === "ArrowUp" && !box.value && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    let last = "";
+    try { last = sessionStorage.getItem("u-chat-last") || ""; } catch {}
+    if (last) {
+      e.preventDefault();
+      box.value = last;
+      box.setSelectionRange(last.length, last.length);
+    }
     return;
   }
   // AltGr (how a Norwegian keyboard types [ ] and others) arrives as Ctrl+Alt: that's typing, not a shortcut.
@@ -1644,11 +1666,14 @@ function dockChange(topics) {
     try { frame.contentWindow.dispatchEvent(new CustomEvent("u-change", { detail: topics })); } catch {}
   }
 }
-/** B, or a pack dock's letter: that dock open or closed; from inside a dock, its page asks the one around it. */
+/** B, or a pack dock's letter: that dock opened, or focused when it's open; from inside a dock, its page asks the one around it to close it. */
 function dockKey(k) {
   if (framed) return parent.postMessage({ dock: "key", key: k }, location.origin);
   const d = dockOf(DOCK_KEYS[k]);
-  if (d) dockOpen(d, !dockIsOpen(d), true);
+  if (!d) return;
+  // Open but I'm on the page: into it. From inside it the key closes it (the message handler below).
+  if (dockIsOpen(d)) return dockFocus(dockFrame(d));
+  dockOpen(d, true, true);
 }
 if (framed) {
   const own = /^\/([a-z][a-z0-9-]*)\/dock(\/|$)/.exec(location.pathname);
@@ -1684,7 +1709,8 @@ if (framed) {
     const from = DOCKS.find((x) => e.source === dockFrame(x)?.contentWindow);
     if (!from) return;
     if (e.data?.dock === "close") dockOpen(from, false, true);
-    else if (e.data?.dock === "key" && DOCK_KEYS[e.data.key]) dockKey(e.data.key);
+    // Its own key from inside a dock closes it; another dock's opens that one.
+    else if (e.data?.dock === "key" && DOCK_KEYS[e.data.key]) DOCK_KEYS[e.data.key] === from.id ? dockOpen(from, false, true) : dockKey(e.data.key);
   });
   dockRestore();
 }
