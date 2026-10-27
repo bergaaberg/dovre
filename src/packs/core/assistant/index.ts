@@ -5,7 +5,7 @@
  * Bino (conversations, memory, its model route, the dock) is still wired by the core (src/app.ts,
  * src/hosted/hub.ts); this pack is its switch and its place on /packs.
  *
- * Atlas (PLAN D18, D19, WP-H9b): the range.yaml manifests in the checkouts right under CODE_DIR, its
+ * Atlas (PLAN D18, D19, WP-H9b): each checkout's peak.yaml (bergaaberg/peak; range.yaml is the old name) right under CODE_DIR, its
  * page (/atlas), and what it puts in core pages through slots: the component picker on
  * /agents/new, a PR's tier and docs on /prs, the Projects on New work. Only with a code folder
  * (local); PACK_ATLAS=off leaves it out and keeps Bino.
@@ -27,7 +27,7 @@ const MANIFEST = {
   api: PACK_API,
   id: "assistant",
   name: "Assistant",
-  description: "Bino, and what each repo is (Atlas, from range.yaml): tier, components, rules and docs",
+  description: "Bino, and what each repo is (Atlas, from peak.yaml): tier, components, rules and docs",
   domain: "general",
 } as const;
 
@@ -38,7 +38,7 @@ export function assistantPack(opts: AssistantOpts = {}): Pack {
   return {
     manifest: { ...MANIFEST, paths: ["atlas"] },
     nav: () => [{ href: "/atlas", title: "Atlas", icon: "atlas", group: "Code" }],
-    pages: () => [{ title: "Atlas", href: "/atlas", icon: "⎈", about: "Repository atlas, components, rules, and docs", also: ["atlas", "range", "catalog", "manifest", "repos"] }],
+    pages: () => [{ title: "Atlas", href: "/atlas", icon: "⎈", about: "Repository atlas, components, rules, and docs", also: ["atlas", "peak", "range", "catalog", "manifest", "repos"] }],
     bino: () => binoLines(scanner.list()),
     slots: () => ({
       "agents.new": ({ repo }) => componentField(repo, scanner.get(repo)),
@@ -50,8 +50,10 @@ export function assistantPack(opts: AssistantOpts = {}): Pack {
       app.get("/atlas", (c) => {
         if (c.req.query("refresh") === "1" || c.req.query("fresh") === "1") scanner.scan(true);
         const entries = scanner.list();
-        const bare = listRepos(codeDir).filter((r) => r !== WORK && !scanner.get(r));
-        return ctx.page(c, { title: "Repo Atlas · Dovre", current: "/atlas", body: atlasPage({ entries, bare, filter: c.req.query("tier") }) });
+        const problems = scanner.problems();
+        const broken = new Set(problems.map((p) => p.repo));
+        const bare = listRepos(codeDir).filter((r) => r !== WORK && !scanner.get(r) && !broken.has(r));
+        return ctx.page(c, { title: "Repo Atlas · Dovre", current: "/atlas", body: atlasPage({ entries, bare, problems, filter: c.req.query("tier") }) });
       });
     },
   };

@@ -166,6 +166,9 @@ importers:
 
   .:
     dependencies:
+      '@bergaaberg/peak':
+        specifier: github:bergaaberg/peak#v0.1.0
+        version: https://codeload.github.com/bergaaberg/peak/tar.gz/7cc934b1125f8465725b6d59c4816074e65cc781
       '@hono/node-server':
         specifier: ^1.14.0
         version: 1.19.17(hono@4.13.13)
@@ -197,6 +200,12 @@ importers:
         version: git+https://github.com/bergaaberg/memlet.git#cfd1c53db638259c39431d611caed52562cac534
 
 packages:
+
+  '@bergaaberg/peak@https://codeload.github.com/bergaaberg/peak/tar.gz/7cc934b1125f8465725b6d59c4816074e65cc781':
+    resolution: {gitHosted: true, integrity: sha512-6R7ATj3ut1+btGEVwt9D8I7PWbtZroX3VE7LBn3ENny5TOlU6Kkw2lhexTQLrMpIqB1BW4+mI6IVbHh9W/nnow==, tarball: https://codeload.github.com/bergaaberg/peak/tar.gz/7cc934b1125f8465725b6d59c4816074e65cc781}
+    version: 0.1.0
+    engines: {node: '>=22'}
+    hasBin: true
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -519,6 +528,10 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@bergaaberg/peak@https://codeload.github.com/bergaaberg/peak/tar.gz/7cc934b1125f8465725b6d59c4816074e65cc781':
+    dependencies:
+      yaml: 2.9.1
 
   '@esbuild/aix-ppc64@0.25.12':
     optional: true

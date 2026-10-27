@@ -1,5 +1,5 @@
 /**
- * The atlas pack (PLAN D18, WP-G6, WP-H9b): range.yaml parsing and scanning, its page, and what
+ * The atlas pack (PLAN D18, WP-G6, WP-H9b): peak.yaml scanning (range.yaml, the old name, too), its page, and what
  * it puts in core pages through slots (PR cards, New work, /agents/new) and Bino's lines.
  */
 import test from "node:test";
@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseRange } from "../bino/range.ts";
 import { AtlasScanner, type AtlasEntry } from "../bino/scan.ts";
 import { atlasPage, binoLines } from "../bino/atlas.view.ts";
 import { assistantPack } from "../index.ts";
@@ -24,12 +23,12 @@ import { activePacks } from "../../../registry.ts";
 import { noMemory } from "../bino/memory.ts";
 import type { Route } from "../bino/route.ts";
 
-/** A code folder with these manifests (folder → range.yaml text). */
+/** A code folder with these peak.yaml files (folder → text). */
 function codeDir(manifests: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "dovre-atlas-"));
   for (const [name, yaml] of Object.entries(manifests)) {
     mkdirSync(join(dir, name));
-    writeFileSync(join(dir, name, "range.yaml"), yaml);
+    writeFileSync(join(dir, name, "peak.yaml"), yaml);
   }
   return dir;
 }
@@ -81,48 +80,30 @@ function fakePr(repo: string, number = 101): Pr {
   };
 }
 
-test("parseRange: parses valid range.yaml manifest", () => {
-  const raw = {
-    name: "Quill",
-    description: "Websites and paid newsletters for writers",
-    url: "https://quill.example",
-    tier: "active",
-    components: [
-      { name: "web", owns: ["apps/web/src"] },
-      { name: "db", owns: ["packages/db/src"], rules: ".claude/rules/db.md" },
-    ],
-    docs: {
-      architecture: "ARCHITECTURE.md",
-      backlog: "BACKLOG.md",
-    },
-    health: {
-      workers: ["quill-web", "quill-dispatcher"],
-      links: ["https://quill.example"],
-    },
-  };
-
-  const parsed = parseRange(raw);
-  assert.ok("range" in parsed, "should parse successfully");
-  const r = parsed.range;
-  assert.equal(r.name, "Quill");
-  assert.equal(r.tier, "active");
-  assert.equal(r.url, "https://quill.example");
-  assert.equal(r.components.length, 2);
-  assert.equal(r.components[1].rules, ".claude/rules/db.md");
-  assert.equal(r.docs.architecture, "ARCHITECTURE.md");
-  assert.deepEqual(r.health?.workers, ["quill-web", "quill-dispatcher"]);
-});
-
-test("parseRange: detects validation problems", () => {
-  assert.ok("problems" in parseRange(null));
-  assert.ok("problems" in parseRange("not an object"));
-
-  const missingName = parseRange({ tier: "active" });
-  assert.ok("problems" in missingName);
-  assert.ok(missingName.problems.some((p) => p.includes("name is required")));
-
-  const invalidUrl = parseRange({ name: "Foo", url: "ftp://example.com" });
-  assert.ok("problems" in invalidUrl);
+test("AtlasScanner: peak.yaml wins over range.yaml (the old name, still read); broken files are listed with every problem", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-atlas-peak-"));
+  try {
+    for (const [repo, file, text] of [
+      ["both", "peak.yaml", "name: New\n"],
+      ["both", "range.yaml", "name: Old\n"],
+      ["old", "range.yaml", "name: Old\ntier: maintained\n"],
+      ["broken", "peak.yaml", "tier: active\nurl: nope\n"],
+      ["notyaml", "peak.yaml", "name: [x\n"],
+    ] as const) {
+      mkdirSync(join(dir, repo), { recursive: true });
+      writeFileSync(join(dir, repo, file), text);
+    }
+    const scanner = new AtlasScanner(dir);
+    assert.deepEqual(scanner.list().map((e) => [e.repo, e.peak.name, e.file]), [["both", "New", "peak.yaml"], ["old", "Old", "range.yaml"]]);
+    assert.equal(scanner.get("old")?.tier, "maintained");
+    const problems = scanner.problems();
+    assert.deepEqual(problems.map((p) => [p.repo, p.file]), [["broken", "peak.yaml"], ["notyaml", "peak.yaml"]]);
+    assert.equal(problems[0]!.problems.length, 2, "every problem, not just the first");
+    assert.match(problems[1]!.problems[0]!, /Not valid YAML/);
+    assert.equal(scanner.get("broken"), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("AtlasScanner: scans directory and resolves checkouts with range.yaml", () => {
@@ -163,12 +144,7 @@ docs:
     mkdirSync(plainDir, { recursive: true });
 
     const scanner = new AtlasScanner(testDir);
-    const map = scanner.scan();
-
-    assert.equal(map.size, 2);
-    assert.ok(map.has("quill"));
-    assert.ok(map.has("harbor"));
-    assert.ok(!map.has("plain-repo"));
+    assert.deepEqual(scanner.list().map((e) => e.repo).sort(), ["harbor", "quill"]);
 
     const quill = scanner.get("bergaaberg/quill");
     assert.ok(quill);
@@ -207,7 +183,7 @@ test("AtlasScanner: an empty folder is cached too — no rescan inside the TTL, 
     const scanner = new AtlasScanner(testDir, { ttlMs: 30_000, now: () => clock });
     // A folder with no manifests: the (empty) scan is still cached — this used to rescan on
     // every call, synchronously, because the TTL only applied to a non-empty cache.
-    assert.equal(scanner.scan().size, 0);
+    assert.equal(scanner.list().length, 0);
     mkdirSync(join(testDir, "late"), { recursive: true });
     writeFileSync(join(testDir, "late", "range.yaml"), "name: Late\ntier: active\n");
     assert.equal(scanner.list().length, 0, "inside the TTL the empty result stands");
@@ -264,7 +240,9 @@ test("atlasPage: repo panels, components, docs, focus links, bare checkouts and 
     {
       repo: "quill",
       dir: "/x/quill",
-      range: {
+      file: "peak.yaml",
+      peak: {
+        version: 1,
         name: "Quill",
         description: "Newsletter platform for writers",
         url: "https://quill.example",
@@ -277,10 +255,20 @@ test("atlasPage: repo panels, components, docs, focus links, bare checkouts and 
         health: { workers: ["quill-web"] },
       },
     },
-    { repo: "harbor", dir: "/x/harbor", range: { name: "Harbor", description: "Laid-back Roman city builder", tier: "utility", components: [], docs: { design: "docs/DESIGN.md" } } },
+    { repo: "harbor", dir: "/x/harbor", file: "range.yaml", peak: { version: 1, name: "Harbor", description: "Laid-back Roman city builder", tier: "utility", components: [], docs: { design: "docs/DESIGN.md" } } },
   ];
   const out = String(atlasPage({ entries, bare: ["plain-repo"] }));
   for (const re of [/Repo Atlas/, /Quill/, /active/, /quill\.example/, /Focus%20on%20component/, /\.claude\/rules\/db\.md/, /docs%2FPLAN\.md/, /Uncataloged Checkouts/, /plain-repo/]) assert.match(out, re);
+  assert.match(out, /One repo uses the old name <code>range\.yaml<\/code> \(harbor\)/);
+  assert.doesNotMatch(out, /Files with problems/);
+
+  const broken = String(atlasPage({ entries, problems: [{ repo: "bad", file: "peak.yaml", problems: ["name is required.", "url must be an http(s) URL."] }] }));
+  assert.match(broken, /Files with problems/);
+  assert.match(broken, /name is required\. url must be an http\(s\) URL\./);
+  assert.match(broken, /href="\/code\/bad\?path=peak\.yaml"/);
+  assert.match(broken, /github\.com\/bergaaberg\/peak\/blob\/main\/SPEC\.md/);
+  assertInert("atlas problems", String(atlasPage({ entries: [{ ...entries[1]!, repo: H }], problems: [{ repo: H, file: "peak.yaml", problems: [H] }] })));
+
   const filtered = String(atlasPage({ entries, filter: "active" }));
   assert.match(filtered, /Quill/);
   assert.doesNotMatch(filtered, /Harbor/);
@@ -347,7 +335,7 @@ test("Bino: a line per cataloged repo with its components and docs, capped, as p
   assert.match(text, /web \(apps\/web\)/);
   assert.match(text, /plan: docs\/PLAN\.md/);
 
-  const many: AtlasEntry[] = Array.from({ length: 40 }, (_, i) => ({ repo: `r${i}`, dir: "", range: { name: `R${i}`, tier: "active", description: "x".repeat(90), components: [], docs: {} } }));
+  const many: AtlasEntry[] = Array.from({ length: 40 }, (_, i) => ({ repo: `r${i}`, dir: "", file: "peak.yaml", peak: { version: 1, name: `R${i}`, tier: "active", description: "x".repeat(90), components: [], docs: {} } }));
   const capped = binoLines(many);
   assert.ok(capped.length <= 1500, `capped at what a pack may say (${capped.length})`);
   assert.match(capped, /and \d+ more cataloged repositories/);
