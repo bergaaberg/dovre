@@ -177,6 +177,9 @@ The registry does this for every hook, so a pack can't break a page or another p
   `testContext()` (`dovre/packs/testing.ts`) gives harmless defaults.
 - The shape: `index.ts` holds the manifest and hooks, `data.ts` reads the app, `view.ts` draws.
   `pnpm packs new <id> --into <instance>` starts one in that shape.
+- A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, `PACK_API`,
+  a hash per file). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare
+  against the local dovre-packs checkout. An update is all or nothing, and it never runs on its own.
 
 ## Extending Dovre
 

@@ -98,6 +98,16 @@ pnpm packs add cf-health --into ../my-dovre
 pnpm packs new my-app --into ../my-dovre
 ```
 
+A pack is copied into the instance, so it's yours to read and edit. `add` records where it came from in `packs/<id>/.pack.json`. Later, after a `git pull` in dovre-packs:
+
+```sh
+pnpm packs outdated --into ../my-dovre        # up to date / newer upstream / edited here
+pnpm packs update cf-health --into ../my-dovre # or --all; your edits are merged in
+pnpm packs track avatar --into ../my-dovre     # a pack copied before .pack.json existed
+```
+
+`update` takes upstream's version of each file you haven't touched and merges files changed on both sides (`git merge-file`). If a merge conflicts, it writes nothing. It refuses a pack that needs a newer `PACK_API` than your Dovre, and a source outside `REPO_OWNERS`. Nothing updates on its own.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full `Pack` contract (`src/packs/types.ts`), hooks (`today`, `routes`, `slots`, `needs`, `stats`, `bino`, `acts`, `dock`, `scheduled`, `email`), and isolation guarantees.
 
 ---

@@ -1,22 +1,15 @@
 /**
- * `pnpm packs new <id> [--into <instance folder>]`
- * `pnpm packs add <id> [--into <instance folder>] [--from <dovre-packs folder>]`
- * `pnpm packs list [--from <dovre-packs folder>]`
- *
- * Scaffolds a new custom pack (`new`) or installs a pre-built pack from `dovre-packs` (`add`)
- * into an instance repository and wires it into `crates.ts` / `packs.ts` automatically (WP-M6).
+ * Installs a pre-built pack from `dovre-packs` (`pnpm packs add`, run from src/packs/new.ts) into an
+ * instance repository, records where it came from in `.pack.json` (src/packs/update.ts), and wires
+ * it into `crates.ts` / `packs.ts` (WP-M6).
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { scaffold, writeScaffold } from "./new.ts";
+import { filesOf, META, provenance, writeMeta } from "./update.ts";
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const camel = (id: string) => id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
-
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? walk(join(dir, f)) : [join(dir, f)]));
-}
 
 /** Finds the exported Crate/Pack identifier in `index.ts` (e.g. `cfHealthPack` or `cfHealthCrate`). */
 export function detectExportName(indexTs: string, id: string): string {
@@ -106,7 +99,7 @@ export function addPack(o: { id: string; into: string; from?: string; allowClone
   const usesPacksDir = existsSync(join(o.into, "packs.ts")) && !existsSync(join(o.into, "crates.ts"));
   const subDir = usesPacksDir ? "packs" : "crates";
   const destRoot = join(o.into, subDir, o.id);
-  const srcFiles = walk(srcRoot);
+  const srcFiles = filesOf(srcRoot).map((f) => join(srcRoot, f));
   const existing = srcFiles
     .map((f) => relative(srcRoot, f))
     .filter((rel) => existsSync(join(destRoot, rel)));
@@ -122,6 +115,8 @@ export function addPack(o: { id: string; into: string; from?: string; allowClone
     writeFileSync(dest, readFileSync(f, "utf8"), { flag: "wx" });
     wrote.push(join(subDir, o.id, rel));
   }
+  writeMeta(destRoot, provenance(repoDir, o.id));
+  wrote.push(join(subDir, o.id, META));
 
   const indexText = readFileSync(join(destRoot, "index.ts"), "utf8");
   const exportName = detectExportName(indexText, o.id);
@@ -140,48 +135,4 @@ export function addPack(o: { id: string; into: string; from?: string; allowClone
     }
   }
   return { wrote, wired, exportName };
-}
-
-if (import.meta.main) {
-  const args = process.argv.slice(2);
-  const flag = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : undefined);
-  const rest = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
-  const cmd = rest[0];
-  const id = rest[1];
-  const into = resolve(flag("--into") ?? ".");
-  const from = flag("--from");
-
-  try {
-    if (cmd === "list") {
-      const repo = resolvePacksRepo(from);
-      for (const p of listAvailablePacks(repo)) console.log(p);
-      process.exit(0);
-    }
-    if (cmd === "new" && id) {
-      const files = scaffold(id);
-      for (const p of writeScaffold(into, files)) console.log(`wrote ${join(into, p)}`);
-      const entryFile = existsSync(join(into, "packs.ts")) ? join(into, "packs.ts") : existsSync(join(into, "crates.ts")) ? join(into, "crates.ts") : undefined;
-      const exportName = `${camel(id)}Crate`;
-      if (entryFile) {
-        const next = wirePackIntoFile(readFileSync(entryFile, "utf8"), `./crates/${id}/index.ts`, exportName);
-        writeFileSync(entryFile, next);
-        console.log(`wired ${exportName} into ${entryFile}`);
-      } else {
-        console.log(`\nAdd it to ${join(into, "crates.ts")}:\n  import { ${exportName} } from "./crates/${id}/index.ts";\n  …and ${exportName} in its list.`);
-      }
-      process.exit(0);
-    }
-    if (cmd === "add" && id) {
-      const res = addPack({ id, into, from });
-      for (const p of res.wrote) console.log(`wrote ${join(into, p)}`);
-      if (res.wired) console.log(`wired ${res.exportName} into ${res.wired}`);
-      else console.log(`\nAdd ${res.exportName} to your instance's crates.ts / packs.ts.`);
-      process.exit(0);
-    }
-    console.error("usage:\n  pnpm packs add <id> [--into <instance folder>] [--from <dovre-packs folder>]\n  pnpm packs new <id> [--into <instance folder>]\n  pnpm packs list [--from <dovre-packs folder>]");
-    process.exit(2);
-  } catch (e) {
-    console.error(String((e as Error).message ?? e));
-    process.exit(1);
-  }
 }
