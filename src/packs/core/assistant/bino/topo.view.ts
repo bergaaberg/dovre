@@ -4,10 +4,10 @@
  * (the component picker on /agents/new, a PR's tier and docs, New work's Projects) and Bino's lines.
  */
 import { html } from "hono/html";
-import { type Child, Dot, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs, type Tone } from "../../../../ui/kit.ts";
+import { type Child, Dot, type Html, Item, List, PageHeader, Panel, Pill, Tabs, type Tone } from "../../../../ui/kit.ts";
 import { Link, safeUrl } from "../../../../pages/parts.ts";
 import { SCHEMA_URL, SPEC_URL, type Peak } from "@bergaaberg/peak";
-import { type TopoEntry, type TopoProblem, isLegacy } from "./scan.ts";
+import { type TopoEntry, type TopoProblem } from "./scan.ts";
 
 function tierTone(tier?: string): Tone {
   if (!tier) return "neutral";
@@ -131,15 +131,6 @@ function problemsPanel(problems: TopoProblem[]): Html {
   });
 }
 
-/** range.yaml is the format's old name: Dovre still reads it, and asks for the rename. */
-function renameNotice(legacy: TopoEntry[]): Html {
-  const names = legacy.map((e) => e.repo).join(", ");
-  return Notice({
-    tone: "neutral",
-    children: html`${legacy.length === 1 ? "One repo uses" : `${legacy.length} repos use`} the old name <code>range.yaml</code> (${names}). Rename it to <code>peak.yaml</code>: same format, and Dovre stops reading the old name in a later release. ${Link(SPEC_URL, "The spec")}`,
-  });
-}
-
 /** The page's body; the pack's route puts it in Dovre's shell. */
 export function topoPage(
   opts: {
@@ -151,7 +142,6 @@ export function topoPage(
   },
 ): Html {
   const { entries, bare = [], problems = [], filter } = opts;
-  const legacy = entries.filter((e) => isLegacy(e.file));
   const filtered = filter ? entries.filter((e) => (e.peak.tier ?? "").toLowerCase() === filter.toLowerCase()) : entries;
 
   const tiers = Array.from(new Set(entries.map((e) => (e.peak.tier ?? "").toLowerCase()).filter(Boolean))) as string[];
@@ -185,7 +175,6 @@ export function topoPage(
     })}
     <div data-live id="topo">
       ${!filter && problems.length ? problemsPanel(problems) : ""}
-      ${!filter && legacy.length ? renameNotice(legacy) : ""}
       ${filtered.map(repoPanel)}
       ${!filter && bare.length > 0 ? Panel({ title: "Uncataloged Checkouts", meta: String(bare.length), flush: true, children: List(bare.map(bareItem)) }) : ""}
     </div>
@@ -203,7 +192,7 @@ export const draftPrompt = () =>
 
 /** For a file Dovre can't use: what's wrong, and the check to run after. */
 export const fixPrompt = (p: TopoProblem) =>
-  `${p.file} in this repo has problems (the format: ${SPEC_URL}): ${p.problems.join(" ")} Fix them${isLegacy(p.file) ? " and rename the file to peak.yaml" : ""}, then run \`${CHECK}\` until it passes.`;
+  `${p.file} in this repo has problems (the format: ${SPEC_URL}): ${p.problems.join(" ")} Fix them, then run \`${CHECK}\` until it passes.`;
 
 const focusPrompt = (peak: Peak, c: Peak["components"][number]) =>
   `Focus on component "${c.name}" (${c.owns.join(", ")}) in ${peak.name}${c.rules ? `, following rules in ${c.rules}` : ""}: `;

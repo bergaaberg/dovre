@@ -85,7 +85,7 @@ We standardize on **"Pluggable Packs"** (currently `src/crates/` in code; queued
   * **OpenRouter (`openrouter`):** Plug in a single `OPENROUTER_API_KEY` to mix and match any frontier or open-weight model for chat and ultra-cheap models for background memory reflection and PR summaries.
   * **Local CLI Seat Routing (`claude` / `agy` / `codex` / `omp` / `copilot`):** On a work laptop, route Assistant turns through your already-authenticated local CLI seat (run with `--tools ""` and zero MCP servers in an empty temp dir) so you burn zero external API tokens.
 * **Repo Context (`peak.yaml` Catalog):**
-  * Reads each repo's [`peak.yaml`](https://github.com/bergaaberg/peak) (formerly `range.yaml`, still read as a fallback) across your repos so the Assistant (and `/agents/new` via the `agents.new` slot) knows your project tiers, architecture docs, and component file boundaries.
+  * Reads each repo's [`peak.yaml`](https://github.com/bergaaberg/peak) (formerly `range.yaml`, no longer read) across your repos so the Assistant (and `/agents/new` via the `agents.new` slot) knows your project tiers, architecture docs, and component file boundaries.
 
 ### 3. The `ops`, `terminal`, `docker`, and Custom App Packs
 * **Operations Pack (`ops`):** Pluggable telemetry adapter—choose **Cloudflare Workers GraphQL Health** (24h requests, errors, deploy status), **HTTP / Prometheus Health Endpoints**, or **OpenTelemetry / Custom MCP Alerts**.

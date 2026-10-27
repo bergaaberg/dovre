@@ -1,5 +1,5 @@
 /**
- * The topo pack (PLAN D18, WP-G6, WP-H9b): peak.yaml scanning (range.yaml, the old name, too), its page, and what
+ * The topo pack (PLAN D18, WP-G6, WP-H9b): peak.yaml scanning (range.yaml, the old name, is ignored), its page, and what
  * it puts in core pages through slots (PR cards, New work, /agents/new) and Bino's lines.
  */
 import test from "node:test";
@@ -80,7 +80,7 @@ function fakePr(repo: string, number = 101): Pr {
   };
 }
 
-test("TopoScanner: peak.yaml wins over range.yaml (the old name, still read); broken files are listed with every problem", () => {
+test("TopoScanner: peak.yaml is read and range.yaml (the old name) is not; broken files are listed with every problem", () => {
   const dir = mkdtempSync(join(tmpdir(), "dovre-topo-peak-"));
   try {
     for (const [repo, file, text] of [
@@ -94,8 +94,8 @@ test("TopoScanner: peak.yaml wins over range.yaml (the old name, still read); br
       writeFileSync(join(dir, repo, file), text);
     }
     const scanner = new TopoScanner(dir);
-    assert.deepEqual(scanner.list().map((e) => [e.repo, e.peak.name, e.file]), [["both", "New", "peak.yaml"], ["old", "Old", "range.yaml"]]);
-    assert.equal(scanner.get("old")?.tier, "maintained");
+    assert.deepEqual(scanner.list().map((e) => [e.repo, e.peak.name, e.file]), [["both", "New", "peak.yaml"]]);
+    assert.equal(scanner.get("old"), undefined, "range.yaml is no longer read (#138)");
     const problems = scanner.problems();
     assert.deepEqual(problems.map((p) => [p.repo, p.file]), [["broken", "peak.yaml"], ["notyaml", "peak.yaml"]]);
     assert.equal(problems[0]!.problems.length, 2, "every problem, not just the first");
@@ -106,16 +106,16 @@ test("TopoScanner: peak.yaml wins over range.yaml (the old name, still read); br
   }
 });
 
-test("TopoScanner: scans directory and resolves checkouts with range.yaml", () => {
+test("TopoScanner: scans directory and resolves checkouts with peak.yaml / peak.yml", () => {
   const testDir = join(tmpdir(), `dovre-topo-test-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
 
   try {
-    // Repo 1: Quill (has range.yaml)
+    // Repo 1: Quill (has peak.yaml)
     const quillDir = join(testDir, "quill");
     mkdirSync(quillDir, { recursive: true });
     writeFileSync(
-      join(quillDir, "range.yaml"),
+      join(quillDir, "peak.yaml"),
       `name: Quill
 description: Newsletter platform
 tier: active
@@ -126,11 +126,11 @@ health:
 `,
     );
 
-    // Repo 2: Harbor (has range.yml)
+    // Repo 2: Harbor (has peak.yml)
     const harborDir = join(testDir, "harbor");
     mkdirSync(harborDir, { recursive: true });
     writeFileSync(
-      join(harborDir, "range.yml"),
+      join(harborDir, "peak.yml"),
       `name: Harbor
 tier: active
 url: https://creaharbor.com
@@ -139,7 +139,7 @@ docs:
 `,
     );
 
-    // Repo 3: plain repo (no range.yaml)
+    // Repo 3: plain repo (no peak.yaml)
     const plainDir = join(testDir, "plain-repo");
     mkdirSync(plainDir, { recursive: true });
 
@@ -164,7 +164,7 @@ test("TopoScanner: a folder with capitals keeps its name in links; lookups ignor
   const testDir = join(tmpdir(), `dovre-topo-case-${Date.now()}`);
   mkdirSync(join(testDir, "Arena"), { recursive: true });
   try {
-    writeFileSync(join(testDir, "Arena", "range.yaml"), "name: Arena\ntier: active\n");
+    writeFileSync(join(testDir, "Arena", "peak.yaml"), "name: Arena\ntier: active\n");
     const scanner = new TopoScanner(testDir);
     const [entry] = scanner.list();
     assert.equal(entry!.repo, "Arena", "/code/Arena and /agents/new need the folder's own name");
@@ -185,7 +185,7 @@ test("TopoScanner: an empty folder is cached too — no rescan inside the TTL, a
     // every call, synchronously, because the TTL only applied to a non-empty cache.
     assert.equal(scanner.list().length, 0);
     mkdirSync(join(testDir, "late"), { recursive: true });
-    writeFileSync(join(testDir, "late", "range.yaml"), "name: Late\ntier: active\n");
+    writeFileSync(join(testDir, "late", "peak.yaml"), "name: Late\ntier: active\n");
     assert.equal(scanner.list().length, 0, "inside the TTL the empty result stands");
     clock += 30_001;
     assert.equal(scanner.list().length, 1, "after the TTL the folder is read again");
@@ -255,11 +255,11 @@ test("topoPage: repo panels, components, docs, focus links, bare checkouts and t
         health: { workers: ["quill-web"] },
       },
     },
-    { repo: "harbor", dir: "/x/harbor", file: "range.yaml", peak: { version: 1, name: "Harbor", description: "Laid-back Roman city builder", tier: "utility", components: [], docs: { design: "docs/DESIGN.md" } } },
+    { repo: "harbor", dir: "/x/harbor", file: "peak.yaml", peak: { version: 1, name: "Harbor", description: "Laid-back Roman city builder", tier: "utility", components: [], docs: { design: "docs/DESIGN.md" } } },
   ];
   const out = String(topoPage({ entries, bare: ["plain-repo"] }));
   for (const re of [/Topo/, /Quill/, /active/, /quill\.example/, /Focus%20on%20component/, /\.claude\/rules\/db\.md/, /docs%2FPLAN\.md/, /Uncataloged Checkouts/, /plain-repo/]) assert.match(out, re);
-  assert.match(out, /One repo uses the old name <code>range\.yaml<\/code> \(harbor\)/);
+  assert.doesNotMatch(out, /range\.yaml/);
   assert.doesNotMatch(out, /Files with problems/);
 
   const broken = String(topoPage({ entries, problems: [{ repo: "bad", file: "peak.yaml", problems: ["name is required.", "url must be an http(s) URL."] }] }));
@@ -368,7 +368,7 @@ test("the assistant pack is Bino's switch: PACK_ASSISTANT=off and there's no Bin
 
 test("the peak.yaml prompts: draft one from the repo, fix one with every problem and the check", () => {
   assert.match(draftPrompt(), /README.*AGENTS\.md \/ CLAUDE\.md.*`npx github:bergaaberg\/peak check`/s);
-  const fix = fixPrompt({ repo: "x", file: "range.yaml", problems: ["name is required.", "tier must be a word."] });
-  assert.match(fix, /^range\.yaml in this repo has problems .*name is required\. tier must be a word\. Fix them and rename the file to peak\.yaml, then run `npx github:bergaaberg\/peak check`/);
-  assert.doesNotMatch(fixPrompt({ repo: "x", file: "peak.yaml", problems: ["x"] }), /rename/);
+  const fix = fixPrompt({ repo: "x", file: "peak.yaml", problems: ["name is required.", "tier must be a word."] });
+  assert.match(fix, /^peak\.yaml in this repo has problems .*name is required\. tier must be a word\. Fix them, then run `npx github:bergaaberg\/peak check`/);
+  assert.doesNotMatch(fix, /rename/);
 });

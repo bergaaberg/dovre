@@ -136,7 +136,7 @@ health:
   workers: [quill-web, quill-dispatcher]
 ```
 
-`range.yaml`, the format's old name, is still read when a repo has no `peak.yaml`; `/topo` asks you to rename it. Files with problems are listed on `/topo` with every problem.
+`range.yaml`, the format's old name, is no longer read: rename it to `peak.yaml` (same format). Files with problems are listed on `/topo` with every problem.
 
 ---
 
