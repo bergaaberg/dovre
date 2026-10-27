@@ -16,10 +16,13 @@ import { type Frame, shell } from "../html.ts";
 import { checkoutOf, checkouts } from "../issues/tasks.ts";
 import { allowedFor, cloneCommand, KIND_LABEL, kindFor, prKey, type ReviewKind, reviewPrompt, setSkills, SKILL, skillOf } from "../reviews/agent.ts";
 import { type AgentReview, latestReviews, markPosted, recordReview, reviewOf, syncReviews } from "../reviews/store.ts";
-import { checkReplies, checkReview, postReplies, postReview } from "../actions/reviews.ts";
+import { checkReplies, checkReview, postReplies, postReview, reviewedDiff } from "../actions/reviews.ts";
 import { type Draft, draftOf, editedDraft, type LineComment, MAX_BODY, MAX_SUMMARY, postProblem, splitDraft, type Verdict, VERDICT_LABEL, verdictOf, VERDICTS } from "../reviews/draft.ts";
 import type { Ghe, Pr } from "../sources/ghe.ts";
-import { Confirm, type Html, KeyValues, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
+import type { PrFile, Thread } from "../sources/prview.ts";
+import { type DiffLine, fileViews, placeDrafts } from "../viewer/diff.ts";
+import { fileView } from "./viewer.ts";
+import { type Child, Confirm, type Html, KeyValues, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
 import { modelSelect } from "./models.ts";
 import { Ago, harnessTag, HARNESS_NAME, Link, safeUrl } from "./parts.ts";
@@ -67,7 +70,11 @@ function cardsOf(d: Draft, form?: Record<string, unknown>): { keep: boolean; bod
 const rows = (s: string, min = 3, max = 14) => Math.min(max, Math.max(min, s.split("\n").length + 1));
 const whereOf = (c: LineComment) => `${c.path}:${c.startLine ? `${c.startLine}–` : ""}${c.line}${c.side === "LEFT" ? " (removed)" : ""}`;
 
+/** The diff on the draft page: the files and open threads at the reviewed commit, still reading, or why not. */
+export type DraftDiff = { ok: true; files: PrFile[]; threads: Thread[] } | { ok: false; why: string } | "reading";
+
 type DraftView = {
+  diff?: DraftDiff;
   r: AgentReview;
   pr: { repo: string; number: number; url: string; title?: string; author?: string };
   base: Draft;
@@ -77,6 +84,19 @@ type DraftView = {
   preview?: { draft: Draft; notes: string[]; nonce: string } | { problem: string };
   flash?: { ok: boolean; message: string };
 };
+
+/** The line comments as cards: in the diff at their lines when it's read, the rest apart (they go into the summary). */
+function lineCards(comments: LineComment[], card: (i: number, label: Html) => Html, diff: DraftDiff | undefined, sha: string): Html | "" {
+  const one = (i: number) => card(i, html`<code class="draft-where">${whereOf(comments[i]!)}</code>`);
+  const all = comments.map((_, i) => i);
+  const list = (title: string, idx: number[], hint?: Child) => (idx.length ? html`<p class="draft-h">${title}</p>${hint ? html`<p class="hint">${hint}</p>` : ""}${idx.map(one)}` : "");
+  if (diff === "reading") return html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">Reading the diff from GHE…</p></section>${list("Line comments", all)}`;
+  if (!diff || !diff.ok) return list("Line comments", all, diff?.why);
+  const views = fileViews(diff.files, diff.threads);
+  const off = placeDrafts(views, comments);
+  const extra = (l: DiffLine) => (l.kind !== "hunk" && l.kind !== "note" && l.drafts?.length ? html`<tr class="d-drafts"><td colspan="3">${l.drafts.map(one)}</td></tr>` : "");
+  return html`<p class="draft-h">The diff</p><p class="hint">The agent's comments sit at their lines, with the open review threads.</p>${views.map((fv) => fileView(fv, { sha, present: false, extra }))}${list("Not on the diff", off, "These go at the end of the summary.")}`;
+}
 
 /** The draft as cards I change or drop, and after Preview, exactly what goes with its Post. */
 export function draftPage(frame: Frame, v: DraftView): Html {
@@ -91,7 +111,7 @@ export function draftPage(frame: Frame, v: DraftView): Html {
 ${review
   ? html`<div class="field"><fieldset><legend class="label">Verdict</legend>${VERDICTS.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset><span class="hint">Yours to pick: the agent doesn't choose it.</span></div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(text("summary", base.summary), 4)}" maxlength="${MAX_SUMMARY}">\n${text("summary", base.summary)}</textarea></label>
-${base.comments.length ? html`<p class="draft-h">Line comments</p>${base.comments.map((c, i) => card(i, html`<code class="draft-where">${whereOf(c)}</code>`))}` : ""}`
+${base.kind === "review" ? lineCards(base.comments, card, v.diff, r.headSha) : ""}`
   : html`${base.replies.length ? html`<p class="draft-h">Replies</p>${base.replies.map((x, i) => card(i, html`<span class="draft-where">Reply to ${Link(`${pr.url}#discussion_r${x.commentId}`, "this comment")}</span>`))}` : ""}
 <label class="field"><span class="label">A comment on the PR</span><span class="hint">Optional: for what was said outside a thread.</span><textarea name="comment" rows="${rows(text("comment", base.comment))}" maxlength="${MAX_SUMMARY}">\n${text("comment", base.comment)}</textarea></label>`}
 <div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button><span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
@@ -276,6 +296,23 @@ export function createReviewRoutes(env: Env, deps: ReviewDeps & { ghe: Ghe; stal
     const split = r.status === "done" ? splitDraft(r.kind, deps.lastMessage(r) ?? "") : undefined;
     return { r, pr, ctx, base: split?.draft };
   };
+  /** The reviewed diff, per PR and commit: up to 1.5 s, then the page reads on (data-pending) while it loads. Kept a minute. */
+  const diffs = new Map<string, { at: number; p: Promise<DraftDiff> }>();
+  const diffOf = async (d: { r: AgentReview; pr: { repo: string; number: number } }): Promise<DraftDiff | undefined> => {
+    if (d.r.kind !== "review" || d.r.posted) return undefined;
+    const key = `${d.pr.repo}#${d.pr.number}@${d.r.headSha}`;
+    let hit = diffs.get(key);
+    if (!hit || Date.now() - hit.at > 60e3) {
+      const p: Promise<DraftDiff> = reviewedDiff(deps.ghe, d.pr.repo, d.pr.number, d.r.headSha).then(
+        (x) => ("moved" in x ? { ok: false, why: `The PR has new commits since the review (${d.r.headSha.slice(0, 7)} → ${x.moved.slice(0, 7)}), so the comments are listed here, not in the diff.` } : { ok: true, ...x }),
+        (e) => (diffs.delete(key), { ok: false, why: `The diff didn't load: ${String((e as Error)?.message ?? e)}` }),
+      );
+      hit = { at: Date.now(), p };
+      diffs.set(key, hit);
+      if (diffs.size > 50) diffs.delete(diffs.keys().next().value as string);
+    }
+    return Promise.race([hit.p, new Promise<"reading">((res) => setTimeout(() => res("reading"), 1500))]);
+  };
   const html200 = (h: Html, status: 200 | 400 | 409 = 200) => new Response(String(h), { status, headers: { "content-type": "text/html; charset=UTF-8" } });
 
   app.get("/prs/draft", async (c) => {
@@ -284,7 +321,7 @@ export function createReviewRoutes(env: Env, deps: ReviewDeps & { ghe: Ghe; stal
     const flash = flashes.get(d.r.runId);
     flashes.delete(d.r.runId);
     if (!d.base) return c.redirect("/prs", 303);
-    return html200(draftPage(d.ctx.frame, { r: d.r, pr: d.pr, base: d.base, verdict: "comment", flash }));
+    return html200(draftPage(d.ctx.frame, { r: d.r, pr: d.pr, base: d.base, verdict: "comment", flash, diff: await diffOf(d) }));
   });
 
   app.post("/prs/draft/preview", async (c) => {
@@ -292,7 +329,9 @@ export function createReviewRoutes(env: Env, deps: ReviewDeps & { ghe: Ghe; stal
     const d = await draftCtx(form.run);
     if (!d?.base) return c.redirect("/prs", 303);
     const verdict = d.base.kind === "review" ? verdictOf(form.verdict) : "comment";
-    const view = { r: d.r, pr: d.pr, base: d.base, form, verdict };
+    // A POST's page can't fill itself in (it would fetch the URL again): no pending diff here.
+    const diff = await diffOf(d);
+    const view = { r: d.r, pr: d.pr, base: d.base, form, verdict, diff: diff === "reading" ? undefined : diff };
     if (d.r.posted) return c.redirect(draftHref(d.r), 303);
     const edited = editedDraft(d.base, form);
     const problem = postProblem(edited, verdict);

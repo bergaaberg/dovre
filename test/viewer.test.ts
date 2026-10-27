@@ -8,7 +8,7 @@ import { createViewerRoutes } from "../src/pages/viewer.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { normalizePrView } from "../src/sources/prview.ts";
 import { blob, commitOf, type Git, grep, safePath, safeRef, tree } from "../src/viewer/code.ts";
-import { fileViews, parsePatch, placeThreads } from "../src/viewer/diff.ts";
+import { fileViews, parsePatch, placeDrafts, placeThreads } from "../src/viewer/diff.ts";
 import { assertInert, H, signedIn, snapshot } from "./helpers.ts";
 
 const SHA = "a".repeat(40);
@@ -179,4 +179,20 @@ test("in the app: the viewer is behind the cookie, and /code lists checkouts", a
   assert.equal((await app.request("http://localhost/prs/ACME/shop-api/840")).status, 404, "no cookie, nothing here");
   assert.equal((await get("/code")).status, 200);
   assert.equal((await get("/prs/evil/x/1")).status, 404);
+});
+
+test("draft comments go on their lines (RIGHT on the new side, LEFT on a removed line); the rest come back by index", () => {
+  const file = { path: "src/a.ts", status: "modified", additions: 2, deletions: 1, patch: "@@ -1,3 +1,4 @@\n line1\n-old2\n+new2\n+new3\n line3", sha: "f" };
+  const views = fileViews([file], []);
+  const off = placeDrafts(views, [
+    { path: "src/a.ts", line: 2, side: "RIGHT" },
+    { path: "src/a.ts", line: 2, side: "LEFT" },
+    { path: "src/a.ts", line: 40, side: "RIGHT" },
+    { path: "src/b.ts", line: 1, side: "RIGHT" },
+  ]);
+  assert.deepEqual(off, [2, 3]);
+  const at = (text: string) => views[0]!.lines.find((l) => l.kind !== "hunk" && l.kind !== "note" && l.text === text) as { drafts?: number[] };
+  assert.deepEqual(at("new2").drafts, [0]);
+  assert.deepEqual(at("old2").drafts, [1]);
+  assert.equal(views[0]!.drafts, 2);
 });
