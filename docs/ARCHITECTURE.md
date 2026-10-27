@@ -28,7 +28,7 @@ what the core promises, and what is still open.
 
 - **Core** holds what every Dovre needs, whatever apps it works with. It never names, imports or
   defaults to an instance or an instance's pack.
-- **Core's own packs** (agents, assistant, avatar, terminal, docker) are features of core built as packs, so
+- **Core's own packs** (agents, assistant, terminal, docker) are features of core built as packs, so
   they can be switched off and nothing reaches them except through hooks. A test
   (test/packs.test.ts) fails if anything in core other than the entry points imports them.
 - **An instance** is a repo (`../my-dovre`) with one machine's or team's packs and config. Neither instance ever touches another machine's data.
@@ -215,14 +215,12 @@ their code, panes, settings, routes or styles come back to core. DROPS is next (
 
 **Open points:**
 
-1. *Settled (WP-X2, 2026-10-25):* **the avatar is a core pack** (src/packs/core/avatar/), here
-   and hosted. It shows on core pages through two slots (`today.hero`, `bino.face`). What other
-   packs tell it is one hook, `avatar`: working and asking counts (agents), and trouble, a storm
-   or a fire with a line of counts and a link (signals: red signals). `activity` is gone.
-   *Since #130:* that hook is `pulse`, summed for any pack as `ctx.pulse()`; the avatar's client
-   code is its own `script`; it reads the forge through `ctx.forge()` and gives the starting page
-   its picture through `ctx.startPicture()`. Packs for fun have the domain `fun`, listed apart on
-   the Packs page. Next, the avatar moves to dovre-packs as an optional pack.
+1. *Settled (#130, 2026-10-27):* **the avatar is a pack for fun in dovre-packs**, no longer in
+   core. Core keeps what any pack can use: the two slots it fills (`today.hero`, `bino.face`),
+   the pulse (`pulse`, old name `avatar`, summed as `ctx.pulse()`), pack scripts (`script`),
+   reading the forge (`ctx.forge()`), the starting page's picture (`ctx.startPicture()`), and
+   the `fun` domain, listed apart on the Packs page. Locally it's on where PACKS lists it;
+   dovre-home and dovre-cloud's tenants bundle it (a new tenant starts with it hidden).
 2. *Settled (H9f, 2026-10-26):* **a pack's options are its manifest `settings`** (.dev.vars, shown
    and saved on the Packs page). The config store's keys stay a fixed list (src/config.ts `KEYS`)
    for core's own panes, so Teams' options (TEAMS_CRAWL, TEAMS_SINCE_DAYS, OUTLOOK) left it with

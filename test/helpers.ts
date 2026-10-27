@@ -25,48 +25,14 @@ import type { Gatherer, Snapshot } from "../src/gather.ts";
 import type { Session } from "../src/sources/claude.ts";
 import type { Deploy, Ghe, Move, Note, Pr } from "../src/sources/ghe.ts";
 
-/** Markup if anything renders it unescaped: put it in every string field of a view's input. */
-export const H = `<script>x</script>"'><img src=x onerror=1>`;
-
-export function assertInert(name: string, out: string) {
-  for (const live of ["<script>x", "<img src=x", "onerror=1>"]) assert.ok(!out.includes(live), `${name}: ${live} reached the page as markup`);
-}
-
-export const pr = (o: Partial<Pr> = {}): Pr => ({
-  repo: "ACME/shop-api", number: 1, title: "A PR", url: "https://acme.ghe.com/ACME/shop-api/pull/1", draft: false,
-  updatedAt: "2026-10-22T07:00:00Z", branch: "feat/x", author: "ola-nordmann", review: "REVIEW_REQUIRED", checks: "SUCCESS", openThreads: 0,
-  body: "", additions: 1, deletions: 0, headSha: "abc1234def", labels: [], files: [], reviews: [], requested: [], runs: [], ...o,
-});
-
-export const session = (o: Partial<Session> = {}): Session => ({ sessionId: "s-1", live: true, status: "busy", prs: [], subagentsRunning: 0, ...o });
-
-export const deploy = (o: Partial<Deploy> = {}): Deploy => ({
-  id: 10, name: "Deploy to PROD", title: "Deploy to PROD", actor: "per-hansen", createdAt: "2026-10-22T06:45:00Z", url: "https://acme.ghe.com/ACME/people/actions/runs/10",
-  sha: "3f59045", headSha: "3f59045aaaa", branch: "main", repo: "ACME/people", envs: [{ id: 5, name: "prod" }], superseded: [], more: false, ...o,
-});
+export { HOSTILE as H, assertInert, testPr as pr, testSession as session, testDeploy as deploy } from "../src/packs/testing.ts";
 
 export const move = (o: Partial<Move> = {}): Move => ({ at: "2026-10-22T06:00:00Z", actor: "per-hansen", bot: false, repo: "ACME/shop-api", type: "PullRequestEvent", verb: "opened", ref: "ACME/shop-api#2", title: "Fix", url: "https://acme.ghe.com/ACME/shop-api/pull/2", ...o });
 
 export const note = (o: Partial<Note> = {}): Note => ({ id: "1", reason: "mention", type: "Issue", title: "Hello", repo: "ACME/forms", updatedAt: "2026-10-22T06:00:00Z", url: "https://acme.ghe.com/ACME/forms/issues/1", ...o });
 
-export function snapshot(o: Partial<Snapshot> = {}): Snapshot {
-  return {
-    at: Date.parse("2026-10-22T07:00:00Z"),
-    login: "ola-nordmann",
-    org: "ACME",
-    prs: { ok: true, value: { mine: [], review: [] } },
-    notes: { ok: true, value: [] },
-    moves: { ok: true, value: [] },
-    deploys: { ok: true, value: [] },
-    refs: new Map(),
-    changelogs: new Map(),
-    red: [],
-    name: "Andreas",
-    ...o,
-  };
-}
+export { testSnapshot as snapshot } from "../src/packs/testing.ts";
 
-/** A GHE that answers from `routes` ("METHOD /path" → body), and records every call. */
 export function fakeGhe(routes: Record<string, unknown | ((body: unknown) => unknown)>) {
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const ghe: Ghe = {

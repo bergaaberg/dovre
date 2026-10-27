@@ -59,7 +59,6 @@ import { terminalPack } from "./packs/core/terminal/index.ts";
 import { findPrograms } from "./packs/core/terminal/programs.ts";
 import { createTerminals } from "./packs/core/terminal/terms.ts";
 import { type Need, needsOf } from "./home/needs.ts";
-import { avatarPack } from "./packs/core/avatar/index.ts";
 import { listRepos } from "./sources/claude.ts";
 import { listTodos } from "./todo/store.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
@@ -340,8 +339,6 @@ const corePacks = [
   agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000 }),
   // Bino's switch, and Atlas (the range.yaml manifests under CODE_DIR) unless PACK_ATLAS=off.
   assistantPack({ codeDir: /^(off|false|no|0)$/i.test((rawVars(config).PACK_ATLAS ?? "").trim()) ? undefined : env.CODE_DIR }),
-  // My avatar: the forge's numbers shape it, the snapshot, My list and the packs set its scene.
-  avatarPack(),
   // My open issues from the forge (/tracker), where the forge has them.
   // Each row can start a new agent session on its issue, in the repo's checkout, when an agent can run here.
   issuesPack({

@@ -953,6 +953,8 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .tdock-btn { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: 600 var(--fs-s)/1.2 var(--sans); text-decoration: none; box-shadow: var(--shadow); }
 .bino-btn { gap: 8px; }
 .bino-btn svg { width: 18px; height: 18px; color: var(--accent); }
+/* Bino's button when a pack draws its face (bino.face): the face is the button. */
+.tdock-btn.face-btn { position: relative; width: 64px; height: 64px; padding: 0; justify-content: center; border-radius: 18px; overflow: visible; }
 .tdock-btn:hover, .tdock.open .tdock-btn { border-color: var(--accent); color: var(--accent); }
 .tdock-btn b { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); }
 .tdock-btn b.hot { background: var(--warn-soft); color: var(--warn); }

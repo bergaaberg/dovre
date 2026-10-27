@@ -12,7 +12,7 @@ const at = (path: string, init?: RequestInit) => new Request(`https://demo.dovre
 
 test("demo: every hosted page draws over the made-up data, with the bar saying so, and isn't indexed", async () => {
   const w = createDemoWorker();
-  for (const path of ["/", "/prs", "/deploys", "/agents", "/agents/s/d0e0a001-0000-4000-8000-000000000002", "/packs", "/settings", "/stats", "/avatar", "/todo", "/bino"]) {
+  for (const path of ["/", "/prs", "/deploys", "/agents", "/agents/s/d0e0a001-0000-4000-8000-000000000002", "/packs", "/settings", "/stats", "/todo", "/bino"]) {
     const res = await w.fetch(at(path));
     assert.equal(res.status, 200, path);
     assert.equal(res.headers.get("x-robots-tag"), "noindex", path);
@@ -57,7 +57,6 @@ test("demo: a refused button explains itself inside the demo's page, with the wa
     ["/deploys/approve", /second click to confirm/],
     ["/deploys/reject", /second click to confirm/],
     ["/todo/add", /Your list is saved/],
-    ["/avatar/today", /The avatar.{1,6}s settings are saved/],
     ["/settings/layout/reset", /Settings are saved/],
     ["/settings/notify/test", /Settings are saved/],
     ["/agents/s/d0e0a001-0000-4000-8000-000000000002/reply", /ask Bino instead/],
@@ -109,7 +108,6 @@ test("demo: every link across demo pages stays inside demo or goes to dovre.dev,
     "/packs",
     "/settings",
     "/stats",
-    "/avatar",
     "/todo",
     "/prs/northwind/checkout/412",
     "/agents/s/d0e0a001-0000-4000-8000-000000000002",
@@ -204,8 +202,7 @@ test("demo: phone-width bottom tab bar shows with Bino in the middle, and the Mo
     const html = await res.text();
     assert.match(html, /class="tabbar gap-32"/, `${path} has tabbar gap-32`);
     assert.match(html, /<span class="tab-gap" aria-hidden="true"><\/span>/, `${path} has middle gap for Bino`);
-    assert.match(html, /id="bdock-btn"[^]*av-face/, `${path} has Bino dock button with avatar`);
-    assert.match(html, /data-av="dock"/, `${path} has avatar dock face`);
+    assert.match(html, /id="bdock-btn"/, `${path} has the Bino dock button`);
     assert.match(html, /id="tab-more"[^>]*aria-controls="side-sheet"/, `${path} has More button pointing to side sheet`);
     assert.match(html, /id="side-sheet"/, `${path} has More sheet`);
   }

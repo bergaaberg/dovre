@@ -76,7 +76,6 @@ Dovre Core ships five built-in packs under `src/packs/core/`:
 |---|---|---|
 | `agents` | Multi-harness session discovery, live streaming turns, worktrees, and tool approval bar (`claude`, `codex`, `omp`, `copilot`, `agy`) | `PACK_AGENTS=off` / `AGENT_HARNESSES` |
 | `assistant` | **Bino** assistant + **Repo Atlas** (`range.yaml` catalog) + [`memlet`](https://github.com/bergaaberg/memlet) scoped SQLite/D1 memory | `PACK_ASSISTANT=off` / `PACK_ATLAS=off` |
-| `avatar` | Ambient SVG companion reflecting active work, review load, and operational health | `PACK_AVATAR=off` |
 | `terminal` | Strict-origin local PTY web terminals (`/terminal`) | `PACK_TERMINAL=off` |
 | `docker` | Container and compose project controls + live SSE logs (`/docker`) | `PACK_DOCKER=off` |
 
