@@ -6,7 +6,10 @@
  */
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
-import { type History, median, weekly } from "../stats/history.ts";
+import { type History, median, WEEKS, weekly } from "../stats/history.ts";
+import { type Layout, placeStats } from "../layout.ts";
+import type { StatOut } from "../packs/registry.ts";
+import type { StatUnit } from "../packs/types.ts";
 import type { StatsView } from "../stats/stats.ts";
 import type { SpendDay } from "../stats/spend.ts";
 import { columns, compact, hbars, lines, sparkline } from "../ui/chart.ts";
@@ -43,40 +46,103 @@ function spendTiles(spend?: SpendDay[]) {
   return tile("Agent spend, 7 days", money(last7), `${money(prev7)} the 7 days before`, spend.slice(-30).map(total));
 }
 
-function body(v: StatsView, now: number, open: History["open"], forge: ForgeView = GITHUB_VIEW) {
+/**
+ * One thing /stats can show: a headline number (`tile`) or a panel. Core offers the forge's
+ * panels and agent spend; each pack's come from `Pack.stats`. Settings → Look and layout shows,
+ * hides and orders them by `id`; `draw` gives "" when there's nothing to draw yet.
+ */
+export type StatOffer = { id: string; label: string; from: string; tile?: boolean; draw: () => Child };
+
+const UNIT_FMT: Record<StatUnit, (n: number) => string> = { count: compact, money, hours: hrs, days: (d) => (d < 1 ? "<1 d" : `${Math.round(d)} d`), percent: pct };
+
+function packOffer(st: StatOut): StatOffer {
+  const fmt = UNIT_FMT[st.unit];
+  const label = `${st.title} (${st.packName})`;
+  if (st.kind === "tile")
+    return { id: st.id, label, from: st.packName, tile: true, draw: () => tile(st.title, st.value === undefined ? "–" : fmt(st.value), st.value === undefined ? (st.empty ?? `Nothing from ${st.packName} yet.`) : (st.note ?? ""), st.trend) };
+  const blank = !st.labels.length || st.series.every((x) => x.values.every((v) => v === undefined));
+  return {
+    id: st.id,
+    label,
+    from: st.packName,
+    draw: () =>
+      Panel({
+        title: st.title,
+        meta: st.meta ?? st.packName,
+        children: blank
+          ? Empty({ title: st.empty ?? `Nothing from ${st.packName} yet.` })
+          : (st.chart === "lines" ? lines : columns)({
+              title: st.title,
+              labels: st.labels,
+              tips: st.tips,
+              fmt,
+              every: st.labels.length > 16 ? 7 : 1,
+              ...(st.chart === "lines" && st.unit === "percent" ? { yMax: 100 } : {}),
+              ...(st.chart !== "lines" && st.stacked ? { stacked: true } : {}),
+              series: st.series.map((x, i) => ({ name: x.name, tone: i ? "c2" : "c1", values: x.values })),
+            }),
+      }),
+  };
+}
+
+/** Everything /stats can show here, in the code's order: the forge's (when it gathers stats), agent spend (when it's read here), then the packs'. */
+export function statOffers(v: StatsView, o: { now: number; forge?: ForgeView; weeks?: number; packs?: StatOut[]; github?: boolean }): StatOffer[] {
+  const { now } = o;
+  const forge = o.forge ?? GITHUB_VIEW;
   const h = v.history;
-  const kpis: Child[] = [];
-  const charts: Child[] = [];
-  if (h) {
-    const w = weekly(h, now);
-    const n = w.weeks.length;
-    const tips = w.weeks.map((x) => weekTip(x.key, x.label));
-    const labels = w.weeks.map((x) => x.label);
-    const last4 = h.mine.filter((p) => p.mergedAt && now - Date.parse(p.mergedAt) < 28 * DAY);
-    const toReview = median(last4.filter((p) => p.firstReviewAt).map((p) => (Date.parse(p.firstReviewAt!) - Date.parse(p.readyAt ?? p.createdAt)) / 3600e3));
-    const red4 = w.red.slice(-4).filter((r) => r);
-    const redPct = red4.length ? (red4.reduce((a, r) => a + r!.bad, 0) / red4.reduce((a, r) => a + r!.of, 0)) * 100 : undefined;
-    kpis.push(
-      tile("Merged, this week", String(w.mergedMine[n - 1]), `${w.mergedMine[n - 2]} in ${w.weeks[n - 2]!.label}`, w.mergedMine),
-      tile("Reviews given, this week", String(w.reviewsGiven[n - 1]), `${w.reviewsGiven[n - 2]} in ${w.weeks[n - 2]!.label}`, w.reviewsGiven),
-      spendTiles(v.spend),
-      tile("Wait for a first review", toReview === undefined ? "–" : hrs(toReview), "median, your PRs merged in 4 weeks"),
-      tile("Main red", redPct === undefined ? "–" : pct(redPct), "of commits on main, 4 weeks", w.red.map((r) => r?.pct)),
+  const out: StatOffer[] = [];
+  const github = o.github !== false;
+  const spends = v.spends !== false;
+  if (github) {
+    const w = h ? weekly(h, now) : undefined;
+    const n = w?.weeks.length ?? 0;
+    const k = Math.max(1, Math.min(o.weeks ?? WEEKS, n));
+    const last = <T,>(a: T[]) => a.slice(-k);
+    const tips = w ? last(w.weeks.map((x) => weekTip(x.key, x.label))) : [];
+    const labels = w ? last(w.weeks.map((x) => x.label)) : [];
+    const from = forge.name;
+    const gh = (id: string, label: string, draw: (h: History, w: ReturnType<typeof weekly>) => Child, tileToo = false): StatOffer => ({ id, label, from, tile: tileToo, draw: () => (h && w ? draw(h, w) : "") });
+    out.push(
+      gh("merged-week", "Merged, this week", (_, w) => tile("Merged, this week", String(w.mergedMine[n - 1]), `${w.mergedMine[n - 2]} in ${w.weeks[n - 2]!.label}`, w.mergedMine), true),
+      gh("reviews-week", "Reviews given, this week", (_, w) => tile("Reviews given, this week", String(w.reviewsGiven[n - 1]), `${w.reviewsGiven[n - 2]} in ${w.weeks[n - 2]!.label}`, w.reviewsGiven), true),
     );
-    charts.push(
-      Panel({ title: "You, per week", children: columns({ title: "Your merged PRs and reviews given per week", labels, tips, fmt: compact, partialLast: true, series: [{ name: "Merged", tone: "c1", values: w.mergedMine }, { name: "Reviews given", tone: "c2", values: w.reviewsGiven }] }) }),
-      spendPanel(v.spend),
-      Panel({ title: "The org, merged PRs per week", children: columns({ title: "Merged pull requests in the org per week", labels, tips, fmt: compact, partialLast: true, series: [{ name: "Merged", tone: "c1", values: w.orgMerged }] }) }),
-      Panel({ title: "The org, releases per week", meta: `${h.repos} most active repos`, children: columns({ title: "Releases per week", labels, tips, fmt: compact, partialLast: true, series: [{ name: "Releases", tone: "c1", values: w.releases }] }) }),
-      Panel({ title: "Main red, per week", meta: "commits whose checks failed", children: lines({ title: "Share of commits on main with failing checks, per week", labels, tips, fmt: pct, yMax: 100, series: [{ name: "Red", tone: "c1", values: w.red.map((r) => r?.pct) }] }) }),
-      Panel({ title: "Your PRs, waiting", meta: "median, by week merged", children: lines({ title: "Median hours from ready to first review and to merge", labels, tips, fmt: hrs, ...hourAxis(w.waits.flatMap((x) => [x.review ?? 0, x.merge ?? 0])), series: [{ name: "To first review", tone: "c1", values: w.waits.map((x) => x.review) }, { name: "To merge", tone: "c2", values: w.waits.map((x) => x.merge) }] }) }),
+    if (spends) out.push({ id: "spend-7d", label: "Agent spend, 7 days", from: "Agents", tile: true, draw: () => spendTiles(v.spend) });
+    out.push(
+      gh("review-wait", "Wait for a first review", (h) => {
+        const last4 = h.mine.filter((p) => p.mergedAt && now - Date.parse(p.mergedAt) < 28 * DAY);
+        const toReview = median(last4.filter((p) => p.firstReviewAt).map((p) => (Date.parse(p.firstReviewAt!) - Date.parse(p.readyAt ?? p.createdAt)) / 3600e3));
+        return tile("Wait for a first review", toReview === undefined ? "–" : hrs(toReview), "median, your PRs merged in 4 weeks");
+      }, true),
+      gh("main-red", "Main red", (_, w) => {
+        const red4 = w.red.slice(-4).filter((r) => r);
+        const redPct = red4.length ? (red4.reduce((a, r) => a + r!.bad, 0) / red4.reduce((a, r) => a + r!.of, 0)) * 100 : undefined;
+        return tile("Main red", redPct === undefined ? "–" : pct(redPct), "of commits on main, 4 weeks", w.red.map((r) => r?.pct));
+      }, true),
+      gh("you-weekly", "You, per week", (_, w) => Panel({ title: "You, per week", children: columns({ title: "Your merged PRs and reviews given per week", labels, tips, fmt: compact, partialLast: true, series: [{ name: "Merged", tone: "c1", values: last(w.mergedMine) }, { name: "Reviews given", tone: "c2", values: last(w.reviewsGiven) }] }) })),
     );
-  } else if (!v.spend) kpis.push(spendTiles(v.spend));
+    if (spends) out.push({ id: "spend-daily", label: "Agent spend per day", from: "Agents", draw: () => spendPanel(v.spend) });
+    out.push(
+      gh("org-merged", "The org, merged PRs per week", (_, w) => Panel({ title: "The org, merged PRs per week", children: columns({ title: "Merged pull requests in the org per week", labels, tips, fmt: compact, partialLast: true, series: [{ name: "Merged", tone: "c1", values: last(w.orgMerged) }] }) })),
+      gh("releases", "The org, releases per week", (h, w) => Panel({ title: "The org, releases per week", meta: `${h.repos} most active repos`, children: columns({ title: "Releases per week", labels, tips, fmt: compact, partialLast: true, series: [{ name: "Releases", tone: "c1", values: last(w.releases) }] }) })),
+      gh("main-red-weekly", "Main red, per week", (_, w) => Panel({ title: "Main red, per week", meta: "commits whose checks failed", children: lines({ title: "Share of commits on main with failing checks, per week", labels, tips, fmt: pct, yMax: 100, series: [{ name: "Red", tone: "c1", values: last(w.red.map((r) => r?.pct)) }] }) })),
+      gh("waits", "Your PRs, waiting", (_, w) => {
+        const waits = last(w.waits);
+        return Panel({ title: "Your PRs, waiting", meta: "median, by week merged", children: lines({ title: "Median hours from ready to first review and to merge", labels, tips, fmt: hrs, ...hourAxis(waits.flatMap((x) => [x.review ?? 0, x.merge ?? 0])), series: [{ name: "To first review", tone: "c1", values: waits.map((x) => x.review) }, { name: "To merge", tone: "c2", values: waits.map((x) => x.merge) }] }) });
+      }),
+      gh("open-age", "Open PRs by age", (h) => agePanel(h.open, now)),
+    );
+  } else if (spends) {
+    out.push({ id: "spend-7d", label: "Agent spend, 7 days", from: "Agents", tile: true, draw: () => spendTiles(v.spend) }, { id: "spend-daily", label: "Agent spend per day", from: "Agents", draw: () => spendPanel(v.spend) });
+  }
+  return out.concat((o.packs ?? []).map(packOffer));
+}
+
+function agePanel(open: History["open"], now: number): Child {
   const ages = open
     .map((p) => ({ p, days: (now - Date.parse(p.createdAt)) / DAY }))
     .sort((a, b) => b.days - a.days)
     .slice(0, 20);
-  const agePanel = ages.length
+  return ages.length
     ? Panel({
         title: "Open PRs by age",
         meta: `${open.filter((p) => p.mine).length} yours · ${open.filter((p) => !p.mine).length} asking you`,
@@ -91,11 +157,20 @@ function body(v: StatsView, now: number, open: History["open"], forge: ForgeView
         ),
       })
     : "";
-  return html`${v.historyError ? Notice({ tone: "bad", children: html`<strong>${forge.name} didn't answer.</strong> ${v.historyError}${h ? html` <span class="t2">Showing what was gathered ${Ago(h.at)}.</span>` : ""}` }) : ""}
-${!h && v.gathering ? Notice({ children: `Gathering twelve weeks from ${forge.name}. This takes about half a minute; the page fills in by itself.` }) : ""}
+}
+
+function body(v: StatsView, offers: StatOffer[], placed: StatOffer[], forge: ForgeView, github: boolean) {
+  const h = v.history;
+  const drawn = placed.map((o) => ({ o, out: o.draw() })).filter(({ out }) => out !== "");
+  const kpis = drawn.filter(({ o }) => o.tile).map(({ out }) => out);
+  const charts = drawn.filter(({ o }) => !o.tile).map(({ out }) => out);
+  const quiet = github && !h && !v.gathering && !v.historyError;
+  return html`${github && v.historyError ? Notice({ tone: "bad", children: html`<strong>${forge.name} didn't answer.</strong> ${v.historyError}${h ? html` <span class="t2">Showing what was gathered ${Ago(h.at)}.</span>` : ""}` }) : ""}
+${github && !h && v.gathering ? Notice({ children: `Gathering twelve weeks from ${forge.name}. This takes about half a minute; the page fills in by itself.` }) : ""}
 ${kpis.length ? html`<div class="kpis">${kpis}</div>` : ""}
-<div class="stats-grid">${charts}${agePanel}</div>
-${!h && !v.gathering && !v.historyError ? Empty({ title: "Nothing gathered yet" }) : ""}`;
+${charts.length ? html`<div class="stats-grid">${charts}</div>` : ""}
+${quiet ? Empty({ title: `Nothing from ${forge.name} yet`, children: html`Press <strong>Gather again</strong>; it takes about half a minute.` }) : ""}
+${!offers.length ? Empty({ title: "Nothing to show here yet", children: html`Stats come from your forge (GitHub) and from packs that keep numbers. <a href="/packs">Packs</a> lists what's on.` }) : offers.length && !placed.length ? Empty({ title: "Every panel is hidden", children: html`Choose what Stats shows on <a href="/settings#layout">Settings → Look and layout</a>.` }) : ""}`;
 }
 
 function spendPanel(spend?: SpendDay[]) {
@@ -118,17 +193,21 @@ function spendPanel(spend?: SpendDay[]) {
   });
 }
 
-export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?: ForgeView } = {}) {
+export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?: ForgeView; /** Packs' panels (statsFrom). */ packs?: StatOut[]; /** Settings → Look and layout's choices. */ layout?: Pick<Layout, "stats" | "statsWeeks">; /** The forge gathers stats (default yes). */ github?: boolean } = {}) {
   const now = o.now ?? Date.now();
   const forge = o.forge ?? GITHUB_VIEW;
+  const github = o.github !== false;
+  const weeks = o.layout?.statsWeeks ?? WEEKS;
   const h = v.history;
-  const sub = h ? html`Last 12 weeks. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}; spend from this machine's transcripts.` : "Last 12 weeks.";
-  const refresh = html`<form method="post" action="/stats/refresh"><button type="submit" class="ghost" data-busy="Gathering"${v.gathering ? html` disabled` : ""}>Gather again</button></form>`;
+  const offers = statOffers(v, { now, forge, weeks, packs: o.packs, github });
+  const placed = placeStats(offers, o.layout?.stats);
+  const sub = github && h ? html`Last ${weeks} weeks. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}${v.spends !== false ? "; spend from this machine's transcripts" : ""}. <a href="/settings#layout">Choose what's here</a>.` : html`Last ${weeks} weeks. <a href="/settings#layout">Choose what's here</a>.`;
+  const refresh = github ? html`<form method="post" action="/stats/refresh"><button type="submit" class="ghost" data-busy="Gathering"${v.gathering ? html` disabled` : ""}>Gather again</button></form>` : "";
   return shell({
     title: "Stats · Dovre",
     frame,
     current: "/stats",
-    body: html`${PageHeader({ title: "Stats", sub, actions: refresh })}<div data-live id="stats">${body(v, now, h?.open ?? [], forge)}</div>`,
+    body: html`${PageHeader({ title: "Stats", sub, actions: refresh })}<div data-live id="stats">${body(v, offers, placed, forge, github)}</div>`,
     head: html`<meta name="u-topics" content="stats">`,
   });
 }

@@ -103,6 +103,7 @@ It keeps core's safety boundary intact:
 |---|---|---|
 | Its own pages | `routes`, `styles`, `script`, `nav`, `paths` (manifest) | routes on request |
 | Today | `today` (cards), `glance`, `brief`, `lane`, `feed` | cards: 250 ms for all; the rest from memory |
+| Stats | `stats` (PackStat: a chart over labels with one or two series, or a headline number; `unit`, `empty`), shown, hidden and ordered on Settings → Look and layout with core's own | from memory |
 | Search | `pages`, `finds` (with `kind`: agents, code, actions) | from memory |
 | Attention | `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock` (with a `key` letter) | from memory |
 | Bino | `bino`, `about` (not asked for a manifest-`private` pack), `acts` (local only) | from memory; an act's `run` in the background |

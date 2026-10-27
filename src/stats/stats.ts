@@ -9,7 +9,7 @@ import type { Ghe } from "../sources/ghe.ts";
 import { gatherHistory, type History } from "./history.ts";
 import type { Spend, SpendDay } from "./spend.ts";
 
-export type StatsView = { history?: History; historyError?: string; gathering: boolean; spend?: SpendDay[]; spendAt?: number };
+export type StatsView = { history?: History; historyError?: string; gathering: boolean; spend?: SpendDay[]; spendAt?: number; /** Agent spend is read here (false: hosted, no transcripts); unset counts as yes. */ spends?: boolean };
 
 export type Stats = {
   view(): StatsView;
@@ -19,7 +19,7 @@ export type Stats = {
 
 const EVERY = 6 * 3600e3;
 
-export function createStats(o: { ghe: Ghe; org: string; login: () => string | undefined; spend?: Spend; file?: string; now?: () => number; onChange?: () => void; gather?: typeof gatherHistory }): Stats {
+export function createStats(o: { ghe: Ghe; org: string; login: () => string | undefined; /** The forge gathers stats (default yes): when not, refresh reads only spend. */ github?: () => boolean; spend?: Spend; file?: string; now?: () => number; onChange?: () => void; gather?: typeof gatherHistory }): Stats {
   const now = o.now ?? Date.now;
   const gather = o.gather ?? gatherHistory;
   let history: History | undefined;
@@ -42,10 +42,10 @@ export function createStats(o: { ghe: Ghe; org: string; login: () => string | un
     } catch {}
   };
   return {
-    view: () => ({ history, historyError, gathering, spend, spendAt }),
+    view: () => ({ history, historyError, gathering, spend, spendAt, spends: !!o.spend }),
     refresh(force = false) {
       const login = o.login();
-      if (login && !gathering && (force || !history || history.login !== login || now() - history.at > EVERY)) {
+      if (login && (o.github?.() ?? true) && !gathering && (force || !history || history.login !== login || now() - history.at > EVERY)) {
         gathering = true;
         gather(o.ghe, o.org, login, now()).then(
           (h) => {

@@ -75,6 +75,28 @@ export type RingDecl = { kind: string; label: string; hint?: string };
  * notification the first time its key is seen. `key` stays the same while it's in the same state.
  * `title` says it whole ("Agent in shop needs your OK: Bash(npm test)"): a notification shows it as it is.
  */
+/** How a stat's numbers read: a count (default), money in dollars, hours, days or a percentage. */
+export type StatUnit = "count" | "money" | "hours" | "days" | "percent";
+
+/**
+ * A panel on /stats, from memory (`Pack.stats`): either a chart over time (`labels` along the
+ * bottom, one or two `series` with a value per label) or one headline number (`value`, with a note
+ * and a trend). Its `id` is the pack's own; Settings → Look and layout shows or hides it and sets
+ * its order. Nothing to show yet: leave out the values and say what to connect in `empty`.
+ */
+export type PackStat = {
+  id: string;
+  title: string;
+  /** A few words beside the title ("median, by week"). */
+  meta?: string;
+  unit?: StatUnit;
+  /** What to connect or wait for when there's nothing to draw. */
+  empty?: string;
+} & (
+  | { /** Default "columns". */ chart?: "columns" | "lines"; /** Stack the two series (columns only). */ stacked?: boolean; labels: string[]; /** One tip per label, for hover and the table (default: the label). */ tips?: string[]; series: { name: string; values: (number | null | undefined)[] }[] }
+  | { value: number | null | undefined; note?: string; trend?: (number | null | undefined)[] }
+);
+
 export type PackNeed = {
   key: string;
   title: string;
@@ -396,6 +418,11 @@ export type Pack = {
   bino?(ctx: PackContext): string;
   /** What needs me in this app right now, from memory, never awaited (rung once per key; see PackNeed). */
   needs?(ctx: PackContext): PackNeed[];
+  /**
+   * Its panels on /stats, from memory, never awaited (see PackStat): gather on the pack's own
+   * schedule in `refresh`. `weeks` is the range I picked on Settings (4 or 12), for weekly charts.
+   */
+  stats?(ctx: PackContext, o: { weeks: number }): PackStat[];
   /**
    * A bar at the top of every page, above the page itself, from memory: something to answer wherever I
    * am (an agent waiting for my OK on a tool). Empty most of the time. It's redrawn with the page's

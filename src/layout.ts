@@ -24,7 +24,14 @@ export type Layout = {
   accent?: Accent;
   /** What Bino's button shows: the face a pack draws, if any (unset), or the assistant icon. */
   binoButton?: "icon";
+  /** /stats's panels by id (core's, or `<pack>:<id>`): shown or hidden, and their order. Unset: each where its code puts it. */
+  stats?: Record<string, StatPlace>;
+  /** How many weeks /stats's weekly charts span (default 12). */
+  statsWeeks?: StatsWeeks;
 };
+export type StatPlace = { show: boolean; order: number };
+export const STATS_WEEKS = [4, 12] as const;
+export type StatsWeeks = (typeof STATS_WEEKS)[number];
 export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
 export const ACCENTS = ["heather", "glacier"] as const;
@@ -32,6 +39,9 @@ export type Accent = (typeof ACCENTS)[number];
 
 const HREF = /^\/[\w\-/]{0,80}$/;
 const ID = /^[a-z][a-z0-9-]{0,64}$/;
+/** A stat's id: core's ("you-weekly"), or a pack's under its id ("linear:cycle"). */
+const STAT = /^[a-z][a-z0-9-]{0,64}(:[a-z][a-z0-9-]{0,40})?$/;
+const order = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(999, Math.round(v))) : 100);
 const ids = (v: unknown, ok: RegExp, max: number) => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && ok.test(x)))].slice(0, max) : undefined);
 
 /** Read strictly: an old or edited row can't set anything this file doesn't know. */
@@ -59,7 +69,26 @@ export function layoutOf(raw: unknown): Layout {
   if (THEMES.includes(v.theme as Theme)) out.theme = v.theme as Theme;
   if (ACCENTS.includes(v.accent as Accent)) out.accent = v.accent as Accent;
   if (v.binoButton === "icon") out.binoButton = "icon";
+  if (v.stats && typeof v.stats === "object" && !Array.isArray(v.stats)) {
+    const stats: Record<string, StatPlace> = {};
+    for (const [id, p] of Object.entries(v.stats as Record<string, unknown>).slice(0, 200)) {
+      const place = p as { show?: unknown; order?: unknown };
+      if (!STAT.test(id) || !place || typeof place !== "object" || typeof place.show !== "boolean") continue;
+      stats[id] = { show: place.show, order: order(place.order) };
+    }
+    out.stats = stats;
+  }
+  if (STATS_WEEKS.includes(v.statsWeeks as StatsWeeks)) out.statsWeeks = v.statsWeeks as StatsWeeks;
   return out;
+}
+
+/** /stats's panels in my order, hidden ones left out; those I haven't placed keep their code's order, after. */
+export function placeStats<T extends { id: string }>(offers: T[], stats: Layout["stats"]): T[] {
+  return offers
+    .map((o, i) => ({ o, p: stats?.[o.id], i }))
+    .filter(({ p }) => p?.show !== false)
+    .sort((a, b) => (a.p?.order ?? 500 + a.i) - (b.p?.order ?? 500 + b.i) || a.i - b.i)
+    .map(({ o }) => o);
 }
 
 /** The phone's tabs as I've set them: those hrefs marked, in my order; the rest unmarked. Unset: the menu as it is. */
@@ -88,9 +117,10 @@ export function placeCards<T>(slots: Slot<T>[], cards: Layout["cards"]): Record<
 
 /**
  * The Layout form, read against what's here: `tab1..3` hrefs from the menu, `col:<id>` and
- * `order:<id>` per card, `feed` and `pack` the ticked packs (the rest go off).
+ * `order:<id>` per card, `feed` and `pack` the ticked packs (the rest go off), `stat:<id>` (on/off)
+ * and `statorder:<id>` per stat, and `statsWeeks`.
  */
-export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: string[]; cards: string[]; feeds: string[]; packs: string[] }): Layout {
+export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: string[]; cards: string[]; feeds: string[]; packs: string[]; /** /stats's panels on offer. */ stats?: string[] }): Layout {
   const one = (k: string) => (typeof form[k] === "string" ? String(form[k]) : "");
   const many = (k: string) => (Array.isArray(form[k]) ? (form[k] as unknown[]) : form[k] === undefined ? [] : [form[k]]).filter((x): x is string => typeof x === "string");
   const tabs = [...new Set(["tab1", "tab2", "tab3"].map(one).filter((h) => h !== "/" && here.hrefs.includes(h)))];
@@ -102,7 +132,13 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
   }
   const fed = new Set(many("feed"));
   const shown = new Set(many("pack"));
-  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), binoButton: one("binoButton") });
+  const stats: Record<string, StatPlace> = {};
+  for (const id of here.stats ?? []) {
+    const show = one(`stat:${id}`);
+    const at = one(`statorder:${id}`).trim();
+    if (show === "on" || show === "off") stats[id] = { show: show === "on", order: at === "" ? 100 : order(Number(at)) };
+  }
+  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), binoButton: one("binoButton"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")) });
 }
 
 /**
