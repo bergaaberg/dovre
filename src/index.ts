@@ -320,7 +320,7 @@ const keptAnswers = keptFile(join(dataDir, "catalog.json"));
 const terminals = on.terminal ? createTerminals({ hostExe, codeDir: env.CODE_DIR, programs: findPrograms({ copilotBin: env.COPILOT_BIN, agyBin: env.AGY_BIN, codexBin: env.CODEX_BIN, on: harnessOn }), onChange: () => hub.publish(["snapshot"]) }) : undefined;
 if (terminals) console.log(`terminals: ${terminals.programs().map((p) => p.id).join(", ")}`);
 
-// Dovre's own packs (PLAN WP-H9), before the instance's. Assistant: Bino and Atlas, the peak.yaml files under
+// Dovre's own packs (PLAN WP-H9), before the instance's. Assistant: Bino and Topo, the peak.yaml files under
 // CODE_DIR. Terminal: the pty host above. Docker: Engine in its own WSL distro, served by the
 // launcher on a pipe (launcher/docker.go).
 // Agents: this machine's sessions and worktrees (read by the pack, every 15 s and when Claude Code's
@@ -337,8 +337,8 @@ const dismissed = createDismissed(db.DB);
 const desk = localDesk({ env, runner, queue, sessions: () => here.ready(), onStarted: (sid) => dismissed.remove(sid) });
 const corePacks = [
   agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000 }),
-  // Bino's switch, and Atlas (the peak.yaml files under CODE_DIR) unless PACK_ATLAS=off.
-  assistantPack({ codeDir: /^(off|false|no|0)$/i.test((rawVars(config).PACK_ATLAS ?? "").trim()) ? undefined : env.CODE_DIR }),
+  // Bino's switch, and Topo (the peak.yaml files under CODE_DIR) unless PACK_TOPO=off (PACK_ATLAS, its old name, still read).
+  assistantPack({ codeDir: /^(off|false|no|0)$/i.test((rawVars(config).PACK_TOPO ?? rawVars(config).PACK_ATLAS ?? "").trim()) ? undefined : env.CODE_DIR }),
   // My open issues from the forge (/tracker), where the forge has them.
   // Each row can start a new agent session on its issue, in the repo's checkout, when an agent can run here.
   issuesPack({

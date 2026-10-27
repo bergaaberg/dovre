@@ -38,7 +38,7 @@ what the core promises, and what is still open.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Where the packs come from | `PACKS` in .dev.vars: folders, each one's `packs.ts` imported at start (src/packs/load.ts) | The instance's own worker.ts calls `createWorker({ packs })`; esbuild bundles them |
-| Core's packs | agents, assistant (Bino and Atlas), terminal (when terminals run), docker (when its pane is on) | agents (the Mac's sessions, over the bridge), assistant (Bino, no Atlas) |
+| Core's packs | agents, assistant (Bino and Topo), terminal (when terminals run), docker (when its pane is on) | agents (the Mac's sessions, over the bridge), assistant (Bino, no Topo) |
 | Refresh | an interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Also | `callback` (an OAuth return), `ingest` (apps POST in), `acts` (Bino's proposals) | `scheduled` (cron), `email` (Email Routing) |
 
@@ -202,7 +202,7 @@ updated. Every change since H1 has been additive, so the contract is still 1.
 
 ## Where it stands, and what's open
 
-**Done here (H9a–e):** agents, atlas, terminal and docker are packs. The hooks the work packs
+**Done here (H9a–e):** agents, topo, terminal and docker are packs. The hooks the work packs
 need exist and are tested with fake packs: dock, callback, acts, settings, and the slots
 deploy.prod, todo.proposals and actions.where. In this write-up (WP-X1), "Start an agent" left
 core's search actions for the agents pack: `finds` can now put rows in search's "Do" group

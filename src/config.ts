@@ -43,7 +43,7 @@ export const PANES: Pane[] = [
   {
     id: "bino",
     name: "Bino",
-    what: "The assistant: scoped memory, repo context (Atlas), and plan proposals; it proposes, you click",
+    what: "The assistant: scoped memory, repo context (Topo), and plan proposals; it proposes, you click",
     key: "BINO_VIA",
     on: [
       { value: "claude", label: "Claude Code" },

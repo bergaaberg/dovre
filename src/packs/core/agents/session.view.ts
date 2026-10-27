@@ -147,7 +147,7 @@ ${Panel({
   return { title: `${title} · Agents`, current: "/agents", body, head: html`<meta name="u-topics" content="snapshot run:${sessionId}${run && run.sessionId !== sessionId ? ` run:${run.id}` : ""}">` };
 }
 
-export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: atlas's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string }): PageOpts {
+export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: topo's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string }): PageOpts {
   const harnesses = opts.harnesses ?? (["claude"] as HarnessId[]);
   // Hosted with the Mac offline: no form, nothing would take it.
   if (opts.mac?.online === false)

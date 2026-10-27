@@ -1,5 +1,5 @@
 /**
- * The atlas pack (PLAN D18, WP-G6, WP-H9b): peak.yaml scanning (range.yaml, the old name, too), its page, and what
+ * The topo pack (PLAN D18, WP-G6, WP-H9b): peak.yaml scanning (range.yaml, the old name, too), its page, and what
  * it puts in core pages through slots (PR cards, New work, /agents/new) and Bino's lines.
  */
 import test from "node:test";
@@ -7,8 +7,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AtlasScanner, type AtlasEntry } from "../bino/scan.ts";
-import { atlasPage, binoLines, draftPrompt, fixPrompt } from "../bino/atlas.view.ts";
+import { TopoScanner, type TopoEntry } from "../bino/scan.ts";
+import { topoPage, binoLines, draftPrompt, fixPrompt } from "../bino/topo.view.ts";
 import { assistantPack } from "../index.ts";
 import { prBody, prCard, type PrSlots } from "../../../../pages/inline.ts";
 import { entryPage } from "../../../../pages/work.ts";
@@ -25,7 +25,7 @@ import type { Route } from "../bino/route.ts";
 
 /** A code folder with these peak.yaml files (folder → text). */
 function codeDir(manifests: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), "dovre-atlas-"));
+  const dir = mkdtempSync(join(tmpdir(), "dovre-topo-"));
   for (const [name, yaml] of Object.entries(manifests)) {
     mkdirSync(join(dir, name));
     writeFileSync(join(dir, name, "peak.yaml"), yaml);
@@ -69,7 +69,7 @@ function fakePr(repo: string, number = 101): Pr {
     additions: 120,
     deletions: 15,
     files: [
-      { path: "src/atlas/range.ts", additions: 100, deletions: 10 },
+      { path: "src/topo/range.ts", additions: 100, deletions: 10 },
       { path: "README.md", additions: 20, deletions: 5 },
     ],
     reviews: [{ state: "APPROVED", login: "reviewer" }],
@@ -80,8 +80,8 @@ function fakePr(repo: string, number = 101): Pr {
   };
 }
 
-test("AtlasScanner: peak.yaml wins over range.yaml (the old name, still read); broken files are listed with every problem", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dovre-atlas-peak-"));
+test("TopoScanner: peak.yaml wins over range.yaml (the old name, still read); broken files are listed with every problem", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-topo-peak-"));
   try {
     for (const [repo, file, text] of [
       ["both", "peak.yaml", "name: New\n"],
@@ -93,7 +93,7 @@ test("AtlasScanner: peak.yaml wins over range.yaml (the old name, still read); b
       mkdirSync(join(dir, repo), { recursive: true });
       writeFileSync(join(dir, repo, file), text);
     }
-    const scanner = new AtlasScanner(dir);
+    const scanner = new TopoScanner(dir);
     assert.deepEqual(scanner.list().map((e) => [e.repo, e.peak.name, e.file]), [["both", "New", "peak.yaml"], ["old", "Old", "range.yaml"]]);
     assert.equal(scanner.get("old")?.tier, "maintained");
     const problems = scanner.problems();
@@ -106,8 +106,8 @@ test("AtlasScanner: peak.yaml wins over range.yaml (the old name, still read); b
   }
 });
 
-test("AtlasScanner: scans directory and resolves checkouts with range.yaml", () => {
-  const testDir = join(tmpdir(), `dovre-atlas-test-${Date.now()}`);
+test("TopoScanner: scans directory and resolves checkouts with range.yaml", () => {
+  const testDir = join(tmpdir(), `dovre-topo-test-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
 
   try {
@@ -143,7 +143,7 @@ docs:
     const plainDir = join(testDir, "plain-repo");
     mkdirSync(plainDir, { recursive: true });
 
-    const scanner = new AtlasScanner(testDir);
+    const scanner = new TopoScanner(testDir);
     assert.deepEqual(scanner.list().map((e) => e.repo).sort(), ["harbor", "quill"]);
 
     const quill = scanner.get("bergaaberg/quill");
@@ -160,12 +160,12 @@ docs:
   }
 });
 
-test("AtlasScanner: a folder with capitals keeps its name in links; lookups ignore case", () => {
-  const testDir = join(tmpdir(), `dovre-atlas-case-${Date.now()}`);
+test("TopoScanner: a folder with capitals keeps its name in links; lookups ignore case", () => {
+  const testDir = join(tmpdir(), `dovre-topo-case-${Date.now()}`);
   mkdirSync(join(testDir, "Arena"), { recursive: true });
   try {
     writeFileSync(join(testDir, "Arena", "range.yaml"), "name: Arena\ntier: active\n");
-    const scanner = new AtlasScanner(testDir);
+    const scanner = new TopoScanner(testDir);
     const [entry] = scanner.list();
     assert.equal(entry!.repo, "Arena", "/code/Arena and /agents/new need the folder's own name");
     assert.equal(entry!.dir, join(testDir, "Arena"));
@@ -175,12 +175,12 @@ test("AtlasScanner: a folder with capitals keeps its name in links; lookups igno
   }
 });
 
-test("AtlasScanner: an empty folder is cached too — no rescan inside the TTL, a reread after it", () => {
-  const testDir = join(tmpdir(), `dovre-atlas-ttl-${Date.now()}`);
+test("TopoScanner: an empty folder is cached too — no rescan inside the TTL, a reread after it", () => {
+  const testDir = join(tmpdir(), `dovre-topo-ttl-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
   try {
     let clock = 1_000_000;
-    const scanner = new AtlasScanner(testDir, { ttlMs: 30_000, now: () => clock });
+    const scanner = new TopoScanner(testDir, { ttlMs: 30_000, now: () => clock });
     // A folder with no manifests: the (empty) scan is still cached — this used to rescan on
     // every call, synchronously, because the TTL only applied to a non-empty cache.
     assert.equal(scanner.list().length, 0);
@@ -207,9 +207,9 @@ test("PR slots: a cataloged repo's PR shows its tier, site and docs; others show
   assert.match(card, /docs%2FPLAN\.md/);
   assert.match(card, /ARCHITECTURE\.md/);
   const body = String(prBody(fakePr("bergaaberg/quill", 42), { summary, slots: prSlots(sl) }));
-  assert.match(body, /Atlas/);
+  assert.match(body, /Topo/);
   const other = String(prBody(fakePr("bergaaberg/plain", 7), { summary, slots: prSlots(sl) }));
-  assert.doesNotMatch(other, /Atlas/);
+  assert.doesNotMatch(other, /Topo/);
 });
 
 test("work.new slot: New work lists the cataloged projects", () => {
@@ -235,8 +235,8 @@ test("agents.new slot: a checkout's components set the prompt", () => {
   assert.match(out, /\.claude%2Frules%2Fdb\.md/);
 });
 
-test("atlasPage: repo panels, components, docs, focus links, bare checkouts and the tier filter", () => {
-  const entries: AtlasEntry[] = [
+test("topoPage: repo panels, components, docs, focus links, bare checkouts and the tier filter", () => {
+  const entries: TopoEntry[] = [
     {
       repo: "quill",
       dir: "/x/quill",
@@ -257,54 +257,57 @@ test("atlasPage: repo panels, components, docs, focus links, bare checkouts and 
     },
     { repo: "harbor", dir: "/x/harbor", file: "range.yaml", peak: { version: 1, name: "Harbor", description: "Laid-back Roman city builder", tier: "utility", components: [], docs: { design: "docs/DESIGN.md" } } },
   ];
-  const out = String(atlasPage({ entries, bare: ["plain-repo"] }));
-  for (const re of [/Repo Atlas/, /Quill/, /active/, /quill\.example/, /Focus%20on%20component/, /\.claude\/rules\/db\.md/, /docs%2FPLAN\.md/, /Uncataloged Checkouts/, /plain-repo/]) assert.match(out, re);
+  const out = String(topoPage({ entries, bare: ["plain-repo"] }));
+  for (const re of [/Topo/, /Quill/, /active/, /quill\.example/, /Focus%20on%20component/, /\.claude\/rules\/db\.md/, /docs%2FPLAN\.md/, /Uncataloged Checkouts/, /plain-repo/]) assert.match(out, re);
   assert.match(out, /One repo uses the old name <code>range\.yaml<\/code> \(harbor\)/);
   assert.doesNotMatch(out, /Files with problems/);
 
-  const broken = String(atlasPage({ entries, problems: [{ repo: "bad", file: "peak.yaml", problems: ["name is required.", "url must be an http(s) URL."] }] }));
+  const broken = String(topoPage({ entries, problems: [{ repo: "bad", file: "peak.yaml", problems: ["name is required.", "url must be an http(s) URL."] }] }));
   assert.match(broken, /Files with problems/);
   assert.match(broken, /name is required\. url must be an http\(s\) URL\./);
   assert.match(broken, /href="\/code\/bad\?path=peak\.yaml"/);
   assert.match(broken, /github\.com\/bergaaberg\/peak\/blob\/main\/SPEC\.md/);
   assert.match(broken, /href="\/agents\/new\?repo=bad&prompt=peak\.yaml%20in%20this%20repo%20has%20problems/);
-  assertInert("atlas problems", String(atlasPage({ entries: [{ ...entries[1]!, repo: H }], problems: [{ repo: H, file: "peak.yaml", problems: [H] }] })));
+  assertInert("topo problems", String(topoPage({ entries: [{ ...entries[1]!, repo: H }], problems: [{ repo: H, file: "peak.yaml", problems: [H] }] })));
 
   // #140: an uncataloged checkout offers an agent session that drafts its peak.yaml.
   assert.match(out, /href="\/agents\/new\?repo=plain-repo&prompt=Write%20a%20peak\.yaml[^"]*peak%20check[^"]*"[^>]*>Write peak\.yaml<\/a>/);
 
-  const filtered = String(atlasPage({ entries, filter: "active" }));
+  const filtered = String(topoPage({ entries, filter: "active" }));
   assert.match(filtered, /Quill/);
   assert.doesNotMatch(filtered, /Harbor/);
 });
 
-test("the assistant pack: Atlas in the menu's Code group and in search; /atlas served, and 404 when off", async () => {
+test("the assistant pack: Topo in the menu's Code group and in search; /topo served, and 404 when off", async () => {
   const pack = assistantPack({ codeDir: codeDir({ quill: QUILL }) });
   const nav = pack.nav!({} as PackContext);
-  assert.deepEqual(nav.map((n) => [n.href, n.title, n.icon, n.group]), [["/atlas", "Atlas", "atlas", "Code"]]);
-  assert.ok(pack.pages!({} as PackContext).some((p) => p.href === "/atlas"));
+  assert.deepEqual(nav.map((n) => [n.href, n.title, n.icon, n.group]), [["/topo", "Topo", "topo", "Code"]]);
+  assert.ok(pack.pages!({} as PackContext).some((p) => p.href === "/topo"));
 
   const { get } = signedIn(snapshot(), {}, { packs: [pack] });
-  const res = await get("/atlas");
+  const res = await get("/topo");
   assert.equal(res.status, 200);
   const text = await res.text();
-  assert.match(text, /Repo Atlas/);
+  assert.match(text, /Topo/);
   assert.match(text, /Rescan/);
   assert.match(text, /Quill/);
-  assert.match(text, /href="\/atlas"/, "the menu links it");
-  assert.equal((await get("/atlas?refresh=1")).status, 200);
+  assert.match(text, /href="\/topo"/, "the menu links it");
+  assert.equal((await get("/topo?refresh=1")).status, 200);
+  const old = await get("/atlas?tier=active");
+  assert.deepEqual([old.status, old.headers.get("location")], [301, "/topo?tier=active"], "Atlas's old links still land");
 
   const off = signedIn(snapshot(), {}, { packs: [pack], packEnv: { PACK_ASSISTANT: "off" } });
+  assert.equal((await off.get("/topo")).status, 404);
   assert.equal((await off.get("/atlas")).status, 404);
-  // No code folder (hosted, or PACK_ATLAS=off as index.ts reads it): the pack, without Atlas.
+  // No code folder (hosted, or PACK_TOPO=off as index.ts reads it): the pack, without Topo.
   const bare = assistantPack();
   assert.equal(bare.manifest.id, "assistant");
   assert.ok(!bare.routes && !bare.nav && !bare.slots && !bare.bino && !bare.manifest.paths);
-  assert.equal((await signedIn(snapshot(), {}, { packs: [bare] }).get("/atlas")).status, 404);
-  assert.equal((await signedIn(snapshot()).get("/atlas")).status, 404, "core alone has no /atlas");
+  assert.equal((await signedIn(snapshot(), {}, { packs: [bare] }).get("/topo")).status, 404);
+  assert.equal((await signedIn(snapshot()).get("/topo")).status, 404, "core alone has no /topo");
 });
 
-test("a hostile manifest stays inert on /atlas and in every slot", async () => {
+test("a hostile manifest stays inert on /topo and in every slot", async () => {
   // Markup in every text field (the parser rejects non-http urls, so the url stays valid).
   const dir = codeDir({
     "shop-api": `name: ${JSON.stringify(H)}
@@ -319,12 +322,12 @@ components:
     rules: ${JSON.stringify(H)}
 `,
   });
-  const scanner = new AtlasScanner(dir);
+  const scanner = new TopoScanner(dir);
   assert.equal(scanner.list().length, 1, "the hostile manifest parses");
   const { get } = signedIn(snapshot(), {}, { packs: [assistantPack({ codeDir: dir, scanner })] });
-  const res = await get("/atlas");
+  const res = await get("/topo");
   assert.equal(res.status, 200);
-  assertInert("/atlas", await res.text());
+  assertInert("/topo", await res.text());
   const sl = slotsOf(dir);
   assertInert("agents.new", String(sl["agents.new"]!({ repo: "shop-api" })));
   assertInert("pr.lead", String(sl["pr.lead"]!({ repo: "shop-api", number: 7, branch: "feat/x", title: "x", url: "https://ghe/shop-api/pull/7" })));
@@ -339,14 +342,14 @@ test("Bino: a line per cataloged repo with its components and docs, capped, as p
   assert.match(text, /web \(apps\/web\)/);
   assert.match(text, /plan: docs\/PLAN\.md/);
 
-  const many: AtlasEntry[] = Array.from({ length: 40 }, (_, i) => ({ repo: `r${i}`, dir: "", file: "peak.yaml", peak: { version: 1, name: `R${i}`, tier: "active", description: "x".repeat(90), components: [], docs: {} } }));
+  const many: TopoEntry[] = Array.from({ length: 40 }, (_, i) => ({ repo: `r${i}`, dir: "", file: "peak.yaml", peak: { version: 1, name: `R${i}`, tier: "active", description: "x".repeat(90), components: [], docs: {} } }));
   const capped = binoLines(many);
   assert.ok(capped.length <= 1500, `capped at what a pack may say (${capped.length})`);
   assert.match(capped, /and \d+ more cataloged repositories/);
 
-  const ctx = contextOf({ todos: [], apps: [{ name: "Atlas", text, own: true }] });
-  assert.match(ctx, /## Atlas \(part of Dovre\)/);
-  assert.doesNotMatch(ctx, /Atlas \(one of the user's apps\)/);
+  const ctx = contextOf({ todos: [], apps: [{ name: "Topo", text, own: true }] });
+  assert.match(ctx, /## Topo \(part of Dovre\)/);
+  assert.doesNotMatch(ctx, /Topo \(one of the user's apps\)/);
 });
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
