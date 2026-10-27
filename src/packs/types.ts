@@ -213,7 +213,15 @@ export type SlotMap = {
    * a chat's name). The first pack that answers names it, cut to a line; undefined: not one of its.
    */
   "actions.where": { arg: { kind: string; target: string }; out: string | undefined };
+  /**
+   * An HTTP span on a pack's trace page (otel-sink's waterfall): a button or two (http: open it
+   * in the HTTP client). Only what the trace kept: the method, the route and the allowlisted
+   * attributes (URLs already without their query). Never a header or a body.
+   */
+  "span.actions": { arg: SpanSlotArg; out: Html | "" };
 };
+/** An HTTP span as the "span.actions" slot sees it. */
+export type SpanSlotArg = { service: string; kind: "server" | "client" | "other"; method: string; route: string; attrs: Record<string, string | number | boolean> };
 export type SlotName = keyof SlotMap;
 export type Slots = { [K in SlotName]?: (arg: SlotMap[K]["arg"]) => SlotMap[K]["out"] };
 
