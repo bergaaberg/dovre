@@ -121,6 +121,15 @@ function fakeState() {
   return { state, sockets, db };
 }
 
+/** Waits until `ok()`, up to `ms`: a busy machine can take longer than any fixed sleep. */
+const until = async (ok: () => boolean | Promise<boolean>, ms = 2000) => {
+  for (let i = 0; i < ms / 10; i++) {
+    if (await ok()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.fail("waited too long");
+};
+
 /** The Mac's side of one socket, by hand: answers the challenge, then speaks in signed frames. */
 async function mac(hub: DovreHub, key = KEY, machine?: string, owner?: string) {
   const ws = new FakeSocket();
@@ -175,7 +184,7 @@ test("hub: the Mac's state is kept (and only it), topics reach open pages, calls
   const events = await hub.fetch(new Request("https://hub.internal/events"));
   const reader = events.body!.getReader();
   await reader.read();
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => m.ws.out.length > 0);
   assert.deepEqual(await m.got(), [{ t: "watch", on: true }]);
   await m.say({ t: "topics", topics: ["run:s1"] });
   const line = new TextDecoder().decode((await reader.read()).value);
@@ -183,7 +192,7 @@ test("hub: the Mac's state is kept (and only it), topics reach open pages, calls
 
   // A call: down the socket, answered by id.
   const answer = hub.call({ op: "session", sid: "s1" });
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => m.ws.out.length > 0);
   const [call] = (await m.got()) as { t: "call"; id: string; call: { op: string } }[];
   assert.equal(call!.t, "call");
   assert.equal(call!.call.op, "session");
@@ -239,7 +248,7 @@ test("hub: after hibernation (a new object, the same socket) the socket goes on 
   await m.say({ t: "topics", topics: ["run:s1"] }, woken);
   assert.equal(m.ws.closed, undefined);
   const answer = woken.call({ op: "runs" });
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => m.ws.out.length > 0);
   const [call] = (await m.got()) as { id: string }[];
   await m.say({ t: "reply", id: call!.id, ok: false, error: "nope" }, woken);
   assert.deepEqual(await answer, { ok: false, error: "nope" });
@@ -286,7 +295,7 @@ test("hub (H7): calls go to the machine named; another machine can't answer them
   await laptop.say({ t: "state", state: { ...STATE, name: "laptop" } });
   // One online: it's the one.
   const only = hub.call({ op: "repos" });
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => laptop.ws.out.length > 0);
   const [c0] = (await laptop.got()) as { id: string }[];
   await laptop.say({ t: "reply", id: c0!.id, ok: true, value: ["web"] });
   assert.deepEqual(await only, { ok: true, value: ["web"] });
@@ -450,14 +459,6 @@ function joined(hub: DovreHub, machine?: string) {
   return { dial, sockets };
 }
 
-const until = async (ok: () => boolean | Promise<boolean>, ms = 2000) => {
-  for (let i = 0; i < ms / 10; i++) {
-    if (await ok()) return;
-    await new Promise((r) => setTimeout(r, 10));
-  }
-  assert.fail("waited too long");
-};
-
 test("bridge: the Mac's desk through the hub: started, watched, answered; what turns say is never kept", async () => {
   const { state, db } = fakeState();
   const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
@@ -526,7 +527,7 @@ test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, 
 
   const page = new FakeSocket();
   hub.acceptPage(page);
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => m.ws.out.length > 0);
   assert.deepEqual(await m.got(), [{ t: "watch", on: true }]);
   assert.equal(hub.mac().watching, true);
   assert.deepEqual(state.getWebSockets!("mac").length, 1, "a page isn't taken for the Mac");
@@ -557,7 +558,7 @@ test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, 
   assert.deepEqual(await m.got(), []);
   page.close();
   await hub.webSocketClose(page);
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => m.ws.out.length > 0);
   assert.deepEqual(await m.got(), [{ t: "watch", on: false }]);
   assert.equal(hub.mac().watching, false);
   assert.equal(one(hub).online, true, "a page closing isn't the Mac going offline");
