@@ -100,7 +100,7 @@ function bareItem(repo: string): Html {
     trail: html`
       <div class="buttons">
         <a class="btn sm ghost" href="/code/${encodeURIComponent(repo)}">Code</a>
-        <a class="btn sm ghost" href="/agents/new?repo=${encodeURIComponent(repo)}">Agent</a>
+        <a class="btn sm ghost" href="/agents/new?repo=${encodeURIComponent(repo)}&prompt=${encodeURIComponent(draftPrompt())}" title="Start an agent session that drafts one">Write peak.yaml</a>
       </div>
     `,
   });
@@ -119,7 +119,12 @@ function problemsPanel(problems: AtlasProblem[]): Html {
           lead: Dot({ tone: "bad" }),
           title: html`<strong>${p.repo}</strong> <span class="t3">${p.file}</span>`,
           line: p.problems.join(" "),
-          trail: html`<a class="btn sm ghost" href="/code/${encodeURIComponent(p.repo)}?path=${encodeURIComponent(p.file)}">Open</a>`,
+          trail: html`
+            <div class="buttons">
+              <a class="btn sm ghost" href="/code/${encodeURIComponent(p.repo)}?path=${encodeURIComponent(p.file)}">Open</a>
+              <a class="btn sm ghost" href="/agents/new?repo=${encodeURIComponent(p.repo)}&prompt=${encodeURIComponent(fixPrompt(p))}" title="Start an agent session that fixes it">Fix</a>
+            </div>
+          `,
         }),
       ),
     ),
@@ -190,6 +195,16 @@ export function atlasPage(
 }
 
 /** The prompt that focuses an agent on one component. */
+const CHECK = "npx github:bergaaberg/peak check";
+
+/** For a checkout without a peak.yaml (#140): the agent drafts one from what the repo says about itself. */
+export const draftPrompt = () =>
+  `Write a peak.yaml for this repo (the format: ${SPEC_URL}). Draft it from the README, the folder layout, AGENTS.md / CLAUDE.md and any docs: name, a one-line description, tier, its components with the paths each owns (and rules files where they exist), docs, and health (deployed workers and URLs that should answer) only where the repo names them. Leave out what you'd have to guess. Then run \`${CHECK}\` and fix what it reports.`;
+
+/** For a file Dovre can't use: what's wrong, and the check to run after. */
+export const fixPrompt = (p: AtlasProblem) =>
+  `${p.file} in this repo has problems (the format: ${SPEC_URL}): ${p.problems.join(" ")} Fix them${isLegacy(p.file) ? " and rename the file to peak.yaml" : ""}, then run \`${CHECK}\` until it passes.`;
+
 const focusPrompt = (peak: Peak, c: Peak["components"][number]) =>
   `Focus on component "${c.name}" (${c.owns.join(", ")}) in ${peak.name}${c.rules ? `, following rules in ${c.rules}` : ""}: `;
 

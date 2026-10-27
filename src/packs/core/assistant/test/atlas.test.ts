@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AtlasScanner, type AtlasEntry } from "../bino/scan.ts";
-import { atlasPage, binoLines } from "../bino/atlas.view.ts";
+import { atlasPage, binoLines, draftPrompt, fixPrompt } from "../bino/atlas.view.ts";
 import { assistantPack } from "../index.ts";
 import { prBody, prCard, type PrSlots } from "../../../../pages/inline.ts";
 import { entryPage } from "../../../../pages/work.ts";
@@ -267,7 +267,11 @@ test("atlasPage: repo panels, components, docs, focus links, bare checkouts and 
   assert.match(broken, /name is required\. url must be an http\(s\) URL\./);
   assert.match(broken, /href="\/code\/bad\?path=peak\.yaml"/);
   assert.match(broken, /github\.com\/bergaaberg\/peak\/blob\/main\/SPEC\.md/);
+  assert.match(broken, /href="\/agents\/new\?repo=bad&prompt=peak\.yaml%20in%20this%20repo%20has%20problems/);
   assertInert("atlas problems", String(atlasPage({ entries: [{ ...entries[1]!, repo: H }], problems: [{ repo: H, file: "peak.yaml", problems: [H] }] })));
+
+  // #140: an uncataloged checkout offers an agent session that drafts its peak.yaml.
+  assert.match(out, /href="\/agents\/new\?repo=plain-repo&prompt=Write%20a%20peak\.yaml[^"]*peak%20check[^"]*"[^>]*>Write peak\.yaml<\/a>/);
 
   const filtered = String(atlasPage({ entries, filter: "active" }));
   assert.match(filtered, /Quill/);
@@ -357,4 +361,11 @@ test("the assistant pack is Bino's switch: PACK_ASSISTANT=off and there's no Bin
   const off = appWith({ PACK_ASSISTANT: "off" });
   assert.equal((await get(off, "/bino")).status, 404);
   assert.doesNotMatch(await (await get(off, "/")).text(), /href="\/bino"/);
+});
+
+test("the peak.yaml prompts: draft one from the repo, fix one with every problem and the check", () => {
+  assert.match(draftPrompt(), /README.*AGENTS\.md \/ CLAUDE\.md.*`npx github:bergaaberg\/peak check`/s);
+  const fix = fixPrompt({ repo: "x", file: "range.yaml", problems: ["name is required.", "tier must be a word."] });
+  assert.match(fix, /^range\.yaml in this repo has problems .*name is required\. tier must be a word\. Fix them and rename the file to peak\.yaml, then run `npx github:bergaaberg\/peak check`/);
+  assert.doesNotMatch(fixPrompt({ repo: "x", file: "peak.yaml", problems: ["x"] }), /rename/);
 });
