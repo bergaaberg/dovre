@@ -18,12 +18,12 @@ export type Layout = {
   feedOff?: string[];
   /** Packs hidden altogether: menu, Today, feed, search, Bino, their pages; their refresh doesn't run. */
   packsOff?: string[];
-  /** Light or dark whatever the system says; unset follows the system. */
+  /** Light, dark or another theme whatever the system says; unset follows the system. */
   theme?: Theme;
   /** An accent besides fjord's blue (the default), each checked in both themes (WP-N5). */
   accent?: Accent;
 };
-export const THEMES = ["light", "dark"] as const;
+export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
 export const ACCENTS = ["heather", "glacier"] as const;
 export type Accent = (typeof ACCENTS)[number];

@@ -39,14 +39,15 @@ const groupRank = (g: string) => (NAV_GROUPS.includes(g) ? NAV_GROUPS.indexOf(g)
 
 /** What every page knows: who's signed in, the sections (app.ts), when the data was gathered. */
 /** The browser's bar in the page's colour (--sky): the picked theme's, else both, by the system's setting. */
-const SKY = { light: "#efe7db", dark: "#0e1922" } as const;
+/** Each theme's --sky (src/ui/style.ts; test/layout.test.ts holds them equal). */
+export const SKY: Record<string, string> = { light: "#efe7db", dark: "#0e1922", birch: "#e6ebf0", polar: "#05080b", ember: "#1b140f" };
 export function themeColor(theme?: string) {
-  if (theme === "light" || theme === "dark") return html`<meta name="theme-color" content="${SKY[theme]}">`;
+  if (theme && Object.hasOwn(SKY, theme)) return html`<meta name="theme-color" content="${SKY[theme]}">`;
   return html`<meta name="theme-color" content="${SKY.light}" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;
 }
 
-export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** Light or dark when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
+export type Frame = { operator: string; nav: NavItem[]; syncedAt?: number; host?: string; /** What's shown is old and a gather is under way (a restart, a long sleep). */ syncing?: boolean; /** Questions waiting for my answer (src/relay/asks.ts). */ asks?: AskView[]; /** Bino can answer: its pane at the bottom right. */ bino?: boolean; /** The packs' docks after Bino's (src/packs/registry.ts docksFrom). */ docks?: DockView[]; /** What the Bino button looks like instead of the word (the packs' `bino.face` slot: the avatar). */ face?: (o: { place: "dock" | "mini"; thinking?: boolean }) => Html | ""; /** The packs' bars for the top of the page (`banner`: an agent waiting for my OK on a tool). */ banners?: Html[]; /** Stylesheets beside the core's: the packs' (src/packs/). */ styles?: string[]; /** The theme when picked, and the accent (Settings → Layout); unset: the system's, fjord. */ look?: { theme?: string; accent?: string }; tz?: string; greeting?: "en" | "no"; /** Pages listen on the hub's /live socket (hosted, H5) instead of /events. */ live?: "ws"; /** Settings → Keys (src/keys.ts); unset: the defaults. */ keys?: KeyPrefs };
 
 /**
  * Bino's pane, docked at the bottom right of every page but Bino's own. Without script it's a link
