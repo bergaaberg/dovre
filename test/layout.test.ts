@@ -127,6 +127,19 @@ test("look: a picked theme and accent are on every page's <html>, the CSS has a 
   assert.match(await (await get("/settings")).text(), /<option value="ember" selected>/);
 });
 
+test("reading settings (#183): font, text size and line height on <html>, a CSS block for each, junk dropped, back to default", async () => {
+  const { STYLE } = await import("../src/ui/style.ts");
+  for (const sel of [':root[data-font="sans"]', ':root[data-font="serif"]', ':root[data-size="small"]', ':root[data-size="large"]', ':root[data-size="larger"]', ':root[data-lh="tight"]', ':root[data-lh="loose"]', "font: var(--fs-m)/var(--lh) var(--sans)"]) assert.ok(STYLE.includes(sel), sel);
+  assert.deepEqual(layoutOf({ font: "comic", textSize: "huge", lineHeight: 3 }), {});
+  const { get, post } = signedIn(snapshot());
+  await post("/settings/layout", { font: "serif", textSize: "larger", lineHeight: "loose" });
+  assert.match(await (await get("/prs")).text(), /<html lang="en" data-font="serif" data-size="larger" data-lh="loose">/);
+  const settings = await (await get("/settings")).text();
+  for (const v of ["serif", "larger", "loose"]) assert.match(settings, new RegExp(`<option value="${v}" selected>`));
+  await post("/settings/layout", { font: "", textSize: "", lineHeight: "" });
+  assert.match(await (await get("/prs")).text(), /<html lang="en">/);
+});
+
 test("themes (#95): each has its block, its accents and its scheme; the browser's bar is its --sky; the system's dark leaves a picked theme alone", async () => {
   const { STYLE } = await import("../src/ui/style.ts");
   const { SKY } = await import("../src/html.ts");
