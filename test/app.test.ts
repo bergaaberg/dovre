@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
 import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } from "./helpers.ts";
 
-const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
+const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
 
 test("nobody without the cookie, or on another host, learns anything is here", async () => {
   const { app, get } = signedIn(snapshot());
@@ -398,4 +398,41 @@ test("Storybook built here (#166): Build here starts the PR's build (from Dovre 
   assert.match(out, new RegExp(`http://127\\.0\\.0\\.1:4849/acme__web/${HEAD}/iframe\\.html`), "Dovre on localhost: the build from 127.0.0.1");
   assert.match(ready.headers.get("content-security-policy") ?? "", /frame-src 'self' https:\/\/acme\.example\.io http:\/\/localhost:4849 http:\/\/127\.0\.0\.1:4849/);
   assert.doesNotMatch(out, /action="\/storybook\/ACME\/web\/7\/build"/, "nothing left to build");
+});
+
+test("What Dovre sends (#145): the catalog, what machines sent and this machine's record; hostile names stay text; the JSON is a download", async () => {
+  const now = Date.now();
+  const day = now - (now % (24 * 3600_000));
+  const hosted = signedIn(snapshot(), {}, { sent: async () => ({ hosted: true, received: [{ day, machine: H, name: H, kind: "state", count: 3, bytes: 900 }] }) });
+  let res = await hosted.get("/settings/sent");
+  assert.equal(res.status, 200);
+  let out = await res.text();
+  assertInert("/settings/sent hosted", out);
+  assert.match(out, /Every call Dovre can make home/);
+  assert.match(out, /What your machines sent here/);
+  assert.match(out, /state ×3 \(900 B\)/);
+
+  const local = signedIn(snapshot(), {}, {
+    sent: async () => ({ hosted: false, machine: { file: H, calls: [{ k: "call", at: now, host: H, path: H, method: "POST", purpose: H, bytes: 5, fields: [H], status: 200 }], frames: [{ day, host: H, kind: "ping", count: 2, bytes: 8 }] } }),
+  });
+  res = await local.get("/settings/sent");
+  out = await res.text();
+  assertInert("/settings/sent local", out);
+  assert.match(out, /Calls this machine&#39;s bridge made|Calls this machine's bridge made/);
+  assert.doesNotMatch(out, /What your machines sent here/);
+
+  res = await local.get("/settings/sent.json");
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-disposition") ?? "", /attachment; filename="dovre-sent.json"/);
+  assert.equal(res.headers.get("cache-control"), "no-store");
+  const j = (await res.json()) as { catalog: unknown[]; machine: { calls: unknown[] } };
+  assert.ok(j.catalog.length >= 5);
+  assert.equal(j.machine.calls.length, 1);
+
+  // Without a record (and when reading it fails), the page still says what can be sent.
+  const failing = signedIn(snapshot(), {}, { sent: async () => Promise.reject(new Error("unreadable")) });
+  out = await (await failing.get("/settings/sent")).text();
+  assert.match(out, /No record here/);
+  // Found in Settings' search.
+  assert.match(await (await local.get("/settings?q=telemetry")).text(), /What Dovre sends/);
 });

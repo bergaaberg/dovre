@@ -31,6 +31,7 @@ import { liveAgents, type Session } from "../sources/claude.ts";
 import { ompProfileOf } from "../sources/omp.ts";
 import { findTool, harnessesOn, withToolDirs } from "../tools.ts";
 import { jwtHeaders, loadCreds, saveCreds, Unpaired } from "./creds.ts";
+import { fileLedger, SENT_FILE } from "./sentfile.ts";
 import { type Bridge, startBridge } from "./mac.ts";
 import { keyOk } from "./wire.ts";
 
@@ -52,6 +53,11 @@ process.env.PATH = withToolDirs(process.env.PATH, { platform: process.platform, 
 const env = loadEnv();
 const v = rawVars();
 
+const dataDir = process.env.DOVRE_BRIDGE_DATA?.trim() || fileURLToPath(new URL("../../data/bridge/", import.meta.url));
+mkdirSync(dataDir, { recursive: true });
+// What it sends home, recorded here first (src/sent.ts); `dovre bridge sent` prints it.
+const ledger = fileLedger(join(dataDir, SENT_FILE));
+
 const credsFile = process.env.DOVRE_BRIDGE_CREDENTIALS?.trim();
 let url: string;
 let key: string;
@@ -66,7 +72,7 @@ if (credsFile) {
   url = creds.hub;
   key = creds.frame_key;
   name = creds.name || name;
-  const next = jwtHeaders({ creds, save: (c) => saveCreds(credsFile, c) });
+  const next = jwtHeaders({ creds, save: (c) => saveCreds(credsFile, c), ledger });
   headers = async () => {
     try {
       return await next();
@@ -90,8 +96,6 @@ if (credsFile) {
   headers = { "CF-Access-Client-Id": id!, "CF-Access-Client-Secret": secret! };
 }
 
-const dataDir = process.env.DOVRE_BRIDGE_DATA?.trim() || fileURLToPath(new URL("../../data/bridge/", import.meta.url));
-mkdirSync(dataDir, { recursive: true });
 const hostExe = process.env.DOVRE_HOST_EXE?.trim() || fileURLToPath(new URL(`../../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
 
 // The agent CLIs this machine has: only those are offered (src/tools.ts).
@@ -130,12 +134,13 @@ const sessions = () => {
 };
 
 const desk = localDesk({ env, runner, queue, sessions });
-bridge = startBridge({ url, key, headers, desk, sessions, version: VERSION, name, log: (l) => console.log(l), onRevoked: () => quit("this machine was unpaired: run `dovre bridge login` again to pair it") });
+bridge = startBridge({ url, key, headers, ledger, desk, sessions, version: VERSION, name, log: (l) => console.log(l), onRevoked: () => quit("this machine was unpaired: run `dovre bridge login` again to pair it") });
 console.log(`dovre bridge: ${revision}; ${runner.harnesses().join(", ") || "no agent CLIs found"}; dialling ${new URL(url).host}`);
 
 /** Stop: the bridge, and turns that would otherwise go on unseen. */
 function stopAll() {
   bridge?.stop();
+  ledger.stop();
   // Without the agent host, turns are this process's children: they stop with it, so nothing edits a repo unseen.
   if (!existsSync(hostExe)) for (const r of runner.list()) if (r.status === "running") runner.stop(r.id);
 }

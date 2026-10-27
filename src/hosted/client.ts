@@ -8,7 +8,7 @@ import type { BinoMemory } from "../packs/core/assistant/bino/memory.ts";
 import type { Route } from "../packs/core/assistant/bino/route.ts";
 import type { Hub } from "../live.ts";
 import type { Call } from "../bridge/wire.ts";
-import type { BinoOp, MacAnswer, MacView } from "./hub.ts";
+import type { BinoOp, MacAnswer, MacView, ReceivedDay } from "./hub.ts";
 
 type Stub = { fetch(input: Request | string, init?: RequestInit): Promise<Response> };
 /** A Durable Object namespace binding, as much of it as this uses. */
@@ -28,6 +28,8 @@ export type HubClient = Hub & {
   bridge(req: Request): Promise<Response>;
   /** The machines: each online or last seen, and its metadata. */
   mac(): Promise<MacView>;
+  /** What machines sent here (#145), per day and kind. */
+  sent(): Promise<ReceivedDay[]>;
   /** A call of a machine's desk, answered within `ms`; without `machine`, the one online. */
   call(c: Call, ms?: number, machine?: string): Promise<MacAnswer>;
   /** A machine unpaired: shut out until `until`, its socket closed now. */
@@ -74,6 +76,11 @@ export function hubClient(ns: HubNamespace): HubClient {
       const res = await stub().fetch(`${BASE}/mac`);
       if (!res.ok) throw new Error(`The hub answered ${res.status}`);
       return (await res.json()) as MacView;
+    },
+    async sent() {
+      const res = await stub().fetch(`${BASE}/sent`);
+      if (!res.ok) throw new Error(`The hub answered ${res.status}`);
+      return (await res.json()) as ReceivedDay[];
     },
     async call(c, ms, machine) {
       const res = await stub().fetch(`${BASE}/mac/call`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ call: c, ms, machine }) });

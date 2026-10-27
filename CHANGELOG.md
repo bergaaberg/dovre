@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **What Dovre sends**: a new Settings area lists every call Dovre can make to Dovre's own services, and the record of the ones it made (#145). The bridge writes each call home to `sent.jsonl` on its machine (field names and sizes, never values; frames counted per hour) and `dovre bridge sent` prints it. The hosted cockpit counts what each machine sent it. Download the record as JSON for a security review. A test fails if a call home skips the record. See [docs/SENT.md](docs/SENT.md).
+
 ## 0.4.0 (2026-10-27)
 
 Breaking:

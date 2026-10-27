@@ -15,6 +15,7 @@
 import type { Desk } from "../agents/desk.ts";
 import type { Run } from "../agents/runner.ts";
 import type { Session } from "../sources/claude.ts";
+import { bytesOf, frameKind, type Ledger, recordedDial } from "../sent.ts";
 import { answerCall, stateOf } from "./serve.ts";
 import { type Channel, channel, hello, parseDown, sessionKey, type Up } from "./wire.ts";
 
@@ -45,6 +46,8 @@ export type BridgeOpts = {
   /** The agents' sessions, read again (metadata, as the snapshot holds them). */
   sessions: () => Promise<{ live: Session[]; recent: Session[] }>;
   version?: string;
+  /** Where what it sends home is recorded (src/sent.ts): the machine's own file. */
+  ledger?: Ledger;
   /** For tests: how a socket is opened. */
   dial?: (url: string, headers: Record<string, string>) => BridgeSocket;
   log?: (line: string) => void;
@@ -70,7 +73,16 @@ const OPEN = 1;
 export function startBridge(o: BridgeOpts): Bridge {
   const t = { ...TIMING, ...o.timing };
   const log = o.log ?? (() => {});
-  const dial = o.dial ?? ((url, headers) => new WebSocket(url, { headers } as unknown as string[]) as unknown as BridgeSocket);
+  // Each dial and frame is recorded before it goes (src/sent.ts).
+  const dial = recordedDial(o.ledger, "bridge.connect", o.dial ?? ((url: string, headers: Record<string, string>) => new WebSocket(url, { headers } as unknown as string[]) as unknown as BridgeSocket));
+  const host = (() => {
+    try {
+      return new URL(o.url).host;
+    } catch {
+      return "?";
+    }
+  })();
+  const counted = (kind: string, frame: string) => o.ledger?.frame(host, kind, bytesOf(frame));
   let ws: BridgeSocket | undefined;
   let ch: Channel | undefined;
   let watching = false;
@@ -85,13 +97,16 @@ export function startBridge(o: BridgeOpts): Bridge {
   const topicT = new Map<string, ReturnType<typeof setTimeout>>();
   const statusOf = new Map<string, Run["status"]>();
 
-  const send = async (body: Up) => {
+  const send = async (body: Up, op?: string) => {
     const sock = ws;
     const c = ch;
     if (!sock || !c || sock.readyState !== OPEN) return;
     const frame = await c.seal(body);
     if (!frame) return log(`bridge: a ${body.t} too big to send`);
-    if (ws === sock && sock.readyState === OPEN) sock.send(frame);
+    if (ws === sock && sock.readyState === OPEN) {
+      counted(frameKind(body.t, op), frame);
+      sock.send(frame);
+    }
   };
 
   const pushState = async (force = false) => {
@@ -159,7 +174,9 @@ export function startBridge(o: BridgeOpts): Bridge {
       if (m.t !== "challenge" || typeof m.nonce !== "string") return sock.close(4002, "expected a challenge");
       const h = await hello(o.key, m.nonce, { version: o.version });
       ch = await channel({ key: await sessionKey(o.key, m.nonce, h.nonce), send: "up" });
-      sock.send(JSON.stringify(h));
+      const said = JSON.stringify(h);
+      counted("hello", said);
+      sock.send(said);
       return;
     }
     const d = parseDown(await ch.open(data));
@@ -176,9 +193,9 @@ export function startBridge(o: BridgeOpts): Bridge {
     else if (d.t === "call") {
       try {
         const value = await answerCall(o.desk, d.call);
-        await send({ t: "reply", id: d.id, ok: true, value: value ?? null });
+        await send({ t: "reply", id: d.id, ok: true, value: value ?? null }, d.call.op);
       } catch (e) {
-        await send({ t: "reply", id: d.id, ok: false, error: String((e as Error)?.message ?? e).slice(0, 500) });
+        await send({ t: "reply", id: d.id, ok: false, error: String((e as Error)?.message ?? e).slice(0, 500) }, d.call.op);
       }
       // An action may have changed what lists show (a run started, a session cleared away).
       if (d.call.op !== "view" && d.call.op !== "repos" && d.call.op !== "run" && d.call.op !== "session") stateSoon();
@@ -207,7 +224,10 @@ export function startBridge(o: BridgeOpts): Bridge {
       pingT = setInterval(() => {
         // Two pings unanswered: the socket is gone though nobody said so (the Mac slept).
         if (++missed > 2) return sock.close(4003, "no pong");
-        if (sock.readyState === OPEN) sock.send("ping");
+        if (sock.readyState === OPEN) {
+          counted("ping", "ping");
+          sock.send("ping");
+        }
       }, t.pingMs);
     };
     sock.onclose = (ev) => {

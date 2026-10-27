@@ -18,6 +18,7 @@ import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { createRunner } from "../src/agents/runner.ts";
 import { type BridgeSocket, startBridge } from "../src/bridge/mac.ts";
+import type { Ledger, SentCall } from "../src/sent.ts";
 
 const KEY = "a-bridge-key-that-is-long-enough-0123456789";
 /** The one machine (the tests before H7 had only the Mac). */
@@ -610,6 +611,51 @@ test("bridge (H6): a machine signs in with a token asked for on every dial, and 
     link.sockets[0]!.server.close(1006, "gone");
     await until(() => link.sockets.length === 2 && bridge.status().connected);
     assert.equal(link.sockets[1]!.headers["Cf-Access-Jwt-Assertion"], "jwt-3", "a fresh token for the new socket");
+  } finally {
+    bridge.stop();
+  }
+});
+
+test("what Dovre sends (#145): the Mac records each dial and frame before it goes, the hub counts what arrived, and the two agree", async () => {
+  const { state, db } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const calls: Omit<SentCall, "k">[] = [];
+  const frames: { host: string; kind: string; bytes: number }[] = [];
+  const ledger: Ledger = { call: (c) => void calls.push(c), frame: (host, kind, bytes) => void frames.push({ host, kind, bytes }) };
+  const sessions = async () => ({ live: [], recent: [] });
+  const code = mkdtempSync(join(tmpdir(), "code-"));
+  const desk = localDesk({ env: { CODE_DIR: code, CLAUDE_DIR: mkdtempSync(join(tmpdir(), "claude-")), AGENT_DIR: join(code, "agents") }, runner: createRunner({ spawnFn: fakeSpawn() }), queue: createQueue(), sessions });
+  const link = joined(hub);
+  const bridge = startBridge({ url: "wss://dovre.example.dev/bridge", key: KEY, headers: { "CF-Access-Client-Id": "id.access", "CF-Access-Client-Secret": "the-secret" }, ledger, desk, sessions, dial: link.dial, timing: { stateMs: 5, topicMs: 5, backoffMs: 20 } });
+  try {
+    await until(() => one(hub).online && !!one(hub).state);
+    assert.equal((await hub.call({ op: "repos" })).ok, true);
+    await until(() => frames.some((f) => f.kind === "reply:repos"));
+
+    assert.deepEqual(calls.map((c) => [c.purpose, c.host, c.path, c.fields]), [["bridge.connect", "dovre.example.dev", "/bridge", ["CF-Access-Client-Id", "CF-Access-Client-Secret"]]]);
+    assert.doesNotMatch(JSON.stringify(calls), /the-secret|id\.access/, "header names only, never their values");
+    assert.deepEqual([...new Set(frames.map((f) => f.kind))].sort(), ["hello", "reply:repos", "state"]);
+    assert.ok(frames.every((f) => f.host === "dovre.example.dev" && f.bytes > 0));
+
+    // The hub's own count, from what arrived: the same kinds, the same sizes.
+    const got = hub.received();
+    assert.deepEqual(got.map((r) => r.kind).sort(), ["hello", "reply:repos", "state"]);
+    for (const kind of ["hello", "state", "reply:repos"]) {
+      const sent = frames.filter((f) => f.kind === kind);
+      const r = got.find((x) => x.kind === kind)!;
+      assert.deepEqual([r.count, r.bytes], [sent.length, sent.reduce((n, f) => n + f.bytes, 0)], kind);
+    }
+    assert.equal(got[0]!.machine, "mac");
+    assert.deepEqual(await (await hub.fetch(new Request("https://hub.internal/sent"))).json(), got);
+    // Counts only: what a frame said isn't in the table.
+    assert.deepEqual(Object.keys(db.prepare("SELECT * FROM sent").get()!).sort(), ["bytes", "count", "hour", "kind", "machine"]);
+
+    // Older than KEEP_DAYS: gone at the first frame of a new day.
+    db.prepare("UPDATE sent SET hour = hour - ?").run(31 * 24 * 3600_000);
+    assert.deepEqual(hub.received(), []);
+    hub.now = () => Date.now() + 24 * 3600_000;
+    await mac(hub);
+    assert.equal((db.prepare("SELECT count(*) AS n FROM sent WHERE hour < ?").get(Date.now() - 30 * 24 * 3600_000) as { n: number }).n, 0);
   } finally {
     bridge.stop();
   }

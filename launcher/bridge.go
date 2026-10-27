@@ -82,11 +82,15 @@ func bridge(p Paths, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Calls home from here are recorded where the bridge keeps its own (#145).
+	sentTo = filepath.Join(h.Data(), sentFile)
 	verb := ""
 	if len(args) > 0 {
 		verb, args = args[0], args[1:]
 	}
 	switch verb {
+	case "sent":
+		return printSent(sentTo, os.Stdout, time.Now())
 	case "login":
 		return bridgeLogin(h, args)
 	case "run":
@@ -102,7 +106,7 @@ func bridge(p Paths, args []string) error {
 	case "logout":
 		return Logout(h, &http.Client{Timeout: 15 * time.Second}, LocalService{}, os.Stdout)
 	default:
-		fmt.Println("dovre bridge login <handle> | run | install | uninstall | status | restart | logout")
+		fmt.Println("dovre bridge login <handle> | run | install | uninstall | status | restart | logout | sent")
 		return nil
 	}
 }
@@ -199,8 +203,10 @@ func postJSON(c *http.Client, to string, body any, into any) (int, error) {
 	b, _ := json.Marshal(body)
 	res, err := c.Post(to, "application/json", bytes.NewReader(b))
 	if err != nil {
+		recordSent(to, b, 0)
 		return 0, err
 	}
+	recordSent(to, b, res.StatusCode)
 	defer res.Body.Close()
 	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(into)
 	return res.StatusCode, nil
