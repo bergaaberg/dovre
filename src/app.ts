@@ -53,7 +53,7 @@ import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
 import type { Html } from "./ui/kit.ts";
-import { writeClicksStore } from "./writes.ts";
+import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { type AvatarFeeds, avatarFrom, actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
@@ -297,7 +297,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   });
 
   // Which writes take one click (dovre#104), for the page being drawn: Confirm reads it (src/writes.ts).
-  const clicks = writeClicksStore(env.DB);
+  // The packs' kinds join once they're known (below); a hidden pack's stay listed, so its choice keeps.
+  const clicks = writeClicksStore(env.DB, Date.now, () => writeKinds(packs.on));
   const keyPrefs = keyPrefsStore(env.DB);
   app.use(async (c, next) => {
     if (c.req.method === "GET") c.set("clicks", await clicks.get().catch(() => new Map()));
@@ -918,7 +919,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     saved = false;
     settingsBad = undefined;
     if (made) c.header("Cache-Control", "no-store");
-    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)), writes: writesPanel(await clicks.get().catch(() => new Map())), keys: keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer()) }));
+    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)), writes: writesPanel(await clicks.get().catch(() => new Map()), writeKinds(packs.on)), keys: keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer()) }));
   };
   app.get("/settings", (c) => showSettings(c));
   app.post("/settings/keys", async (c) => {
