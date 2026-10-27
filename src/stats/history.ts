@@ -42,7 +42,7 @@ export type History = {
 
 /** Weeks that can be gathered: 12 always, 26 when Stats is set to show that many. */
 export const GATHER_WEEKS = (shown?: number) => Math.max(WEEKS, Math.min(26, shown ?? WEEKS));
-/** Days Stats can show (Settings → Look and layout). */
+/** Days Stats can show (Settings → Layout). */
 export const DAYS = [14, 28] as const;
 
 /** A week: Monday (Oslo) as YYYY-MM-DD, its ISO number, and where it starts and ends. */

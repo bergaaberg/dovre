@@ -102,7 +102,7 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
   const panes = panesOf({ BINO_VIA: "omp" }, { ...all, terminals: false });
   const config = { panes, stored: { BINO_VIA: "omp", TZ_NAME: H } };
   const { get, post, db } = signedIn(snapshot(), {}, { config });
-  const page = await (await get("/settings")).text();
+  const page = await (await get("/settings/panes")).text();
   assertInert("settings", page);
   assert.match(page, /name="on\.lab"/);
   assert.match(page, /Needs the launcher built/);
@@ -113,9 +113,9 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
   assert.equal(kept.BINO_VIA, "claude");
   assert.equal(kept.LAB, "off");
   assert.equal(kept.STATS, "on");
-  assert.match(await (await get("/settings")).text(), /Saved\./);
+  assert.match(await (await get("/settings/panes")).text(), /Saved\./);
   await post("/settings/panes", { "on.bino": "on", "via.bino": "nope" });
-  assert.match(await (await get("/settings")).text(), /Not saved: Bino/);
+  assert.match(await (await get("/settings/panes")).text(), /Not saved: Bino/);
   assert.equal((await loadConfig(db.DB)).BINO_VIA, "claude", "a refused form keeps nothing");
 });
 

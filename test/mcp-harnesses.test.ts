@@ -226,7 +226,7 @@ test("POST /settings/agent-tools/:h: Dovre's own origin, omp or agy only, logged
   assert.equal((await post("claude")).status, 404);
   assert.deepEqual(asked, []);
   assert.equal((await post("agy")).status, 303);
-  const page = await (await app.request("http://127.0.0.1:4848/settings", { headers: { cookie: "u_tk=test-token" } })).text();
+  const page = await (await app.request("http://127.0.0.1:4848/settings/agents", { headers: { cookie: "u_tk=test-token" } })).text();
   assert.ok(page.includes("Pack tools for agents"));
   assert.ok(page.includes("agy &lt;b&gt;broke&lt;/b&gt;") && !page.includes("<b>broke"));
   assert.equal((await post("omp")).status, 303);

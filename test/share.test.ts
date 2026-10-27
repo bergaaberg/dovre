@@ -183,7 +183,7 @@ test("Settings → Setup says what's on, and how to turn on what's off", async (
   assert.match(mac["Copilot CLI"]!.fix ?? "", /npm install -g @github\/copilot/);
   assert.equal(mac.Edge, undefined);
   const { get } = signedIn(snapshot());
-  const out = await (await get("/settings")).text();
+  const out = await (await get("/settings/about")).text();
   assert.match(out, /Setup/);
   assert.match(out, /Code folder/);
 });

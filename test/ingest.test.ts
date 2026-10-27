@@ -27,7 +27,7 @@ test("ingest: a token made on Settings lets an app POST in, before the sign-in c
     app.request(url, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...extra }, body });
 
   assert.match(await (await get("/sink")).text(), /sink page/, "its own pages mount beside ingest");
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/packs/sink")).text();
   assert.match(settings, /Ingest tokens/);
   assert.match(settings, /No tokens yet/);
 
@@ -39,7 +39,7 @@ test("ingest: a token made on Settings lets an app POST in, before the sign-in c
   assert.equal(made.headers.get("cache-control"), "no-store");
   const token = tokenOf(await made.text())!;
   assert.ok(token, "shown once on the page that answers");
-  assert.doesNotMatch(await (await get("/settings")).text(), new RegExp(token), "and never again");
+  assert.doesNotMatch(await (await get("/settings/packs/sink")).text(), new RegExp(token), "and never again");
 
   const ok = await send(token);
   assert.equal(ok.status, 200);
@@ -56,8 +56,8 @@ test("ingest: a token made on Settings lets an app POST in, before the sign-in c
   assert.equal((await send(token)).status, 200);
   assert.equal((await send(token)).status, 429, "over the rate");
 
-  assert.match(await (await get("/settings")).text(), /checkout-api/);
-  const row = await (await get("/settings")).text();
+  assert.match(await (await get("/settings/packs/sink")).text(), /checkout-api/);
+  const row = await (await get("/settings/packs/sink")).text();
   const id = /name="id" value="(\d+)"/.exec(row)![1]!;
   assert.equal((await post("/settings/ingest/revoke", { pack: "sink", id })).status, 303);
   assert.equal((await send(token)).status, 401, "revoked");

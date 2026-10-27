@@ -333,7 +333,7 @@ test("/stats without GitHub stats: the packs' panels and spend only, no Gather a
   const page = await (await get("/stats")).text();
   assert.match(page, /Issues closed per week/);
   assert.doesNotMatch(page, /Gather again|Merged, this week|Gathering the weeks/);
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/layout")).text();
   assert.match(settings, /name="stat:linear:cycle"/);
   assert.match(settings, /name="statsWeeks"/);
   const saved = await post("/settings/layout", { pack: "linear", "stat:linear:cycle": "off", "statorder:linear:cycle": "10", statsWeeks: "4" });

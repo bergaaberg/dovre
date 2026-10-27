@@ -930,10 +930,14 @@ test("the work slots and Settings: a deploy's prod line, My list's proposals, a 
   assert.match(actions, /ACME\/people 3f59045/, "an entry no pack names stays as logged");
   assert.match(await (await get("/")).text(), /ticket DEV-12 &lt;script&gt;/, "on Today's card too");
 
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/packs/work")).text();
   assertInert("a pack's Settings panel", settings);
-  assert.match(settings, /id="pack-work"[^]*?Work &lt;script&gt;[^]*?Signed in as [^]*?action="\/work\/signout"/);
-  assert.doesNotMatch(settings, /id="pack-(quiet|boom)"/, "nothing to show, or a throw: no panel");
+  assert.match(settings, /<h1>Work &lt;script&gt;[^]*?id="pack-work"[^]*?Signed in as [^]*?action="\/work\/signout"/);
+  const list = await (await get("/settings/packs")).text();
+  assertInert("Settings → Packs", list);
+  assert.match(list, /href="\/settings\/packs\/work"/);
+  assert.doesNotMatch(list, /href="\/settings\/packs\/(quiet|boom)"/, "nothing to show, or a throw: not listed");
+  assert.equal((await get("/settings/packs/quiet")).status, 404);
 });
 
 test("POST /packs/:id/settings: configures pack settings in .dev.vars, transitions off->on live, and never leaks secrets", async () => {
@@ -965,12 +969,16 @@ test("POST /packs/:id/settings: configures pack settings in .dev.vars, transitio
 
   const { get, post, app } = signedIn(snapshot(), {}, { packs: [linear], varsFile });
 
-  // Initially off because LINEAR_API_KEY isn't set; /linear is 404; form is open on /packs
+  // Initially off because LINEAR_API_KEY isn't set; /linear is 404; /packs says why and links to its Settings page, where the form is
   assert.equal((await get("/linear")).status, 404);
   const before = await (await get("/packs")).text();
   assertInert("packs page before", before);
   assert.match(before, /LINEAR_API_KEY isn&#39;t set|LINEAR_API_KEY isn't set/);
-  assert.match(before, /action="\/packs\/linear\/settings"/);
+  assert.match(before, /href="\/settings\/packs\/linear"/);
+  const form = await (await get("/settings/packs/linear")).text();
+  assertInert("its Settings page before", form);
+  assert.match(form, /Off: LINEAR_API_KEY isn&#39;t set|Off: LINEAR_API_KEY isn't set/);
+  assert.match(form, /action="\/packs\/linear\/settings"/);
 
   // Strict-origin guard: cross-origin is 403, cross-site sec-fetch-site is 404
   const crossOrigin = await app.request("http://localhost/packs/linear/settings", {
@@ -990,7 +998,7 @@ test("POST /packs/:id/settings: configures pack settings in .dev.vars, transitio
     LINEAR_TEAM: `ENG-${H}`,
   });
   assert.equal(saveRes.status, 303);
-  assert.equal(saveRes.headers.get("location"), "/packs#pack-linear");
+  assert.equal(saveRes.headers.get("location"), "/settings/packs/linear");
   assert.equal(inited, 1);
   assert.equal(refreshed, 1);
 
@@ -998,9 +1006,13 @@ test("POST /packs/:id/settings: configures pack settings in .dev.vars, transitio
   assert.match(varsText, /LINEAR_API_KEY=lin_api_secret_12345/);
   assert.match(varsText, /LINEAR_TEAM=ENG-/);
 
-  // Secret value never appears on /packs, non-secret value is escaped, and /linear route is now live
-  const after = await (await get("/packs")).text();
-  assertInert("packs page after", after);
+  // Secret value never appears on /packs or Settings, non-secret value is escaped, and /linear route is now live
+  const listed = await (await get("/packs")).text();
+  assertInert("packs page after", listed);
+  assert.doesNotMatch(listed, /lin_api_secret_12345/, "secret value never rendered to DOM");
+  const after = await (await get("/settings/packs/linear")).text();
+  assertInert("its Settings page after", after);
+  assert.match(after, /Saved\./);
   assert.doesNotMatch(after, /lin_api_secret_12345/, "secret value never rendered to DOM");
   assert.match(after, /\(set — leave blank to keep\)/);
   assert.equal((await get("/linear")).status, 200);

@@ -1225,7 +1225,7 @@ document.addEventListener("keydown", (e) => {
   if (t.value.trim() && t.form) t.form.requestSubmit();
 }, true);
 
-// ── A form that saves as I change it (form[data-autosave]: Settings → Look and layout): posted in
+// ── A form that saves as I change it (form[data-autosave]: Settings → Layout): posted in
 // the background, then the page reloads where it is, so a theme or a tab shows at once. Typing in a
 // box saves when it loses focus (change), not on every key. ──
 document.addEventListener("change", async (e) => {

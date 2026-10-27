@@ -48,28 +48,28 @@ import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
 import { agentViews, createReviewRoutes, type ReviewDeps } from "./pages/reviews.ts";
 import type { Kept } from "./issues/templates.ts";
-import { type AgentToolsView, edgePath, type SetupLine, settingsPage, setupLines } from "./pages/settings.ts";
+import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
 import { splashPage, welcomePage } from "./pages/welcome.ts";
 import { type Choice, type Config, configFromForm, type PaneId, type PanesOn, type PaneState, saveConfig } from "./config.ts";
 import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
-import type { Html } from "./ui/kit.ts";
+import { type Html, Notice, Panel } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
-import { packsPage } from "./pages/packs.ts";
+import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies } from "./packs/copies.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
 import { strictOrigin } from "./strict.ts";
-import { type LayoutStore, layoutFromForm, layoutStore, withTabs } from "./layout.ts";
-import { type LayoutView, layoutPanel } from "./pages/layout.ts";
+import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } from "./layout.ts";
+import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
 import { safeUrl } from "./pages/parts.ts";
-import type { Pack, PackContext, Pulse, TodayCard } from "./packs/types.ts";
+import type { Pack, PackContext, PackManifest, Pulse, TodayCard } from "./packs/types.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
 import { listRepos } from "./sources/claude.ts";
@@ -607,7 +607,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   // ── Search (src/search/search.ts): /search as a page; with frag=1, just the list the palette swaps in ──
   const gheSearch = createGheSearch(ghe, ownersIn(env));
   // ── Stats (src/stats/): drawn from what's kept; a visit gathers again when it's due ──
-  /** The packs' panels for /stats, over the weeks I picked (Settings → Look and layout). */
+  /** The packs' panels for /stats, over the weeks I picked (Settings → Layout). */
   // Days touch at most five weeks: that's what a pack drawing weekly gets.
   const packStats = () => {
     const l = layout.get();
@@ -627,7 +627,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.get("/search", async (c) => {
     const { s, frame } = await page();
     const raw = (c.req.query("q") ?? "").slice(0, 200);
-    const pages = pagesOf({ bino: !!bino?.route.ready, lab: hasLab(), stats: !off("stats") }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages());
+    const pages = pagesOf({ bino: !!bino?.route.ready, lab: hasLab(), stats: !off("stats") }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages(), settingsAreas().map((id) => { const a = AREAS.find((x) => x.id === id)!; return { title: `Settings: ${a.title}`, href: `/settings/${id}`, icon: "⚙", about: a.about, also: ["settings", ...a.also] }; }));
     // GHE's own search too: on the page, and in the palette once typing pauses (remote=1). At most 3.5 s.
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
@@ -967,32 +967,37 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         : statOffers(stats.view(), { now: Date.now(), forge, packs: packStats(), github: can("stats") }).map((o, i) => ({ id: o.id, label: o.label, from: o.from, show: l.stats?.[o.id]?.show ?? true, order: l.stats?.[o.id]?.order ?? (i + 1) * 10 })),
     };
   };
+  /** Look's keys of a Layout (`look`), or the rest. */
+  const partOf = (l: Layout, look: boolean) => Object.fromEntries(Object.entries(l).filter(([k]) => (LOOK_KEYS as string[]).includes(k) === look)) as Layout;
+  // Look and Layout each post their `part`; the other part stays as it was. No part: the whole of it.
   app.post("/settings/layout", async (c) => {
     const { frame } = await page();
     const v = await layoutView(frame);
-    const next = layoutFromForm(await c.req.parseBody({ all: true }), { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id), stats: v.stats.map((x) => x.id) });
+    const form = await c.req.parseBody({ all: true });
+    const next = layoutFromForm(form, { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id), stats: v.stats.map((x) => x.id) });
     // Cards not drawn and stats not offered just now (a pack hidden or slow) keep where I put them.
-    await layout.save({ ...next, cards: { ...v.layout.cards, ...next.cards }, stats: { ...v.layout.stats, ...next.stats } });
+    const whole = { ...next, cards: { ...v.layout.cards, ...next.cards }, stats: { ...v.layout.stats, ...next.stats } };
+    const part = form.part;
+    await layout.save(part === "look" ? { ...partOf(v.layout, false), ...partOf(next, true) } : part === "layout" ? { ...partOf(v.layout, true), ...partOf(whole, false) } : whole);
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
-    return c.redirect("/settings#layout", 303);
+    return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
   });
   app.post("/settings/layout/reset", async (c) => {
-    await layout.reset();
+    const part = (await c.req.parseBody()).part;
+    if (part === "look" || part === "layout") await layout.save(partOf(layout.get(), part === "layout"));
+    else await layout.reset();
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
-    return c.redirect("/settings#layout", 303);
+    return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
   });
 
   // Its address before WP-M4.
   app.get("/crates", (c) => c.redirect("/packs", 301));
-  let packSaved: string | undefined;
   app.get("/packs", async (c) => {
     const { frame } = await page();
-    const wasSaved = packSaved;
-    packSaved = undefined;
     const copies = hosted ? undefined : deps.packs?.copies?.get();
-    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, saved: wasSaved, copies, canRestart: !!deps.restart }));
+    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, canRestart: !!deps.restart }));
   });
   app.post("/packs/:id/update", strictOrigin, async (c) => {
     const copies = deps.packs?.copies;
@@ -1009,9 +1014,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const onPack = packs.on.find((x) => x.manifest.id === id);
     const offEntry = packs.off.find((x) => x.id === id);
     const manifest = onPack?.manifest ?? offEntry?.manifest;
-    const settings = Array.isArray(manifest?.settings)
-      ? manifest.settings.filter((s) => s && typeof s.key === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(s.key))
-      : [];
+    const settings = manifestSettings(manifest);
     if (!manifest || !settings.length) return c.notFound();
     const body = await c.req.parseBody();
     for (const s of settings) {
@@ -1053,35 +1056,93 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     } else if (onPack) {
       void runPackRefresh.one(onPack);
     }
-    packSaved = manifest.name;
+    saved = true;
     deps.hub?.publish([id, "packs", "snapshot"]);
-    return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
+    return c.redirect(`/settings/packs/${encodeURIComponent(id)}`, 303);
   });
 
-  /** The packs' Settings panels, with core's ingest tokens under each pack that takes ingest (dovre#109). */
-  const packPanels = async (made?: { pack: string; source: string; token: string }) => {
-    const own = settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line));
-    const out: { id: string; name: string; body: Html }[] = [];
-    for (const p of shown()) {
-      const id = p.manifest.id;
-      const mine = own.find((x) => x.id === id);
-      if (!p.ingest) {
-        if (mine) out.push(mine);
-        continue;
-      }
-      const tokens = tokensPanel(p, await listTokens(env.DB, id).catch(() => []), { hosted, made: made?.pack === id ? made : undefined });
-      out.push({ id, name: p.manifest.name, body: html`${mine?.body ?? ""}${tokens}` });
-    }
-    return out;
+  /** A pack's own Settings panel, with core's ingest tokens when it takes ingest (dovre#109). */
+  const ownPanel = async (p: Pack, made?: { pack: string; source: string; token: string }): Promise<Html | undefined> => {
+    const id = p.manifest.id;
+    const mine = settingsFrom([p], ctxOf, (pid, line) => packLog(pid)(line))[0]?.body;
+    if (!p.ingest) return mine;
+    const tokens = tokensPanel(p, await listTokens(env.DB, id).catch(() => []), { hosted, made: made?.pack === id ? made : undefined });
+    return html`${mine ?? ""}${tokens}`;
   };
-  const showSettings = async (c: Context<AppEnv>, made?: { pack: string; source: string; token: string }) => {
-    const { frame } = await page();
-    const wasSaved = saved;
-    const bad = settingsBad;
+  /** The packs with settings: their manifest's, their own panel, or ingest tokens. Off ones too: one may be off for want of a setting. */
+  const packSettings = (): PackSettings[] => {
+    const set = (m: PackManifest | undefined) => manifestSettings(m).map((x) => ({ key: x.key, label: x.label, set: !!packs.env[x.key]?.trim() }));
+    // A pack's own panel counts when it draws something (an empty answer or a throw: none).
+    const own = new Set(settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)).map((x) => x.id));
+    return [
+      ...shown().map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: true, settings: set(p.manifest), panel: own.has(p.manifest.id) || !!p.ingest })),
+      ...packs.off.map((o) => ({ id: o.id, name: o.name, on: false, settings: set(o.manifest), panel: false })),
+    ].filter((k) => k.settings.length || k.panel);
+  };
+  /** The areas this instance has: Panes and Work only where Settings keeps config, Agents only on a machine. */
+  const settingsAreas = (): AreaId[] =>
+    AREAS.map((a) => a.id).filter((id) => (id === "panes" || id === "work" ? !!deps.config : id === "agents" ? !hosted && !!deps.agentTools : id === "packs" ? packSettings().length > 0 : true));
+  /** Every setting as it is now, to find and to mark what was changed. */
+  const rowsNow = async (frame: Frame) => {
+    const v = panesView();
+    return settingRows({
+      layout: layout.get(),
+      policy: deps.notify?.policy() ?? policyOf(undefined),
+      rings: packRings,
+      writes: { chosen: await clicks.get().catch(() => new Map()), kinds: writeKinds(packs.on) },
+      keys: frame.keys ?? DEFAULT_KEYS,
+      panes: v && deps.config ? { ...v, stored: deps.config.stored as Record<string, string | undefined> } : undefined,
+      packs: packSettings(),
+      agents: !hosted && deps.agentTools ? deps.agentTools.view().rows : undefined,
+      setup: deps.setup?.() ?? setupNow(frame.operator),
+      canRestart: !!deps.restart,
+    });
+  };
+  /** Saved, starting again, or refused: shown once, on the next Settings page. */
+  const takeNotes = (then: string): SettingsNotes => {
+    const n = { saved, restarting, bad: settingsBad, then };
     saved = false;
     settingsBad = undefined;
+    return n;
+  };
+  const areaBody = async (area: AreaId, frame: Frame): Promise<Html> => {
+    switch (area) {
+      case "look":
+        return lookPanel(layout.get());
+      case "layout":
+        return layoutPanel(await layoutView(frame));
+      case "notifications":
+        return notifyPanels(deps.notify?.policy() ?? policyOf(undefined), deps.notify?.log() ?? [], packRings);
+      case "writes":
+        return writesPanel(await clicks.get().catch(() => new Map()), writeKinds(packs.on));
+      case "keys":
+        return keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer());
+      case "panes":
+        return panesPanel(panesView()!, !!deps.restart);
+      case "work":
+        return workPanel(panesView()!, !!deps.restart, await myTeams());
+      case "agents":
+        return agentToolsPanel({ ...deps.agentTools!.view(), said: takeToolsSaid() });
+      case "packs":
+        return packsList(packSettings());
+      case "about":
+        return html`${appPanel(deps.info, !!deps.restart, frame.tz)}${setupPanel(deps.setup?.() ?? setupNow(frame.operator))}`;
+    }
+  };
+  /** Settings → Packs → one pack: its own panel (and ingest tokens), its manifest's settings, and where else it has some. */
+  const showPack = async (c: Context<AppEnv>, id: string, made?: { pack: string; source: string; token: string }) => {
+    const k = packSettings().find((x) => x.id === id);
+    if (!k) return c.notFound();
+    const { frame } = await page();
+    const on = shown().find((p) => p.manifest.id === id);
+    const offEntry = packs.off.find((o) => o.id === id);
+    const settings = manifestSettings(on?.manifest ?? offEntry?.manifest);
+    const own = on ? await ownPanel(on, made) : undefined;
+    const writes = on ? writeKinds([on]).filter((w) => w.kind.startsWith(`${id}.`)).length : 0;
+    const where = html`<p class="t2">${writes ? html`Its writes: <a href="/settings/writes">Settings → Writes</a>. ` : ""}On or off, its refreshes and why: <a href="/packs#pack-${encodeURIComponent(id)}">Packs</a>.</p>`;
     if (made) c.header("Cache-Control", "no-store");
-    return c.html(settingsPage(frame, { rings: packRings, packs: await packPanels(made), policy: deps.notify?.policy() ?? policyOf(undefined), log: deps.notify?.log() ?? [], saved: wasSaved, restarting, info: deps.info, canRestart: !!deps.restart, setup: deps.setup?.() ?? setupNow(frame.operator), panes: panesView(), bad, teams: deps.config ? await myTeams() : undefined, layout: layoutPanel(await layoutView(frame)), writes: writesPanel(await clicks.get().catch(() => new Map()), writeKinds(packs.on)), keys: keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer()), agentTools: !hosted && deps.agentTools ? { ...deps.agentTools.view(), said: takeToolsSaid() } : undefined }));
+    const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted) : ""}${where}`;
+    return c.html(settingsArea(frame, "packs", { areas: settingsAreas(), rows: await rowsNow(frame), notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body, title: k.name, crumbs: [{ href: "/settings/packs", label: "Packs" }] }));
   };
   // What the last "Set up omp/agy" said, shown once on the next Settings.
   let toolsSaid: AgentToolsView["said"];
@@ -1096,22 +1157,25 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const r = deps.agentTools.register(h as ToolsHarness);
     await logAction(env.DB, { kind: "agents.tools", target: h, detail: "added the dovre MCP server", ok: r.ok, ...(r.ok ? {} : { error: r.why }) }).catch(() => {});
     toolsSaid = r.ok ? { ok: true, text: `${h} gets the packs' tools from its next turn or terminal.` } : { ok: false, text: r.why };
-    return c.redirect("/settings#agent-tools", 303);
+    return c.redirect("/settings/agents", 303);
   });
-  app.get("/settings", (c) => showSettings(c));
+  app.get("/settings", async (c) => {
+    const { frame } = await page();
+    return c.html(settingsHome(frame, { areas: settingsAreas(), rows: await rowsNow(frame), q: (c.req.query("q") ?? "").slice(0, 100), notes: takeNotes("/settings") }));
+  });
   app.post("/settings/keys", async (c) => {
     const f = await c.req.parseBody({ all: true });
     const on = ([] as unknown[]).concat(f.on ?? []);
     await keyPrefs.set(currentViewer(), { scroll: f.scroll, off: KEY_GROUPS.map((g) => g.id).filter((id) => !on.includes(id)) });
     saved = true;
-    return c.redirect("/settings#keys", 303);
+    return c.redirect("/settings/keys", 303);
   });
   app.post("/settings/writes", async (c) => {
     const f = await c.req.parseBody({ all: true });
     const once = ([] as unknown[]).concat(f.once ?? []).filter((v): v is string => typeof v === "string");
     await clicks.set(once);
     saved = true;
-    return c.redirect("/settings#writes", 303);
+    return c.redirect("/settings/writes", 303);
   });
   const ingestPack = (id: unknown) => shown().find((p) => p.ingest && p.manifest.id === id);
   // A new token is shown on the page this answers, once; only its hash is kept.
@@ -1121,11 +1185,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     if (!p) return c.notFound();
     if (!sourceOk(f.source)) {
       settingsBad = ["the source's name"];
-      return c.redirect(`/settings#pack-${p.manifest.id}`, 303);
+      return c.redirect(`/settings/packs/${p.manifest.id}`, 303);
     }
     const token = await createToken(env.DB, p.manifest.id, f.source);
     await logAction(env.DB, { kind: "ingest-token", target: `${p.manifest.id}:${f.source}`, ok: true, detail: "made" }).catch(() => {});
-    return showSettings(c, { pack: p.manifest.id, source: f.source, token });
+    return showPack(c, p.manifest.id, { pack: p.manifest.id, source: f.source, token });
   });
   app.post("/settings/ingest/revoke", async (c) => {
     const f = await c.req.parseBody();
@@ -1134,10 +1198,19 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     if (!p || !Number.isInteger(id)) return c.notFound();
     const done = await revokeToken(env.DB, p.manifest.id, id);
     await logAction(env.DB, { kind: "ingest-token", target: `${p.manifest.id}:${id}`, ok: done, detail: "revoked" }).catch(() => {});
-    return c.redirect(`/settings#pack-${p.manifest.id}`, 303);
+    return c.redirect(`/settings/packs/${p.manifest.id}`, 303);
   });
   /** When this server started: a page waiting out a restart asks until it changes. */
   app.get("/settings/started", (c) => noStore(c.text(String(startedAt))));
+  app.get("/settings/packs/:id", (c) => showPack(c, c.req.param("id")));
+  app.get("/settings/:area", async (c) => {
+    const area = c.req.param("area");
+    if (!isArea(area) || !settingsAreas().includes(area)) return c.notFound();
+    const { frame } = await page();
+    const notes = takeNotes(`/settings/${area}`);
+    const body = await areaBody(area, frame);
+    return c.html(settingsArea(frame, area, { areas: settingsAreas(), rows: await rowsNow(frame), notes, body }));
+  });
   // ── The first-run page (src/pages/welcome.ts): Today sends here until it's answered or skipped ──
   const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE);
   let welcomeBad: string[] | undefined;
@@ -1172,13 +1245,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     app.post(path, async (c) => {
       if (!deps.config) return c.notFound();
       const { config, bad } = configFromForm(await c.req.parseBody(), deps.config.stored, fixedKeys(), scope);
+      const back = path;
       if (bad.length) {
         settingsBad = bad;
-        return c.redirect("/settings", 303);
+        return c.redirect(back, 303);
       }
       saved = true;
       await keep(config);
-      return c.redirect("/settings", 303);
+      return c.redirect(back, 303);
     });
   app.post("/settings/notify", async (c) => {
     const form = await c.req.parseBody({ all: true });
@@ -1193,16 +1267,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     });
     await deps.notify?.setPolicy(next);
     saved = true;
-    return c.redirect("/settings", 303);
+    return c.redirect("/settings/notifications", 303);
   });
   app.post("/settings/restart", (c) => {
     // The supervisor (`dovre supervise`, launcher/) starts it again; the page waits on the starting page.
     setTimeout(() => deps.restart?.(), 300);
-    return c.redirect("/settings", 303);
+    return c.redirect("/settings/about", 303);
   });
   app.post("/settings/notify/test", (c) => {
     deps.notify?.test();
-    return c.redirect("/settings", 303);
+    return c.redirect("/settings/notifications#rang-lately", 303);
   });
 
   app.route("/", createReviewRoutes(env, { ...reviewDeps, ghe, stale: () => gatherer.stale() }));

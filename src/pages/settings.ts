@@ -1,13 +1,17 @@
-/** Settings: what was found on this machine, what rings as a desktop notification, how often, and what rang lately. */
+/** Settings (dovre#184): an overview with search and what was changed from the default, and a page for each area. */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState } from "../config.ts";
 import { currentTz } from "../when.ts";
-import { type Policy, RING_KINDS, type Rung } from "../notify.ts";
+import { DEFAULT_POLICY, type Policy, RING_KINDS, type Rung } from "../notify.ts";
+import type { Layout } from "../layout.ts";
+import { DEFAULT_KEYS, KEY_GROUPS, type KeyPrefs, SCROLL_STEPS } from "../keys.ts";
+import type { Clicks, WriteKind } from "../writes.ts";
+import { LOOK, STATS_RANGES, statsRange } from "./layout.ts";
 import type { Reg, ToolsHarness } from "../agents/mcpsetup.ts";
-import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
+import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
 
 /** What this machine has, for the Setup panel: each a line saying what it does, and how to turn it on when it's off. Panes have their own panel. */
@@ -79,7 +83,7 @@ export function paneSets(v: PanesView) {
   });
 }
 
-function panesPanel(v: PanesView, canRestart: boolean) {
+export function panesPanel(v: PanesView, canRestart: boolean) {
   const n = PANES.filter((p) => v.panes[p.id].on).length;
   return Panel({
     title: "Panes",
@@ -98,7 +102,7 @@ export function restartingNote(started: number, then: string, text: string) {
   return html`<div data-restarting="${started}" data-then="${then}">${Notice({ tone: "ok", children: text })}</div>`;
 }
 
-function workPanel(v: PanesView, canRestart: boolean, teams?: Choice[]) {
+export function workPanel(v: PanesView, canRestart: boolean, teams?: Choice[]) {
   return Panel({
     title: "Work",
     id: "work",
@@ -118,6 +122,7 @@ export function edgePath(): string | undefined {
 export function setupPanel(lines: SetupLine[], title = "Setup") {
   return Panel({
     title,
+    id: "setup",
     meta: `${lines.filter((l) => l.on).length} of ${lines.length} on`,
     flush: true,
     children: List(
@@ -188,9 +193,10 @@ export function agentToolsPanel(v: AgentToolsView): Html {
   });
 }
 
-function appPanel(info: { version: string; startedAt: number } | undefined, canRestart: boolean, tz = currentTz()) {
+export function appPanel(info: { version: string; startedAt: number } | undefined, canRestart: boolean, tz = currentTz()) {
   return Panel({
     title: "The app",
+    id: "app",
     children: html`<dl class="kv"><dt>Version</dt><dd>${info?.version ?? "?"}</dd><dt>Running since</dt><dd>${info ? html`${new Date(info.startedAt).toLocaleString("en-GB", { timeZone: tz })} (${Ago(info.startedAt)})` : "?"}</dd>
 <dt>Open it</dt><dd>${process.platform === "win32" ? html`<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>, the Start menu, or <code>dovre</code> in a terminal. It starts at login.` : html`<code>pnpm start</code> in Dovre's folder, then this address, or the installed app. It doesn't start at login here yet.`}</dd></dl>
 <div class="buttons"><button type="button" id="install" class="primary" hidden>Install Dovre as an app</button>${
@@ -200,22 +206,22 @@ function appPanel(info: { version: string; startedAt: number } | undefined, canR
   });
 }
 
-export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notification, after the core's. */ rings?: { kind: string; label: string; hint?: string }[]; /** The packs' own panels (`settings`), each under its name. */ packs?: { id: string; name: string; body: Html }[]; policy: Policy; log: Rung[]; saved?: boolean; info?: { version: string; startedAt: number }; canRestart?: boolean; setup?: SetupLine[]; panes?: PanesView; /** What the panes or work form refused. */ bad?: string[]; /** Saved, and this server (started then) is making way for a new one. */ restarting?: number; /** My GHE teams, to pick from. */ teams?: Choice[]; /** Settings → Layout (src/pages/layout.ts). */ layout?: Html; /** Settings → Writes (src/pages/writes.ts). */ writes?: Html; /** Settings → Keys (src/pages/keys.ts). */ keys?: Html; /** Settings → Pack tools for agents (local). */ agentTools?: AgentToolsView }) {
-  const p = opts.policy;
+/** Notifications: what rings and when, and what rang lately. `rings`: the packs' kinds, after the core's. */
+export function notifyPanels(p: Policy, log: Rung[], rings: { kind: string; label: string; hint?: string }[] = []) {
   const form = html`<form method="post" action="/settings/notify">
-<div class="field"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...(opts.rings ?? [])].map(
+<div class="field" id="ring-for"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...rings].map(
     (k) => html`<label class="check"><input type="checkbox" name="kind" value="${k.kind}"${p.kinds[k.kind] !== false ? html` checked` : ""}> ${k.label}${k.hint ? html` <span class="t3">· ${k.hint}</span>` : ""}</label><br>`,
   )}</fieldset></div>
 <div class="fields aligned">
-<label class="field"><span class="label">A long agent turn is at least</span><input type="number" name="longTurnMin" min="0" max="240" value="${p.longTurnMin}"><span class="hint">minutes. Ordinary replies never ring.</span></label>
-<label class="field"><span class="label">Bundle what follows for</span><input type="number" name="bundleSec" min="0" max="600" value="${p.bundleSec}"><span class="hint">seconds after a notification: the rest come as one. 0 rings each.</span></label>
+<label class="field" id="long-turn"><span class="label">A long agent turn is at least</span><input type="number" name="longTurnMin" min="0" max="240" value="${p.longTurnMin}"><span class="hint">minutes. Ordinary replies never ring.</span></label>
+<label class="field" id="bundle"><span class="label">Bundle what follows for</span><input type="number" name="bundleSec" min="0" max="600" value="${p.bundleSec}"><span class="hint">seconds after a notification: the rest come as one. 0 rings each.</span></label>
 </div>
-<div class="field"><label class="check"><input type="checkbox" name="workHoursOnly" value="on"${p.workHoursOnly ? html` checked` : ""}> Only on weekdays, 08:00–17:00</label><span class="hint">Outside those hours nothing rings; Dovre still shows it.</span></div>
+<div class="field" id="work-hours"><label class="check"><input type="checkbox" name="workHoursOnly" value="on"${p.workHoursOnly ? html` checked` : ""}> Only on weekdays, 08:00–17:00</label><span class="hint">Outside those hours nothing rings; Dovre still shows it.</span></div>
 <div class="buttons"><button type="submit" class="primary">Save</button></div>
 </form>`;
-  const log = opts.log.length
+  const rang = log.length
     ? List(
-        opts.log.map((n) =>
+        log.map((n) =>
           Item({
             title: html`<strong>${n.title}</strong>${n.held ? Pill({ children: "held: quiet hours" }) : n.kind === "bundle" ? Pill({ children: "bundled" }) : ""}`,
             line: n.body,
@@ -225,24 +231,193 @@ export function settingsPage(frame: Frame, opts: { /** The packs' kinds of notif
         ),
       )
     : Empty({ title: "Nothing has rung since Dovre started" });
-  const body = html`${PageHeader({ title: "Settings", sub: undefined })}
-${opts.saved ? (opts.restarting ? restartingNote(opts.restarting, "/settings", "Saved. Dovre is starting again with it.") : Notice({ tone: "ok", children: "Saved." })) : ""}
-${opts.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${opts.bad.join(", ")} ${opts.bad.length > 1 ? "aren't values they take" : "isn't a value it takes"}.` }) : ""}
-${appPanel(opts.info, !!opts.canRestart, frame.tz ?? currentTz())}
-${opts.layout ?? ""}
-${opts.writes ?? ""}
-${opts.keys ?? ""}
-${opts.setup ? setupPanel(opts.setup) : ""}
-${opts.agentTools ? agentToolsPanel(opts.agentTools) : ""}
-${opts.panes ? panesPanel(opts.panes, !!opts.canRestart) : ""}
-${opts.panes ? workPanel(opts.panes, !!opts.canRestart, opts.teams) : ""}
-${(opts.packs ?? []).map((x) => Panel({ title: x.name, id: `pack-${x.id}`, children: x.body }))}
-${Panel({ title: "Notifications", children: html`<p class="notes">They come as Windows toasts. Allow them in this window instead and it shows them itself, only when you're not looking at it. <span id="bell-note"></span></p><p><button id="bell" class="sm" type="button" hidden>Show them from this window</button></p>${form}` })}
+  return html`${Panel({ title: "Notifications", id: "notifications", children: html`<p class="notes">They come as Windows toasts. Allow them in this window instead and it shows them itself, only when you're not looking at it. <span id="bell-note"></span></p><p><button id="bell" class="sm" type="button" hidden>Show them from this window</button></p>${form}` })}
 ${Panel({
   title: "Rang lately",
-  meta: String(opts.log.length),
+  id: "rang-lately",
+  meta: String(log.length),
   actions: html`<form method="post" action="/settings/notify/test"><button type="submit" class="sm">Send a test</button></form>`,
-  children: html`<div data-live id="rang">${log}</div>`,
+  children: html`<div data-live id="rang">${rang}</div>`,
 })}`;
+}
+
+// ── The areas, and every setting in them as a row to find ──
+
+export const AREAS = [
+  { id: "look", title: "Look", about: "Theme, accent, font, text size, line height", also: ["appearance", "colour", "color", "dark", "light"] },
+  { id: "layout", title: "Layout", about: "The phone's tabs, Today's cards, Stats, the feed, packs shown", also: ["arrange", "order", "hide", "phone"] },
+  { id: "notifications", title: "Notifications", about: "What rings, when, and what rang lately", also: ["ring", "toast", "alert", "quiet"] },
+  { id: "writes", title: "Writes", about: "Which writes take one click instead of asking twice", also: ["confirm", "one click", "twice"] },
+  { id: "keys", title: "Keys", about: "Shortcuts without Ctrl, and how far j/k scroll", also: ["keyboard", "shortcuts", "vim"] },
+  { id: "panes", title: "Panes", about: "What runs here: Bino, terminals, Docker, Stats, reviews, summaries", also: ["features", "on", "off", "enable"] },
+  { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
+  { id: "agents", title: "Agents", about: "Which agent CLIs here get the packs' tools", also: ["mcp", "tools", "omp", "agy", "claude"] },
+  { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
+  { id: "about", title: "About", about: "Version, restart, install, and what this machine has", also: ["setup", "version", "restart", "install"] },
+] as const;
+export type AreaId = (typeof AREAS)[number]["id"];
+export const isArea = (s: string): s is AreaId => AREAS.some((a) => a.id === s);
+const areaOf = (id: AreaId) => AREAS.find((a) => a.id === id)!;
+
+/** One setting, to find: where it lives, what it's set to now, and whether that's other than the default. */
+export type SettingRow = { area: AreaId; label: string; href: string; now?: string; changed?: boolean; also?: string[] };
+
+/** A pack with settings: its manifest's (set or not), and whether it has its own panel or ingest tokens. */
+export type PackSettings = { id: string; name: string; on: boolean; settings: { key: string; label: string; set: boolean }[]; panel: boolean };
+
+export type RowsState = {
+  layout: Layout;
+  policy: Policy;
+  rings: { kind: string; label: string }[];
+  writes: { chosen: Map<string, Clicks>; kinds: WriteKind[] };
+  keys: KeyPrefs;
+  panes?: PanesView & { stored: Record<string, string | undefined> };
+  packs: PackSettings[];
+  agents?: AgentToolsView["rows"];
+  setup?: SetupLine[];
+  canRestart?: boolean;
+};
+
+const LOOK_ALSO: Record<string, string[]> = { theme: ["dark", "light", "mode", "colour", "color"], accent: ["colour", "color"], font: ["typeface", "sans", "serif", "mono"], textSize: ["font size", "zoom", "bigger", "smaller"], lineHeight: ["spacing", "leading"], binoButton: ["assistant", "avatar", "face"] };
+const onOff = (on: boolean) => (on ? "On" : "Off");
+
+export function settingRows(s: RowsState): SettingRow[] {
+  const rows: SettingRow[] = [];
+  const l = s.layout;
+  for (const o of LOOK) {
+    const v = l[o.key] ?? "";
+    rows.push({ area: "look", label: o.label, href: "/settings/look", now: o.choices.find((c) => c.value === v)?.label, changed: v !== "", also: LOOK_ALSO[o.key] });
+  }
+  const range = statsRange(l);
+  rows.push(
+    { area: "layout", label: "The phone's tabs", href: "/settings/layout#tabs", changed: l.tabs !== undefined, also: ["tab bar", "mobile", "bottom"] },
+    { area: "layout", label: "Today's cards", href: "/settings/layout#cards", changed: !!l.cards && Object.keys(l.cards).length > 0, also: ["home", "columns", "order"] },
+    { area: "layout", label: "What Stats shows", href: "/settings/layout#stats", changed: !!l.stats && Object.keys(l.stats).length > 0, also: ["charts", "panels"] },
+    { area: "layout", label: "Range on Stats", href: "/settings/layout#stats", now: STATS_RANGES.find((r) => r.value === range)?.label, changed: range !== "", also: ["weeks", "days"] },
+    { area: "layout", label: "What's happening: its sources", href: "/settings/layout#feed", now: l.feedOff?.length ? `${l.feedOff.length} left out` : undefined, changed: !!l.feedOff?.length, also: ["feed", "events"] },
+    { area: "layout", label: "Packs shown", href: "/settings/layout#packs-shown", now: l.packsOff?.length ? `${l.packsOff.length} hidden` : undefined, changed: !!l.packsOff?.length, also: ["hide", "pack"] },
+  );
+  const p = s.policy;
+  for (const k of [...RING_KINDS, ...s.rings]) {
+    const on = p.kinds[k.kind] !== false;
+    rows.push({ area: "notifications", label: `Ring for: ${k.label}`, href: "/settings/notifications#ring-for", now: onOff(on), changed: on !== (DEFAULT_POLICY.kinds[k.kind] ?? true), also: ["ring", "notify"] });
+  }
+  rows.push(
+    { area: "notifications", label: "A long agent turn is at least", href: "/settings/notifications#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes"] },
+    { area: "notifications", label: "Bundle what follows for", href: "/settings/notifications#bundle", now: `${p.bundleSec} s`, changed: p.bundleSec !== DEFAULT_POLICY.bundleSec, also: ["group", "seconds"] },
+    { area: "notifications", label: "Only on weekdays, 08:00–17:00", href: "/settings/notifications#work-hours", now: onOff(p.workHoursOnly), changed: p.workHoursOnly !== DEFAULT_POLICY.workHoursOnly, also: ["quiet hours", "work hours"] },
+    { area: "notifications", label: "Send a test notification", href: "/settings/notifications#rang-lately", also: ["test", "rang lately"] },
+  );
+  for (const w of s.writes.kinds) {
+    const once = !w.floor && s.writes.chosen.get(w.kind) === "once";
+    rows.push({ area: "writes", label: w.label, href: "/settings/writes", now: w.floor ? "Always asks twice" : once ? "One click" : "Asks twice", changed: once, also: [w.group, w.kind] });
+  }
+  rows.push({ area: "keys", label: "j / k scroll", href: "/settings/keys", now: SCROLL_STEPS.find((x) => x.px === s.keys.scroll)?.label, changed: s.keys.scroll !== DEFAULT_KEYS.scroll, also: ["speed", "scroll"] });
+  for (const g of KEY_GROUPS) {
+    const on = !s.keys.off.includes(g.id);
+    rows.push({ area: "keys", label: `Keys: ${g.label}`, href: "/settings/keys", now: `${onOff(on)} · ${g.keys}`, changed: !on, also: ["shortcut"] });
+  }
+  if (s.panes) {
+    const v = s.panes;
+    const set = (key: string) => v.fixed.has(key) || (v.stored[key] ?? "") !== "";
+    const shown = (key: string, now: string | undefined) => (v.fixed.has(key) ? `${now ?? ""} (.dev.vars)`.trim() : now);
+    for (const pane of PANES) {
+      const st = v.panes[pane.id];
+      const via = pane.on.length > 1 ? pane.on.find((c) => c.value === st.via)?.label : undefined;
+      rows.push({ area: "panes", label: pane.name, href: `/settings/panes#pane-${pane.id}`, now: shown(pane.key, st.wanted ? (via ?? "On") : "Off"), changed: set(pane.key), also: [pane.what] });
+      for (const o of pane.options) rows.push({ area: "panes", label: `${pane.name}: ${o.label}`, href: `/settings/panes#pane-${pane.id}`, now: shown(o.key, v.values[o.key]), changed: set(o.key), also: [o.key] });
+    }
+    for (const g of GENERAL) rows.push({ area: "work", label: g.label, href: "/settings/work", now: shown(g.key, v.values[g.key]), changed: set(g.key), also: [g.key, g.hint ?? ""] });
+  }
+  for (const r of s.agents ?? []) rows.push({ area: "agents", label: `Pack tools for ${TOOL_NAMES[r.id]}`, href: "/settings/agents", now: r.id === "claude" || r.id === "codex" || r.state === "yes" ? "Set up" : "Not set up", also: ["mcp", r.id] });
+  for (const k of s.packs) {
+    const n = k.settings.filter((x) => x.set).length;
+    rows.push({ area: "packs", label: k.name, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: k.settings.length ? `${n} of ${k.settings.length} set${k.on ? "" : " · off"}` : k.on ? undefined : "off", changed: n > 0, also: [k.id] });
+    for (const x of k.settings) rows.push({ area: "packs", label: `${k.name}: ${x.label}`, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: x.set ? "Set" : "Not set", changed: x.set, also: [x.key] });
+  }
+  rows.push({ area: "about", label: "Version", href: "/settings/about", also: ["release", "running since"] }, { area: "about", label: "Install Dovre as an app", href: "/settings/about", also: ["pwa", "window"] });
+  if (s.canRestart) rows.push({ area: "about", label: "Restart Dovre", href: "/settings/about", also: ["reload", "start again"] });
+  for (const x of s.setup ?? []) rows.push({ area: "about", label: `Setup: ${x.name}`, href: "/settings/about#setup", now: x.on ? "On" : "Off", also: [x.what] });
+  return rows;
+}
+
+/** The rows a search finds: every word in the label, the area, the value now, or what it's also called. */
+export function findRows(rows: SettingRow[], q: string): SettingRow[] {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  return rows.filter((r) => {
+    const text = [r.label, areaOf(r.area).title, r.now ?? "", ...(r.also ?? [])].join(" ").toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}
+
+/** What's left after a save: saved (and maybe starting again), or what a form refused. */
+export type SettingsNotes = { saved?: boolean; restarting?: number; bad?: string[]; then?: string };
+
+function notes(n: SettingsNotes) {
+  return html`${n.saved ? (n.restarting ? restartingNote(n.restarting, n.then ?? "/settings", "Saved. Dovre is starting again with it.") : Notice({ tone: "ok", children: "Saved." })) : ""}
+${n.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${n.bad.join(", ")} ${n.bad.length > 1 ? "aren't values they take" : "isn't a value it takes"}.` }) : ""}`;
+}
+
+const rowItem = (r: SettingRow, withArea: boolean) =>
+  Item({
+    href: r.href,
+    title: r.label,
+    line: withArea || r.now ? html`${withArea ? areaOf(r.area).title : ""}${withArea && r.now ? " · " : ""}${r.now ?? ""}` : undefined,
+    trail: r.changed ? Pill({ tone: "accent", children: "changed" }) : undefined,
+  });
+
+const areaTabs = (areas: AreaId[], current?: AreaId) => Tabs({ label: "Settings areas", items: [{ href: "/settings", label: "All", current: !current }, ...areas.map((id) => ({ href: `/settings/${id}`, label: areaOf(id).title, current: id === current }))] });
+
+function finder(q: string) {
+  return html`<form method="get" action="/settings" class="settings-find" role="search"><input type="search" name="q" value="${q}" placeholder="Find a setting: font, ring, one click…" aria-label="Find a setting" maxlength="100" spellcheck="false" autocomplete="off"><button type="submit" class="sm">Find</button></form>`;
+}
+
+/** /settings: the search, what was changed from the default, and the areas. */
+export function settingsHome(frame: Frame, o: { areas: AreaId[]; rows: SettingRow[]; q?: string; notes?: SettingsNotes }) {
+  const q = (o.q ?? "").trim();
+  const rows = o.rows.filter((r) => o.areas.includes(r.area));
+  const changed = rows.filter((r) => r.changed);
+  const found = q ? findRows(rows, q) : [];
+  const count = (id: AreaId) => changed.filter((r) => r.area === id).length;
+  const body = html`${PageHeader({ title: "Settings", sub: "Grouped by area. Find any setting by name, or see what you changed from the default.", tabs: areaTabs(o.areas) })}
+${notes(o.notes ?? {})}
+${finder(q)}
+${q
+  ? Panel({ title: html`Found for “${q}”`, meta: String(found.length), flush: !!found.length, children: found.length ? List(found.map((r) => rowItem(r, true))) : Empty({ title: "No setting goes by that", children: html`<p class="t2">Try a shorter word, or open an area below.</p>` }) })
+  : ""}
+${Panel({
+  title: "Areas",
+  flush: true,
+  children: List(o.areas.map((id) => { const a = areaOf(id); const n = count(id); return Item({ href: `/settings/${id}`, title: html`<strong>${a.title}</strong>`, line: a.about, trail: n ? Pill({ tone: "accent", children: `${n} changed` }) : undefined }); })),
+})}
+${Panel({ title: "Changed from the default", id: "changed", meta: String(changed.length), flush: !!changed.length, children: changed.length ? List(changed.map((r) => rowItem(r, true))) : Empty({ title: "Everything is as it came" }) })}`;
   return shell({ title: "Settings · Dovre", frame, current: "/settings", body });
+}
+
+/** /settings/<area>: its panels, under what was changed here. */
+export function settingsArea(frame: Frame, area: AreaId, o: { areas: AreaId[]; rows: SettingRow[]; notes?: SettingsNotes; body: Html; title?: string; crumbs?: { href: string; label: string }[] }) {
+  const a = areaOf(area);
+  const changed = o.rows.filter((r) => r.area === area && r.changed);
+  const here = changed.length
+    ? html`<p class="settings-changed">Changed from the default: ${changed.map((r, i) => html`${i ? ", " : ""}<a href="${r.href}">${r.label}</a>${r.now ? html` <span class="t3">(${r.now})</span>` : ""}`)}</p>`
+    : "";
+  const body = html`${PageHeader({ title: o.title ?? a.title, sub: o.title ? undefined : a.about, crumbs: [{ href: "/settings", label: "Settings" }, ...(o.crumbs ?? [])], tabs: areaTabs(o.areas, area) })}
+${notes(o.notes ?? {})}
+${o.title ? "" : here}
+${o.body}`;
+  return shell({ title: `${o.title ?? a.title} · Settings · Dovre`, frame, current: "/settings", body });
+}
+
+/** /settings/packs: the packs that have settings, each to its own page. */
+export function packsList(packs: PackSettings[]): Html {
+  return Panel({
+    title: "Packs with settings",
+    meta: String(packs.length),
+    flush: !!packs.length,
+    children: packs.length
+      ? List(packs.map((k) => { const n = k.settings.filter((x) => x.set).length; return Item({ href: `/settings/packs/${encodeURIComponent(k.id)}`, title: html`<strong>${k.name}</strong>${k.on ? "" : html` ${Pill({ tone: "warn", children: "off" })}`}`, line: [k.settings.length ? `${n} of ${k.settings.length} set` : "", k.panel ? "its own settings" : ""].filter(Boolean).join(" · "), trail: n ? Pill({ tone: "accent", children: "changed" }) : undefined }); }))
+      : Empty({ title: "No pack here has settings" }),
+    foot: html`<a href="/packs">Packs</a> shows each one on or off, its refreshes and why.`,
+  });
 }

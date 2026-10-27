@@ -247,7 +247,7 @@ export const STYLE = String.raw`
   --sans: var(--nordwand);
   --display: var(--nordwand);
   --mono: var(--nordwand);
-  /* Reading settings (Settings → Look and layout, #183): the text size scales these, --lh is body text's line height. */
+  /* Reading settings (Settings → Layout, #183): the text size scales these, --lh is body text's line height. */
   --zoom: 1; --lh: 1.5;
   --fs-xs: calc(12px * var(--zoom)); --fs-s: calc(13px * var(--zoom)); --fs-m: calc(15px * var(--zoom)); --fs-l: calc(18px * var(--zoom)); --fs-xl: calc(23px * var(--zoom)); --fs-hero: calc(50px * var(--zoom));
   --r: 16px; --r-s: 9px;
@@ -596,6 +596,52 @@ details[open] > summary .chev { transform: rotate(225deg); top: 20px; }
 .notes { font-size: var(--fs-s); color: var(--ink-2); margin: 0 0 8px; }
 /* A pack's ingest tokens on Settings (src/packs/ingest.ts). */
 .ingest { margin-top: 12px; }
+/* Settings → Look (src/pages/layout.ts): each setting a row of choices to see and click, a radio each. */
+form.look { display: grid; gap: 16px; }
+.choices { border: 0; margin: 0; padding: 0; min-width: 0; }
+.choices > legend { font: 600 11px/1.2 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); padding: 0; margin-bottom: 8px; }
+.choice-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 8px; }
+.choices.seg .choice-row { display: inline-grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; max-width: 100%; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; min-width: 0; }
+.choice:hover { background: var(--hover); }
+.choice:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.choice-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
+.choice-name .t3 { display: block; font-size: var(--fs-s); }
+.choices.seg .choice { border-radius: 0; margin-left: -1px; padding: 8px 12px; flex-direction: column; justify-content: flex-end; gap: 6px; text-align: center; }
+.choices.seg .sample { height: 22px; display: flex; align-items: flex-end; justify-content: center; }
+.choices.seg .sample.lh { display: grid; align-content: end; justify-content: stretch; margin: 0 auto; }
+.choices.seg .choice-name { font-size: var(--fs-s); overflow-wrap: normal; }
+@media (max-width: 480px) { .choices.seg .choice { padding: 8px 6px; } }
+.choices.seg .choice:first-child { border-radius: 10px 0 0 10px; margin-left: 0; }
+.choices.seg .choice:last-child { border-radius: 0 10px 10px 0; }
+.choices.seg .choice:has(input:checked) { position: relative; }
+.sw { flex: none; display: inline-block; border: 1px solid var(--line); }
+.sw-theme { width: 34px; height: 24px; border-radius: 6px; background: var(--sw-bg); position: relative; overflow: hidden; }
+.sw-theme::before { content: ""; position: absolute; left: 5px; top: 5px; right: 5px; height: 6px; border-radius: 2px; background: var(--sw-ink); opacity: .85; }
+.sw-theme::after { content: ""; position: absolute; left: 5px; bottom: 5px; width: 12px; height: 5px; border-radius: 2px; background: var(--sw-accent); }
+.sw-system { --sw-ink: #2a1d14; --sw-accent: #1d5c88; background: linear-gradient(135deg, #f8f4ee 50%, #0a1117 50%); }
+.sw-light { --sw-bg: #f8f4ee; --sw-ink: #2a1d14; --sw-accent: #1d5c88; }
+.sw-dark { --sw-bg: #0a1117; --sw-ink: #e6ecf0; --sw-accent: #84b9df; }
+.sw-birch { --sw-bg: #f2f4f7; --sw-ink: #16202a; --sw-accent: #1d5c88; }
+.sw-polar { --sw-bg: #000000; --sw-ink: #eef2f5; --sw-accent: #84b9df; }
+.sw-ember { --sw-bg: #15100c; --sw-ink: #f2e9e0; --sw-accent: #8fc0e2; }
+.sw-accent { width: 20px; height: 20px; border-radius: 50%; background: var(--sw-accent); }
+.sw-fjord { --sw-accent: #1d5c88; }
+.sw-heather { --sw-accent: #6a4c9c; }
+.sw-glacier { --sw-accent: #0e6a8f; }
+.sample { flex: none; color: var(--ink); line-height: 1; }
+.font-mono { font-family: var(--nordwand); font-size: 18px; }
+.font-sans { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 18px; }
+.font-serif { font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, Cambria, serif; font-size: 18px; }
+.size-small { font-size: 12px; } .size-default { font-size: 15px; } .size-large { font-size: 18px; } .size-larger { font-size: 21px; }
+.sample.lh { display: grid; align-content: end; width: 22px; }
+.sample.lh i { display: block; height: 2px; background: var(--ink-2); border-radius: 1px; }
+.lh-tight { gap: 2px; } .lh-default { gap: 4px; } .lh-loose { gap: 6px; }
+/* Settings (src/pages/settings.ts): the search on its overview, and what an area has changed from the default. */
+form.settings-find { display: flex; gap: .6rem; align-items: center; margin: 0 0 16px; }
+form.settings-find input { flex: 1; min-width: 0; }
+.settings-changed { font-size: var(--fs-s); color: var(--ink-2); margin: 0 0 14px; }
 /* Settings → Writes (src/pages/writes.ts). */
 .writes fieldset { border: 0; padding: 0; margin: 0 0 10px; }
 .writes legend { font-weight: 600; font-size: var(--fs-s); margin-bottom: 4px; }

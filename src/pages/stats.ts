@@ -49,7 +49,7 @@ function spendTiles(spend?: SpendDay[]) {
 
 /**
  * One thing /stats can show: a headline number (`tile`) or a panel. Core offers the forge's
- * panels and agent spend; each pack's come from `Pack.stats`. Settings → Look and layout shows,
+ * panels and agent spend; each pack's come from `Pack.stats`. Settings → Layout shows,
  * hides and orders them by `id`; `draw` gives "" when there's nothing to draw yet.
  */
 export type StatOffer = { id: string; label: string; from: string; tile?: boolean; draw: () => Child };
@@ -176,7 +176,7 @@ ${github && !h && v.gathering ? Notice({ children: `Gathering the weeks from ${f
 ${kpis.length ? html`<div class="kpis">${kpis}</div>` : ""}
 ${charts.length ? html`<div class="stats-grid">${charts}</div>` : ""}
 ${quiet ? Empty({ title: `Nothing from ${forge.name} yet`, children: html`Press <strong>Gather again</strong>; it takes about half a minute.` }) : ""}
-${!offers.length ? Empty({ title: "Nothing to show here yet", children: html`Stats come from your forge (GitHub) and from packs that keep numbers. <a href="/packs">Packs</a> lists what's on.` }) : offers.length && !placed.length ? Empty({ title: "Every panel is hidden", children: html`Choose what Stats shows on <a href="/settings#layout">Settings → Look and layout</a>.` }) : ""}`;
+${!offers.length ? Empty({ title: "Nothing to show here yet", children: html`Stats come from your forge (GitHub) and from packs that keep numbers. <a href="/packs">Packs</a> lists what's on.` }) : offers.length && !placed.length ? Empty({ title: "Every panel is hidden", children: html`Choose what Stats shows on <a href="/settings/layout#stats">Settings → Layout</a>.` }) : ""}`;
 }
 
 function spendPanel(spend?: SpendDay[]) {
@@ -199,7 +199,7 @@ function spendPanel(spend?: SpendDay[]) {
   });
 }
 
-export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?: ForgeView; /** Packs' panels (statsFrom). */ packs?: StatOut[]; /** Settings → Look and layout's choices. */ layout?: Pick<Layout, "stats" | "statsWeeks" | "statsDays">; /** The forge gathers stats (default yes). */ github?: boolean } = {}) {
+export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?: ForgeView; /** Packs' panels (statsFrom). */ packs?: StatOut[]; /** Settings → Layout's choices. */ layout?: Pick<Layout, "stats" | "statsWeeks" | "statsDays">; /** The forge gathers stats (default yes). */ github?: boolean } = {}) {
   const now = o.now ?? Date.now();
   const forge = o.forge ?? GITHUB_VIEW;
   const github = o.github !== false;
@@ -211,7 +211,7 @@ export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?:
   const range = days ? `Last ${days} days` : `Last ${weeks} weeks`;
   // A longer range than the kept history reaches says so until the gather brings it.
   const reach = !github || !h ? "" : days ? ((h.days ?? 0) < days ? " (the org's merged PRs by day come with the gather)" : "") : (h.weeks ?? WEEKS) < weeks ? ` (${h.weeks ?? WEEKS} until the gather for ${weeks} ends)` : "";
-  const sub = github && h ? html`${range}${reach}. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}${v.spends !== false ? "; spend from this machine's transcripts" : ""}. <a href="/settings#layout">Choose what's here</a>.` : html`${range}. <a href="/settings#layout">Choose what's here</a>.`;
+  const sub = github && h ? html`${range}${reach}. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}${v.spends !== false ? "; spend from this machine's transcripts" : ""}. <a href="/settings/layout#stats">Choose what's here</a>.` : html`${range}. <a href="/settings/layout#stats">Choose what's here</a>.`;
   const refresh = github ? html`<form method="post" action="/stats/refresh"><button type="submit" class="ghost" data-busy="Gathering"${v.gathering ? html` disabled` : ""}>Gather again</button></form>` : "";
   return shell({
     title: "Stats · Dovre",

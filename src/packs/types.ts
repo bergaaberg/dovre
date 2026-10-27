@@ -81,7 +81,7 @@ export type StatUnit = "count" | "money" | "hours" | "days" | "percent";
 /**
  * A panel on /stats, from memory (`Pack.stats`): either a chart over time (`labels` along the
  * bottom, one or two `series` with a value per label) or one headline number (`value`, with a note
- * and a trend). Its `id` is the pack's own; Settings → Look and layout shows or hides it and sets
+ * and a trend). Its `id` is the pack's own; Settings → Layout shows or hides it and sets
  * its order. Nothing to show yet: leave out the values and say what to connect in `empty`.
  */
 export type PackStat = {

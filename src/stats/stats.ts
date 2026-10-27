@@ -15,7 +15,7 @@ export type Stats = {
   view(): StatsView;
   /**
    * Gathers again when it's due (or `force`); returns at once. `reach`: how many weeks, or days,
-   * Stats shows now (Settings → Look and layout); kept for the background gathers, and a reach the
+   * Stats shows now (Settings → Layout); kept for the background gathers, and a reach the
    * kept history doesn't have is gathered at once.
    */
   refresh(force?: boolean, reach?: { weeks?: number; days?: number }): void;
