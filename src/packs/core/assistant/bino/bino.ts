@@ -13,7 +13,7 @@ import { type BinoMemory, scopeOf } from "./memory.ts";
 import type { Route } from "./route.ts";
 
 export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number };
-export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; thinking: boolean; error?: string };
+export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean };
 
 /** Where the last few conversations are kept between restarts. */
 export type ConvStore = { load(): Conv[]; save(keep: Conv[]): void };
@@ -37,6 +37,8 @@ export type Bino = {
   start(text: string, o?: StartOpts): P<Conv>;
   /** Another message in one; false while Bino is still answering the last. */
   say(id: string, text: string, o?: { view?: string; context?: string }): P<boolean>;
+  /** Stops the answer being written (its call is cancelled, a late reply dropped); false when none is. */
+  stop(id: string): P<boolean>;
   /** Marks a plan as added to the list. */
   added(id: string, index: number, todo: number): P<void>;
   /** An act Bino proposed: how it stands (sending, done, refused). */
@@ -50,6 +52,7 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
   get(id: string): Conv | undefined;
   start(text: string, o?: StartOpts): Conv;
   say(id: string, text: string, o?: { view?: string; context?: string }): boolean;
+  stop(id: string): boolean;
   added(id: string, index: number, todo: number): void;
   act(id: string, index: number, n: number): Act | undefined;
   setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): void;
@@ -103,11 +106,13 @@ export function createBino(o: {
   const store = o.store ?? (o.file ? fileStore(o.file) : undefined);
   /** What the caller gathered for the answer it asked for: in memory only, for that one answer. */
   const given = new Map<string, string>();
+  /** The answer being written, by conversation: Stop aborts it. */
+  const writing = new Map<string, AbortController>();
   for (const c of store?.load() ?? []) if (c && typeof c.id === "string" && Array.isArray(c.msgs)) {
       // A send cut off by a restart: say so rather than look stuck.
       for (const a of c.msgs.flatMap((m) => m.acts ?? [])) if (a.sending) Object.assign(a, { sending: false, error: "Dovre restarted while this was sending: check the chat before sending again." });
       // …and an answer cut off by one.
-      const cut = c.msgs.at(-1)?.role === "user" && !c.error;
+      const cut = c.msgs.at(-1)?.role === "user" && !c.error && !c.stopped;
       convs.set(c.id, { ...c, thinking: false, ...(cut ? { error: "Bino was interrupted (Dovre restarted) before answering: ask again." } : {}) });
     }
   const trim = () => {
@@ -138,20 +143,29 @@ export function createBino(o: {
     }
     c.thinking = true;
     c.error = undefined;
+    c.stopped = undefined;
     changed(c);
+    const ctl = new AbortController();
+    writing.set(c.id, ctl);
+    const { signal } = ctl;
     const job = (async () => {
       try {
         const context = await o.context(c, given.get(c.id));
         given.delete(c.id);
         const kinds = o.acts === false ? [] : (o.kinds?.() ?? []);
         const system = systemOf(context, await o.memory.prompt(c.app ? scopeOf(c.app) : undefined).catch(() => ""), { acts: o.acts ?? true, kinds });
-        const { text, cost } = await ask({ system, user: transcriptOf(c.msgs.map(said)) });
+        signal.throwIfAborted();
+        const { text, cost } = await ask({ system, user: transcriptOf(c.msgs.map(said)), signal });
+        // Stopped while it was being written: what came anyway isn't shown.
+        if (signal.aborted) return;
         const { text: noPlan, plan } = splitReply(text);
         const { text: shown, acts } = splitActs(noPlan, kinds);
         c.msgs.push({ role: "assistant", text: shown || (plan ? "Here's a breakdown:" : acts.length ? "Here it is:" : "…"), at: now(), cost, ...(plan ? { plan } : {}), ...(acts.length ? { acts } : {}) });
       } catch (e) {
+        if (signal.aborted) return;
         c.error = `Bino didn't answer: ${String((e as Error).message ?? e).slice(0, 300)}`;
       }
+      writing.delete(c.id);
       c.thinking = false;
       changed(c);
       // Memory, after the reply is out: only what was said, with the cheap model.
@@ -196,6 +210,18 @@ export function createBino(o: {
       c.msgs.push({ role: "user", text: said, at: now(), ...(opts.view ? { view: opts.view } : {}) });
       if (opts.context !== undefined) given.set(c.id, opts.context);
       answer(c);
+      return true;
+    },
+    stop(id) {
+      const c = convs.get(id);
+      const ctl = writing.get(id);
+      if (!c || !c.thinking || !ctl) return false;
+      writing.delete(id);
+      given.delete(id);
+      ctl.abort();
+      c.thinking = false;
+      c.stopped = true;
+      changed(c);
       return true;
     },
     added(id, index, todo) {

@@ -754,7 +754,7 @@ const KEYS = [
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
   ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["g b", "Bino"], ["H / L", "Back / forward"]]],
   ["This page", [["r", "Refresh the data"], ["B", "Bino: open its panel, told which page you are on; into it when it's open"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
-  ["Bino", [["Enter", "Send"], ["Shift Enter", "A new line"], ["↑", "In an empty box: what you last sent"], ["Esc", "Out of the box; again closes the panel"], ["B", "In the panel: close it"]]],
+  ["Bino", [["Enter", "Send"], ["Shift Enter", "A new line"], ["↑", "In an empty box: what you last sent"], ["Esc / s", "While Bino answers: stop it"], ["Esc", "Out of the box; again closes the panel"], ["B", "In the panel: close it"]]],
 ];
 let help = null;
 function showHelp() {
@@ -995,6 +995,9 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.target.closest?.("dialog")) return;
   const k = e.key;
+  // Bino answering: Esc or s stops it, before Esc closes the panel.
+  const stop = (k === "Escape" || k === "s") && document.querySelector("[data-bino-stop]");
+  if (stop) { e.preventDefault(); stop.click(); return; }
   if (k === "Escape" && (framed || openDock())) { dockOpen(openDock(), false, true); return; }
   if (DOCK_KEYS[k] || (framed && /^[A-Z]$/.test(k) && !"FGHJKL".includes(k))) {
     if (keysOff("docks")) return;

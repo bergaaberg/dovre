@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { OmpAsker } from "./omp.ts";
 import { codexCost } from "../agents/codex.ts";
 
-export type Complete = (p: { system: string; user: string; model?: string }) => Promise<{ text: string; cost: number }>;
+export type Complete = (p: { system: string; user: string; model?: string; signal?: AbortSignal }) => Promise<{ text: string; cost: number }>;
 
 export function cliArgs(system: string, model: string): string[] {
   return [
@@ -60,7 +60,7 @@ export function claudeCli(opts: { bin?: string; pre?: string[]; timeoutMs?: numb
   };
 }
 
-export type RunFn = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string }) => Promise<Ran>;
+export type RunFn = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal }) => Promise<Ran>;
 
 /**
  * agy, only when chosen (BINO_VIA / SUMMARIES=agy): unlike the other routes it can't be run without
@@ -73,7 +73,7 @@ export function agyCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number;
   const cwd = AGY_LLM_DIR;
   mkdirSync(cwd, { recursive: true });
   const runner = opts.run ?? runOff;
-  return async ({ system, user, model }) => {
+  return async ({ system, user, model, signal }) => {
     let r: Ran;
     const args = [
       ...(opts.pre ?? []),
@@ -85,7 +85,7 @@ export function agyCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number;
     ];
     const input = system ? `${system}\n\n${user}` : user;
     try {
-      r = await runner(bin, args, { cwd, input, timeoutMs: opts.timeoutMs ?? 90_000 });
+      r = await runner(bin, args, { cwd, input, timeoutMs: opts.timeoutMs ?? 90_000, signal });
     } catch (e) {
       throw new Error(/timed out|ETIMEDOUT|killed/i.test(String((e as Error).message)) ? "summary timed out" : String((e as Error).message).slice(0, 300));
     }
@@ -114,11 +114,11 @@ export function codexCli(opts: { bin?: string; pre?: string[]; timeoutMs?: numbe
   const cwd = CODEX_LLM_DIR;
   mkdirSync(cwd, { recursive: true });
   const runner = opts.run ?? runOff;
-  return async ({ system, user, model }) => {
+  return async ({ system, user, model, signal }) => {
     let r: Ran;
     const args = [...(opts.pre ?? []), "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", ...(model ? ["--model", model] : []), "-"];
     try {
-      r = await runner(bin, args, { cwd, input: system ? `${system}\n\n${user}` : user, timeoutMs: opts.timeoutMs ?? 90_000 });
+      r = await runner(bin, args, { cwd, input: system ? `${system}\n\n${user}` : user, timeoutMs: opts.timeoutMs ?? 90_000, signal });
     } catch (e) {
       throw new Error(/timed out|ETIMEDOUT|killed/i.test(String((e as Error).message)) ? "summary timed out" : String((e as Error).message).slice(0, 300));
     }

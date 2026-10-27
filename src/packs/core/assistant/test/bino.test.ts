@@ -5,6 +5,7 @@ import { createApp } from "../../../../app.ts";
 import { createBino } from "../bino/bino.ts";
 import { contextOf, MAX_STEPS, planOf, splitReply, transcriptOf } from "../bino/context.ts";
 import { loadMemory, noMemory } from "../bino/memory.ts";
+import { createCfGatewayAsk } from "../bino/gateway.ts";
 import { binoArgs, type Route, routeOf, viaOf } from "../bino/route.ts";
 import { openDb } from "../../../../db.ts";
 import { addTodo, listTodos } from "../../../../todo/store.ts";
@@ -158,4 +159,68 @@ test("the Bino page offers openings and my open items to break down, each a one-
   const res = await app.request("http://localhost/bino/new", { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: `text=&todo=${open.id}` });
   assert.equal(res.status, 303);
   assert.match(res.headers.get("location")!, /^\/bino\/c\/[0-9a-f-]{36}$/);
+});
+
+/** A route that answers only when told to: `late()` replies even after Stop (as a route that can't be cancelled would). */
+function heldRoute() {
+  const held: { signal?: AbortSignal; reply: (t: string) => void }[] = [];
+  const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: (p) => new Promise((res) => held.push({ signal: p.signal, reply: (text) => res({ text, cost: 0.01 }) })) };
+  return { route, held, late: (text: string) => held.at(-1)!.reply(text) };
+}
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 5));
+};
+
+test("Stop: the answer being written is cancelled, a reply that comes anyway is dropped, and I can ask again", async () => {
+  const h = heldRoute();
+  const bino = createBino({ route: h.route, memory: noMemory("no"), context: async () => "" });
+  const c = bino.start("Think about certs");
+  await until(() => h.held.length > 0);
+  assert.equal(bino.get(c.id)!.thinking, true);
+  assert.equal(h.held[0]!.signal?.aborted, false);
+  assert.equal(bino.stop(c.id), true);
+  assert.equal(h.held[0]!.signal?.aborted, true, "the call is told to stop");
+  assert.deepEqual([bino.get(c.id)!.thinking, bino.get(c.id)!.stopped, bino.get(c.id)!.error], [false, true, undefined]);
+  h.late("Too late.");
+  await bino.idle();
+  assert.deepEqual(bino.get(c.id)!.msgs.map((m) => m.role), ["user"], "what came after Stop isn't shown");
+  assert.equal(bino.stop(c.id), false, "nothing to stop");
+  assert.equal(bino.say(c.id, "Again, shorter"), true);
+  await until(() => h.held.length > 1);
+  assert.equal(bino.get(c.id)!.stopped, undefined);
+  h.late("Short.");
+  await bino.idle();
+  assert.deepEqual(bino.get(c.id)!.msgs.map((m) => m.text), ["Think about certs", "Again, shorter", "Short."]);
+});
+
+test("Stop on the page: a button while Bino thinks, then a line saying it was stopped; in the pane it stays there", async () => {
+  const h = heldRoute();
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route: h.route, memory: noMemory("no") } });
+  const req = (path: string, body?: string) => app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body });
+  const at = (await req("/bino/new", "text=Long+question")).headers.get("location")!;
+  await until(() => h.held.length > 0);
+  const id = at.split("/").at(-1)!;
+  assert.match(await (await req(at)).text(), new RegExp(`action="/bino/c/${id}/stop"[^]*data-bino-stop`));
+  assert.match(await (await req(`/bino/dock/c/${id}`)).text(), /data-bino-stop/);
+  const stopped = await req(`${at}/stop`, "dock=1");
+  assert.equal(stopped.status, 303);
+  assert.equal(stopped.headers.get("location"), `/bino/dock/c/${id}`);
+  const page = await (await req(at)).text();
+  assert.match(page, /You stopped this answer/);
+  assert.doesNotMatch(page, /data-bino-stop/);
+  assert.equal((await req("/bino/c/00000000-0000-0000-0000-000000000000/stop", "")).status, 404);
+  assert.equal((await app.request(`http://localhost${at}/stop`, { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "https://evil.example" }, body: "" })).status >= 400, true, "not from another site");
+});
+
+test("Stop cancels a gateway request in flight", async () => {
+  let seen: AbortSignal | undefined;
+  const ask = createCfGatewayAsk({ accountId: "a", apiToken: "t", fetchFn: (async (_u: string, init: RequestInit) => {
+    seen = init.signal ?? undefined;
+    return new Promise((_res, rej) => init.signal!.addEventListener("abort", () => rej(init.signal!.reason)));
+  }) as typeof fetch });
+  const ctl = new AbortController();
+  const pending = ask({ system: "S", user: "U", signal: ctl.signal });
+  ctl.abort();
+  await assert.rejects(pending);
+  assert.equal(seen?.aborted, true);
 });

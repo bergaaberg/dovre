@@ -78,6 +78,15 @@ test("programs start on a worker thread: the server's thread never stalls while 
   assert.equal((await runOff(process.execPath, ["-e", "process.exit(3)"])).code, 3, "a non-zero exit is an answer");
   await assert.rejects(runOff(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], { timeoutMs: 200 }), /timed out/);
   await assert.rejects(runOff("no-such-program-dovre", []), /ENOENT/);
+  // Stopped (Bino's Stop): the program is killed at once, and the next one still runs.
+  const ctl = new AbortController();
+  const t0 = Date.now();
+  const long = runOff(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], { signal: ctl.signal });
+  setTimeout(() => ctl.abort(), 100);
+  await assert.rejects(long, /stopped/);
+  assert.ok(Date.now() - t0 < 2000, "not left to run out");
+  await assert.rejects(runOff(process.execPath, ["-e", ""], { signal: ctl.signal }), /stopped/, "already stopped: never starts");
+  assert.equal((await runOff(process.execPath, ["-e", "process.exit(0)"])).code, 0);
 });
 
 test("cached GHE answers: known ones come at once and load again in the background; kept ones survive a restart; a write reads fresh", async () => {
