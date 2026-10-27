@@ -30,7 +30,7 @@ export type Layout = {
   statsWeeks?: StatsWeeks;
 };
 export type StatPlace = { show: boolean; order: number };
-export const STATS_WEEKS = [4, 12] as const;
+export const STATS_WEEKS = [4, 12, 26] as const;
 export type StatsWeeks = (typeof STATS_WEEKS)[number];
 export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];

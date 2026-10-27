@@ -575,11 +575,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const packStats = () => statsFrom(shown(), ctxOf, layout.get().statsWeeks ?? WEEKS, (id, line) => packLog(id)(line));
   app.get("/stats", async (c) => {
     const { frame } = await page();
-    stats.refresh();
+    stats.refresh(false, layout.get().statsWeeks ?? WEEKS);
     return c.html(statsPage(frame, stats.view(), { forge, packs: packStats(), layout: layout.get(), github: can("stats") }));
   });
   app.post("/stats/refresh", async (c) => {
-    stats.refresh(true);
+    stats.refresh(true, layout.get().statsWeeks ?? WEEKS);
     return c.redirect("/stats", 303);
   });
 

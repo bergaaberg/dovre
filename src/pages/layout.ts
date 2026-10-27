@@ -44,7 +44,7 @@ ${v.cards.length
   : ""}
 ${v.stats.length
   ? html`<div class="field"><span class="label">Stats</span><span class="hint">What the Stats page shows, lowest number first, and how far back its weekly charts reach.</span></div>
-<div class="fields">${pick("statsWeeks", "Weeks on Stats", v.layout.statsWeeks ? String(v.layout.statsWeeks) : "", [{ value: "", label: "12 weeks" }, { value: "4", label: "4 weeks" }])}</div>
+<div class="fields">${pick("statsWeeks", "Weeks on Stats", v.layout.statsWeeks ? String(v.layout.statsWeeks) : "", [{ value: "", label: "12 weeks" }, { value: "4", label: "4 weeks" }, { value: "26", label: "26 weeks" }])}</div>
 <div class="layout-rows">${v.stats.map(stat)}</div>`
   : ""}
 ${v.feeds.length
