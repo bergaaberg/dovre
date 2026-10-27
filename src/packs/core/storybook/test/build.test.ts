@@ -19,7 +19,10 @@ const until = async (ok: () => boolean) => {
 /** A fake machine: git makes the worktree (with a pnpm lockfile), storybook build writes iframe.html; `fail` names a step that fails. */
 function fakeRun(fail?: string) {
   const seen: string[] = [];
-  const run: Run = async (t, args, cwd) => {
+  const run: Run = async (t, all, cwd) => {
+    // git always runs with long paths on (Windows); the rest is the command.
+    if (t.bin === "git") assert.deepEqual(all.slice(0, 2), ["-c", "core.longpaths=true"]);
+    const args = t.bin === "git" ? all.slice(2) : all;
     seen.push(`${t.bin} ${args.join(" ")}`);
     if (fail && args.includes(fail)) return { code: 1, out: `step 1\n\x1b[31mERR\x1b[0m <script>x</script>\n` };
     if (args[0] === "worktree" && args[1] === "add") {

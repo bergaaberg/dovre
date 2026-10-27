@@ -68,6 +68,8 @@ export function createBuilds(o: {
   log?(line: string): void;
 }): Builds {
   const run = o.run ?? runTool;
+  // Windows: deep component folders pass 260 characters inside the build worktree.
+  const git = (args: string[], cwd: string, ms: number) => run(o.tools.git!, ["-c", "core.longpaths=true", ...args], cwd, ms);
   const outDir = resolve(o.dir, "out");
   const treeDir = resolve(o.dir, "trees");
   const states = new Map<string, BuildState>();
@@ -102,19 +104,24 @@ export function createBuilds(o: {
     const checkout = o.checkout(repo);
     if (!checkout) return fail(`There's no checkout of ${repo} right under the code folder.`);
     step("Fetching the commit");
-    const fetched = await run(o.tools.git, ["fetch", "--no-tags", "--quiet", "origin", sha], checkout, 5 * 60_000);
+    const fetched = await git(["fetch", "--no-tags", "--quiet", "origin", sha], checkout, 5 * 60_000);
     if (fetched.code) return fail("git fetch failed.", fetched.out);
     const tree = join(treeDir, slugOf(repo));
     mkdirSync(treeDir, { recursive: true });
     if (existsSync(join(tree, ".git"))) {
-      const moved = await run(o.tools.git, ["checkout", "--detach", "--force", "--quiet", sha], tree, 2 * 60_000);
+      const moved = await git(["checkout", "--detach", "--force", "--quiet", sha], tree, 2 * 60_000);
       if (moved.code) return fail("git checkout failed in the build worktree.", moved.out);
-      await run(o.tools.git, ["clean", "-fdq"], tree, 2 * 60_000);
+      await git(["clean", "-fdq"], tree, 2 * 60_000);
     } else {
       rmSync(tree, { recursive: true, force: true });
-      await run(o.tools.git, ["worktree", "prune"], checkout, 60_000);
-      const added = await run(o.tools.git, ["worktree", "add", "--detach", "--quiet", tree, sha], checkout, 5 * 60_000);
-      if (added.code) return fail("git worktree add failed.", added.out);
+      await git(["worktree", "prune"], checkout, 60_000);
+      const added = await git(["worktree", "add", "--detach", "--quiet", tree, sha], checkout, 5 * 60_000);
+      if (added.code) {
+        // Half made: gone, so the next build starts it again rather than using it.
+        rmSync(tree, { recursive: true, force: true });
+        await git(["worktree", "prune"], checkout, 60_000);
+        return fail("git worktree add failed.", added.out);
+      }
     }
     const how = installer(tree, o.tools);
     if ("why" in how) return fail(how.why);
