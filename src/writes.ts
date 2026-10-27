@@ -18,6 +18,7 @@ export const WRITES: WriteKind[] = [
   { kind: "pr.combine-dependabot", label: "Combine Dependabot PRs", group: "Pull requests" },
   { kind: "pr.dependabot-groups", label: "Add groups to dependabot.yml", group: "Pull requests" },
   { kind: "pr.merge-combined", label: "Merge a green combined Dependabot PR", group: "Pull requests" },
+  { kind: "pr.relock-dependabot", label: "Add left-out bumps to a combined PR, lockfiles made again", group: "Pull requests" },
   { kind: "review.post", label: "Post a review or replies", group: "Pull requests" },
   { kind: "issue.assign", label: "Assign me an issue", group: "Issues" },
   { kind: "issue.close", label: "Close an issue", group: "Issues" },

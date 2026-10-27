@@ -37,6 +37,7 @@ import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
 import { claudeHarness, createRunner, type Run } from "./agents/runner.ts";
+import { addLeftOut } from "./actions/relock.ts";
 import { ompHarness } from "./agents/omp.ts";
 import { agyHarness } from "./agents/agy.ts";
 import { codexHarness } from "./agents/codex.ts";
@@ -402,6 +403,7 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   forge,
   summaries,
   runner,
+  relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n),
   hub,
   notify,
   info: { version, startedAt: Date.now() },

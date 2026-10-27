@@ -8,7 +8,7 @@ import { ago } from "../format.ts";
 import { Link, prTabs, safeUrl } from "./parts.ts";
 
 /** A write running after the redirect: combining a repo's bumps, or adding groups to its dependabot.yml. */
-export type Job = { repo: string; what: "combine" | "groups" | "merge" } & ({ state: "running" } | { state: "done"; ok: boolean; message: string; url?: string });
+export type Job = { repo: string; what: "combine" | "groups" | "merge" | "relock" } & ({ state: "running" } | { state: "done"; ok: boolean; message: string; url?: string });
 
 /** Where a combined PR stands: what keeps it from merging, or that it's ready. */
 function combinedState(c: Combined): Html {
@@ -48,7 +48,7 @@ function combinedPanel(repos: RepoQueue[], running: boolean): Html {
   });
 }
 
-function repoPanel(r: RepoQueue, now: number, running: Set<string>): Html {
+function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: boolean): Html {
   const n = r.prs.length;
   const take = Math.min(n, MAX_COMBINE);
   const meta = html`${n} open · oldest ${ago(Date.parse(r.oldest), now)}${r.security ? html` · ${Pill({ tone: "bad", children: `${r.security} security` })}` : ""}`;
@@ -70,11 +70,22 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>): Html {
         label: "Group future bumps",
         question: html`Open a PR in ${r.repo} that adds a minor-and-patch group to each update in .github/dependabot.yml? Once it merges, Dependabot opens one PR per ecosystem for those bumps itself.`,
       });
+  const c = r.combined;
+  const addLeft = !c || !relock
+    ? ""
+    : running.has(`relock:${r.repo}`)
+      ? html`<span class="t3">Adding left-out bumps…</span>`
+      : Confirm({ kind: "pr.relock-dependabot",
+          action: "/prs/dependabot/relock",
+          fields: { repo: r.repo, number: String(c.number) },
+          label: "Add left-out bumps",
+          question: html`Merge the Dependabot PRs that aren't in ${r.repo}#${c.number} yet into it? This runs in your checkout of ${r.repo}, in a temporary worktree. Where only lockfiles conflict, they're made again (pnpm and npm with install scripts off, go mod tidy). Then the branch is pushed with your git credentials.`,
+        });
   return Panel({
     title: r.repo,
     meta,
     actions: html`${groups}${combine}`,
-    children: html`${r.combined ? Notice({ children: html`A combined PR is already open: ${Link(r.combined.url, `#${r.combined.number}`)}.` }) : ""}${List(
+    children: html`${c ? Notice({ children: html`A combined PR is already open: ${Link(c.url, `#${c.number}`)}. ${addLeft}` }) : ""}${List(
       r.prs.map((p) =>
         Item({
           href: safeUrl(p.url),
@@ -87,13 +98,13 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>): Html {
   });
 }
 
-export function dependabotPage(frame: Frame, o: { org: string; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number }): string {
+export function dependabotPage(frame: Frame, o: { org: string; /** Local mode: left-out bumps can be added to a combined PR. */ relock?: boolean; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number }): string {
   const now = o.now ?? Date.now();
   const jobs = o.jobs ?? [];
   const running = new Set(jobs.filter((j) => j.state === "running").map((j) => `${j.what}:${j.repo}`));
   const jobLines = jobs.map((j) =>
     j.state === "running"
-      ? html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">${j.what === "groups" ? "Adding groups to the dependabot.yml in" : j.what === "merge" ? "Merging" : "Combining the Dependabot PRs in"} ${j.repo}. This fills in by itself.</p></section>`
+      ? html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">${j.what === "groups" ? "Adding groups to the dependabot.yml in" : j.what === "merge" ? "Merging" : j.what === "relock" ? "Adding the left-out bumps, lockfiles made again, in" : "Combining the Dependabot PRs in"} ${j.repo}. This fills in by itself.</p></section>`
       : Notice({ tone: j.ok ? "ok" : "bad", children: html`${j.message}${j.url ? html` ${Link(j.url, "Open it")}` : ""}` }),
   );
   const total = (o.repos ?? []).reduce((n, r) => n + r.prs.length, 0);
@@ -104,7 +115,7 @@ export function dependabotPage(frame: Frame, o: { org: string; repos?: RepoQueue
       }${
         o.repos && !o.repos.length
           ? Empty({ title: "No Dependabot PRs", children: html`<p class="t2">Nothing open from Dependabot in ${o.org}.</p>` })
-          : html`${combinedPanel(o.repos ?? [], running.has("merge:combined PRs"))}${(o.repos ?? []).map((r) => repoPanel(r, now, running))}`
+          : html`${combinedPanel(o.repos ?? [], running.has("merge:combined PRs"))}${(o.repos ?? []).map((r) => repoPanel(r, now, running, !!o.relock))}`
       }`;
   return String(
     shell({

@@ -134,7 +134,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** What the packs tell the avatar (avatarFrom), and whether anything has it at work (a pack's thing working, or Bino answering). */ feeds: () => AvatarFeeds & { busy: boolean }; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can">; summaries?: Summaries; runner?: Runner; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
@@ -619,6 +619,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     return c.redirect("/prs/stacks", 303);
   });
   // ── Dependabot (dovre#108): the queue across repos, and combining a repo's bumps into one PR ──
+  // Local mode only: the left-out bumps merged into the combined PR in a checkout, lockfiles made again (src/actions/relock.ts).
+  const relock = env.IS_HOSTED === "1" ? undefined : deps.relock;
   let botQueue: { at: number; value: Awaited<ReturnType<typeof loadQueue>> } | undefined;
   let botLoading: Promise<Awaited<ReturnType<typeof loadQueue>>> | undefined;
   const loadBots = (fresh = false) => {
@@ -636,9 +638,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     for (const [k, j] of botJobs) if (j.state === "done") botJobs.delete(k);
     const got = await Promise.race([loadBots().then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) })), new Promise<undefined>((res) => setTimeout(res, 1500))]);
     if (!got) return c.html(dependabotPage(frame, { org: env.GHE_ORG, pending: true, jobs }));
-    return c.html(dependabotPage(frame, { org: env.GHE_ORG, jobs, ...(got.ok ? got.value : { error: got.error }) }));
+    return c.html(dependabotPage(frame, { org: env.GHE_ORG, jobs, relock: !!relock, ...(got.ok ? got.value : { error: got.error }) }));
   });
-  const botWrite = (what: BotJob["what"], run: (repo: string) => Promise<{ ok: boolean; message: string; url?: string }>) => async (c: Context) => {
+  const botWrite = (what: BotJob["what"], run: (repo: string, form: Record<string, unknown>) => Promise<{ ok: boolean; message: string; url?: string }>) => async (c: Context) => {
     const form = await c.req.parseBody();
     const repo = repoIn(ownersIn(env), form.repo);
     if (!repo) {
@@ -648,7 +650,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const key = `${what}:${repo}`;
     if (botJobs.get(key)?.state !== "running") {
       botJobs.set(key, { repo, what, state: "running" });
-      const job = run(repo)
+      const job = run(repo, form)
         .then((r) => botJobs.set(key, { repo, what, state: "done", ok: r.ok, message: r.message, url: r.url }))
         .catch((e) => botJobs.set(key, { repo, what, state: "done", ok: false, message: String((e as Error)?.message ?? e) }))
         .then(() => loadBots(true).catch(() => undefined))
@@ -667,6 +669,15 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     botWrite("combine", (repo) => combine(ghe, env.DB, repo, { security: botQueue?.value.repos.find((r) => r.repo === repo)?.prs.filter((p) => p.security).map((p) => p.number) ?? [] })),
   );
   app.post("/prs/dependabot/groups", botWrite("groups", (repo) => addGroups(ghe, env.DB, repo)));
+  app.post(
+    "/prs/dependabot/relock",
+    botWrite("relock", async (repo, form) => {
+      const n = typeof form.number === "string" && /^\d{1,9}$/.test(form.number) ? Number(form.number) : 0;
+      if (!relock) return { ok: false, message: "Adding left-out bumps runs in local mode only: it needs a checkout." };
+      if (!n) return { ok: false, message: "That isn't a combined PR." };
+      return relock(repo, n);
+    }),
+  );
   // Bulk merge of green combined PRs (dovre#108): each re-checked on its own after the redirect; MAX_MERGE at most.
   app.post("/prs/dependabot/merge", async (c) => {
     const form = await c.req.parseBody({ all: true });
