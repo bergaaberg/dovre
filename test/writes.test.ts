@@ -26,7 +26,7 @@ test("writes: ask twice by default; ticked kinds take one click; floors and unna
   const before = await (await get("/probe")).text();
   assert.equal((before.match(/<details class="confirm">/g) ?? []).length, 3);
 
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/writes")).text();
   assert.match(settings, /id="writes"/);
   assert.match(settings, /name="once" value="deploy.approve"/);
   assert.doesNotMatch(settings, /name="once" value="todo.delete"/, "a floor can't be ticked");
@@ -38,7 +38,7 @@ test("writes: ask twice by default; ticked kinds take one click; floors and unna
   assert.match(after, /<form class="post" method="post" action="\/a">/, "approve: one click");
   assert.match(after, /<details class="confirm"><summary>Delete/, "delete: always asks");
   assert.match(after, /<details class="confirm"><summary>None/, "no kind: asks");
-  assert.match(await (await get("/settings")).text(), /value="deploy.approve" checked/);
+  assert.match(await (await get("/settings/writes")).text(), /value="deploy.approve" checked/);
 
   assert.equal((await save("", "https://evil.example")).status, 403, "only from this app");
   assert.equal((await save("")).status, 303);
@@ -77,7 +77,7 @@ test("writes: a pack's own kinds (dovre#104) are on Settings under its name and 
     { kind: "shop.wipe", label: "Delete a customer", group: "Shop", floor: "twice" },
   ]);
   const { app, get } = signedIn(snapshot(), {}, { packs: [shop] });
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/writes")).text();
   assert.match(settings, /<legend>Shop<\/legend><label class="write-row"><input type="checkbox" name="once" value="shop.refund">/);
   assert.doesNotMatch(settings, /value="shop.wipe"/);
   const save = (body: string) =>

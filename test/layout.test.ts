@@ -70,7 +70,7 @@ test("Settings → Layout: tabs, a card moved and one hidden, a feed off, a pack
     feed: () => [{ key: "2", at: Date.now(), tone: "ok", what: "posted", title: "a post" }],
   });
   const { app, get, post } = signedIn(snapshot(), {}, { packs: [shop, blog] });
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/layout")).text();
   assertInert("settings with a hostile pack", settings);
   assert.match(settings, /<form method="post" action="\/settings\/layout" data-autosave>/);
   assert.match(settings, /<select name="tab1">[\s\S]*?<option value="\/shop" selected>Shop<\/option>/, "the tab the pack marks, as it is now");
@@ -117,14 +117,14 @@ test("look: a picked theme and accent are on every page's <html>, the CSS has a 
   assert.match(page, /<html lang="en" data-theme="dark" data-accent="heather">/);
   assert.equal(page.match(/name="theme-color"/g)?.length, 1, "picked: one bar colour, the theme's");
   assert.match(page, /<meta name="theme-color" content="#0e1922">/);
-  assert.match(await (await get("/settings")).text(), /<option value="heather" selected>/);
+  assert.match(await (await get("/settings/look")).text(), /name="accent" value="heather" checked>/);
   await post("/settings/layout", { theme: "light" });
   assert.match(await (await get("/prs")).text(), /<meta name="theme-color" content="#efe7db">/);
   await post("/settings/layout", { theme: "ember", accent: "glacier" });
   const ember = await (await get("/prs")).text();
   assert.match(ember, /<html lang="en" data-theme="ember" data-accent="glacier">/);
   assert.match(ember, /<meta name="theme-color" content="#1b140f">/);
-  assert.match(await (await get("/settings")).text(), /<option value="ember" selected>/);
+  assert.match(await (await get("/settings/look")).text(), /name="theme" value="ember" checked>/);
 });
 
 test("reading settings (#183): font, text size and line height on <html>, a CSS block for each, junk dropped, back to default", async () => {
@@ -134,8 +134,8 @@ test("reading settings (#183): font, text size and line height on <html>, a CSS 
   const { get, post } = signedIn(snapshot());
   await post("/settings/layout", { font: "serif", textSize: "larger", lineHeight: "loose" });
   assert.match(await (await get("/prs")).text(), /<html lang="en" data-font="serif" data-size="larger" data-lh="loose">/);
-  const settings = await (await get("/settings")).text();
-  for (const v of ["serif", "larger", "loose"]) assert.match(settings, new RegExp(`<option value="${v}" selected>`));
+  const settings = await (await get("/settings/look")).text();
+  for (const v of ["serif", "larger", "loose"]) assert.match(settings, new RegExp(`value="${v}" checked>`));
   await post("/settings/layout", { font: "", textSize: "", lineHeight: "" });
   assert.match(await (await get("/prs")).text(), /<html lang="en">/);
 });
@@ -182,6 +182,6 @@ test("Bino's button: the assistant icon without an avatar; with one, the avatar 
   assert.match(button(await (await get("/prs")).text()), /face-btn[^]*av-face/);
   await post("/settings/layout", { binoButton: "icon" });
   assert.match(button(await (await get("/prs")).text()), /href="#i-bino"/);
-  assert.match(await (await get("/settings")).text(), /<option value="icon" selected>The assistant icon/);
+  assert.match(await (await get("/settings/look")).text(), /name="binoButton" value="icon" checked>[^]*?The assistant icon/);
   assert.deepEqual(layoutOf({ binoButton: "face" }), {}, "only what it knows");
 });

@@ -10,7 +10,7 @@ import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
 
-export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; saved?: string; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean };
+export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -83,9 +83,8 @@ function settingItem(s: PackSetting, env: PacksView["env"]) {
 }
 
 /** Local editor for a pack's manifest settings (never renders existing secret values). */
-function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"], openByDefault: boolean) {
-  return html`<details${openByDefault ? html` open` : ""}><summary class="t2">Configure in <code>.dev.vars</code></summary>
-<form method="post" action="/packs/${encodeURIComponent(id)}/settings">
+function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]) {
+  return html`<form method="post" action="/packs/${encodeURIComponent(id)}/settings">
   <div class="fields aligned">${settings.map((s) => {
     const v = env[s.key]?.trim();
     return s.secret
@@ -93,12 +92,25 @@ function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]
       : html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="text" name="${s.key}" value="${v ?? ""}" placeholder="${s.help ?? ""}" maxlength="2000" spellcheck="false">${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
   })}</div>
   <div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save settings</button></div>
-</form></details>`;
+</form>`;
+}
+
+/** The settings a pack's manifest lists, a valid key each. */
+export const manifestSettings = (m: PackManifest | undefined): PackSetting[] => (Array.isArray(m?.settings) ? m.settings.filter((s) => s && typeof s.key === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(s.key)) : []);
+
+/** Settings → Packs → a pack: its manifest's settings, set or missing, and (on a machine) the form that keeps them in `.dev.vars`. */
+export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean) {
+  return Panel({
+    title: "Its settings",
+    id: "manifest",
+    meta: hosted ? "set as the Worker's vars and secrets" : "kept in .dev.vars",
+    children: html`${List(settings.map((s) => settingItem(s, env)))}${hosted ? "" : settingsForm(id, settings, env)}`,
+  });
 }
 
 function packPanel(m: PackManifest | undefined, id: string, name: string, o: { pack?: Pack; why?: string }, v: PacksView) {
   const r = v.refreshes?.get(id);
-  const settings = Array.isArray(m?.settings) ? m.settings.filter((s) => s && typeof s.key === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(s.key)) : [];
+  const settings = manifestSettings(m);
   const pairs: [Child, Child][] = [];
   if (o.why) pairs.push(["Off", o.why]);
   if (m) pairs.push(["Runs", `${WHERE[m.execution ?? "any"] ?? m.execution} · ${m.domain}${v.core?.includes(id) ? " · Dovre's own" : ""}`]);
@@ -112,13 +124,12 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (m?.requiredBinaries?.length) pairs.push(["Needs on PATH", m.requiredBinaries.join(", ")]);
   const copy = v.copies?.get(id);
   if (copy) pairs.push(["Copy", copyLine(copy)]);
-  const missingSetting = !!o.why && /isn't set$/.test(o.why);
   return Panel({
     id: `pack-${id}`,
     title: name,
     meta: id,
     actions: o.pack ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" }),
-    children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${!v.hosted && settings.length ? settingsForm(id, settings, v.env, missingSetting) : ""}`,
+    children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
   });
 }
 
@@ -128,10 +139,9 @@ const panels = (v: PacksView, fun: boolean) =>
 
 export function packsPage(frame: Frame, v: PacksView) {
   const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length} on, ${v.off.length} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
-${v.saved ? Notice({ tone: "ok", children: html`Saved settings for <strong>${v.saved}</strong>.` }) : ""}
 <div data-live id="packs">
 ${v.on.length || v.off.length
-  ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these. Hide one on Settings → Layout.</p>${panels(v, true)}` : ""}`
+  ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these. Hide one on <a href="/settings/layout#packs-shown">Settings → Layout</a>.</p>${panels(v, true)}` : ""}`
   : Panel({ children: Empty({ title: "No packs here", children: html`<p class="t2">${v.hosted ? "This Worker bundles none." : "PACKS lists none on this machine."}</p>` }) })}
 </div>`;
   return shell({ title: "Packs · Dovre", frame, current: "/packs", body, head: html`<meta name="u-topics" content="packs">` });

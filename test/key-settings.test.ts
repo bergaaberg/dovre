@@ -30,13 +30,13 @@ test("Settings → Keys saves, and every page then tells the script", async () =
   const { get, post } = signedIn(snapshot());
   const before = await (await get("/")).text();
   assert.doesNotMatch(before, /name="u-keys"/, "nothing to say with the defaults");
-  const settings = await (await get("/settings")).text();
+  const settings = await (await get("/settings/keys")).text();
   assert.match(settings, /id="keys"/);
   assert.match(settings, /<option value="70" selected>Normal/);
   assert.equal((await post("/settings/keys", "scroll=140&on=moving&on=page&on=docks")).status, 303);
   const after = await (await get("/")).text();
   assert.match(after, /<meta name="u-keys" content="\{&quot;scroll&quot;:140,&quot;off&quot;:\[&quot;hints&quot;,&quot;going&quot;\]\}">/);
-  const again = await (await get("/settings")).text();
+  const again = await (await get("/settings/keys")).text();
   assert.match(again, /<option value="140" selected>Fast/);
   assert.match(again, /value="hints">/, "hints unticked");
   assert.doesNotMatch(again, /value="hints" checked/);

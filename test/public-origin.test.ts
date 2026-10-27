@@ -63,10 +63,10 @@ test("behind PUBLIC_ORIGIN the app answers at that host, signs in with a Secure 
 
 test("Settings warns while PUBLIC_ORIGIN is set; a bad one stops the app", async () => {
   const { get } = signedIn(snapshot(), {}, { env: { PUBLIC_ORIGIN: PUB } });
-  const page = await (await get("/settings")).text();
+  const page = await (await get("/settings/about")).text();
   assert.match(page, /Public address/);
   assert.match(page, /dot warn/);
-  assert.doesNotMatch(await (await signedIn(snapshot()).get("/settings")).text(), /Public address/);
+  assert.doesNotMatch(await (await signedIn(snapshot()).get("/settings/about")).text(), /Public address/);
   assert.throws(() => signedIn(snapshot(), {}, { env: { PUBLIC_ORIGIN: "https://*.example.com" } }), /PUBLIC_ORIGIN/);
 });
 

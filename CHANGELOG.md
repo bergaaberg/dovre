@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Added:
+
+- **Settings** has an overview and a page per area: Look, Layout, Notifications, Writes, Keys, Panes, Work, Agents, Packs and About (#184). Find any setting by name on the overview or in the palette, and see what you changed from the default, there and on each area. Each pack's settings have one page, `/settings/packs/<id>`, and `/packs` links to it. Look and Layout save and reset apart.
+
 ## 0.3.0 (2026-10-27)
 
 Breaking:
