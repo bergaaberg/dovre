@@ -63,6 +63,27 @@ export type Forge = {
   issue?(repo: string, number: number): Promise<Issue | undefined>;
   /** Assign, close, reopen or comment on an issue. Absent: the Issues page has no actions. */
   issueAct?(act: IssueAct): Promise<void>;
+  /** What I did in the owners' repos since a day (YYYY-MM-DD): counts, days, commit times. Absent: packs read none. */
+  work?(login: string, owners: string, since: string): Promise<ForgeWork>;
+  /** How many of my PRs merged in the owners' repos since a time (ISO). Absent: packs read none. */
+  merged?(login: string, owners: string, since: string): Promise<number>;
+};
+
+/**
+ * What I did on the forge (Forge.work), for packs to read (PackContext.forge): numbers, dates, repo
+ * and language names only.
+ */
+export type ForgeWork = {
+  /** My PRs merged. */
+  merged: number;
+  /** Others' PRs I reviewed. */
+  reviewed: number;
+  /** Contributions a day, as the forge counts them. */
+  days: { date: string; count: number }[];
+  /** My commits, newest first (300 at most): their repo and time, in their own offset. */
+  commits: { repo: string; date: string }[];
+  /** The biggest languages of the repos I commit to most (six at most), by repo. */
+  languages: Record<string, string[]>;
 };
 
 /** A forge a pack brings: picked when FORGE is its id. `env` is the pack's env (its settings). */

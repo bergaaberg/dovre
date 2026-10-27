@@ -1,5 +1,5 @@
 /**
- * The numbers an avatar is shaped by, from GHE, for one person over the last 12 weeks:
+ * The numbers an avatar is shaped by, from the forge (PackContext.forge), for one person over the last 12 weeks:
  * - PRs merged and PRs reviewed: two search counts.
  * - the commit streak: the contribution calendar (days in a row with a contribution, up to today
  *   or yesterday; weekends neither count nor break it).
@@ -10,12 +10,10 @@
  * Numbers, times, repo and language names only.
  */
 import type { D1 } from "../../../db.ts";
-import { ownerQuery } from "../../../owners.ts";
-import type { Ghe } from "../../../sources/ghe.ts";
+import type { PackForge } from "../../types.ts";
 import { type AvatarStats, statsOf } from "./model.ts";
 
 const DAY = 86400e3;
-const q = (s: string) => JSON.stringify(s);
 
 export type Calendar = { date: string; count: number }[];
 
@@ -64,38 +62,16 @@ export function statsFrom(o: { prs: number; reviews: number; calendar: Calendar;
   return statsOf({ prs: o.prs, reviews: o.reviews, repos: byRepo.size, streak: streakOf(o.calendar, o.today), night: nightShareOf(o.commits.map((c) => c.date)), langs });
 }
 
-async function searchCount(ghe: Ghe, query: string): Promise<number> {
-  const d = await ghe.graphql<{ s: { issueCount: number } }>(`{ s: search(type: ISSUE, first: 0, query: ${q(query)}) { issueCount } }`);
-  return Number(d.s?.issueCount) || 0;
-}
-
-export async function gatherAvatarStats(ghe: Ghe, org: string, login: string, now: number): Promise<AvatarStats> {
-  const since = new Date(now - 84 * DAY).toISOString().slice(0, 10);
-  const [prs, reviews] = await Promise.all([
-    searchCount(ghe, `${ownerQuery(org)} is:pr author:${login} is:merged merged:>=${since}`),
-    searchCount(ghe, `${ownerQuery(org)} is:pr reviewed-by:${login} -author:${login} updated:>=${since}`),
-  ]);
-  const cal = await ghe.graphql<any>(`{ user(login: ${q(login)}) { contributionsCollection { contributionCalendar { weeks { contributionDays { date contributionCount } } } } } }`);
-  const calendar: Calendar = (cal?.user?.contributionsCollection?.contributionCalendar?.weeks ?? []).flatMap((w: any) => (Array.isArray(w?.contributionDays) ? w.contributionDays : [])).filter((d: any) => typeof d?.date === "string").map((d: any) => ({ date: d.date, count: Number(d.contributionCount) || 0 }));
-  const commits: { repo: string; date: string }[] = [];
-  for (let page = 1; page <= 3; page++) {
-    const r = await ghe.rest<any>(`/search/commits?q=${encodeURIComponent(`author:${login} ${ownerQuery(org)} committer-date:>=${since}`)}&sort=committer-date&order=desc&per_page=100&page=${page}`);
-    const items = Array.isArray(r?.items) ? r.items : [];
-    for (const it of items) if (typeof it?.repository?.full_name === "string" && typeof it?.commit?.author?.date === "string") commits.push({ repo: it.repository.full_name, date: it.commit.author.date });
-    if (items.length < 100) break;
-  }
-  const top = [...new Set(commits.map((c) => c.repo))].slice(0, 6).filter((r) => /^[\w.-]+\/[\w.-]+$/.test(r));
-  const languages = new Map<string, string[]>();
-  if (top.length) {
-    const d = await ghe.graphql<any>(`{ ${top.map((r, i) => `r${i}: repository(owner: ${q(r.split("/")[0]!)}, name: ${q(r.split("/")[1]!)}) { languages(first: 3, orderBy: { field: SIZE, direction: DESC }) { nodes { name } } }`).join("\n")} }`);
-    top.forEach((r, i) => languages.set(r, (d?.[`r${i}`]?.languages?.nodes ?? []).map((n: any) => n?.name).filter((n: unknown): n is string => typeof n === "string")));
-  }
-  return statsFrom({ prs, reviews, calendar, commits, languages, today: new Date(now).toISOString().slice(0, 10) });
+/** The forge's answer (PackContext.forge work) → the numbers. Absent: it keeps its starting shape. */
+export async function gatherAvatarStats(forge: PackForge, now: number): Promise<AvatarStats> {
+  if (!forge.work) return statsOf({});
+  const w = await forge.work(new Date(now - 84 * DAY).toISOString().slice(0, 10));
+  return statsFrom({ prs: w.merged, reviews: w.reviewed, calendar: w.days, commits: w.commits, languages: new Map(Object.entries(w.languages)), today: new Date(now).toISOString().slice(0, 10) });
 }
 
 /** How many of my PRs merged in the last 24 hours. */
-export function gatherMerges(ghe: Ghe, org: string, login: string, now: number): Promise<number> {
-  return searchCount(ghe, `${ownerQuery(org)} is:pr author:${login} is:merged merged:>=${new Date(now - DAY).toISOString().slice(0, 19)}Z`);
+export async function gatherMerges(forge: PackForge, now: number): Promise<number> {
+  return forge.merged ? forge.merged(`${new Date(now - DAY).toISOString().slice(0, 19)}Z`) : 0;
 }
 
 export type AvatarData = {
@@ -110,7 +86,7 @@ const EVERY = 6 * 3600e3;
 const MERGES_EVERY = 10 * 60e3;
 const KEY = "avatar-stats";
 
-export function createAvatarData(o: { ghe: Ghe; org: string; login: () => string | undefined; now?: () => number; onChange?: () => void; gather?: typeof gatherAvatarStats; merges?: typeof gatherMerges; log?: (line: string) => void }): AvatarData {
+export function createAvatarData(o: { forge: () => PackForge | undefined; now?: () => number; onChange?: () => void; gather?: typeof gatherAvatarStats; merges?: typeof gatherMerges; log?: (line: string) => void }): AvatarData {
   const now = o.now ?? Date.now;
   let facts: AvatarFacts | undefined;
   let running: Promise<void> | undefined;
@@ -124,16 +100,17 @@ export function createAvatarData(o: { ghe: Ghe; org: string; login: () => string
       } catch {}
     },
     refresh(db, force = false) {
-      const login = o.login();
-      if (!login) return Promise.resolve();
+      const forge = o.forge();
+      if (!forge) return Promise.resolve();
+      const login = forge.login;
       if (running) return running;
       const t = now();
       const stale = force || !facts || facts.login !== login || t - facts.at > EVERY;
       const mergesDue = stale || t - (facts?.mergesAt ?? 0) > MERGES_EVERY;
       if (!stale && !mergesDue) return Promise.resolve();
       running = (async () => {
-        const stats = stale ? await (o.gather ?? gatherAvatarStats)(o.ghe, o.org, login, t) : facts!.stats;
-        const mergedToday = await (o.merges ?? gatherMerges)(o.ghe, o.org, login, t);
+        const stats = stale ? await (o.gather ?? gatherAvatarStats)(forge, t) : facts!.stats;
+        const mergedToday = await (o.merges ?? gatherMerges)(forge, t);
         facts = { stats, mergedToday, at: stale ? t : facts!.at, mergesAt: t, login };
         await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES (?, ?, ?)").bind(KEY, JSON.stringify(facts), new Date(t).toISOString()).run();
       })()

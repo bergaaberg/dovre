@@ -8,7 +8,7 @@ import type { Context, Hono } from "hono";
 import type { D1 } from "../db.ts";
 import type { AppEnv } from "../env.ts";
 import type { Snapshot } from "../gather.ts";
-import type { ForgeDecl } from "../forge/types.ts";
+import type { ForgeDecl, ForgeWork } from "../forge/types.ts";
 import type { NavItem } from "../html.ts";
 import type { Page } from "../search/search.ts";
 import type { Session } from "../sources/claude.ts";
@@ -18,7 +18,8 @@ import type { Answer } from "../relay/asks.ts";
 /** The contract's version: a pack built for another is off, saying so. Bump on a breaking change. */
 export const PACK_API = 1;
 
-export type PackDomain = "general" | "personal" | "work";
+/** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
+export type PackDomain = "general" | "personal" | "work" | "fun";
 /**
  * Where it can run: "local-only" needs this machine (CLIs, files), "hosted-only" needs the
  * Worker's bindings (service bindings, D1, R2, email), "any" runs in both.
@@ -235,6 +236,29 @@ export type PackContext = {
   asking(): boolean;
   /** How things are across the shown packs now (their `pulse`), and whether Bino is answering. */
   pulse(): Pulse;
+  /** The forge, to read: who I am there and in whose repos, and what it answers packs. Undefined before the first gather. */
+  forge(): PackForge | undefined;
+  /**
+   * A picture for the starting page (the page that shows while Dovre starts): an SVG, 200 kB at
+   * most, shown as an image. The newest wins. Local only; elsewhere nothing happens.
+   */
+  startPicture(svg: string): void;
+};
+
+/** The forge as a pack reads it (PackContext.forge): read-only, in the owners' repos. */
+export type PackForge = {
+  /** "github", "gitlab". */
+  id: string;
+  name: string;
+  host: string;
+  /** Who I am there. */
+  login: string;
+  /** Whose repos this instance follows (comma-separated). */
+  owners: string;
+  /** What I did since a day (YYYY-MM-DD). Absent: this forge doesn't say. */
+  work?(since: string): Promise<ForgeWork>;
+  /** How many of my PRs merged since a time (ISO). Absent: this forge doesn't say. */
+  merged?(since: string): Promise<number>;
 };
 
 /** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */

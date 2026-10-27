@@ -19,6 +19,7 @@ import { fixedHere } from "../packs/core/agents/here.ts";
 import { assistantPack } from "../packs/core/assistant/index.ts";
 import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { avatarPack } from "../packs/core/avatar/index.ts";
+import { FORGE_CAN } from "../forge/types.ts";
 import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
 import { createQueue } from "../agents/queue.ts";
@@ -249,6 +250,8 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     app = createApp(env, {
       gatherer,
       ghe: makeNoGhe(host),
+      // GitHub as the pages name it; packs read nothing from it (no `work`): the avatar keeps its starting shape.
+      forge: { id: "github", name: "GitHub", can: FORGE_CAN, host },
       stats,
       layout: !opts.layout ? fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }) : "get" in opts.layout ? opts.layout : fixedLayout(opts.layout),
       bino,

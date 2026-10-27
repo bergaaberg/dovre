@@ -81,12 +81,16 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   });
 }
 
+/** The packs on and off, the fun ones (domain "fun") or the rest. */
+const panels = (v: PacksView, fun: boolean) =>
+  html`${v.on.filter((c) => (c.manifest.domain === "fun") === fun).map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.filter((o) => (o.manifest?.domain === "fun") === fun).map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`;
+
 export function packsPage(frame: Frame, v: PacksView) {
   const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length} on, ${v.off.length} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
 ${v.saved ? Notice({ tone: "ok", children: html`Saved settings for <strong>${v.saved}</strong>.` }) : ""}
 <div data-live id="packs">
 ${v.on.length || v.off.length
-  ? html`${v.on.map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`
+  ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these. Hide one on Settings → Layout.</p>${panels(v, true)}` : ""}`
   : Panel({ children: Empty({ title: "No packs here", children: html`<p class="t2">${v.hosted ? "This Worker bundles none." : "PACKS lists none on this machine."}</p>` }) })}
 </div>`;
   return shell({ title: "Packs · Dovre", frame, current: "/packs", body, head: html`<meta name="u-topics" content="packs">` });

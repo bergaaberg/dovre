@@ -262,7 +262,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const desk = hub && keyOk(bindings.BRIDGE_KEY) ? remoteDesk(hub) : localDesk({ env, queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
     const dismissed = createDismissed(bindings.DB);
     // My avatar: GitHub's numbers shape it; the snapshot, My list and the packs (signals) set its scene.
-    const avatar = avatarPack({ ghe: { ghe, org: env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login } });
+    const avatar = avatarPack();
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, assistant: Bino's switch, avatar, issues), then the instance's.
