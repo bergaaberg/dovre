@@ -1,7 +1,7 @@
 /** Dependabot cleanup (dovre#108): the queue, combining a repo's bumps into one PR, and the page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addGroups, bumpedPackage, combine, combinedBody, loadQueue, mergeCombined, withGroups } from "../src/actions/dependabot.ts";
+import { addGroups, bumpedPackage, pipName, combine, combinedBody, loadQueue, mergeCombined, withGroups } from "../src/actions/dependabot.ts";
 import { openDb } from "../src/db.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { H, assertInert, fakeGhe, signedIn, snapshot } from "./helpers.ts";
@@ -31,6 +31,11 @@ test("bumpedPackage reads the package from a bump's title", () => {
   assert.equal(bumpedPackage("Bump lodash from 4.17.20 to 4.17.21"), "lodash");
   assert.equal(bumpedPackage("build(deps): bump @types/node from 24.1 to 24.2"), "@types/node");
   assert.equal(bumpedPackage("Bump the npm group across 1 directory with 3 updates"), undefined);
+});
+
+test("pipName compares Python packages as PyPI does", () => {
+  assert.equal(pipName("Typing_Extensions"), "typing-extensions");
+  assert.equal(pipName("zope.interface"), "zope-interface");
 });
 
 test("combine: Dependabot's own PRs only, conflicts left out and listed, one PR opened, logged", async () => {
@@ -83,17 +88,18 @@ test("loadQueue: by repo, owners only, security fixes first, alerts unreadable s
           { number: 2, title: "Bump lodash from 1 to 2", url: "u2", createdAt: "2026-10-02T00:00:00Z", repository: { nameWithOwner: "ACME/web" } },
           { number: 3, title: "Bump b from 1 to 2", url: "u3", createdAt: "2026-10-03T00:00:00Z", repository: { nameWithOwner: "ACME/api" } },
           { number: 4, title: "Bump c from 1 to 2", url: "u4", createdAt: "2026-10-03T00:00:00Z", repository: { nameWithOwner: "other/x" } },
+          { number: 5, title: "Bump Typing_Extensions from 4.1 to 4.2", url: "u5", createdAt: "2026-10-04T00:00:00Z", repository: { nameWithOwner: "ACME/web" } },
         ] },
         mine: { nodes: [{ number: 9, url: "u9", headRefName: "dovre/dependabot-1", mergeable: "MERGEABLE", commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, repository: { nameWithOwner: "ACME/web" } }, { number: 8, url: "u8", headRefName: "feature", repository: { nameWithOwner: "ACME/api" } }] },
       } as T;
     },
     async rest<T>(path: string) {
-      if (path === "/repos/ACME/web/dependabot/alerts?state=open&per_page=100") return [{ dependency: { package: { name: "lodash" } } }] as T;
+      if (path === "/repos/ACME/web/dependabot/alerts?state=open&per_page=100") return [{ dependency: { package: { name: "lodash" } } }, { dependency: { package: { name: "typing-extensions", ecosystem: "pip" } } }] as T;
       throw new Error("GHE GET: 403");
     },
   };
   const q = await loadQueue(ghe, "ACME");
-  assert.deepEqual(q.repos.map((r) => [r.repo, r.prs.map((p) => p.number), r.security, r.combined?.number]), [["ACME/web", [2, 1], 1, 9], ["ACME/api", [3], 0, undefined]]);
+  assert.deepEqual(q.repos.map((r) => [r.repo, r.prs.map((p) => p.number), r.security, r.combined?.number]), [["ACME/web", [2, 5, 1], 2, 9], ["ACME/api", [3], 0, undefined]]);
   assert.deepEqual(q.alertsUnread, ["ACME/api"]);
   assert.deepEqual(q.repos[0]!.combined, { number: 9, url: "u9", checks: "SUCCESS", mergeable: "MERGEABLE", draft: false });
 });

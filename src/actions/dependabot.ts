@@ -27,6 +27,9 @@ export function bumpedPackage(title: string): string | undefined {
   return /\b[Bb]ump (\S+) from \S+ to \S+/.exec(title)?.[1]?.toLowerCase();
 }
 
+/** A Python package's name as PyPI compares it (PEP 503): "Typing_Extensions" and "typing-extensions" are one. */
+export const pipName = (name: string) => name.toLowerCase().replace(/[-_.]+/g, "-");
+
 type SearchNode = {
   number?: number;
   title?: string;
@@ -63,9 +66,13 @@ export async function loadQueue(ghe: Ghe, owners: string): Promise<{ repos: Repo
   await Promise.all(
     [...by.keys()].slice(0, 30).map(async (repo) => {
       try {
-        const alerts = await ghe.rest<{ dependency?: { package?: { name?: string } } }[]>(`/repos/${repo}/dependabot/alerts?state=open&per_page=100`);
+        const alerts = await ghe.rest<{ dependency?: { package?: { name?: string; ecosystem?: string } } }[]>(`/repos/${repo}/dependabot/alerts?state=open&per_page=100`);
         const names = new Set(alerts.map((a) => a.dependency?.package?.name?.toLowerCase()).filter(Boolean));
-        for (const p of by.get(repo)!) p.security = names.has(bumpedPackage(p.title) ?? "");
+        const pip = new Set(alerts.filter((a) => a.dependency?.package?.ecosystem === "pip").map((a) => pipName(a.dependency?.package?.name ?? "")).filter(Boolean));
+        for (const p of by.get(repo)!) {
+          const name = bumpedPackage(p.title) ?? "";
+          p.security = !!name && (names.has(name) || pip.has(pipName(name)));
+        }
       } catch {
         alertsUnread.push(repo);
       }

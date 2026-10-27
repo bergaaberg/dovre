@@ -1,8 +1,8 @@
 /**
  * Lockfile conflicts in a combined Dependabot PR (dovre#108, local mode only): the bumps combine()
  * left out are merged into the combined branch in a checkout under CODE_DIR. When only lockfiles
- * conflict, ours is kept and the lockfile is made again from the merged manifests (pnpm and npm
- * with lifecycle scripts off, `go mod tidy`). Any other conflict leaves that bump out. The work
+ * conflict, ours is kept and the lockfile is made again from the merged manifests (JS, Go, Python
+ * and .NET: see LOCKFILES). Any other conflict leaves that bump out. The work
  * happens in a temporary worktree, so the checkout's own branch and files stay as they were; the
  * result is pushed to the combined branch as a fast-forward only (a push since is refused), with
  * the user's own git credentials. Re-checks GitHub first and logs either way.
@@ -27,11 +27,33 @@ export const runFile: Run = (cmd, args, cwd) =>
     ),
   );
 
-/** The lockfiles made again, and how: run in the lockfile's own folder. */
-export const LOCKFILES: Record<string, [string, string[]]> = {
-  "pnpm-lock.yaml": ["pnpm", ["install", "--lockfile-only", "--ignore-scripts"]],
-  "package-lock.json": ["npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]],
-  "go.sum": ["go", ["mod", "tidy"]],
+/** How a lockfile is made again, run in its own folder: the exit code of the last step. */
+export type Relocker = { label: string; make(run: Run, dir: string): Promise<number> };
+const step = (cmd: string, args: string[]): Relocker => ({ label: `${cmd} ${args.join(" ")}`, make: async (run, dir) => (await run(cmd, args, dir)).code });
+
+/**
+ * The lockfiles made again, each keeping the versions it has where it can. JS runs with install
+ * scripts off; Python and .NET resolve without installing, though a Python tool may build a
+ * source-only package to read its metadata, and `dotnet restore` evaluates the repo's project
+ * files. Pipfile.lock isn't here: `pipenv lock` moves every pin, not just the bumped one.
+ */
+export const LOCKFILES: Record<string, Relocker> = {
+  "pnpm-lock.yaml": step("pnpm", ["install", "--lockfile-only", "--ignore-scripts"]),
+  "package-lock.json": step("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]),
+  "go.sum": step("go", ["mod", "tidy"]),
+  "uv.lock": step("uv", ["lock"]),
+  "pdm.lock": step("pdm", ["lock", "--update-reuse"]),
+  // Poetry 2 keeps pins by default and has no --no-update; Poetry 1 moves every pin without it.
+  "poetry.lock": {
+    label: "poetry lock",
+    make: async (run, dir) => {
+      const v = await run("poetry", ["--version"], dir);
+      if (v.code) return v.code;
+      const major = Number(/(\d+)\.\d+/.exec(v.out)?.[1] ?? 0);
+      return (await run("poetry", major >= 2 ? ["lock"] : ["lock", "--no-update"], dir)).code;
+    },
+  },
+  "packages.lock.json": step("dotnet", ["restore", "--force-evaluate"]),
 };
 
 /** Whether a remote URL points at owner/name (https or ssh, any host, with or without .git). */
@@ -104,15 +126,14 @@ export async function addLeftOut(ghe: Ghe, db: D1, codeDir: string, repo: string
       }
       let broke: string | undefined;
       for (const f of conflicted) {
-        const [cmd, args] = LOCKFILES[basename(f)]!;
+        const how = LOCKFILES[basename(f)]!;
         await git(["checkout", "--ours", "--", f]);
-        const r = await run(cmd, args, join(tree, dirname(f)));
-        if (r.code) {
-          broke = `${cmd} ${args.join(" ")} failed`;
+        if (await how.make(run, join(tree, dirname(f)))) {
+          broke = `${how.label} failed`;
           break;
         }
       }
-      // go mod tidy may change go.mod too; add whatever the tools changed.
+      // go mod tidy may change go.mod too, and dotnet restore other projects' lockfiles; add whatever the tools changed.
       if (!broke && (await git(["add", "-A"])).code === 0 && (await git(["-c", "user.name=Dovre", "-c", "user.email=dovre@localhost", "commit", "--no-edit", "--quiet"])).code === 0) {
         merged.push({ number: p.number, relocked: conflicted });
         continue;

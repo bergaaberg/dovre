@@ -79,7 +79,7 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: bool
           action: "/prs/dependabot/relock",
           fields: { repo: r.repo, number: String(c.number) },
           label: "Add left-out bumps",
-          question: html`Merge the Dependabot PRs that aren't in ${r.repo}#${c.number} yet into it? This runs in your checkout of ${r.repo}, in a temporary worktree. Where only lockfiles conflict, they're made again (pnpm and npm with install scripts off, go mod tidy). Then the branch is pushed with your git credentials.`,
+          question: html`Merge the Dependabot PRs that aren't in ${r.repo}#${c.number} yet into it? This runs in your checkout of ${r.repo}, in a temporary worktree. Where only lockfiles conflict, they're made again: pnpm and npm with install scripts off, go mod tidy, uv, Poetry, PDM and dotnet restore. Python tools may build a package to read its metadata. Then the branch is pushed with your git credentials.`,
         });
   return Panel({
     title: r.repo,
