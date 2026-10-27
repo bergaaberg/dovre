@@ -18,7 +18,6 @@ import { agentsPack } from "../packs/core/agents/index.ts";
 import { fixedHere } from "../packs/core/agents/here.ts";
 import { assistantPack } from "../packs/core/assistant/index.ts";
 import { noMemory } from "../packs/core/assistant/bino/memory.ts";
-import { avatarPack } from "../packs/core/avatar/index.ts";
 import { FORGE_CAN } from "../forge/types.ts";
 import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
@@ -162,7 +161,6 @@ export function whyReadOnly(path: string): string {
   if (path === "/refresh" || path === "/stats/refresh") return "Refreshing reads GitHub and your packs again. The demo's data is made up, so there's nothing new to read.";
   if (path.startsWith("/deploys/")) return "On your own Dovre, approving or rejecting a deploy goes to GitHub after a second click to confirm. The demo's deploys are made up.";
   if (path.startsWith("/todo")) return "Your list is saved in your own Dovre. The demo keeps nothing between clicks.";
-  if (path.startsWith("/avatar")) return "The avatar's settings are saved in your own Dovre. The demo keeps nothing between clicks.";
   if (path.startsWith("/settings")) return "Settings are saved in your own Dovre. The demo's are fixed, so everyone sees the same page.";
   if (/^\/agents\/s\/[^/]+\/reply$/.test(path)) return "A reply goes to the agent's session on your machine. These agents are made up; ask Bino instead, it answers in the demo.";
   return "This is a demo over made-up data, so buttons that would change something stop here.";
@@ -238,9 +236,8 @@ export function createDemoWorker(opts: DemoOpts = {}) {
         return session ? { session, turns: turnsFn(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;
       },
     };
-    const avatar = avatarPack();
     const settings = { ...opts.settings };
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), avatar, demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const stats = (fx.stats ?? demoStats)();
     const snapshot = () => gatherer.peek() ?? snapshotFn();
     const route = demoScriptRoute({ snapshot, answers: opts.answers });
@@ -258,7 +255,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
-      packs: { on, off, env: settings, bindings: {}, core: ["agents", "assistant", "avatar"] },
+      packs: { on, off, env: settings, bindings: {}, core: ["agents", "assistant"] },
     });
     // Packs fed made-up data read it the way they'd read their app: on their schedule, before the page.
     refresh = refresher(on, packsOf(app)!.ctxOf, () => {});
