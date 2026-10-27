@@ -32,9 +32,9 @@ export function which(name: string, env: { PATH?: string; PATHEXT?: string } = p
   return undefined;
 }
 
-/** The script an npm .cmd shim runs (`"%dp0%\node_modules\…\cli.js" %*`), resolved next to the shim. */
+/** What a .cmd shim runs, resolved next to the shim: npm's script (`"%dp0%\node_modules\…\cli.js" %*`) or pnpm's program (`"%~dp0\…\pnpm.exe" %*`), started directly. */
 export function shimTarget(cmdFile: string, text: string): string | undefined {
-  const m = text.match(/"%(?:~)?dp0%?\\?([^"%]+\.(?:c|m)?js)"/i);
+  const m = text.match(/"%(?:~)?dp0%?\\?([^"%]+\.(?:(?:c|m)?js|exe))"/i);
   if (!m) return undefined;
   const target = resolve(dirname(cmdFile), m[1]!.replace(/\\/g, "/"));
   return existsSync(target) ? target : undefined;
@@ -50,7 +50,8 @@ export function findTool(name: string, override?: string, opts: { env?: { PATH?:
       text = readFileSync(path, "utf8");
     } catch {}
     const script = shimTarget(path, text);
-    return script ? { bin: opts.node ?? process.execPath, pre: [script], path } : undefined;
+    if (!script) return undefined;
+    return /\.exe$/i.test(script) ? { bin: script, pre: [], path } : { bin: opts.node ?? process.execPath, pre: [script], path };
   }
   return { bin: path, pre: [], path };
 }

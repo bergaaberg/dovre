@@ -81,6 +81,12 @@ test("tools: found on the PATH with Windows' extensions, an npm .cmd shim runs i
   assert.equal(shimTarget(join(dir, "x.cmd"), "@echo nothing to run"), undefined);
   writeFileSync(join(dir, "broken.cmd"), '"%dp0%\\missing\\cli.js" %*');
   assert.equal(findTool("broken", undefined, { env, platform: "win32" }), undefined, "a shim whose script is gone isn't a tool");
+  // pnpm 12's shim runs its own program, not a script: started as that program.
+  mkdirSync(join(dir, "global", "v11", "x", "node_modules", "pnpm"), { recursive: true });
+  writeFileSync(join(dir, "global", "v11", "x", "node_modules", "pnpm", "pnpm.exe"), "");
+  writeFileSync(join(dir, "pnpm.cmd"), '@GOTO :pnpm\r\n:pnpm\r\n@GOTO #_undefined_# 2>NUL || (IF "%_PNPM_RESTORE_TITLE%"=="1" TITLE %COMSPEC%) & "%~dp0\\global\\v11\\x\\node_modules\\pnpm\\pnpm.exe"  %*\r\n');
+  const pnpm = findTool("pnpm", undefined, { env, platform: "win32", node: "node.exe" })!;
+  assert.deepEqual([pnpm.bin, pnpm.pre], [join(dir, "global", "v11", "x", "node_modules", "pnpm", "pnpm.exe"), []]);
 });
 
 test("summaries go to Claude only: on when it's here unless told no, never without it", () => {
