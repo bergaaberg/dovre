@@ -138,7 +138,7 @@ ${p.draft.kind === "review"
   const body = html`${PageHeader({
     title: review ? "The agent's review" : "The agent's replies",
     crumbs: [{ href: "/prs", label: "Pull requests" }],
-    sub: html`${Link(pr.url, html`${pr.repo}#${pr.number}${pr.title ? html` ${pr.title}` : ""}`)}${pr.author ? html` <span class="t3">by ${pr.author}</span>` : ""} · <a href="${safeUrl(r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.runId}`)}">the session</a>`,
+    sub: html`${Link(pr.url, html`${pr.repo}#${pr.number}${pr.title ? html` ${pr.title}` : ""}`)}${pr.author ? html` <span class="t3">by ${pr.author}</span>` : ""} · <a href="${safeUrl(r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.runId}`)}">the session</a>${review && !r.posted ? html` · <a href="${safeUrl(`/prs/${pr.repo}/${pr.number}/review`)}">start your own review from it</a>` : ""}`,
   })}
 ${v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: v.flash.message }) : ""}
 ${r.posted

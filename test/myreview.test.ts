@@ -1,0 +1,205 @@
+/** My own review of a PR (dovre#106): comments on lines kept until I post, then one review on GHE after the same checks as an agent's. */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { recentActions } from "../src/actions/deploys.ts";
+import { openDb } from "../src/db.ts";
+import type { Env } from "../src/env.ts";
+import { createViewerRoutes } from "../src/pages/viewer.ts";
+import type { ReviewDraft } from "../src/reviews/draft.ts";
+import { addComment, anchorOf, importDraft, myReview } from "../src/reviews/mine.ts";
+import type { Ghe } from "../src/sources/ghe.ts";
+import { assertInert, H } from "./helpers.ts";
+
+const SHA = "a".repeat(40);
+const NEW = "b".repeat(40);
+const PATH = `src/${H}.ts`;
+const view = (o: { author?: string; sha?: string } = {}) => ({
+  repository: {
+    pullRequest: {
+      number: 840, title: `Fix ${H}`, url: "https://acme.ghe.com/ACME/shop-api/pull/840", state: "OPEN", isDraft: false, mergeable: "MERGEABLE",
+      baseRefName: "main", headRefName: "feat/840", headRefOid: o.sha ?? SHA, author: { login: o.author ?? "per" }, body: "", additions: 2, deletions: 1, changedFiles: 1,
+      createdAt: "2026-10-20T08:00:00Z", updatedAt: "2026-10-22T08:00:00Z", reviewDecision: null, labels: { nodes: [] }, reviewRequests: { nodes: [] }, reviews: { nodes: [] },
+      reviewThreads: { nodes: [] }, commits: { nodes: [] }, timelineItems: { nodes: [] },
+    },
+  },
+});
+const FILES = [{ filename: PATH, status: "modified", additions: 2, deletions: 1, sha: "1", patch: "@@ -10,3 +10,4 @@ class A\n ctx\n-old\n+new\n+added\n" }];
+
+function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string } = {}) {
+  const calls: { method: string; path: string; body?: any }[] = [];
+  const state = { sha: o.sha ?? SHA };
+  const ghe: Ghe = {
+    host: "acme.ghe.com",
+    async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
+      const method = init.method ?? "GET";
+      calls.push({ method, path, body: init.body });
+      if (path.startsWith("/repos/ACME/shop-api/pulls/840/files")) return (path.includes("page=1") ? FILES : []) as T;
+      if (method === "GET" && path === "/repos/ACME/shop-api/pulls/840") return { state: "open", head: { sha: state.sha }, user: { login: o.author ?? "per" } } as T;
+      if (method === "POST" && path === "/repos/ACME/shop-api/pulls/840/reviews") return { html_url: "https://acme.ghe.com/ACME/shop-api/pull/840#pullrequestreview-1" } as T;
+      throw new Error(`GHE ${method} ${path}: 404`);
+    },
+    async graphql<T>() {
+      return view({ author: o.author, sha: state.sha }) as T;
+    },
+  };
+  const db = openDb();
+  const app = createViewerRoutes({ GHE_ORG: "ACME", CODE_DIR: "C:/code" } as unknown as Env, {
+    ghe,
+    frame: async () => ({ operator: "me", nav: [] }),
+    checkouts: () => [],
+    db: db.DB,
+    login: async () => o.me ?? "me",
+    agentDraft: async () => o.agent,
+  });
+  const post = (path: string, form: Record<string, string>) => app.request(path, { method: "POST", body: new URLSearchParams(form) });
+  const text = async (path: string) => (await app.request(path)).text();
+  return { app, db, calls, state, post, text };
+}
+
+const B = "/prs/ACME/shop-api/840";
+
+test("a form's anchor: a path, a side and a line; a start only before the line; nothing odd", () => {
+  assert.deepEqual(anchorOf({ path: "src/a.ts", side: "LEFT", line: "11", start: "9" }), { path: "src/a.ts", side: "LEFT", line: 11, startLine: 9 });
+  assert.deepEqual(anchorOf({ path: "src/a.ts", line: "11", start: "12" }), { path: "src/a.ts", side: "RIGHT", line: 11 });
+  for (const bad of [{ path: "../x", line: "1" }, { path: "/etc/x", line: "1" }, { path: "a", line: "0" }, { path: "a", line: "x" }, { path: "", line: "1" }]) assert.equal(anchorOf(bad), null, JSON.stringify(bad));
+});
+
+test("the Files tab: a + on each line, the form at a line without script, hostile paths and text inert", async () => {
+  const { text } = setup();
+  const files = await text(`${B}/files`);
+  assertInert("files with review", files);
+  assert.match(files, /class="d-c" href="\/prs\/ACME\/shop-api\/840\/files\?c=RIGHT:11&amp;p=src%2F/, "the added line's + links to its form");
+  assert.match(files, /class="d-c" href="[^"]*c=LEFT:11&amp;/, "a removed line takes a LEFT comment");
+  assert.match(files, /<template id="c-form">/, "the script's copy of the form");
+  assert.match(files, /Your review/, "the Review tab");
+  const at = await text(`${B}/files?c=RIGHT:12&p=${encodeURIComponent(PATH)}`);
+  assertInert("files with the form open", at);
+  assert.match(at, /<tr class="d-form" id="c-new">.*name="line" value="12"/s);
+  const odd = await text(`${B}/files?c=RIGHT:12&p=..%2Fetc`);
+  assert.doesNotMatch(odd, /name="line" value="12"/, "an odd path opens no form");
+});
+
+test("comment, edit, remove: kept per PR until posted, shown at their lines", async () => {
+  const { db, post, text } = setup();
+  const res = await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "11", body: `Why ${H}?` });
+  assert.equal(res.status, 303);
+  assert.match(res.headers.get("location")!, /\/files#c-\d+$/);
+  const r = (await myReview(db.DB, "", "ACME/shop-api#840"))!;
+  assert.equal(r.sha, SHA);
+  assert.deepEqual(r.comments.map((c) => [c.path, c.side, c.line, c.body]), [[PATH, "RIGHT", 11, `Why ${H}?`]]);
+  const files = await text(`${B}/files`);
+  assertInert("files with a pending comment", files);
+  assert.match(files, /1 pending comment/);
+  assert.match(files, /<tr class="d-drafts"><td colspan="3"><form method="post" action="\/prs\/ACME\/shop-api\/840\/review\/comments\/\d+"/, "the card sits under its line");
+  const id = r.comments[0]!.id;
+  await post(`${B}/review/comments/${id}`, { do: "save", body: "Better" });
+  assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))!.comments[0]!.body, "Better");
+  await post(`${B}/review/comments/${id}`, { do: "drop" });
+  assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))!.comments.length, 0);
+  assert.equal((await post(`${B}/review/comments`, { sha: SHA, path: "../x", line: "1", body: "x" })).status, 400);
+  assert.equal((await post(`/prs/evil/x/1/review/comments`, { sha: SHA, path: "a", line: "1", body: "x" })).status, 404);
+});
+
+test("preview, then post: one review on GHE at the commit, with the verdict I picked; logged without text; then gone", async () => {
+  const { db, calls, post, text } = setup();
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "12", start: "11", body: "Range" });
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "LEFT", line: "11", body: "Old" });
+  const pre = await post(`${B}/review/preview`, { summary: `Looks ${H}`, verdict: "request-changes" });
+  assert.equal(pre.status, 200);
+  const page = await pre.text();
+  assertInert("review preview", page);
+  assert.match(page, /What goes to GHE/);
+  const nonce = /name="nonce" value="([^"]+)"/.exec(page)![1]!;
+  const print = /name="print" value="([^"]+)"/.exec(page)![1]!;
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing posted by the preview");
+  const done = await post(`${B}/review/post`, { verdict: "request-changes", nonce, print });
+  assert.equal(done.status, 303);
+  const sent = calls.filter((c) => c.method === "POST");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.body.event, "REQUEST_CHANGES");
+  assert.equal(sent[0]!.body.commit_id, SHA);
+  assert.equal(sent[0]!.body.body, `Looks ${H}`);
+  assert.deepEqual(sent[0]!.body.comments.map((c: any) => [c.side, c.line, c.start_line]), [["RIGHT", 12, 11], ["LEFT", 11, undefined]]);
+  assert.equal(await myReview(db.DB, "", "ACME/shop-api#840"), undefined, "posted, so gone");
+  const log = await recentActions(db.DB);
+  assert.deepEqual([log[0]!.kind, log[0]!.detail], ["pr.review", "Request changes, 2 line comments"]);
+  assert.match(await text(`${B}/review`), /Posted the review/);
+  assert.equal((await post(`${B}/review/post`, { verdict: "request-changes", nonce, print })).status, 303);
+  assert.equal(calls.filter((c) => c.method === "POST").length, 1, "the same Post twice posts once");
+});
+
+test("a review changed since the preview, or a different verdict, isn't posted", async () => {
+  const { calls, post, text } = setup();
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "11", body: "One" });
+  const page = await (await post(`${B}/review/preview`, { summary: "S", verdict: "comment" })).text();
+  const nonce = /name="nonce" value="([^"]+)"/.exec(page)![1]!;
+  const print = /name="print" value="([^"]+)"/.exec(page)![1]!;
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "12", body: "Two" });
+  await post(`${B}/review/post`, { verdict: "comment", nonce, print });
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0);
+  assert.match(await text(`${B}/review`), /changed since the preview/);
+  await post(`${B}/review/post`, { verdict: "approve", nonce: crypto.randomUUID(), print });
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0);
+});
+
+test("my own PR: a Comment only", async () => {
+  const { calls, post, text } = setup({ author: "me", me: "me" });
+  const page = await text(`${B}/review`);
+  assert.match(page, /Your own PR: a Comment only/);
+  assert.doesNotMatch(page, /value="approve"/);
+  const pre = await (await post(`${B}/review/preview`, { summary: "Note", verdict: "approve" })).text();
+  const nonce = /name="nonce" value="([^"]+)"/.exec(pre)![1]!;
+  const print = /name="print" value="([^"]+)"/.exec(pre)![1]!;
+  await post(`${B}/review/post`, { verdict: "comment", nonce, print });
+  assert.equal(calls.filter((c) => c.method === "POST")[0]?.body.event, "COMMENT");
+});
+
+test("the PR moved on: the review says so, adds nothing new, posts nothing, until I move it", async () => {
+  const { db, calls, post, text } = setup({ sha: NEW });
+  await addComment(db.DB, "", "ACME/shop-api#840", SHA, { path: PATH, side: "RIGHT", line: 11, body: "One" });
+  const files = await text(`${B}/files`);
+  assert.match(files, /Your review is on aaaaaaa, and the PR has moved on to bbbbbbb/);
+  assert.doesNotMatch(files, /class="d-c"/, "no + until it's moved");
+  const added = await addComment(db.DB, "", "ACME/shop-api#840", NEW, { path: PATH, side: "RIGHT", line: 12, body: "x" });
+  assert.equal(added.ok, false);
+  const pre = await post(`${B}/review/preview`, { summary: "S", verdict: "comment" });
+  assert.equal(pre.status, 409);
+  assert.match(await pre.text(), /new commits since you started this review/);
+  await post(`${B}/review/move`, { sha: "c".repeat(40) });
+  assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))!.sha, SHA, "only to the commit the PR is at");
+  await post(`${B}/review/move`, { sha: NEW });
+  assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))!.sha, NEW);
+  assert.match(await text(`${B}/files`), /class="d-c"/);
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0);
+});
+
+test("start from the agent's draft: its comments join mine and its summary fills an empty one; not from another commit", async () => {
+  const draft: ReviewDraft = { kind: "review", summary: `Agent ${H}`, comments: [{ path: PATH, side: "RIGHT", line: 11, body: `Agent says ${H}` }] };
+  const { db, post, text } = setup({ agent: { sha: SHA.slice(0, 7), draft } });
+  assert.match(await text(`${B}/files`), /Add the agent&#39;s 1 comment|Add the agent's 1 comment/);
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "12", body: "Mine" });
+  await post(`${B}/review/import`, {});
+  const r = (await myReview(db.DB, "", "ACME/shop-api#840"))!;
+  assert.deepEqual(r.comments.map((c) => c.body), ["Mine", `Agent says ${H}`]);
+  assert.equal(r.summary, `Agent ${H}`);
+  const page = await text(`${B}/review`);
+  assertInert("review page", page);
+  assert.equal(await importDraft(db.DB, "", "ACME/shop-api#840", NEW, draft), 0, "a draft of another commit adds nothing");
+  const other = setup({ agent: { sha: NEW, draft } });
+  assert.doesNotMatch(await other.text(`${B}/files`), /Add the agent/);
+});
+
+test("discard throws it away, and asks twice", async () => {
+  const { db, post, text } = setup();
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "11", body: "One" });
+  assert.match(await text(`${B}/review`), /<details class="confirm"><summary>Discard your review…/);
+  await post(`${B}/review/discard`, {});
+  assert.equal(await myReview(db.DB, "", "ACME/shop-api#840"), undefined);
+});
+
+test("people's reviews are their own (hosted: by verified email)", async () => {
+  const { db } = setup();
+  await addComment(db.DB, "a@x.no", "ACME/shop-api#840", SHA, { path: PATH, side: "RIGHT", line: 11, body: "A's" });
+  assert.equal(await myReview(db.DB, "b@x.no", "ACME/shop-api#840"), undefined);
+  assert.equal((await myReview(db.DB, "a@x.no", "ACME/shop-api#840"))!.comments.length, 1);
+});

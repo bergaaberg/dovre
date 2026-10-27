@@ -28,10 +28,11 @@ export const VERDICT_LABEL: Record<Verdict, string> = { comment: "Comment", appr
 export const EVENT: Record<Verdict, string> = { comment: "COMMENT", approve: "APPROVE", "request-changes": "REQUEST_CHANGES" };
 export const verdictOf = (v: unknown): Verdict => (VERDICTS as readonly unknown[]).includes(v) ? (v as Verdict) : "comment";
 
-const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, "").trim().slice(0, max) : "");
+/** Text as a comment takes it: newlines normalised, control characters out, trimmed, capped. */
+export const cleanText = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, "").trim().slice(0, max) : "");
 const lineNo = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v > 0 && v < 1_000_000 ? v : undefined);
 /** A path as the PR files API gives it: relative, forward slashes, no control characters. */
-const pathOf = (v: unknown) => (typeof v === "string" && v.length <= 1000 && v && !/^[/\\]|\\|[\u0000-\u001f\u007f]|(^|\/)\.\.(\/|$)/.test(v) ? v : "");
+export const cleanPath = (v: unknown) => (typeof v === "string" && v.length <= 1000 && v && !/^[/\\]|\\|[\u0000-\u001f\u007f]|(^|\/)\.\.(\/|$)/.test(v) ? v : "");
 /** A GHE comment id: a positive integer, as a number or a string of digits. */
 export const commentId = (v: unknown) => {
   const n = typeof v === "string" && /^\d{1,15}$/.test(v) ? Number(v) : v;
@@ -41,9 +42,9 @@ export const commentId = (v: unknown) => {
 function commentOf(raw: unknown): LineComment | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  const path = pathOf(r.path);
+  const path = cleanPath(r.path);
   const line = lineNo(r.line);
-  const body = text(r.body, MAX_BODY);
+  const body = cleanText(r.body, MAX_BODY);
   if (!path || !line || !body) return null;
   const start = lineNo(r.start_line ?? r.startLine);
   return { path, line, ...(start && start < line ? { startLine: start } : {}), side: r.side === "LEFT" ? "LEFT" : "RIGHT", body };
@@ -55,7 +56,7 @@ export function draftOf(kind: ReviewKind, raw: unknown): Draft | null {
   const r = raw as Record<string, unknown>;
   const list = (v: unknown) => (Array.isArray(v) ? v : []);
   if (kind === "review") {
-    const summary = text(r.summary ?? r.body, MAX_SUMMARY);
+    const summary = cleanText(r.summary ?? r.body, MAX_SUMMARY);
     const comments = list(r.comments).map(commentOf).filter((c): c is LineComment => !!c).slice(0, MAX_COMMENTS);
     return summary || comments.length ? { kind, summary, comments } : null;
   }
@@ -63,11 +64,11 @@ export function draftOf(kind: ReviewKind, raw: unknown): Draft | null {
     .flatMap((x) => {
       const o = x && typeof x === "object" ? (x as Record<string, unknown>) : {};
       const id = commentId(o.comment_id ?? o.commentId ?? o.id);
-      const body = text(o.body, MAX_BODY);
+      const body = cleanText(o.body, MAX_BODY);
       return id && body ? [{ commentId: id, body }] : [];
     })
     .slice(0, MAX_COMMENTS);
-  const comment = text(r.comment, MAX_SUMMARY);
+  const comment = cleanText(r.comment, MAX_SUMMARY);
   return replies.length || comment ? { kind, replies, comment } : null;
 }
 
@@ -95,16 +96,16 @@ export function splitDraft(kind: ReviewKind, report: string): { text: string; dr
  */
 export function editedDraft(base: Draft, form: Record<string, unknown>): Draft {
   const kept = (i: number) => form[`keep_${i}`] === "on";
-  const body = (i: number, was: string) => (typeof form[`body_${i}`] === "string" ? text(form[`body_${i}`], MAX_BODY) : was);
+  const body = (i: number, was: string) => (typeof form[`body_${i}`] === "string" ? cleanText(form[`body_${i}`], MAX_BODY) : was);
   if (base.kind === "review")
     return {
       kind: "review",
-      summary: typeof form.summary === "string" ? text(form.summary, MAX_SUMMARY) : base.summary,
+      summary: typeof form.summary === "string" ? cleanText(form.summary, MAX_SUMMARY) : base.summary,
       comments: base.comments.flatMap((c, i) => (kept(i) && body(i, c.body) ? [{ ...c, body: body(i, c.body) }] : [])),
     };
   return {
     kind: "triage",
-    comment: typeof form.comment === "string" ? text(form.comment, MAX_SUMMARY) : base.comment,
+    comment: typeof form.comment === "string" ? cleanText(form.comment, MAX_SUMMARY) : base.comment,
     replies: base.replies.flatMap((r, i) => (kept(i) && body(i, r.body) ? [{ ...r, body: body(i, r.body) }] : [])),
   };
 }
