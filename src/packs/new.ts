@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { addPack, listAvailablePacks, resolvePacksRepo } from "./cli.ts";
+import { describe, outdated, trackPack, updatePack } from "./update.ts";
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -151,8 +152,37 @@ if (import.meta.main) {
       process.exit(1);
     }
   }
+  if (rest[0] === "outdated" || rest[0] === "update" || rest[0] === "track") {
+    try {
+      const repo = resolvePacksRepo(from, undefined, false);
+      const states = outdated(into, repo);
+      if (rest[0] === "outdated") {
+        for (const st of states) console.log(describe(st));
+        if (!states.length) console.log("No packs from dovre-packs here.");
+      } else if (rest[0] === "track" && rest[1]) {
+        const m = trackPack({ id: rest[1], into, repo, at: flag("--at") });
+        console.log(`${rest[1]}: tracked at ${m.commit?.slice(0, 7)} of ${m.source}`);
+      } else if (rest[0] === "update" && (rest[1] || args.includes("--all"))) {
+        const ids = rest[1] ? [rest[1]] : states.filter((st) => st.tracked && !st.gone && st.upstream.length).map((st) => st.id);
+        if (!ids.length) console.log("Every tracked pack is up to date.");
+        for (const id of ids) {
+          const r = updatePack({ id, into, repo });
+          console.log(`${id}: ${r.from?.slice(0, 7) ?? "?"} → ${r.to?.slice(0, 7) ?? "?"}${r.changes.length ? "" : " (no file changes)"}`);
+          for (const c of r.changes) console.log(`  ${c.how.padEnd(7)} ${c.file}`);
+          if (r.kept.length) console.log(`  kept your edits to ${r.kept.join(", ")}`);
+        }
+        if (ids.length) console.log("\nReview with git diff, then pnpm typecheck && pnpm test.");
+      } else throw new Error(`usage: pnpm packs ${rest[0]} <id>${rest[0] === "update" ? "|--all" : ""}`);
+      process.exit(0);
+    } catch (e) {
+      console.error(String((e as Error).message ?? e));
+      process.exit(1);
+    }
+  }
   if (rest[0] !== "new" || !rest[1]) {
-    console.error("usage:\n  pnpm packs new <id> [--into <instance folder>]\n  pnpm packs add <id> [--into <instance folder>] [--from <dovre-packs folder>]\n  pnpm packs list [--from <dovre-packs folder>]");
+    console.error(
+      "usage:\n  pnpm packs new <id> [--into <instance folder>]\n  pnpm packs add <id> [--into <instance folder>] [--from <dovre-packs folder>]\n  pnpm packs list [--from <dovre-packs folder>]\n  pnpm packs outdated [--into …] [--from …]\n  pnpm packs update <id>|--all [--into …] [--from …]\n  pnpm packs track <id> [--at <commit>] [--into …] [--from …]",
+    );
     process.exit(2);
   }
   try {
