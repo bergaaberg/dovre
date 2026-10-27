@@ -20,7 +20,24 @@ export type MyPr = { repo: string; number: number; title: string; url: string; c
 export type OpenPr = { repo: string; number: number; title: string; url: string; createdAt: string; draft: boolean; mine: boolean };
 export type Commit = { repo: string; at: string; state?: string };
 export type Release = { repo: string; at: string; tag: string };
-export type History = { at: number; login: string; mine: MyPr[]; reviewsGiven: string[]; open: OpenPr[]; orgMerged: { week: string; n: number }[]; releases: Release[]; commits: Commit[]; repos: number };
+export type History = {
+  at: number;
+  login: string;
+  /** How many weeks were gathered (unset: an older file, 12). */
+  weeks?: number;
+  mine: MyPr[];
+  reviewsGiven: string[];
+  open: OpenPr[];
+  orgMerged: { week: string; n: number }[];
+  releases: Release[];
+  commits: Commit[];
+  /** By repo: where its commits start when GitHub had more than one page of them; weeks before that don't count its commits. */
+  commitsFrom?: Record<string, string>;
+  repos: number;
+};
+
+/** Weeks that can be gathered: 12 always, 26 when Stats is set to show that many. */
+export const GATHER_WEEKS = (shown?: number) => Math.max(WEEKS, Math.min(26, shown ?? WEEKS));
 
 /** A week: Monday (Oslo) as YYYY-MM-DD, its ISO number, and where it starts and ends. */
 export type Week = { key: string; label: string; start: number; end: number };
@@ -64,10 +81,12 @@ const hours = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) 
 
 /** Everything the page draws, per week. */
 export function weekly(h: History, now: number) {
-  const weeks = weeksOf(now);
+  const weeks = weeksOf(now, h.weeks ?? WEEKS);
+  // A repo with more commits than one page counts only in the weeks its page reaches.
+  const from = Object.fromEntries(Object.entries(h.commitsFrom ?? {}).map(([r, t]) => [r, Date.parse(t)]));
   const merged = h.mine.filter((p) => p.mergedAt);
   const red = weeks.map((w) => {
-    const checked = h.commits.filter((c) => c.state && weekOf(c.at, weeks) === w);
+    const checked = h.commits.filter((c) => c.state && weekOf(c.at, weeks) === w && !(from[c.repo]! > w.start));
     const bad = checked.filter((c) => c.state === "FAILURE" || c.state === "ERROR").length;
     return checked.length ? { pct: Math.round((bad / checked.length) * 100), bad, of: checked.length } : undefined;
   });
@@ -95,8 +114,8 @@ export function weekly(h: History, now: number) {
 const q = (s: string) => JSON.stringify(s);
 type Node = Record<string, any>;
 
-export async function gatherHistory(ghe: Ghe, org: string, login: string, now: number): Promise<History> {
-  const weeks = weeksOf(now);
+export async function gatherHistory(ghe: Ghe, org: string, login: string, now: number, n = WEEKS): Promise<History> {
+  const weeks = weeksOf(now, n);
   const since = new Date(weeks[0]!.start).toISOString().slice(0, 10);
   const counts = weeks
     .map((w, i) => `w${i}: search(type: ISSUE, first: 1, query: ${q(`${ownerQuery(org)} is:pr is:merged merged:${w.key}..${new Date(w.end - DAY).toISOString().slice(0, 10)}`)}) { issueCount }`)
@@ -115,7 +134,7 @@ export async function gatherHistory(ghe: Ghe, org: string, login: string, now: n
   const repos = await ghe.graphql<Node>(`{
   organization(login: ${q(org)}) { repositories(first: 30, orderBy: { field: PUSHED_AT, direction: DESC }) { nodes { nameWithOwner isArchived
     releases(first: 50, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { createdAt tagName isPrerelease isDraft } }
-    defaultBranchRef { target { ... on Commit { history(first: 100, since: ${q(new Date(weeks[0]!.start).toISOString())}) { nodes { committedDate statusCheckRollup { state } } } } } } } } }
+    defaultBranchRef { target { ... on Commit { history(first: 100, since: ${q(new Date(weeks[0]!.start).toISOString())}) { pageInfo { hasNextPage } nodes { committedDate statusCheckRollup { state } } } } } } } } }
 }`);
   return historyOf({ ...people, mine: { nodes: mine }, reviewed: { nodes: reviewed } }, repos, { login, weeks, now });
 }
@@ -149,6 +168,12 @@ export function historyOf(people: Node, repos: Node, o: { login: string; weeks: 
   const orgMerged = o.weeks.flatMap((w, i) => (typeof people[`w${i}`]?.issueCount === "number" ? [{ week: w.key, n: people[`w${i}`].issueCount as number }] : []));
   const list = nodes(repos.organization?.repositories).filter((r) => !r.isArchived);
   const releases: Release[] = list.flatMap((r) => nodes(r.releases).filter((x) => !x.isDraft && !x.isPrerelease && str(x.createdAt)).map((x) => ({ repo: String(r.nameWithOwner), at: x.createdAt, tag: String(x.tagName ?? "") })));
+  const commitsFrom: Record<string, string> = {};
+  for (const r of list) {
+    const hist = r.defaultBranchRef?.target?.history;
+    const ats = nodes(hist).map((c) => str(c.committedDate)).filter((t): t is string => !!t).sort();
+    if (hist?.pageInfo?.hasNextPage === true && ats[0]) commitsFrom[String(r.nameWithOwner)] = ats[0];
+  }
   const commits: Commit[] = list.flatMap((r) => nodes(r.defaultBranchRef?.target?.history).filter((c) => str(c.committedDate)).map((c) => ({ repo: String(r.nameWithOwner), at: c.committedDate, state: str(c.statusCheckRollup?.state) })));
-  return { at: o.now, login: o.login, mine, reviewsGiven, open: [...openOf(people.open, true), ...openOf(people.asked, false)], orgMerged, releases, commits, repos: list.length };
+  return { at: o.now, login: o.login, weeks: o.weeks.length, mine, reviewsGiven, open: [...openOf(people.open, true), ...openOf(people.asked, false)], orgMerged, releases, commits, ...(Object.keys(commitsFrom).length ? { commitsFrom } : {}), repos: list.length };
 }

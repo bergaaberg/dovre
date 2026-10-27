@@ -1,5 +1,5 @@
 /**
- * Stats: the last twelve weeks in numbers and charts. Mine (merged, reviews given, how long PRs
+ * Stats: the last weeks (4, 12 or 26) in numbers and charts. Mine (merged, reviews given, how long PRs
  * wait), the org's (merged PRs, releases, how often main is red), agent spend per day from this
  * machine's transcripts, and how old the open PRs are. Drawn from what src/stats/stats.ts has
  * kept; the page fills in by itself when a gather ends.
@@ -166,7 +166,7 @@ function body(v: StatsView, offers: StatOffer[], placed: StatOffer[], forge: For
   const charts = drawn.filter(({ o }) => !o.tile).map(({ out }) => out);
   const quiet = github && !h && !v.gathering && !v.historyError;
   return html`${github && v.historyError ? Notice({ tone: "bad", children: html`<strong>${forge.name} didn't answer.</strong> ${v.historyError}${h ? html` <span class="t2">Showing what was gathered ${Ago(h.at)}.</span>` : ""}` }) : ""}
-${github && !h && v.gathering ? Notice({ children: `Gathering twelve weeks from ${forge.name}. This takes about half a minute; the page fills in by itself.` }) : ""}
+${github && !h && v.gathering ? Notice({ children: `Gathering the weeks from ${forge.name}. This takes about half a minute; the page fills in by itself.` }) : ""}
 ${kpis.length ? html`<div class="kpis">${kpis}</div>` : ""}
 ${charts.length ? html`<div class="stats-grid">${charts}</div>` : ""}
 ${quiet ? Empty({ title: `Nothing from ${forge.name} yet`, children: html`Press <strong>Gather again</strong>; it takes about half a minute.` }) : ""}
@@ -201,7 +201,9 @@ export function statsPage(frame: Frame, v: StatsView, o: { now?: number; forge?:
   const h = v.history;
   const offers = statOffers(v, { now, forge, weeks, packs: o.packs, github });
   const placed = placeStats(offers, o.layout?.stats);
-  const sub = github && h ? html`Last ${weeks} weeks. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}${v.spends !== false ? "; spend from this machine's transcripts" : ""}. <a href="/settings#layout">Choose what's here</a>.` : html`Last ${weeks} weeks. <a href="/settings#layout">Choose what's here</a>.`;
+  // A longer range than the kept history reaches says so until the gather brings it.
+  const reach = github && h && (h.weeks ?? WEEKS) < weeks ? html` (${h.weeks ?? WEEKS} until the gather for ${weeks} ends)` : "";
+  const sub = github && h ? html`Last ${weeks} weeks${reach}. From ${forge.name} ${Ago(h.at)}${v.gathering ? " · gathering again" : ""}${v.spends !== false ? "; spend from this machine's transcripts" : ""}. <a href="/settings#layout">Choose what's here</a>.` : html`Last ${weeks} weeks. <a href="/settings#layout">Choose what's here</a>.`;
   const refresh = github ? html`<form method="post" action="/stats/refresh"><button type="submit" class="ghost" data-busy="Gathering"${v.gathering ? html` disabled` : ""}>Gather again</button></form>` : "";
   return shell({
     title: "Stats · Dovre",

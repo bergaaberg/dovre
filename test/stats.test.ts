@@ -155,10 +155,10 @@ test("the page: tiles, charts with a hover target and a table for each, open PRs
   assert.match(page, /class="vb warn"/, "a PR over two weeks old is marked");
   // Nothing gathered yet: says so, and draws without history.
   const empty = String(statsPage({ operator: "me", nav: [] }, { gathering: true }, { now: NOW }));
-  assert.match(empty, /Gathering twelve weeks from GitHub/);
+  assert.match(empty, /Gathering the weeks from GitHub/);
   // Names the forge when it is not GitHub
   const gitlab = String(statsPage({ operator: "me", nav: [] }, { gathering: true }, { now: NOW, forge: { name: "GitLab", can: ["stats"] } }));
-  assert.match(gitlab, /Gathering twelve weeks from GitLab/);
+  assert.match(gitlab, /Gathering the weeks from GitLab/);
   const errored = String(statsPage({ operator: "me", nav: [] }, { historyError: "502 Bad Gateway", gathering: false }, { now: NOW, forge: { name: "GitLab", can: ["stats"] } }));
   assert.match(errored, /GitLab didn't answer/);
   // Columns: a hostile series name and tip are text.
@@ -182,6 +182,51 @@ test("/stats in the app: in the menu, a visit gathers when due, Gather again ask
   assert.equal(calls, 2);
 });
 
+// ── #142: 26 weeks ──
+
+test("26 weeks: a visit asks for them, the kept 12 are gathered again at once, and the page says so meanwhile", async () => {
+  const asked: number[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const stats = createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", gather: async (_g, _o, _l, now, n) => (asked.push(n ?? 12), await gate, historyOf(people, repos, { login: "me", weeks: weeksOf(now, n), now })) });
+  stats.refresh();
+  release();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, [12], "12 by default");
+  assert.equal(stats.view().history!.weeks, 12);
+  stats.refresh(false, 4);
+  assert.deepEqual(asked, [12], "4 shown: the kept 12 are enough");
+  stats.refresh(false, 26);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, [12, 26], "26 shown: gathered at once, though not due");
+  const h = stats.view().history!;
+  assert.equal(h.weeks, 26);
+  assert.equal(weekly(h, Date.now()).weeks.length, 26);
+  stats.refresh(true);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, [12, 26, 26], "and kept for the next gather");
+
+  const short = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW });
+  const page = String(statsPage({ operator: "me", nav: [] }, { history: short, gathering: true }, { now: NOW, layout: { statsWeeks: 26 } }));
+  assert.match(page, /Last 26 weeks \(12 until the gather for 26 ends\)/);
+  const long = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW, 26), now: NOW });
+  const full = String(statsPage({ operator: "me", nav: [] }, { history: long, gathering: false }, { now: NOW, layout: { statsWeeks: 26 } }));
+  assert.doesNotMatch(full, /until the gather/);
+});
+
+test("main red: a repo with more commits than one page counts only in the weeks that page reaches", () => {
+  const busy = { organization: { repositories: { nodes: [
+    { nameWithOwner: "ACME/busy", isArchived: false, defaultBranchRef: { target: { history: { pageInfo: { hasNextPage: true }, nodes: [{ committedDate: "2026-10-21T10:00:00Z", statusCheckRollup: { state: "SUCCESS" } }, { committedDate: "2026-10-20T10:00:00Z", statusCheckRollup: { state: "FAILURE" } }, { committedDate: "2026-10-16T10:00:00Z", statusCheckRollup: { state: "SUCCESS" } }] } } } },
+    { nameWithOwner: "ACME/calm", isArchived: false, defaultBranchRef: { target: { history: { pageInfo: { hasNextPage: false }, nodes: [{ committedDate: "2026-10-13T10:00:00Z", statusCheckRollup: { state: "FAILURE" } }] } } } },
+  ] } } };
+  const h = historyOf(people, busy, { login: "me", weeks: weeksOf(NOW), now: NOW });
+  assert.deepEqual(h.commitsFrom, { "ACME/busy": "2026-10-16T10:00:00Z" });
+  const w = weekly({ ...h, commits: [...h.commits, { repo: "ACME/busy", at: "2026-10-14T10:00:00Z", state: "SUCCESS" }] }, NOW);
+  assert.deepEqual(w.red[11], { pct: 50, bad: 1, of: 2 });
+  assert.deepEqual(w.red[10], { pct: 100, bad: 1, of: 1 }, "the week busy's page starts in is partial: only calm counts");
+  assert.equal(historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW }).commitsFrom, undefined);
+});
+
 // ── #93: packs add stats, and I choose what Stats shows ──
 
 const statPack = (stats: Pack["stats"], id = "linear"): Pack => ({ manifest: { api: PACK_API, id, name: id === "linear" ? "Linear" : id, description: "", domain: "work" }, stats });
@@ -192,7 +237,8 @@ test("layout: stats placements and weeks read strictly; placeStats hides and ord
     stats: { "you-weekly": { show: false, order: 3 }, "linear:cycle": { show: true, order: 2 } },
     statsWeeks: 4,
   });
-  assert.deepEqual(layoutOf({ statsWeeks: 26 }), {}, "26 weeks isn't on offer (yet)");
+  assert.deepEqual(layoutOf({ statsWeeks: 26 }), { statsWeeks: 26 });
+  assert.deepEqual(layoutOf({ statsWeeks: 52 }), {}, "52 weeks isn't on offer");
   const offers = ["a", "b", "c", "d"].map((id) => ({ id }));
   assert.deepEqual(placeStats(offers, { c: { show: true, order: 1 }, b: { show: false, order: 0 } }).map((o) => o.id), ["c", "a", "d"]);
   assert.deepEqual(placeStats(offers, undefined).map((o) => o.id), ["a", "b", "c", "d"]);
@@ -244,7 +290,7 @@ test("/stats without GitHub stats: the packs' panels and spend only, no Gather a
   const { get, post } = packApp([statPack(() => [cycle])], { forge: { id: "plain", name: "Plain", can: [] } });
   const page = await (await get("/stats")).text();
   assert.match(page, /Issues closed per week/);
-  assert.doesNotMatch(page, /Gather again|Merged, this week|Gathering twelve weeks/);
+  assert.doesNotMatch(page, /Gather again|Merged, this week|Gathering the weeks/);
   const settings = await (await get("/settings")).text();
   assert.match(settings, /name="stat:linear:cycle"/);
   assert.match(settings, /name="statsWeeks"/);

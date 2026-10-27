@@ -173,7 +173,7 @@ test("demo: /stats renders history charts and spend from fixtures, without gathe
   const res = await w.fetch(at("/stats"));
   assert.equal(res.status, 200);
   const page = await res.text();
-  assert.doesNotMatch(page, /Gathering twelve weeks/i);
+  assert.doesNotMatch(page, /Gathering the weeks/i);
   assert.doesNotMatch(page, /Reading transcripts/i);
   assert.doesNotMatch(page, /GHE/);
   assert.match(page, /Agent spend, 7 days/);
