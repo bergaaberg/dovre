@@ -63,9 +63,19 @@ function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: strin
  * The calls a turn was refused, asked about together: each ticked, one click allows the ticked
  * ones (each exactly as refused, for the next turn only) and the agent goes on. "No" says so.
  */
-function permissionCard(denied: Extract<Run["events"][number], { t: "denied" }>[], run: Run, sessionId: string) {
+function permissionCard(all: Extract<Run["events"][number], { t: "denied" }>[], run: Run, sessionId: string) {
+  // Refused though this turn had it allowed: Claude Code refuses it whatever Dovre allows, so no Allow for it (#163).
+  const again = all.filter((d) => run.allowed.includes(d.spec));
+  const denied = all.filter((d) => !run.allowed.includes(d.spec));
+  const stuck = again.length
+    ? html`<li class="turn-row">${Notice({
+        tone: "warn",
+        children: html`<p><strong>Allowed, and refused again.</strong> Claude Code refuses some calls whatever Dovre allows, most often a command that touches a folder outside the project (like <code>/tmp</code>). Allowing it again won't help: tell the agent to work inside the repo instead.</p>${again.map((d) => html`<pre class="output">${d.detail || d.spec}</pre>`)}`,
+      })}</li>`
+    : "";
+  if (!denied.length) return stuck;
   const what = denied.length === 1 ? `Wants to run ${denied[0]!.tool}` : `Wants to run ${denied.length} calls`;
-  return html`<li class="turn-row ask" data-stop="2"><form method="post" action="/agents/s/${sessionId}/allow" class="ask-card perm"><div class="who">${what}</div>${denied.map(
+  return html`${stuck}<li class="turn-row ask" data-stop="2"><form method="post" action="/agents/s/${sessionId}/allow" class="ask-card perm"><div class="who">${what}</div>${denied.map(
     (d) => html`<label class="ask-o"><input type="checkbox" name="spec" value="${d.spec}" checked><span><strong>${d.tool}</strong><pre class="output">${d.detail}</pre></span></label>`,
   )}<input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"><div class="buttons"><button type="submit" class="primary" data-busy="Allowing" title="Each exactly as it was refused, for the next turn only">${denied.length === 1 ? "Allow and go on" : "Allow ticked and go on"}</button><button type="submit" form="deny-${sessionId}" class="ghost">No</button></div></form><form method="post" action="/agents/s/${sessionId}/reply" id="deny-${sessionId}" hidden><input type="hidden" name="prompt" value="${NO}"><input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"></form></li>`;
 }
