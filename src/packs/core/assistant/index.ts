@@ -5,7 +5,7 @@
  * Bino (conversations, memory, its model route, the dock) is still wired by the core (src/app.ts,
  * src/hosted/hub.ts); this pack is its switch and its place on /packs.
  *
- * Topo (PLAN D18, D19, WP-H9b): each checkout's peak.yaml (bergaaberg/peak; range.yaml is the old name) right under CODE_DIR, its
+ * Topo (PLAN D18, D19, WP-H9b): each checkout's peak.yaml (bergaaberg/peak) right under CODE_DIR, its
  * page (/topo), and what it puts in core pages through slots: the component picker on
  * /agents/new, a PR's tier and docs on /prs, the Projects on New work. Only with a code folder
  * (local); PACK_TOPO=off leaves it out and keeps Bino.

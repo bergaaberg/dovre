@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Topo**: `range.yaml`, `peak.yaml`'s old name, is no longer read, and `/topo` no longer shows the rename notice. Rename the file to `peak.yaml`; the format is the same (#138).
+
 ## 0.2.1 (2026-10-26)
 
 - **Hosted teams**: each person's GitHub writes use their own token and name them (#57, #59); each person sees only the machines they paired (#79).

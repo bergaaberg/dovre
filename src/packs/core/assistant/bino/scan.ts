@@ -1,25 +1,22 @@
 /**
  * Topo scanner: finds and parses each checkout's peak.yaml (the format and parser live in
- * bergaaberg/peak). range.yaml, the format's old name, is read when there's no peak.yaml.
+ * bergaaberg/peak). range.yaml, the format's old name, is no longer read (#138).
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import yaml from "yaml";
-import { FILES, LEGACY_FILES, parsePeak, type Peak } from "@bergaaberg/peak";
+import { FILES, parsePeak, type Peak } from "@bergaaberg/peak";
 
 export type TopoEntry = {
   repo: string;
   dir: string;
   peak: Peak;
-  /** The file it came from: peak.yaml, or an old name (range.yaml) to rename. */
+  /** The file it came from: peak.yaml or peak.yml. */
   file: string;
 };
 
 /** A checkout whose file can't be used, and why (every problem, not just the first). */
 export type TopoProblem = { repo: string; file: string; problems: string[] };
-
-/** True for range.yaml / range.yml, the names Dovre suggests renaming. */
-export const isLegacy = (file: string) => (LEGACY_FILES as readonly string[]).includes(file);
 
 export class TopoScanner {
   private codeDir: string;
@@ -59,7 +56,7 @@ export class TopoScanner {
     }
 
     for (const name of names) {
-      const file = [...FILES, ...LEGACY_FILES].find((f) => existsSync(join(this.codeDir, name, f)));
+      const file = FILES.find((f) => existsSync(join(this.codeDir, name, f)));
       if (!file) continue;
       let result: ReturnType<typeof parsePeak>;
       try {
