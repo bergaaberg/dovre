@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
 import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } from "./helpers.ts";
 
-const PAGES = ["/", "/terminal", "/code", "/todo", "/bino", "/settings", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
+const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", "/settings", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
 
 test("nobody without the cookie, or on another host, learns anything is here", async () => {
   const { app, get } = signedIn(snapshot());
@@ -65,6 +65,20 @@ test("every page renders, and hostile text from every source stays text", async 
     assertInert(path, out);
     assert.ok(!out.includes('href="javascript:'), `${path}: a javascript: link got through`);
   }
+});
+
+test("Compare (#105): hostile text on both sides stays text, as lines and as JSON", async () => {
+  const { post } = signedIn(snapshot());
+  const lines = await post("/compare", { a: `one\n${H}\nthree`, b: `one\n${H}!\nthree` });
+  assert.equal(lines.status, 200);
+  const out = await lines.text();
+  assertInert("/compare", out);
+  assert.match(out, /class="diff"/);
+  const json = await post("/compare", { a: JSON.stringify({ k: H, z: 1 }), b: JSON.stringify({ z: 2, k: H }), json: "1", split: "1" });
+  const jo = await json.text();
+  assertInert("/compare json", jo);
+  assert.match(jo, /class="diff split"/);
+  assert.equal((await post("/compare", { a: H, b: "{}", json: "1" })).status, 400, "Before isn't JSON");
 });
 
 test("the Packs page keeps a pack's manifest and settings inert", async () => {
