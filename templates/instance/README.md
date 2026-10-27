@@ -5,6 +5,8 @@ checkout beside it (`../dovre`); this repo never goes into core, and core never 
 
 ## From here to a deployed Dovre
 
+In `../dovre`, `pnpm instance provision <this folder> --deploy` does steps 2 and 5 for you (and makes `BRIDGE_KEY`). By hand:
+
 1. `pnpm install` (core is linked from `../dovre`).
 2. `pnpm wrangler d1 create {{db}}`, and put the id it prints in `wrangler.jsonc`.
 3. In Cloudflare Zero Trust, make a self-hosted Access application for {{domain}} with a policy
@@ -20,7 +22,7 @@ missing (names only). Once in, Settings → Setup lists the rest: live pages (HU
 
 ## Packs
 
-`pnpm --dir ../dovre pack new <id> --into .` starts one in the shape core expects, then add it to
+In `../dovre`, `pnpm packs new <id> --into <this folder>` starts one in the shape core expects, then add it to
 `packs.ts`. Locally, core's `PACKS` setting lists this folder. Packs (under You) shows each
 one on or off and why.
 

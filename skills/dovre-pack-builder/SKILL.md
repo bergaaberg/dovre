@@ -18,10 +18,10 @@ pnpm packs add <pack-id> --into ../<instance-repo>
 pnpm packs new <pack-id> --into ../<instance-repo>
 ```
 This creates four files without overwriting existing files:
-- `crates/<id>/index.ts` — Manifest (`api: CRATE_API`, `id`, `name`, `execution`, `everyMs`, `crons`, `settings`) and hooks.
-- `crates/<id>/data.ts` — Background data reader into memory; zero HTML.
-- `crates/<id>/view.ts` — Escaped `hono/html` views (`Card`, `Panel`, `Item`, `safeUrl`).
-- `crates/<id>/test/<id>.test.ts` — Unit and hostile-input XSS tests using `testContext()`.
+- `packs/<id>/index.ts` — Manifest (`api: PACK_API`, `id`, `name`, `execution`, `everyMs`, `crons`, `settings`) and hooks.
+- `packs/<id>/data.ts` — Background data reader into memory; zero HTML.
+- `packs/<id>/view.ts` — Escaped `hono/html` views (`Card`, `Panel`, `Item`, `safeUrl`).
+- `packs/<id>/test/<id>.test.ts` — Unit and hostile-input XSS tests using `testContext()`.
 
 ## 2. Enforce Dovre's Three Pack Rules
 
@@ -33,17 +33,17 @@ This creates four files without overwriting existing files:
    - Every `href` constructed from external or user data MUST pass through `safeUrl()` from `dovre/pages/parts.ts`.
    - Never use inline `style="..."` attributes; use Dovre kit classes (`src/ui/kit.ts`) or export a `styles` string on the pack.
 3. **Hostile-Input Test in the Pack's Own `test/` Folder:**
-   - Every pack test suite in `crates/<id>/test/<id>.test.ts` MUST include a hostile payload test (`<script>alert(1)</script>`, `javascript:alert(1)`) verifying that all rendered HTML and links are escaped.
+   - Every pack test suite in `packs/<id>/test/<id>.test.ts` MUST include a hostile payload test (`<script>alert(1)</script>`, `javascript:alert(1)`) verifying that all rendered HTML and links are escaped.
 
-## 3. Available Hooks & UI Slots (`src/crates/types.ts`)
+## 3. Available Hooks & UI Slots (`src/packs/types.ts`)
 
 - **Today screen:** `today` (cards), `glance` (up to 2 counts), `brief` (opening sentence bits), `lane` (24h horizon marks), `feed` (live events).
 - **Attention:** `needs` (+ manifest `rings`), `ctx.ring`, `banner`, `dock`.
 - **Search (`Ctrl+K`):** `pages`, `finds` (`kind: "agents" | "code" | "actions"`).
 - **Assistant & Memory:** `bino` (states/counts up to 1,500 chars), `about`, `acts` (proposable action cards).
-- **Named UI Slots (`SlotMap`):** `today.hero`, `agents.new`, `pr.lead`, `pr.facts`, `work.new`, `agents.panel`, `worktree.actions`, `session.resume`, `deploy.prod`, `todo.proposals`, `bino.face`, `actions.where`.
+- **Named UI Slots (`SlotMap`):** `agents.new`, `pr.lead`, `pr.facts`, `work.new`, `agents.panel`, `worktree.actions`, `session.resume`, `deploy.prod`, `todo.proposals`, `actions.what`, `today.hero`, `bino.face`, `actions.where`, `span.actions`.
 
 ## 4. Register & Verify
 
-1. Add the pack to `../<instance-repo>/crates.ts`.
+1. Add the pack to `../<instance-repo>/packs.ts`.
 2. Run `pnpm typecheck && pnpm test` in both the instance repo and Dovre Core.

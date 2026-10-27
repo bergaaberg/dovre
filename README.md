@@ -77,20 +77,22 @@ Its sign-in, data, Node and log live in the user config folder (`~/Library/Appli
 
 ## Pluggable Packs (`PACK_API = 1`)
 
-Dovre Core ships five built-in packs under `src/packs/core/`:
+Dovre Core ships six built-in packs under `src/packs/core/`:
 
 | Core Pack | Purpose | Toggle |
 |---|---|---|
 | `agents` | Multi-harness session discovery, live streaming turns, worktrees, and tool approval bar (`claude`, `codex`, `omp`, `copilot`, `agy`) | `PACK_AGENTS=off` / `AGENT_HARNESSES` |
 | `assistant` | **Bino** assistant + **Topo** ([`peak.yaml`](https://github.com/bergaaberg/peak) catalog) + [`memlet`](https://github.com/bergaaberg/memlet) scoped SQLite/D1 memory | `PACK_ASSISTANT=off` / `PACK_TOPO=off` |
 | `terminal` | Strict-origin local PTY web terminals (`/terminal`) | `PACK_TERMINAL=off` |
-| `docker` | Container and compose project controls + live SSE logs (`/docker`) | `PACK_DOCKER=off` |
+| `docker` | Container and compose project controls + live SSE logs (`/docker`). No engine on a Mac? `sh scripts/docker.sh` sets up Colima | `PACK_DOCKER=off` |
+| `tracker` | My open issues (assigned, mentioning me, opened by me, triage) on `/tracker`, with Today needs and row actions | `PACK_TRACKER=off` |
+| `storybook` | A PR's stories before and after, published by CI or built here (`/storybook`, local only) | `PACK_STORYBOOK=off` / `STORYBOOK` |
 
 A pack can also bring a **forge** (`forge` hook, `src/forge/types.ts`) so that PRs/MRs, CI, notifications and deploys come from somewhere other than GitHub. Set `FORGE=<its id>` to use it. There's one forge per instance, and GitHub is the default.
 
 ### Add a Pre-Built or Custom Pack
 
-Install pre-built packs from [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs) (`cf-health`, `http-otel`, `docker`, `jira`, `custom-app`) or scaffold a new one:
+Install pre-built packs from [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs) (Linear, Jira, Slack, OpenTelemetry, Kafka, DuckDB, JSON tools, an HTTP client and more; `pnpm packs list` shows them all) or scaffold a new one:
 
 ```sh
 pnpm packs list
@@ -136,7 +138,13 @@ health:
   workers: [quill-web, quill-dispatcher]
 ```
 
-`range.yaml`, the format's old name, is no longer read: rename it to `peak.yaml` (same format). Files with problems are listed on `/topo` with every problem.
+Files with problems are listed on `/topo` with every problem.
+
+---
+
+## Code and diffs (local)
+
+`/code` reads any checkout under `CODE_DIR` at any branch, tag or commit, read-only. `/code/<checkout>/diff` shows its own changes in the pull request viewer: what's uncommitted (untracked files too), a branch against another ref, or one commit, unified or side by side, with changed words marked. An agent session working in a checkout links there with **Diff**. `/compare` diffs two pasted texts, or two JSON documents with their keys sorted.
 
 ---
 
