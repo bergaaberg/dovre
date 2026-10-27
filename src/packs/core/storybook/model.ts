@@ -6,8 +6,11 @@
  * named exports).
  */
 
-/** Where one repo's Storybook is published: `head` for a PR, `base` for the branch it targets. */
-export type Book = { repo: string; head: string; base: string };
+/**
+ * Where one repo's Storybook is: `head` for a PR, `base` for the branch it targets, each a published
+ * URL template, or undefined when Dovre builds that side here (#166).
+ */
+export type Book = { repo: string; head?: string; base?: string };
 
 /** What a template's placeholders become. */
 export type Vars = { pr: number; branch: string; base: string; sha: string };
@@ -16,18 +19,19 @@ const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
 const PLACE = /\{(pr|branch|base|sha)\}/g;
 
 /**
- * STORYBOOK: entries split by `;` or new lines, each `owner/repo <PR url> <base url>`, the URLs
- * with {pr}, {branch}, {base} or {sha} in their path (never the host). An entry that isn't that is
- * left out.
+ * STORYBOOK: entries split by `;` or new lines, each `owner/repo`, then the URLs it's published
+ * at: `<PR url> <base url>`, only `<base url>` (the PR built here), or none (both built here). The
+ * URLs are https, with {pr}, {branch}, {base} or {sha} in their path (never the host). An entry
+ * that isn't that is left out.
  */
 export function booksOf(raw: string | undefined): Book[] {
   const out: Book[] = [];
   for (const entry of String(raw ?? "").split(/[;\n]/)) {
-    const [repo, head, base, ...rest] = entry.trim().split(/\s+/);
-    if (!repo || !head || !base || rest.length || !REPO.test(repo)) continue;
-    if (!originOf(head) || !originOf(base)) continue;
+    const [repo, ...urls] = entry.trim().split(/\s+/);
+    if (!repo || urls.length > 2 || !REPO.test(repo) || urls.some((u) => !originOf(u))) continue;
     if (out.some((b) => b.repo.toLowerCase() === repo.toLowerCase())) continue;
-    out.push({ repo, head, base });
+    const [head, base] = urls.length === 2 ? urls : [undefined, urls[0]];
+    out.push({ repo, ...(head ? { head } : {}), ...(base ? { base } : {}) });
   }
   return out;
 }
@@ -85,7 +89,8 @@ export function sanitize(s: string): string {
 
 /** An export's story name (Storybook's storyNameFromExport, lodash startCase): "PrimaryLarge" → "Primary Large". */
 export function storyName(key: string): string {
-  const words = key.match(/[A-Z]{2,}(?=[A-Z][a-z]|[0-9]|\b)|[A-Z]?[a-z]+|[A-Z]+|[0-9]+/g) ?? [key];
+  // Capitals before a capitalised word are a word of their own: "EFaktura" → "E Faktura", "AnsattIJbf" → "Ansatt I Jbf".
+  const words = key.match(/[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+/g) ?? [key];
   return words.map((w) => w[0]!.toUpperCase() + w.slice(1)).join(" ");
 }
 
@@ -97,6 +102,34 @@ export function autoTitle(path: string): string {
   return parts.join("/");
 }
 
+/**
+ * The `title` at the top level of the object literal opening at `open` (the meta), not one nested in
+ * it (an arg's). Strings and template literals are skipped (comments are gone already); at most
+ * 50 000 characters are read.
+ */
+export function topTitle(code: string, open: number): string | undefined {
+  let depth = 0;
+  const end = Math.min(code.length, open + 50_000);
+  for (let i = open; i < end; i++) {
+    const ch = code[i]!;
+    if (ch === "'" || ch === '"' || ch === "`") {
+      let j = i + 1;
+      while (j < end && code[j] !== ch) j += code[j] === "\\" ? 2 : 1;
+      if (j >= end) return undefined;
+      i = j;
+      continue;
+    }
+    if (ch === "{" || ch === "(" || ch === "[") depth++;
+    else if (ch === "}" || ch === ")" || ch === "]") {
+      if (--depth === 0) return undefined;
+    } else if (depth === 1 && /[\s,{]/.test(code[i - 1] ?? "") && code.startsWith("title", i)) {
+      const m = /^title\s*:\s*(['"`])([^'"`\n]{1,200})\1/.exec(code.slice(i, i + 220));
+      if (m) return m[2];
+    }
+  }
+  return undefined;
+}
+
 /** A stories file read (CSF): its title, and its stories' export names. */
 export function parseStories(path: string, src: string): { title: string; exports: string[] } {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
@@ -105,12 +138,8 @@ export function parseStories(path: string, src: string): { title: string; export
   const def = /export\s+default\s+(\{|([A-Za-z_$][\w$]*))/.exec(code);
   if (def) {
     const from = def[1] === "{" ? def.index : code.search(new RegExp(`(const|let|var)\\s+${def[2]}\\b`));
-    if (from >= 0) {
-      const head = code.slice(from, from + 800);
-      const cut = head.search(/export\s+const\s/);
-      const m = /\btitle\s*:\s*(['"`])([^'"`\n]{1,200})\1/.exec(cut > 0 ? head.slice(0, cut) : head);
-      if (m) title = m[2];
-    }
+    const open = from >= 0 ? code.indexOf("{", from) : -1;
+    if (open >= 0) title = topTitle(code, open);
   }
   const names = new Set<string>();
   for (const m of code.matchAll(/export\s+(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]!);

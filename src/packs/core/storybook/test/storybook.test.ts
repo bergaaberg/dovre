@@ -3,9 +3,13 @@ import { test } from "node:test";
 import { frameOrigin } from "../../../../app.ts";
 import { autoTitle, booksOf, originOf, parseStories, storyId, storyName, touched, urlOf } from "../model.ts";
 
-test("STORYBOOK: repo and two https templates per entry; anything else is left out", () => {
-  const books = booksOf("acme/web https://a.io/web/pr-{pr}/ https://a.io/web/{base}/;\n bad https://a.io/ https://a.io/ ; acme/x http://a.io/ https://a.io/ ; acme/y https://{pr}.a.io/ https://a.io/ ; acme/web https://b.io/ https://b.io/");
-  assert.deepEqual(books, [{ repo: "acme/web", head: "https://a.io/web/pr-{pr}/", base: "https://a.io/web/{base}/" }]);
+test("STORYBOOK: a repo, then two https templates, only the base's, or none (built here); anything else is left out", () => {
+  const books = booksOf("acme/web https://a.io/web/pr-{pr}/ https://a.io/web/{base}/;\n bad https://a.io/ https://a.io/ ; acme/x http://a.io/ https://a.io/ ; acme/y https://{pr}.a.io/ https://a.io/ ; acme/web https://b.io/ https://b.io/ ; acme/mw https://mw.io/ ; acme/both ; acme/z https://a.io/ https://a.io/ https://a.io/");
+  assert.deepEqual(books, [
+    { repo: "acme/web", head: "https://a.io/web/pr-{pr}/", base: "https://a.io/web/{base}/" },
+    { repo: "acme/mw", base: "https://mw.io/" },
+    { repo: "acme/both" },
+  ]);
   assert.equal(originOf("https://{pr}.a.io/"), undefined);
   assert.equal(originOf("https://a.io:8443/x"), "https://a.io:8443");
 });
@@ -20,6 +24,11 @@ test("story ids as Storybook makes them", () => {
   assert.equal(storyName("PrimaryLarge"), "Primary Large");
   assert.equal(storyName("withIcon"), "With Icon");
   assert.equal(storyName("Size2XL"), "Size 2 XL");
+  // As Storybook names minside-web's (#166).
+  assert.equal(storyName("EFaktura"), "E Faktura");
+  assert.equal(storyName("AnsattIJbf"), "Ansatt I Jbf");
+  assert.equal(storyName("AnsattJBF"), "Ansatt JBF");
+  assert.equal(storyName("ForsikringstypeValgtIFlyt"), "Forsikringstype Valgt I Flyt");
   assert.equal(storyId("Components/Button", "PrimaryLarge"), "components-button--primary-large");
   assert.equal(autoTitle("src/components/Button/Button.stories.tsx"), "components/Button");
   assert.equal(autoTitle("src/ui/Card.stories.ts"), "ui/Card");
@@ -30,6 +39,9 @@ test("a stories file: the meta's title (not an arg's), its exports", () => {
   assert.deepEqual(a, { title: "Forms/Button", exports: ["Primary", "Big", "Tiny"] });
   const b = parseStories("src/x/Card/Card.stories.tsx", `export default { component: Card };\nexport const Basic = { args: { title: "x" } };`);
   assert.equal(b.title, "x/Card");
+  // The meta's title far down, after decorators and a render with its own `title`; strings with braces and escaped quotes skipped.
+  const long = `const meta: Meta<A> = {\n  component: X,\n  decorators: [moduleMetadata({ imports: [A] })],\n  render: (args) => ({ props: { title: "inner" }, template: \`<x>{{ a }}</x>\` }),\n  args: { label: 'it\\'s {', title: "arg" },\n  ${"// pad\n  ".repeat(0)}parameters: { docs: { description: { component: "${"x".repeat(2500)}" } } },\n  title: "Components/Form Controls/Input",\n};\nexport default meta;\nexport const Text: Story = {};`;
+  assert.equal(parseStories("src/a/input.stories.ts", long).title, "Components/Form Controls/Input");
 });
 
 test("touched: changed stories, and the folders of changed source files (not tests)", () => {
@@ -44,7 +56,9 @@ test("touched: changed stories, and the folders of changed source files (not tes
   assert.deepEqual(t.dirs, ["src/b"]);
 });
 
-test("frames: https origins only", () => {
+test("frames: https origins, and http only for this machine on a port", () => {
   assert.equal(frameOrigin("https://a.io/x/y"), "https://a.io");
-  for (const bad of ["http://a.io", "javascript:alert(1)", "https://u:p@a.io", "*", 3, "https://*.a.io"]) assert.equal(frameOrigin(bad), undefined, String(bad));
+  assert.equal(frameOrigin("http://localhost:4849/"), "http://localhost:4849");
+  assert.equal(frameOrigin("http://127.0.0.1:4849"), "http://127.0.0.1:4849");
+  for (const bad of ["http://a.io", "http://localhost", "http://127.0.0.2:4849", "http://localhost.a.io:80", "javascript:alert(1)", "https://u:p@a.io", "*", 3, "https://*.a.io"]) assert.equal(frameOrigin(bad), undefined, String(bad));
 });
