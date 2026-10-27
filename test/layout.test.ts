@@ -104,7 +104,7 @@ test("Settings → Layout: tabs, a card moved and one hidden, a feed off, a pack
 
 test("look: a picked theme and accent are on every page's <html>, the CSS has a block for each, junk is dropped", async () => {
   const { STYLE } = await import("../src/ui/style.ts");
-  for (const sel of [':root[data-theme="dark"] {', ':root[data-theme="light"]', ':root[data-accent="heather"]', ':root[data-accent="glacier"]', ':root[data-theme="dark"][data-accent="heather"]', ':root:not([data-theme="light"])[data-accent="glacier"]']) assert.ok(STYLE.includes(sel), sel);
+  for (const sel of [':root[data-theme="dark"] {', ':root[data-theme="light"]', ':root[data-accent="heather"]', ':root[data-accent="glacier"]', ':root[data-theme="dark"][data-accent="heather"]', ':root:not([data-theme])[data-accent="glacier"]']) assert.ok(STYLE.includes(sel), sel);
   assert.ok(!STYLE.includes("${"), "every token block filled in");
   assert.deepEqual(layoutOf({ theme: "sepia", accent: "red" }), {});
   const { get, post } = signedIn(snapshot());
@@ -120,4 +120,29 @@ test("look: a picked theme and accent are on every page's <html>, the CSS has a 
   assert.match(await (await get("/settings")).text(), /<option value="heather" selected>/);
   await post("/settings/layout", { theme: "light" });
   assert.match(await (await get("/prs")).text(), /<meta name="theme-color" content="#efe7db">/);
+  await post("/settings/layout", { theme: "ember", accent: "glacier" });
+  const ember = await (await get("/prs")).text();
+  assert.match(ember, /<html lang="en" data-theme="ember" data-accent="glacier">/);
+  assert.match(ember, /<meta name="theme-color" content="#1b140f">/);
+  assert.match(await (await get("/settings")).text(), /<option value="ember" selected>/);
+});
+
+test("themes (#95): each has its block, its accents and its scheme; the browser's bar is its --sky; the system's dark leaves a picked theme alone", async () => {
+  const { STYLE } = await import("../src/ui/style.ts");
+  const { SKY } = await import("../src/html.ts");
+  const { THEMES } = await import("../src/layout.ts");
+  for (const t of THEMES) {
+    assert.ok(SKY[t], `${t} has a bar colour`);
+    if (t === "light") continue;
+    const block = STYLE.slice(STYLE.lastIndexOf(`:root[data-theme="${t}"] {`));
+    assert.ok(block.length < STYLE.length, `${t} has a block`);
+    // The last --sky in the block wins (polar and ember start from night's).
+    const skies = [...block.slice(0, block.indexOf("\n}")).matchAll(/--sky: (#[0-9a-f]{6})/g)].map((m) => m[1]);
+    assert.equal(skies.at(-1), SKY[t], `${t}'s bar is its --sky`);
+    for (const a of ["heather", "glacier"]) assert.ok(STYLE.includes(`:root[data-theme="${t}"][data-accent="${a}"]`), `${t} + ${a}`);
+  }
+  assert.match(STYLE, /:root\[data-theme="birch"\] \{\n  color-scheme: light;/);
+  assert.match(STYLE, /:root\[data-theme="polar"\] \{\n  color-scheme: dark;/);
+  assert.ok(!STYLE.includes(':not([data-theme="light"])'), "the system's dark only fills in when no theme is picked");
+  assert.deepEqual(layoutOf({ theme: "polar" }), { theme: "polar" });
 });

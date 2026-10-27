@@ -146,6 +146,65 @@ const accent = (c: string, ink: string, surface: string, soft: number, line: num
 const ACCENT_LIGHT = { heather: accent("#6a4c9c", "#ffffff", "#fffdfa", 13, 32), glacier: accent("#0e6a8f", "#ffffff", "#fffdfa", 12, 30) };
 const ACCENT_DARK = { heather: accent("#a99cf0", "#07131c", "#111c25", 16, 34), glacier: accent("#5fc0e8", "#07131c", "#111c25", 16, 34) };
 
+/**
+ * The themes besides light and dark (Settings → Layout, #95): each a full palette on top of its
+ * scheme's tokens. Text, accents and status pass WCAG AA on every surface (ink and ink-2 7:1), and
+ * --c1/--c2 pass the dataviz validator on each --surface. ok, warn and bad still mean status only.
+ */
+const THEMES: Record<string, { scheme: "light" | "dark"; surface: string; tokens: string }> = {
+  /* birch bark: cool white and grey, slate ink */
+  birch: {
+    scheme: "light",
+    surface: "#ffffff",
+    tokens: String.raw`--bg: #f2f4f7; --sky: #e6ebf0; --surface: #ffffff; --surface-2: #f6f8fa; --hover: #eceff3;
+    --ink: #16202a; --ink-2: #3b4753; --ink-3: #56626e;
+    --line: #e1e6eb; --line-2: #c9d1d9;
+    --accent: #1d5c88; --accent-ink: #ffffff; --accent-soft: #e3edf5; --accent-line: #b9cfe0;
+    --ok: #2f6b29; --ok-soft: #e4efe0; --warn: #8a5200; --warn-soft: #f8eedb; --bad: #ab1d39; --bad-soft: #f8e2e6;
+    --ridge-farthest: #e4e9ee; --ridge-far: #ccd5dd; --ridge-near: #94a3b0; --ridge-deep: #758593; --ridge-edge: #5a6976;
+    --snow: #ffffff; --night: #dbe2e8; --star: #ffffff; --flag-bot: #9aa6b1;
+    --shadow: 0 1px 2px rgb(22 32 42 / .05), 0 10px 30px -18px rgb(22 32 42 / .2);`,
+  },
+  /* polar night: true black for OLED screens, the night's ink */
+  polar: {
+    scheme: "dark",
+    surface: "#0b0f13",
+    tokens: String.raw`${DARK}
+    --bg: #000000; --sky: #05080b; --surface: #0b0f13; --surface-2: #10161b; --hover: #161d23;
+    --ink: #eef2f5; --ink-2: #b8c2ca; --ink-3: #8e9aa4;
+    --line: #1b2229; --line-2: #29323a;
+    --accent-soft: #10202d; --accent-line: #24425a;
+    --ok-soft: #122015; --warn-soft: #241c10; --bad-soft: #2a1318;
+    --ridge-farthest: #070b0f; --ridge-far: #0d151c; --ridge-near: #1a2833; --ridge-deep: #0e1820; --ridge-edge: #4a6578;
+    --night: #000000;`,
+  },
+  /* ember: the stove at night, warm brown-black and firelit ink */
+  ember: {
+    scheme: "dark",
+    surface: "#1f1712",
+    tokens: String.raw`${DARK}
+    --bg: #15100c; --sky: #1b140f; --surface: #1f1712; --surface-2: #251c16; --hover: #2c221b;
+    --ink: #f2e9e0; --ink-2: #cdbdae; --ink-3: #a89786;
+    --line: #33271f; --line-2: #45362b;
+    --accent: #8fc0e2; --accent-ink: #0b141b; --accent-soft: color-mix(in srgb, #8fc0e2 16%, #1f1712); --accent-line: color-mix(in srgb, #8fc0e2 34%, #1f1712);
+    --ok: #93c781; --ok-soft: #1c2617; --warn: #e8bb62; --warn-soft: #2e2213; --bad: #f4899a; --bad-soft: #33181c;
+    --ridge-farthest: #1d1611; --ridge-far: #2a1f17; --ridge-near: #3f2f23; --ridge-deep: #261c15; --ridge-edge: #8a6e57;
+    --snow: #e9d9c8; --night: #0e0a07; --star: #f2e2cf; --flag-bot: #6d5847; --sun: #e9d9c8;
+    --shadow: 0 1px 0 rgb(255 240 220 / .02) inset, 0 14px 40px -24px rgb(0 0 0 / .8);`,
+  },
+};
+/** Each theme's block, and the accents on its own surface (the same colours as light's or dark's). */
+const themeCss = () =>
+  Object.entries(THEMES)
+    .map(([name, t]) => {
+      const a = t.scheme === "light" ? { heather: ["#6a4c9c", "#ffffff", 13, 32], glacier: ["#0e6a8f", "#ffffff", 12, 30] } : { heather: ["#a99cf0", "#07131c", 16, 34], glacier: ["#5fc0e8", "#07131c", 16, 34] };
+      const accents = Object.entries(a)
+        .map(([id, [c, ink, soft, line]]) => `:root[data-theme="${name}"][data-accent="${id}"] { ${accent(c as string, ink as string, t.surface, soft as number, line as number)} }`)
+        .join("\n");
+      return `:root[data-theme="${name}"] {\n  color-scheme: ${t.scheme};\n    ${t.tokens}\n}\n${accents}`;
+    })
+    .join("\n");
+
 export const STYLE = String.raw`
 /* ── Type: Nordwand Mono everywhere (assets/fonts, SIL OFL 1.1; tywr/Nordwand-Mono 1.3.3) ── */
 @font-face { font-family: "Nordwand Mono"; src: url("/assets/fonts/NordwandMono-Light.woff2") format("woff2"); font-weight: 300; font-style: normal; font-display: swap; }
@@ -198,13 +257,13 @@ export const STYLE = String.raw`
    in both themes (colour blind and not) and for text contrast; green, amber and red stay status. */
 :root[data-accent="heather"] { ${ACCENT_LIGHT.heather} }
 :root[data-accent="glacier"] { ${ACCENT_LIGHT.glacier} }
-/* Night: the system's dark unless I've picked light, or dark whatever the system says (Settings → Layout). */
+/* Night: the system's dark unless I've picked a theme, or dark whatever the system says (Settings → Layout). */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme]) {
 ${DARK}
   }
-  :root:not([data-theme="light"])[data-accent="heather"] { ${ACCENT_DARK.heather} }
-  :root:not([data-theme="light"])[data-accent="glacier"] { ${ACCENT_DARK.glacier} }
+  :root:not([data-theme])[data-accent="heather"] { ${ACCENT_DARK.heather} }
+  :root:not([data-theme])[data-accent="glacier"] { ${ACCENT_DARK.glacier} }
 }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] {
@@ -213,6 +272,8 @@ ${DARK}
 }
 :root[data-theme="dark"][data-accent="heather"] { ${ACCENT_DARK.heather} }
 :root[data-theme="dark"][data-accent="glacier"] { ${ACCENT_DARK.glacier} }
+/* The other themes (THEMES above). */
+${themeCss()}
 
 /* ── Base ───────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }

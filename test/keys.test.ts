@@ -31,7 +31,7 @@ test("hint labels: one each, all the same length, the shortest that fits, only V
 });
 
 test("the hint overlay has its own colours in light and dark, and doesn't take the form kit's .hint", () => {
-  assert.equal((STYLE.match(/--hint: #/g) ?? []).length, 3, "light, the system's dark, and a picked dark");
+  assert.equal((STYLE.match(/--hint: #/g) ?? []).length, 5, "light, the system's dark, a picked dark, and the dark themes (polar, ember)");
   assert.match(STYLE, /\.key-hint \{/);
   assert.doesNotMatch(STYLE, /^\.hint \{/m, "the form kit's .hint stays a quiet help line");
 });
