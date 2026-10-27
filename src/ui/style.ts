@@ -1078,6 +1078,7 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .diff.split .code { width: 50%; }
 .diff.split td.code + td.ln { border-left: 1px solid var(--line); }
 .d-empty { background: var(--surface-2); }
+form.compare textarea { font-family: var(--mono); font-size: var(--fs-s); }
 .d-hunk td { background: var(--accent-soft); color: var(--ink-2); padding-top: 2px; padding-bottom: 2px; }
 .d-note td { font-style: italic; }
 .d-threads td { padding: 8px 12px; background: var(--surface-2); white-space: normal; font-family: var(--sans); font-size: var(--fs-s); }

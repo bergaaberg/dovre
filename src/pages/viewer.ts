@@ -14,11 +14,12 @@ import { type Kept, memoize } from "../issues/templates.ts";
 import type { Hub } from "../live.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { loadPrFiles, loadPrView, type PrFile, type PrView, type Thread } from "../sources/prview.ts";
-import { Confirm, ConfirmSubmit, type Child, Empty, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
+import { Confirm, ConfirmSubmit, type Child, Empty, Grid2, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
 import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
-import { type DiffLine, type FileView, fileViews, type Mark, placeMine } from "../viewer/diff.ts";
+import { type DiffLine, type FileView, fileViews, type Mark, parsePatch, placeMine } from "../viewer/diff.ts";
+import { type Compared, canonicalJson, comparePatch, MAX_TEXT } from "../viewer/compare.ts";
 import { type DiffAsk, type LocalDiff, localDiff, MAX_FILES, MAX_UNTRACKED } from "../viewer/localdiff.ts";
 import { Ago, Link } from "./parts.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -207,6 +208,11 @@ function lineRow(l: DiffLine, extra?: LineExtra, at?: CommentAt, acts?: ThreadAc
   }${extra ? extra(l) : ""}`;
 }
 
+/** A diff's lines as a table: unified (with comments and threads, when given) or side by side. */
+function diffTable(lines: DiffLine[], o: { split?: boolean; extra?: LineExtra; at?: CommentAt; acts?: ThreadActs } = {}): Html {
+  return html`<div class="diff-wrap"><table class="diff${o.split ? " split" : ""}"><tbody>${o.split ? splitRows(lines) : lines.map((l) => lineRow(l, o.extra, o.at, o.acts))}</tbody></table></div>`;
+}
+
 export const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
 
 /** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
@@ -219,7 +225,7 @@ export function fileView(fv: FileView, o: { sha: string; dir?: string; present: 
     fv.threads.length ? html` · ${fv.threads.length} ${fv.threads.length === 1 ? "thread" : "threads"}` : ""
   }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""}${fv.mine ? html` · <span class="spark">${fv.mine} pending</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
     fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true, acts: o.acts }))}</div>` : ""
-  }${fv.lines.length ? html`<div class="diff-wrap"><table class="diff${o.split ? " split" : ""}"><tbody>${o.split ? splitRows(fv.lines) : fv.lines.map((l) => lineRow(l, o.extra, at, o.acts))}</tbody></table></div>` : ""}</details>`;
+  }${fv.lines.length ? diffTable(fv.lines, { split: o.split, extra: o.extra, at, acts: o.acts }) : ""}</details>`;
 }
 
 /** My own review on the Files tab (dovre#106): pending comments, the form open at a line (no script), the agent's draft to start from. */
@@ -290,7 +296,7 @@ export function codeListPage(frame: Frame, list: Checkout[]): Html {
     title: "Code · Dovre",
     frame,
     current: "/code",
-    body: html`${PageHeader({ title: "Code", sub: "Checkouts at any branch, tag or commit. Read-only." })}${Panel({
+    body: html`${PageHeader({ title: "Code", sub: "Checkouts at any branch, tag or commit. Read-only.", actions: html`<a class="btn sm ghost" href="/compare">Compare text</a>` })}${Panel({
       flush: true,
       children: list.length ? List(list.map((c) => Item({ href: codeHref(c.dir), title: html`<strong>${c.dir}</strong>`, line: c.repo }))) : Empty({ title: "No checkouts of the org's repos in your code folder" }),
     })}`,
@@ -374,6 +380,41 @@ export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: Diff
     current: "/code",
     body: html`${PageHeader({ title: "Changes", sub, crumbs: [{ href: "/code", label: "Code" }, { href: codeHref(o.dir), label: o.dir }], tabs })}${form}${inner}`,
   });
+}
+
+// ── Two texts compared (dovre#105) ──────────────────────────────────────────
+
+export type CompareAsk = { a: string; b: string; json: boolean; split: boolean };
+
+export function comparePage(frame: Frame, o: { ask?: CompareAsk; result?: Compared }): Html {
+  const k = o.ask ?? { a: "", b: "", json: false, split: false };
+  const r = o.result;
+  const max = String(MAX_TEXT);
+  const form = html`<form method="post" action="/compare" class="compare">${Grid2(html`<label class="field"><span class="label">Before</span><textarea name="a" rows="12" maxlength="${max}" spellcheck="false">${k.a}</textarea></label><label class="field"><span class="label">After</span><textarea name="b" rows="12" maxlength="${max}" spellcheck="false">${k.b}</textarea></label>`)}<p><label class="check"><input type="checkbox" name="json" value="1"${k.json ? html` checked` : ""}> As JSON: keys sorted, laid out alike</label><label class="check"><input type="checkbox" name="split" value="1"${k.split ? html` checked` : ""}> Side by side</label> <button type="submit" class="primary sm">Compare</button></p></form>`;
+  const out = !r
+    ? ""
+    : !r.ok
+      ? Notice({ tone: "bad", children: r.error })
+      : !r.patch
+        ? Panel({ children: Empty({ title: "They're the same" }) })
+        : Panel({ title: html`<span class="add">+${r.additions}</span> <span class="del">−${r.deletions}</span>`, flush: true, children: diffTable(parsePatch(r.patch), { split: k.split }) });
+  return shell({
+    title: "Compare · Dovre",
+    frame,
+    current: "/code",
+    body: html`${PageHeader({ title: "Compare", sub: "Two pieces of text, or two JSON documents, line by line. Nothing is kept.", crumbs: [{ href: "/code", label: "Code" }] })}${form}${out}`,
+  });
+}
+
+/** What a compare form sent: each side capped, JSON laid out alike when asked. */
+export function compareOf(form: Record<string, unknown>): { ask: CompareAsk; result: Compared } {
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  const ask: CompareAsk = { a: text(form.a), b: text(form.b), json: form.json === "1", split: form.split === "1" };
+  if (!ask.json) return { ask, result: comparePatch(ask.a, ask.b) };
+  const a = canonicalJson(ask.a);
+  const b = canonicalJson(ask.b);
+  if (a === undefined || b === undefined) return { ask, result: { ok: false, error: `${a === undefined ? "Before" : "After"} isn't JSON.` } };
+  return { ask, result: comparePatch(a, b) };
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -681,6 +722,13 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
   }
 
   app.get("/code", async (c) => env.IS_HOSTED === "1" ? c.notFound() : c.html(codeListPage(await deps.frame(), list())));
+
+  app.get("/compare", async (c) => (env.IS_HOSTED === "1" ? c.notFound() : c.html(comparePage(await deps.frame(), {}))));
+  app.post("/compare", async (c) => {
+    if (env.IS_HOSTED === "1") return c.notFound();
+    const { ask, result } = compareOf(await c.req.parseBody());
+    return c.html(comparePage(await deps.frame(), { ask, result }), result.ok ? 200 : 400);
+  });
 
   app.get("/code/:dir/diff", async (c) => {
     if (env.IS_HOSTED === "1") return c.notFound();

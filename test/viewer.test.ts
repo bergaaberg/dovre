@@ -8,11 +8,12 @@ import { createViewerRoutes, fileView } from "../src/pages/viewer.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { normalizePrView } from "../src/sources/prview.ts";
 import { blob, commitOf, type Git, grep, safePath, safeRef, tree } from "../src/viewer/code.ts";
+import { canonicalJson, comparePatch } from "../src/viewer/compare.ts";
 import { fileViews, parsePatch, placeDrafts, placeThreads, wordDiff } from "../src/viewer/diff.ts";
 import { git as realGit } from "../src/viewer/code.ts";
 import { localDiff, parseGitDiff } from "../src/viewer/localdiff.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertInert, H, signedIn, snapshot } from "./helpers.ts";
@@ -96,6 +97,36 @@ test("side by side (#105): removed lines face their replacements, blanks fill th
   assertInert("unified diff", unified);
   assert.match(unified, /<mark class="d-w">/);
   assert.doesNotMatch(unified, /diff split/);
+});
+
+test("compare (#105): a patch git agrees with, JSON laid out alike, limits", () => {
+  const a = Array.from({ length: 40 }, (_, i) => `line ${i}`);
+  const b = [...a];
+  b.splice(2, 1, "changed 2");
+  b.splice(20, 0, "added", "two");
+  b.splice(35, 2);
+  b.push("tail");
+  const dir = mkdtempSync(join(tmpdir(), "dovre-compare-"));
+  try {
+    for (const [before, after] of [[a, b], [[], ["new"]], [["gone"], []], [a, a.slice(5)]] as const) {
+      const r = comparePatch(before.join("\n") + (before.length ? "\n" : ""), after.join("\n") + (after.length ? "\n" : ""));
+      assert.ok(r.ok);
+      writeFileSync(join(dir, "x"), before.join("\n") + (before.length ? "\n" : ""));
+      writeFileSync(join(dir, "p"), `--- a/x\n+++ b/x\n${r.patch}\n`);
+      execFileSync("git", ["apply", "p"], { cwd: dir });
+      assert.equal(readFileSync(join(dir, "x"), "utf8"), after.join("\n") + (after.length ? "\n" : ""));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const r = comparePatch(a.join("\n"), b.join("\n"));
+  assert.ok(r.ok && r.additions === 4 && r.deletions === 3);
+  assert.deepEqual(comparePatch("same\n", "same"), { ok: true, patch: "", additions: 0, deletions: 0 });
+  assert.equal(canonicalJson('{"b":1,"a":{"d":[{"z":1,"y":2}],"c":null}}'), '{\n  "a": {\n    "c": null,\n    "d": [\n      {\n        "y": 2,\n        "z": 1\n      }\n    ]\n  },\n  "b": 1\n}\n');
+  assert.equal(canonicalJson("nope"), undefined);
+  assert.equal(comparePatch("x".repeat(600 * 1024), "").ok, false);
+  const many = (p: string) => Array.from({ length: 3000 }, (_, i) => `${p}${i}`).join("\n");
+  assert.equal(comparePatch(many("a"), many("b")).ok, false, "too many changed lines to match");
 });
 
 test("files: binary, renamed, generated and big ones start folded, with why", () => {
