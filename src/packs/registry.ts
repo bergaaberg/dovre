@@ -140,11 +140,11 @@ const nums = (v: unknown, n: number) => (Array.isArray(v) ? v.slice(0, n).map(nu
  * Every pack's panels for /stats (PackStat), checked: at most 12 a pack, ids under the pack's
  * (`<pack>:<id>`, unique), 60 labels, two series, text cut to size. A pack that throws adds nothing and is logged.
  */
-export function statsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, weeks: number, log: (id: string, line: string) => void): StatOut[] {
+export function statsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, weeks: number, log: (id: string, line: string) => void, days?: number): StatOut[] {
   return on.flatMap((c) => {
     if (!c.stats) return [];
     const pack = c.manifest.id;
-    const got = safely(() => c.stats!(ctxOf(c), { weeks }), [] as PackStat[], (e) => log(pack, `stats: ${(e as Error)?.message ?? e}`));
+    const got = safely(() => c.stats!(ctxOf(c), days ? { weeks, days } : { weeks }), [] as PackStat[], (e) => log(pack, `stats: ${(e as Error)?.message ?? e}`));
     if (!Array.isArray(got)) return [];
     const seen = new Set<string>();
     return got.slice(0, 12).flatMap((st): StatOut[] => {

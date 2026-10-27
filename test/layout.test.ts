@@ -72,7 +72,7 @@ test("Settings → Layout: tabs, a card moved and one hidden, a feed off, a pack
   const { app, get, post } = signedIn(snapshot(), {}, { packs: [shop, blog] });
   const settings = await (await get("/settings")).text();
   assertInert("settings with a hostile pack", settings);
-  assert.match(settings, /<form method="post" action="\/settings\/layout">/);
+  assert.match(settings, /<form method="post" action="\/settings\/layout" data-autosave>/);
   assert.match(settings, /<select name="tab1">[\s\S]*?<option value="\/shop" selected>Shop<\/option>/, "the tab the pack marks, as it is now");
   assert.match(settings, /name="col:shop-now"/);
 

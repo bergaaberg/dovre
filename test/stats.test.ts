@@ -11,7 +11,7 @@ import { layoutFromForm, layoutOf, placeStats } from "../src/layout.ts";
 import { statsFrom } from "../src/packs/registry.ts";
 import { PACK_API, type Pack, type PackContext, type PackStat, type StatUnit } from "../src/packs/types.ts";
 import { packApp } from "../src/packs/testing.ts";
-import { type History, historyOf, isBot, median, weekly, weeksOf } from "../src/stats/history.ts";
+import { daysOf, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/stats/history.ts";
 import { claudeCostDays, createSpend, ompCostDays } from "../src/stats/spend.ts";
 import { createStats } from "../src/stats/stats.ts";
 import { columns, niceTicks } from "../src/ui/chart.ts";
@@ -194,9 +194,9 @@ test("26 weeks: a visit asks for them, the kept 12 are gathered again at once, a
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(asked, [12], "12 by default");
   assert.equal(stats.view().history!.weeks, 12);
-  stats.refresh(false, 4);
+  stats.refresh(false, { weeks: 4 });
   assert.deepEqual(asked, [12], "4 shown: the kept 12 are enough");
-  stats.refresh(false, 26);
+  stats.refresh(false, { weeks: 26 });
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(asked, [12, 26], "26 shown: gathered at once, though not due");
   const h = stats.view().history!;
@@ -212,6 +212,48 @@ test("26 weeks: a visit asks for them, the kept 12 are gathered again at once, a
   const long = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW, 26), now: NOW });
   const full = String(statsPage({ operator: "me", nav: [] }, { history: long, gathering: false }, { now: NOW, layout: { statsWeeks: 26 } }));
   assert.doesNotMatch(full, /until the gather/);
+});
+
+test("days: the last 14 by day, the org counted per day only when asked, the tiles stay weekly, packs told", async () => {
+  const d = daysOf(NOW, 14);
+  assert.deepEqual([d.length, d[13]!.key, d[0]!.key, d[13]!.label], [14, "2026-10-22", "2026-10-09", "22"]);
+  const h = historyOf({ ...people, d13: { issueCount: 7 }, d12: { issueCount: 3 } }, repos, { login: "me", weeks: weeksOf(NOW), days: d, now: NOW });
+  assert.deepEqual([h.days, h.orgMergedDays], [14, [{ day: "2026-10-21", n: 3 }, { day: "2026-10-22", n: 7 }]]);
+  const w = weekly(h, NOW, 14);
+  assert.equal(w.weeks.length, 14);
+  assert.deepEqual(w.orgMerged.slice(-3), [undefined, 3, 7]);
+  assert.equal(w.mergedMine[w.weeks.findIndex((x) => x.key === "2026-10-19")], 1, "merged Monday, counted on Monday");
+  assert.deepEqual(w.red.slice(-3), [{ pct: 100, bad: 1, of: 1 }, { pct: 0, bad: 0, of: 1 }, undefined]);
+  assert.equal(historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW }).days, undefined, "not asked: no days");
+
+  const asked: [number | undefined, number | undefined][] = [];
+  const stats = createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", gather: async (_g, _o, _l, now, n, nd) => (asked.push([n, nd]), historyOf(people, repos, { login: "me", weeks: weeksOf(now, n), days: nd ? daysOf(now, nd) : undefined, now })) });
+  stats.refresh(false, { weeks: 12 });
+  await new Promise((r) => setImmediate(r));
+  stats.refresh(false, { weeks: 12, days: 28 });
+  await new Promise((r) => setImmediate(r));
+  stats.refresh(false, { weeks: 12, days: 14 });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, [[12, 0], [12, 28]], "28 days gathered at once; 14 are inside them");
+
+  const page = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false }, { now: NOW, layout: { statsDays: 14 } }));
+  assert.match(page, /Last 14 days\. From/);
+  assert.match(page, /You, per day/);
+  assert.match(page, /The org, merged PRs per day/);
+  assert.match(page, /Thu 22 Oct/, "a day's tip");
+  assert.match(page, /Merged, this week/, "the tiles stay weekly");
+  const waiting = String(statsPage({ operator: "me", nav: [] }, { history: historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW }), gathering: true }, { now: NOW, layout: { statsDays: 28 } }));
+  assert.match(waiting, /Last 28 days \(the org&#39;s merged PRs by day come with the gather\)/);
+
+  assert.deepEqual(layoutOf({ statsDays: 14 }), { statsDays: 14 });
+  assert.deepEqual(layoutOf({ statsDays: 7 }), {});
+  const form = layoutFromForm({ statsWeeks: "28d" }, { hrefs: [], cards: [], feeds: [], packs: [], stats: [] });
+  assert.deepEqual([form.statsWeeks, form.statsDays], [undefined, 28]);
+  let told: unknown;
+  statsFrom([statPack((_c, o) => ((told = o), []))], () => ({}) as PackContext, 5, () => {}, 28);
+  assert.deepEqual(told, { weeks: 5, days: 28 });
+  statsFrom([statPack((_c, o) => ((told = o), []))], () => ({}) as PackContext, 12, () => {});
+  assert.deepEqual(told, { weeks: 12 });
 });
 
 test("main red: a repo with more commits than one page counts only in the weeks that page reaches", () => {
