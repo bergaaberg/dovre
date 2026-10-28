@@ -21,6 +21,7 @@ import { type Ghe } from "../../../sources/ghe.ts";
 import { loadPrFiles } from "../../../sources/prview.ts";
 import { strictOrigin } from "../../../strict.ts";
 import { Empty, Notice, PageHeader, Panel, type Html } from "../../../ui/kit.ts";
+import { later, Reading } from "../../../pages/later.ts";
 import { type Pack, PACK_API } from "../../types.ts";
 import type { Builds, BuildState } from "./build.ts";
 import { type Book, bookOf, booksOf, frameUrl, openUrl, originOf, parseStories, STORIES, storyId, touched, urlOf, type Changed } from "./model.ts";
@@ -126,7 +127,7 @@ export function storiesBody(o: { repo: string; n: number; prUrl: string; found: 
     sub: "Before (the base branch's Storybook) and after (this PR's), side by side",
     crumbs: [{ href: "/prs", label: "PRs" }, { href: safeUrl(o.prUrl), label: `${o.repo}#${o.n}` }],
   });
-  if (o.found === "reading") return html`${header}<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">Reading the PR's stories…</p></section>`;
+  if (o.found === "reading") return html`${header}${Reading({ text: "Reading the PR's stories…" })}`;
   if (!o.found.ok) return html`${header}${Notice({ tone: "bad", children: o.found.why })}`;
   const { files, more } = o.found;
   const roots = o.roots!;
@@ -156,23 +157,18 @@ export function storiesBody(o: { repo: string; n: number; prUrl: string; found: 
 }
 
 export function storybookPack(d: StorybookDeps): Pack {
-  const cache = new Map<string, { at: number; p: Promise<FoundAt> }>();
+  const loads = later({ max: 50 });
   const books = (env: Record<string, string | undefined>) => booksOf(env.STORYBOOK);
   /** A repo this Dovre shows stories for: STORYBOOK names it and it's the owners'. */
   const bookFor = (env: Record<string, string | undefined>, repo: string): Book | undefined => {
     const book = bookOf(books(env), repo);
     return book && owns(d.owners(), repo.split("/")[0]!) ? book : undefined;
   };
-  const found = (book: Book, n: number) => {
-    const key = `${book.repo}#${n}`;
-    let hit = cache.get(key);
-    if (!hit || Date.now() - hit.at > 60e3) {
-      const p = findStories(d.ghe, book.repo, n).catch((e) => (cache.delete(key), { ok: false as const, why: `The PR's files didn't load: ${String((e as Error)?.message ?? e)}` }));
-      hit = { at: Date.now(), p };
-      cache.set(key, hit);
-      if (cache.size > 50) cache.delete(cache.keys().next().value as string);
-    }
-    return hit.p;
+  /** The PR's stories, within the page's budget ("reading" past it); `wait`: the whole read. */
+  const found = async (book: Book, n: number, o: { wait?: boolean } = {}): Promise<FoundAt | "reading"> => {
+    const r = await loads(`${book.repo}#${n}`, () => findStories(d.ghe, book.repo, n), { budgetMs: o.wait ? Infinity : undefined });
+    if (!r) return "reading";
+    return r.ok ? r.value : { ok: false, why: `The PR's files didn't load: ${r.error}` };
   };
   /** The commits to build here for a PR: the sides STORYBOOK doesn't publish. */
   const toBuild = (book: Book, f: FoundAt) => [!book.head ? f.sha : undefined, !book.base ? f.baseSha : undefined].filter((s): s is string => !!s);
@@ -203,7 +199,7 @@ export function storybookPack(d: StorybookDeps): Pack {
         const n = Number(c.req.param("n"));
         const book = bookFor(ctx.env, repo);
         if (!book) return c.notFound();
-        const got = await Promise.race([found(book, n), new Promise<"reading">((res) => setTimeout(() => res("reading"), 1500))]);
+        const got = await found(book, n);
         let roots: { head: Root; base: Root } | undefined;
         if (got !== "reading" && got.ok) {
           const vars = { pr: n, branch: got.branch!, base: got.base, sha: got.sha! };
@@ -227,8 +223,8 @@ export function storybookPack(d: StorybookDeps): Pack {
         const book = bookFor(ctx.env, repo);
         if (!book || !d.build) return c.notFound();
         const page = `/storybook/${enc(book.repo)}/${n}`;
-        const f = await found(book, n);
-        if (!f.ok) return c.redirect(page, 303);
+        const f = await found(book, n, { wait: true });
+        if (f === "reading" || !f.ok) return c.redirect(page, 303);
         const shas = toBuild(book, f);
         if (d.build.builds.start(book.repo, shas)) await logAction(ctx.db, { kind: "storybook.build", target: `${book.repo}#${n}`, detail: shas.map((s) => s.slice(0, 7)).join(" "), ok: true });
         return c.redirect(page, 303);
