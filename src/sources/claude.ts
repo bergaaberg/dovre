@@ -8,6 +8,7 @@
  */
 import { runOff } from "../spawn.ts";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { repoOf } from "../format.ts";
 
@@ -103,6 +104,23 @@ export function tail(file: string, bytes: number): string {
   return start === 0 ? text : text.slice(text.indexOf("\n") + 1);
 }
 
+/** tail(), without blocking. */
+export async function tailAsync(file: string, bytes: number): Promise<string> {
+  const f = await open(file, "r");
+  try {
+    const size = (await f.stat()).size;
+    const start = Math.max(0, size - bytes);
+    const buf = Buffer.alloc(size - start);
+    await f.read(buf, 0, buf.length, start);
+    const text = buf.toString("utf8");
+    return start === 0 ? text : text.slice(text.indexOf("\n") + 1);
+  } finally {
+    await f.close();
+  }
+}
+
+const exists = (path: string) => stat(path).then(() => true, () => false);
+
 export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -116,6 +134,20 @@ const projectDirs = (claude: string) => {
   const root = join(claude, "projects");
   return existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => join(root, d.name)) : [];
 };
+
+const projectDirsAsync = async (claude: string) => {
+  const root = join(claude, "projects");
+  const ds = await readdir(root, { withFileTypes: true }).catch(() => []);
+  return ds.filter((d) => d.isDirectory()).map((d) => join(root, d.name));
+};
+
+async function transcriptOfAsync(claude: string, sessionId: string): Promise<string | undefined> {
+  for (const d of await projectDirsAsync(claude)) {
+    const f = join(d, `${sessionId}.jsonl`);
+    if (await exists(f)) return f;
+  }
+  return undefined;
+}
 
 export function transcriptOf(claude: string, sessionId: string): string | undefined {
   for (const d of projectDirs(claude)) {
@@ -136,6 +168,48 @@ function subagentsRunning(transcript: string): number {
     } catch {}
   }
   return n;
+}
+
+async function subagentsRunningAsync(transcript: string): Promise<number> {
+  const dir = transcript.replace(/\.jsonl$/, "") + "/subagents";
+  const names = await readdir(dir).catch(() => [] as string[]);
+  let n = 0;
+  for (const f of names) {
+    if (!f.endsWith(".meta.json")) continue;
+    try {
+      if (JSON.parse(await readFile(join(dir, f), "utf8")).finished === false) n++;
+    } catch {}
+  }
+  return n;
+}
+
+/** What a file's tail said last time, while its size and time stay the same: most transcripts don't change between scans. */
+const seen = new Map<string, { size: number; mtimeMs: number; value: unknown }>();
+async function unchanged<T>(file: string, key: string, make: () => Promise<T>): Promise<T> {
+  const st = await stat(file);
+  const hit = seen.get(key);
+  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.value as T;
+  const value = await make();
+  seen.set(key, { size: st.size, mtimeMs: st.mtimeMs, value });
+  if (seen.size > 500) seen.delete(seen.keys().next().value!);
+  return value;
+}
+
+async function lastPromptsAsync(claude: string): Promise<Map<string, string>> {
+  const f = join(claude, "history.jsonl");
+  if (!(await exists(f))) return new Map();
+  return unchanged(f, f, async () => promptsIn(await tailAsync(f, 2 * 1024 * 1024)));
+}
+
+function promptsIn(text: string): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const line of text.split("\n")) {
+    try {
+      const j = JSON.parse(line);
+      if (j.sessionId && typeof j.display === "string" && !j.display.startsWith("/")) m.set(j.sessionId, j.display);
+    } catch {}
+  }
+  return m;
 }
 
 /** Last typed prompt per session, from the tail of history.jsonl. Slash commands don't count. */
@@ -166,6 +240,20 @@ function build(base: { sessionId: string; live: boolean; pid?: number; status?: 
   };
 }
 
+async function buildAsync(base: Parameters<typeof build>[0], transcript: string | undefined, history: Map<string, string>, tailBytes: number): Promise<Session> {
+  const meta: Meta = transcript ? await unchanged(transcript, `${transcript}|${tailBytes}`, async () => summarizeTranscript(await tailAsync(transcript, tailBytes))) : { prs: new Map() };
+  const cwd = base.cwd ?? meta.cwd;
+  return {
+    ...meta,
+    ...base,
+    cwd,
+    repo: repoOf(cwd),
+    lastPrompt: meta.lastPrompt ?? history.get(base.sessionId),
+    prs: [...meta.prs.values()],
+    subagentsRunning: transcript ? await subagentsRunningAsync(transcript) : 0,
+  };
+}
+
 /** What `claude agents --json` says about one running session: the supported way to read it. */
 export type AgentEntry = { pid?: number; sessionId: string; cwd?: string; kind?: string; name?: string; status?: string; waitingFor?: string; startedAt?: number; updatedAt?: number };
 
@@ -182,55 +270,56 @@ export async function liveAgents(bin = "claude", timeoutMs = 20_000, pre: string
  * Running sessions, and the ones that ran in the last `days` (newest first, at most `limit`).
  * `agents`: from liveAgents(); without it, the per-process files in sessions/ stand in.
  */
-export function loadSessions(claude: string, opts: { days?: number; limit?: number; isAlive?: (pid: number) => boolean; now?: number; agents?: AgentEntry[] } = {}): { live: Session[]; recent: Session[] } {
+export async function loadSessions(claude: string, opts: { days?: number; limit?: number; isAlive?: (pid: number) => boolean; now?: number; agents?: AgentEntry[] } = {}): Promise<{ live: Session[]; recent: Session[] }> {
+  // Every read awaits, one file at a time: a scan never holds the server for long.
   const { days = 4, limit = 20, isAlive = alive, now = Date.now() } = opts;
-  const history = lastPrompts(claude);
+  const history = await lastPromptsAsync(claude);
   const dir = join(claude, "sessions");
+  const registry = (await readdir(dir).catch(() => [] as string[])).filter((f) => /^\d+\.json$/.test(f));
+  const read = async (f: string): Promise<any> => {
+    try {
+      return JSON.parse(await readFile(join(dir, f), "utf8"));
+    } catch {
+      return undefined;
+    }
+  };
   const live: Session[] = [];
   if (opts.agents) {
     // The registry file has when the status last changed; agents --json doesn't.
     // It also says how the session was started: agents --json calls `claude -p` "interactive" too.
     const since = new Map<string, number>();
     const headless = new Set<string>();
-    if (existsSync(dir))
-      for (const f of readdirSync(dir).filter((f) => /^\d+\.json$/.test(f))) {
-        try {
-          const j = JSON.parse(readFileSync(join(dir, f), "utf8"));
-          if (!j.sessionId) continue;
-          since.set(j.sessionId, j.statusUpdatedAt ?? j.updatedAt);
-          if (typeof j.entrypoint === "string" && j.entrypoint.startsWith("sdk")) headless.add(j.sessionId);
-        } catch {}
-      }
+    for (const f of registry) {
+      const j = await read(f);
+      if (!j?.sessionId) continue;
+      since.set(j.sessionId, j.statusUpdatedAt ?? j.updatedAt);
+      if (typeof j.entrypoint === "string" && j.entrypoint.startsWith("sdk")) headless.add(j.sessionId);
+    }
     for (const a of opts.agents)
-      live.push(build({ sessionId: a.sessionId, live: true, pid: a.pid, status: a.status, statusSince: since.get(a.sessionId) ?? a.updatedAt ?? a.startedAt, name: a.name, cwd: a.cwd, waitingFor: a.waitingFor, kind: headless.has(a.sessionId) ? "headless" : a.kind }, transcriptOf(claude, a.sessionId), history, 4 * 1024 * 1024));
-  } else if (existsSync(dir)) {
-    for (const f of readdirSync(dir)) {
-      if (!/^\d+\.json$/.test(f)) continue;
-      let s: any;
-      try {
-        s = JSON.parse(readFileSync(join(dir, f), "utf8"));
-      } catch {
-        continue;
-      }
+      live.push(await buildAsync({ sessionId: a.sessionId, live: true, pid: a.pid, status: a.status, statusSince: since.get(a.sessionId) ?? a.updatedAt ?? a.startedAt, name: a.name, cwd: a.cwd, waitingFor: a.waitingFor, kind: headless.has(a.sessionId) ? "headless" : a.kind }, await transcriptOfAsync(claude, a.sessionId), history, 4 * 1024 * 1024));
+  } else {
+    for (const f of registry) {
+      const s = await read(f);
       if (!s?.sessionId || !isAlive(Number(s.pid))) continue;
-      live.push(build({ sessionId: s.sessionId, live: true, pid: s.pid, status: s.status, statusSince: s.statusUpdatedAt ?? s.updatedAt, name: s.name, cwd: s.cwd }, transcriptOf(claude, s.sessionId), history, 4 * 1024 * 1024));
+      live.push(await buildAsync({ sessionId: s.sessionId, live: true, pid: s.pid, status: s.status, statusSince: s.statusUpdatedAt ?? s.updatedAt, name: s.name, cwd: s.cwd }, await transcriptOfAsync(claude, s.sessionId), history, 4 * 1024 * 1024));
     }
   }
   const liveIds = new Set(live.map((s) => s.sessionId));
   const since = now - days * 86400e3;
   const files: { id: string; file: string; mtime: number }[] = [];
-  for (const d of projectDirs(claude)) {
-    for (const f of readdirSync(d)) {
+  for (const d of await projectDirsAsync(claude)) {
+    for (const f of await readdir(d).catch(() => [] as string[])) {
       if (!f.endsWith(".jsonl")) continue;
       const id = f.slice(0, -6);
       if (liveIds.has(id)) continue;
       const file = join(d, f);
-      const st = statSync(file);
-      if (st.mtimeMs >= since && st.size > 4000) files.push({ id, file, mtime: st.mtimeMs });
+      const st = await stat(file).catch(() => undefined);
+      if (st && st.mtimeMs >= since && st.size > 4000) files.push({ id, file, mtime: st.mtimeMs });
     }
   }
   files.sort((a, b) => b.mtime - a.mtime);
-  const recent = files.slice(0, limit).map((r) => build({ sessionId: r.id, live: false }, r.file, history, 2 * 1024 * 1024));
+  const recent: Session[] = [];
+  for (const r of files.slice(0, limit)) recent.push(await buildAsync({ sessionId: r.id, live: false }, r.file, history, 2 * 1024 * 1024));
   const order = (st?: string) => (st === "waiting" ? 0 : st === "idle" ? 1 : 2);
   live.sort((a, b) => order(a.status) - order(b.status) || (b.statusSince ?? 0) - (a.statusSince ?? 0));
   return { live, recent };

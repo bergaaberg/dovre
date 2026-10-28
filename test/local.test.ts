@@ -57,8 +57,8 @@ function claudeDir() {
   return dir;
 }
 
-test("live sessions are the registry entries whose process runs; the rest of recent transcripts are 'recent'", () => {
-  const { live, recent } = loadSessions(claudeDir(), { isAlive: (pid) => pid === 100 });
+test("live sessions are the registry entries whose process runs; the rest of recent transcripts are 'recent'", async () => {
+  const { live, recent } = await loadSessions(claudeDir(), { isAlive: (pid) => pid === 100 });
   assert.deepEqual(live.map((s) => [s.sessionId, s.status, s.title, s.repo, s.subagentsRunning]), [["aaa", "idle", "Live one", "shop-api", 1]]);
   assert.deepEqual(recent.map((s) => [s.sessionId, s.title, s.repo, s.lastPrompt, s.live]), [["bbb", "Recent one", "platform", "review PR 3", false]]);
 });
@@ -85,11 +85,11 @@ test("settings: KEY=value lines, quotes dropped, comments ignored", () => {
 });
 
 
-test("from agents --json: a session started with claude -p is headless, not a terminal (agents --json calls both interactive)", () => {
+test("from agents --json: a session started with claude -p is headless, not a terminal (agents --json calls both interactive)", async () => {
   const dir = claudeDir();
   writeFileSync(join(dir, "sessions", "100.json"), line({ pid: 100, sessionId: "aaa", entrypoint: "cli", statusUpdatedAt: 5 }));
   writeFileSync(join(dir, "sessions", "300.json"), line({ pid: 300, sessionId: "ccc", entrypoint: "sdk-cli", statusUpdatedAt: 6 }));
   const agents = [{ sessionId: "aaa", pid: 100, kind: "interactive" }, { sessionId: "ccc", pid: 300, kind: "interactive" }];
-  const { live } = loadSessions(dir, { agents });
+  const { live } = await loadSessions(dir, { agents });
   assert.deepEqual(Object.fromEntries(live.map((s) => [s.sessionId, s.kind])), { aaa: "interactive", ccc: "headless" });
 });
