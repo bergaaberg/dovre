@@ -89,6 +89,8 @@ export type Run = {
   /** A sandbox run's own caps (#207): its wall clock (at most the engine's), and the dollars Claude Code may spend. */
   maxMs?: number;
   budget?: number;
+  /** A sandbox run (#208): hosts it tried to reach and its repo doesn't allow, in the order tried. */
+  blocked?: string[];
 };
 
 export type StartOpts = {
@@ -354,11 +356,19 @@ export function createRunner(opts: {
       const caps = box ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined, effort: given.effort } : { base: undefined, maxMs: undefined, budget: undefined, effort: undefined };
       let o: HarnessOpts = { ...given, ...caps, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
       const id = randomUUID();
-      const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd, ...(caps.base ? { base: caps.base } : {}) }) : undefined;
+      // Hosts the box was refused: on the run, so its page can say what to allow.
+      const blocked: string[] = [];
+      const onDeny = (host: string) => {
+        if (blocked.length >= 50) return;
+        blocked.push(host);
+        const r = runs.get(id);
+        if (r) changed(r);
+      };
+      const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd, onDeny, ...(caps.base ? { base: caps.base } : {}) }) : undefined;
       const run: Run = {
         id, harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
         cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", allowed: o.allowed ?? [],
-        status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox } : {}),
+        status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox, blocked } : {}),
         ...(caps.maxMs ? { maxMs: caps.maxMs } : {}), ...(caps.budget ? { budget: caps.budget } : {}),
       };
       runs.set(run.id, run);

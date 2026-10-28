@@ -124,6 +124,13 @@ const lastWord = (run: Run | undefined) => {
 
 /** Why an ended run made nothing to open a PR with. */
 function stuckWhy(run: Run): string {
+  const why = stuckReason(run);
+  // Hosts the sandbox refused (#208): often why it got nowhere. Checked names only (src/agents/egress.ts).
+  const b = (run.blocked ?? []).filter((h) => /^[a-z0-9.-]{1,253}$/.test(h)).slice(0, 5);
+  return b.length ? `${why} Its sandbox refused ${b.map((h) => `\`${h}\``).join(", ")}; a repo allows hosts in \`.dovre/sandbox.json\`.` : why;
+}
+
+function stuckReason(run: Run): string {
   const err = [...run.events].reverse().find((e) => e.t === "error");
   if (run.status === "stopped") return err?.t === "error" ? err.text : "It was stopped.";
   if (run.budget && run.cost >= run.budget * 0.95) return `It hit its $${run.budget.toFixed(2)} cost cap.`;
