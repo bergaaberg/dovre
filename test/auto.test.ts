@@ -223,6 +223,29 @@ test("autoTick: a run that makes nothing gets stuck, says why on the issue and s
   assert.equal(autoNeeds(p, "github.com", Date.now())[0]!.tone, "warn");
 });
 
+test("autoTick: a machine too busy to answer (pushing for a PR) isn't a run cleared away; one it no longer lists is", async () => {
+  const w = world();
+  await on(w.db);
+  await w.tick();
+  const run = w.runs.get("run-1")!;
+  run.status = "done";
+  run.out = READY();
+  await w.tick();
+  const later = Date.parse("2026-10-28T12:30:00Z");
+  // The call times out (the remote desk answers undefined), but the machine still lists the run.
+  const ask = w.desk.run;
+  (w.desk as { run: Desk["run"] }).run = async () => undefined;
+  let p = await w.tick(later);
+  assert.equal(p.rows[0]!.state, "waiting");
+  assert.equal(w.writes.length, 0, "nothing said on the issue");
+  (w.desk as { run: Desk["run"] }).run = ask;
+  // Truly gone: stuck.
+  w.runs.delete("run-1");
+  p = await w.tick(later);
+  assert.equal(p.rows[0]!.state, "stuck");
+  assert.match(p.rows[0]!.why ?? "", /cleared away/);
+});
+
 test("autoTick: limits hold: at once, the day's cost, quiet hours, a repo left out, no checkout", async () => {
   const quiet = world();
   await on(quiet.db, { quiet: { from: 11, to: 13 } });

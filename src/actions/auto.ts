@@ -197,15 +197,18 @@ export async function autoTick(d: AutoDeps): Promise<AutoPass> {
 
 /** Runs going or waiting: their cost kept, and once ended, their PR (or a need), the comment and label. */
 async function follow(d: AutoDeps, store: AutoStore, rows: AutoRow[], now: () => number) {
-  const online = d.desk.view().online;
+  const view = d.desk.view();
+  const online = view.online;
+  const listed = new Set(view.runs.map((r) => r.id));
   for (const row of rows) {
     // Claimed, then the pass that claimed it died: back in the queue.
     if (row.state === "starting" && now() - row.updated > 5 * MIN) await store.move(row.key, "starting", "queued", { why: "It didn't start; trying again." });
     if ((row.state !== "running" && row.state !== "waiting") || !row.run) continue;
     const run = await d.desk.run(row.run).catch(() => undefined);
     if (!run) {
-      // Offline, or just started: ask again later. Gone from an online machine: cleared away.
-      if (online && now() - row.updated > 5 * MIN) await stuck(d, store, row, "Its run was cleared away before a PR was opened.", undefined);
+      // Offline, just started, or the machine too busy to answer (pushing for a PR): ask again later.
+      // Cleared away only when an online machine no longer lists it either.
+      if (online && !listed.has(row.run) && now() - row.updated > 5 * MIN) await stuck(d, store, row, "Its run was cleared away before a PR was opened.", undefined);
       continue;
     }
     if (run.cost !== row.cost) await store.setCost(row.key, run.cost);
