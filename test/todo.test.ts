@@ -80,7 +80,7 @@ test("the page and the Today card render, and hostile titles and notes stay text
   }
   const page = await (await get("/todo")).text();
   assert.match(page, /0\/1/, "the initiative counts its steps");
-  assert.match(page, /<details class="confirm"><summary>Delete…/, "delete takes a second click");
+  assert.match(page, />Delete<\/button>/, "delete: one click unless set to ask twice");
   const back = await post(`/todo/${t!.id}/toggle`, { back: "/" });
   assert.equal(back.headers.get("location"), "/", "back to where the tick was pressed");
   assert.equal((await post(`/todo/${t!.id}/toggle`, { back: "//evil.example" })).headers.get("location"), `/todo#t-${t!.id}`);

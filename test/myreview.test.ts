@@ -202,7 +202,7 @@ test("start from the agent's draft: its comments join mine and its summary fills
 test("discard throws it away, and asks twice", async () => {
   const { db, post, text } = setup();
   await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "11", body: "One" });
-  assert.match(await text(`${B}/review`), /<details class="confirm"><summary>Discard your review…/);
+  assert.match(await text(`${B}/review`), />Discard your review<\/button>/);
   await post(`${B}/review/discard`, {});
   assert.equal(await myReview(db.DB, "", "ACME/shop-api#840"), undefined);
 });
@@ -219,8 +219,8 @@ test("threads: reply and resolve from the conversation and the files, each check
   const page = await text(B);
   assertInert("conversation with thread actions", page);
   assert.match(page, /<details class="thread-reply"><summary>Reply<\/summary><form method="post" action="\/prs\/ACME\/shop-api\/840\/threads\/reply"><input type="hidden" name="thread" value="PRRT_one">/);
-  assert.match(page, /<details class="confirm"><summary>Reply…/, "a reply asks twice");
-  assert.match(page, /<details class="confirm"><summary>Resolve…/);
+  assert.match(page, />Reply<\/button>/, "a reply: one click");
+  assert.match(page, />Resolve<\/button>/);
   assert.match(await text(`${B}/files`), /threads\/reply/, "on the diff too");
   const res = await post(`${B}/threads/reply`, { thread: "PRRT_one", body: `Because ${H}`, back: "files" });
   assert.equal(res.headers.get("location"), `${B}/files`);

@@ -58,7 +58,7 @@ test("through the app: the relay asks, every page shows it with Deny first and A
     assert.match(out, /PRODUCTION database ledger:prod/);
     const bar = out.slice(out.indexOf('id="approvals"'));
     assert.ok(bar.indexOf('value="deny"') < bar.indexOf('value="allow"'), "deny comes first");
-    assert.match(bar, /<details class="confirm"><summary>Allow…<\/summary>/, "allow takes a second click");
+    assert.match(bar, />Allow<\/button>/, "allow: one click unless set to ask twice");
   }
   assert.equal((await post(`/relay/ask/${id}/answer`, { choice: "allow" }, { origin: "http://evil.example" })).status, 403, "only this app's own form answers");
   const answered = await post(`/relay/ask/${id}/answer`, { choice: "deny" });
@@ -81,7 +81,7 @@ test("several questions from db at once: one bar, Deny all first, Allow all behi
   assert.match(bar, /db asks 3 questions/);
   assert.equal((bar.match(/class="approval"/g) ?? []).length, 1, "one bar for the three");
   assert.ok(bar.indexOf(">Deny all<") > 0 && bar.indexOf(">Deny all<") < bar.indexOf("Allow all 3"), "deny all comes first");
-  assert.match(bar, /<details class="confirm"><summary>Allow all 3…<\/summary>/, "allow all takes a second click");
+  assert.match(bar, />Allow all 3<\/button>/, "allow all: one click unless set to ask twice");
   assert.equal((await post("/relay/asks/answer", { ids: ids.join(","), choice: "allow" }, { origin: "http://evil.example" })).status, 403);
   assert.equal((await post("/relay/asks/answer", { ids: `${ids.join(",")},not-an-id`, choice: "allow" })).status, 303);
   for (const id of ids) {
@@ -98,5 +98,5 @@ test("one question alone keeps its own bar", async () => {
   await app.request("http://localhost/relay/ask", { method: "POST", headers: { "content-type": "application/json", cookie: "u_tk=test-token" }, body: JSON.stringify({ server: "db", message: "Open ledger:prod?", schema: DB_SCHEMA }) });
   const bar = await (await get("/")).text();
   assert.doesNotMatch(bar, /Allow all/);
-  assert.match(bar, /<summary>Allow…<\/summary>/);
+  assert.match(bar, />Allow<\/button>/);
 });

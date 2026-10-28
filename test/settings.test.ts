@@ -12,9 +12,9 @@ const base = { layout: {}, policy: DEFAULT_POLICY, rings: [], writes: { chosen: 
 
 test("rows: nothing is changed with the defaults; each change marks its row, with its value now", () => {
   assert.deepEqual(settingRows(base).filter((r) => r.changed), []);
-  const rows = settingRows({ ...base, layout: { theme: "ember", packsOff: ["x"] }, writes: { chosen: new Map([["deploy.approve", "once" as const]]), kinds: WRITES }, keys: { scroll: 140, off: ["hints"] }, policy: { ...DEFAULT_POLICY, workHoursOnly: true } });
+  const rows = settingRows({ ...base, layout: { theme: "ember", packsOff: ["x"] }, writes: { chosen: new Map([["deploy.approve", "twice" as const]]), kinds: WRITES }, keys: { scroll: 140, off: ["hints"] }, policy: { ...DEFAULT_POLICY, workHoursOnly: true } });
   const changed = Object.fromEntries(rows.filter((r) => r.changed).map((r) => [r.label, r.now]));
-  assert.deepEqual(changed, { Theme: "Ember (warm dark)", "Packs shown": "1 hidden", "Only on weekdays, 08:00–17:00": "On", "Approve a waiting deploy": "One click", "j / k scroll": "Fast", "Keys: Hints": "Off · f, F" });
+  assert.deepEqual(changed, { Theme: "Ember (warm dark)", "Packs shown": "1 hidden", "Only on weekdays, 08:00–17:00": "On", "Approve a waiting deploy": "Asks twice", "j / k scroll": "Fast", "Keys: Hints": "Off · f, F" });
 });
 
 test("search: every word must match the label, the area, the value or what it's also called", () => {
