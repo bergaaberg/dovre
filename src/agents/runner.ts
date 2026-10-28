@@ -176,7 +176,7 @@ export function createRunner(opts: {
   /** Each turn's MCP token (run id → token): kept apart from the run, so it's never drawn or sent to the Worker. */
   const mcpTokens = new Map<string, string>();
   const changed = (r: Run) => opts.onChange?.(r);
-  /** A sandbox run that ended: its token's env file goes (the clone stays, for its commits), and its commits come home. */
+  /** A sandbox run that ended: its token's env file goes, and its commits come home (then the clone goes, see `collect`). */
   const boxEnded = (r: Run) => {
     if (!r.sandbox || !opts.sandbox) return;
     opts.sandbox.ended(r.sandbox);
@@ -196,10 +196,15 @@ export function createRunner(opts: {
     } finally {
       collecting.delete(r.id);
     }
+    // Its commits are a branch of the checkout now, or it made none: the clone isn't needed. One
+    // that couldn't be brought home stays, to look into, until it's discarded or the week's sweep.
+    if (gone(r)) opts.sandbox.remove(r.sandbox);
     if (!runs.has(r.id)) return;
     if (host) keep(r);
     changed(r);
   };
+  /** A sandbox run whose clone has nothing left in it: its commits came home, or it made none. */
+  const gone = (r: Run) => r.status !== "running" && (r.out?.state === "ready" || r.out?.state === "none");
   const ready = (r: Run | undefined): SandboxReady | undefined => (r?.out?.state === "ready" ? r.out : undefined);
   /** A sandbox run is stopped when it runs past the cap, also when picked up after a restart. */
   const capped = (r: Run, stop: (id: string) => boolean) => {
@@ -336,6 +341,9 @@ export function createRunner(opts: {
         } catch {}
       }
     } catch {}
+    // Sandbox folders only a run still being worked on, or whose commits couldn't come home, needs:
+    // the rest go (commits home, none made, a PR open, discarded, or its record swept after a week).
+    opts.sandbox?.prune?.([...runs.values()].flatMap((r) => (r.sandbox && !r.discarded && !gone(r) ? [r.sandbox.dir] : [])));
   }
 
   const api: Runner = {

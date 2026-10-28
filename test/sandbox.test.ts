@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -83,6 +83,7 @@ function fakeEngine(state: SandboxState = { ok: true }, maxMs = 60_000, out: San
     kill: (box) => void calls.push(`kill ${box.name}`),
     ended: (box) => void calls.push(`ended ${box.dir}`),
     remove: (box) => void calls.push(`remove ${box.dir}`),
+    prune: (keep) => void calls.push(`prune ${keep.join(" ")}`),
     collect: async (box, o) => (calls.push(`collect ${box.dir} ${o.cwd} ${o.branch}`), out),
     push: async (o) => void calls.push(`push ${o.cwd} ${o.branch} ${o.head} ${o.repo}`),
     dropBranch: async (o) => void calls.push(`drop ${o.cwd} ${o.branch}`),
@@ -128,7 +129,7 @@ test("a sandbox run: the engine's command around the image's own claude, yolo, n
   assert.ok(!args.includes("--allowedTools"));
   assert.equal(stdin, "fix it");
   assert.equal(run.cwd, "/code/a");
-  assert.deepEqual(calls, ["prepare /code/a", `ended /boxes/${run.id}`, `collect /boxes/${run.id} /code/a ${sandboxBranch(run.id)}`]);
+  assert.deepEqual(calls, ["prepare /code/a", `ended /boxes/${run.id}`, `collect /boxes/${run.id} /code/a ${sandboxBranch(run.id)}`, `remove /boxes/${run.id}`], "it made nothing: the clone goes at once");
   assert.equal(run.status, "done");
   assert.ok(runner.discard(run.id));
   assert.equal(calls.at(-1), `remove /boxes/${run.id}`);
@@ -601,4 +602,49 @@ test("Apple container engine: a sibling is a fresh clone of its checkout here at
   g(repo, "commit", "-q", "-am", "gone");
   assert.throws(() => engine.prepare({ id: "bbbbbbbb-2222", repo }), /acme\/gone \(a sibling in \.dovre\/sandbox\.json\) has no checkout here/);
   assert.ok(!existsSync(join(root, "boxes", "bbbbbbbb-2222")), "its folder goes");
+});
+
+test("the runner: a clone goes as soon as its commits are home; one whose commits couldn't come home stays until it's discarded", async () => {
+  const f = fakeSpawn();
+  const home = fakeEngine({ ok: true }, 60_000, structuredClone(READY));
+  const a = createRunner({ harnesses: { claude: claudeHarness() }, spawnFn: f.spawnFn, sandbox: home.engine }).start({ cwd: "/code/a", prompt: "p", sandbox: true });
+  await tick();
+  assert.equal(a.out?.state, "ready");
+  assert.equal(home.calls.at(-1), `remove /boxes/${a.id}`, "its commits are a branch of the checkout: the clone isn't needed");
+
+  const stuck = fakeEngine({ ok: true }, 60_000, { state: "failed", why: "no space" });
+  const runner = createRunner({ harnesses: { claude: claudeHarness() }, spawnFn: f.spawnFn, sandbox: stuck.engine });
+  const b = runner.start({ cwd: "/code/a", prompt: "p", sandbox: true });
+  await tick();
+  assert.equal(b.out?.state, "failed");
+  assert.ok(!stuck.calls.some((c) => c.startsWith("remove")), "kept, to look into");
+  assert.ok(runner.discard(b.id));
+  assert.equal(stuck.calls.at(-1), `remove /boxes/${b.id}`);
+});
+
+test("the runner, on start: sandbox folders go unless a kept run still needs its clone", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-prune-"));
+  const runs = join(dir, "runs");
+  mkdirSync(runs);
+  const kept = (id: string, more: Record<string, unknown>) =>
+    writeFileSync(join(runs, `${id}.json`), JSON.stringify({ id, harness: "claude", cwd: "/code/a", prompt: "p", status: "done", startedAt: 1, cost: 0, sandbox: { dir: `/boxes/${id}`, name: `dovre-${id.slice(0, 8)}`, base: "abc" }, ...more }));
+  kept("failed-1", { out: { state: "failed", why: "x" } });
+  kept("ready-1", { out: structuredClone(READY) });
+  kept("none-1", { out: { state: "none" } });
+  kept("gone-1", { out: { state: "failed", why: "x" }, discarded: 5 });
+  const { engine, calls } = fakeEngine();
+  createRunner({ harnesses: { claude: claudeHarness() }, sandbox: engine, host: { exe: "/nope", dir: runs } });
+  assert.deepEqual(calls.filter((c) => c.startsWith("prune")), ["prune /boxes/failed-1"], "only the one whose commits couldn't come home");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("the engine's prune: run folders no run wants go; the toolchain folder and anything else stay", () => {
+  const root = mkdtempSync(join(tmpdir(), "dovre-boxes-"));
+  const keep = "11111111-2222-4333-8444-555555555555";
+  const drop = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  for (const d of [keep, drop, ".toolchain", "notes"]) mkdirSync(join(root, d, "work"), { recursive: true });
+  appleContainer({ root, tokenFile: join(root, "none") }).prune!([join(root, keep)]);
+  assert.deepEqual(readdirSync(root).sort(), [".toolchain", keep, "notes"].sort());
+  appleContainer({ root: join(root, "missing"), tokenFile: join(root, "none") }).prune!([]);
+  rmSync(root, { recursive: true, force: true });
 });
