@@ -56,7 +56,7 @@ export async function answerCall(desk: Desk, c: Call): Promise<unknown> {
       return { ...v, turns };
     }
     case "start":
-      return desk.start({ repo: c.repo, prompt: c.prompt, harness: c.harness, mode: c.mode, model: c.model, sandbox: c.sandbox });
+      return desk.start({ repo: c.repo, prompt: c.prompt, harness: c.harness, mode: c.mode, model: c.model, sandbox: c.sandbox, caps: c.caps });
     case "reply":
       return desk.reply(sid, { prompt: c.prompt, mode: c.mode, model: c.model });
     case "answer":

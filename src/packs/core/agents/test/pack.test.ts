@@ -28,7 +28,7 @@ test("agents that need me: waiting for an OK rings, idle after a reply is listed
 
 test("through the core: keyed under agents, rung once when an agent starts waiting, never for a reply ending", () => {
   const rings = ringsOf([agentsPack({ desk: desk(), dismissed: none })], ["deploy"], () => {});
-  assert.deepEqual(rings.map((r) => r.kind), ["agent-ask", "agent-done"]);
+  assert.deepEqual(rings.map((r) => r.kind), ["agent-ask", "agent-done", "agent-auto"]);
   const n = createNotifier();
   const at = (live: Live) => needsFrom([agentsPack({ desk: desk(), dismissed: none, here: fixedHere({ live, recent: [] }) })], ctxOf(), rings, () => {});
   n.observe(at([session({ status: "busy", statusSince: 1 })]));

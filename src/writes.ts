@@ -21,6 +21,7 @@ export const WRITES: WriteKind[] = [
   { kind: "pr.relock-dependabot", label: "Add left-out bumps to a combined PR, lockfiles made again", group: "Pull requests" },
   { kind: "sandbox.pr", label: "Open a draft PR from a sandbox run (pushes its branch)", group: "Pull requests" },
   { kind: "sandbox.pr-ci", label: "Open a draft PR from a sandbox run that changes CI config", group: "Pull requests", floor: "twice" },
+  { kind: "auto.pr", label: "Open the draft PR when an auto run (a dovre:auto issue) ends, without asking (CI changes still wait)", group: "Pull requests" },
   { kind: "review.post", label: "Post a review or replies", group: "Pull requests" },
   { kind: "review.reply", label: "Reply on a review thread", group: "Pull requests" },
   { kind: "review.resolve", label: "Resolve or reopen a review thread", group: "Pull requests" },

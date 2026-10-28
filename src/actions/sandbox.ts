@@ -28,12 +28,22 @@ const quiet = (s: string, max: number) => s.replace(/@(?=[\w-])/g, "@​").slice
 
 /** The PR's title and body, from the run's prompt, the agent's last word and what it made. */
 export function sandboxPrText(run: Pick<Run, "prompt" | "events" | "cost">, out: SandboxReady): { title: string; body: string } {
-  const title = line(quiet(run.prompt.split("\n").find((l) => l.trim()) ?? "", 200), 100) || "Work from a sandbox run";
+  const issue = autoIssueOf(run.prompt);
+  const title = (issue ? line(quiet(issue.title, 200), 100) : line(quiet(run.prompt.split("\n").find((l) => l.trim()) ?? "", 200), 100)) || "Work from a sandbox run";
   const result = [...run.events].reverse().find((e) => e.t === "result");
   const said = result?.t === "result" && result.text.trim() ? quiet(result.text.trim(), 4000) : "";
   const n = out.commits.length;
   const foot = `Opened by Dovre from a sandbox run: Claude Code worked unattended in a fresh clone inside a container. ${n} commit${n === 1 ? "" : "s"}${run.cost ? `, $${run.cost.toFixed(2)}` : ""}.`;
-  return { title, body: `${said ? `${said}\n\n---\n\n` : ""}**Prompt**\n\n${quiet(run.prompt, 2000).replace(/^/gm, "> ")}\n\n${foot}` };
+  // An auto run (#207): the issue says what was asked, and the PR closes it when it's in the same repo.
+  const asked = issue ? (issue.repo.toLowerCase() === out.repo?.toLowerCase() ? `Closes #${issue.number}` : `For ${issue.repo}#${issue.number}`) : `**Prompt**\n\n${quiet(run.prompt, 2000).replace(/^/gm, "> ")}`;
+  return { title, body: `${said ? `${said}\n\n---\n\n` : ""}${asked}\n\n${foot}` };
+}
+
+/** An auto run's prompt (src/agents/auto.ts `autoPrompt`): the issue it was for, and its title. */
+export function autoIssueOf(prompt: string): { repo: string; number: number; title: string } | undefined {
+  const m = /^You are working on GitHub issue ([\w.-]+\/[\w.-]+)#(\d+) on your own\./.exec(prompt);
+  const t = /^# (.+)$/m.exec(prompt);
+  return m ? { repo: m[1]!, number: Number(m[2]), title: t?.[1] ?? "" } : undefined;
 }
 
 export async function openSandboxPr(o: {
