@@ -18,7 +18,7 @@ export type Sessions = { live: Session[]; recent: Session[] };
 export async function localSessions(claudeDir: string, agents: AgentEntry[] | undefined, opts: { omp?: boolean; on?: (h: AgentCli) => boolean } = {}): Promise<{ live: Session[]; recent: Session[] }> {
   const on = opts.on ?? (() => true);
   const none = { live: [] as Session[], recent: [] as Session[] };
-  const claude = on("claude") ? loadSessions(claudeDir, { agents }) : none;
+  const claude = on("claude") ? await loadSessions(claudeDir, { agents }) : none;
   // One process list for both; unread, omp counts none live and Copilot falls back to recent open files.
   const rows = await commandLines(["omp", "copilot"]).catch(() => undefined);
   const processes = ompProcessesOf(rows ?? []);
