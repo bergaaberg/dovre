@@ -16,6 +16,7 @@ export function githubForge(ghe: Ghe): Forge {
     host: ghe.host,
     can: FORGE_CAN,
     viewer: () => viewer(ghe),
+    low: () => ghe.calls?.low() ?? false,
     prs: (login, owners) => loadPrs(ghe, login, owners),
     notes: () => loadNotes(ghe, { searched: (yes) => (searched = yes) }),
     moves: (login, owners) => loadMoves(ghe, login, owners),

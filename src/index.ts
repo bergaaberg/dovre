@@ -404,6 +404,9 @@ const corePacks = [
     : []),
 ];
 
+// GitHub's call counts (#253) into the database, when a minute has had any.
+if (ghe.calls) setInterval(() => void ghe.calls!.flush(db.DB), 60_000).unref();
+
 // Stats: GHE history every six hours (kept in data/stats.json), spend from the transcripts here.
 const stats = !on.stats ? undefined : createStats({ ghe, org: ownersIn(env), login: () => gatherer.peek()?.login, spend: createSpend({ claudeDir: env.CLAUDE_DIR, ompDirs: ompAgentDirs().map((d) => d.dir) }), file: join(dataDir, "stats.json"), onChange: () => hub.publish(["stats"]) });
 if (stats) {

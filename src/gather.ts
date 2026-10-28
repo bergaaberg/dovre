@@ -130,6 +130,8 @@ export function createGatherer(deps: {
   /** PR links the packs' pages show (src/packs/registry.ts linkedFrom): their state and title go in `refs`. */
   linked?: () => string[];
   ttlMs?: number;
+  /** While the forge says its quota is low (Forge.low), how old a snapshot may get before the next gather (default 10 min). */
+  lowTtlMs?: number;
   now?: () => number;
   /** Keeps the last snapshot between runs. */
   store?: SnapshotStore;
@@ -242,7 +244,8 @@ export function createGatherer(deps: {
 
   async function get(opts: { fresh?: boolean; wait?: boolean } = {}): Promise<Snapshot> {
     if (opts.fresh || !last) return start();
-    if (now() - last.at >= ttl) void start().catch(() => undefined);
+    const old = forge.low?.() ? Math.max(ttl, deps.lowTtlMs ?? 10 * 60_000) : ttl;
+    if (now() - last.at >= old) void start().catch(() => undefined);
     if (dirty && inflight && opts.wait !== false) {
       const p = inflight;
       await Promise.race([p.catch(() => undefined), wait(deps.staleWaitMs ?? 1500)]);

@@ -195,7 +195,7 @@ export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">
 /** The vars and secrets among the bindings: what a pack's settings read. */
 const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Object.fromEntries(Object.entries(b).filter(([, v]) => typeof v === "string")) as Record<string, string>;
 
-type Hosted = { builtAt: number; started: boolean; app: App; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier };
+type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier };
 
 export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, for an instance not yet renamed. */ crates?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.1";
@@ -289,7 +289,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       sig = shownOf(s);
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded]).then(() => {});
-    const built: Hosted = { builtAt: Date.now(), started: false, app, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: refresher(mounted.on, mounted.ctxOf, (l) => console.log(l), { maxMs: STUCK_MS, record: mounted.refreshes, skip: mounted.hidden }) };
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: refresher(mounted.on, mounted.ctxOf, (l) => console.log(l), { maxMs: STUCK_MS, record: mounted.refreshes, skip: mounted.hidden }) };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;
@@ -317,6 +317,8 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     );
     // And the snapshot, so a page opened later has something to draw at once.
     await Promise.all([capped(h.refresh.due()), capped(h.gatherer.get().then(() => h.kept.drain()))]);
+    // What the cron's calls counted (#253).
+    await capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
     if (h.hub) ctx.waitUntil(capped(h.hub.drain()));
   };
 

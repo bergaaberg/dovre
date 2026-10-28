@@ -56,7 +56,8 @@ export function createStats(o: { ghe: Ghe; org: string; login: () => string | un
         wantDays = reach.days ?? 0;
       }
       const login = o.login();
-      if (login && (o.github?.() ?? true) && !gathering && (force || !history || history.login !== login || (history.weeks ?? WEEKS) < want || (history.days ?? 0) < wantDays || now() - history.at > EVERY)) {
+      // GitHub's quota nearly gone (#253): only a gather I asked for.
+      if (login && (o.github?.() ?? true) && !gathering && (force || !o.ghe.calls?.low()) && (force || !history || history.login !== login || (history.weeks ?? WEEKS) < want || (history.days ?? 0) < wantDays || now() - history.at > EVERY)) {
         gathering = true;
         gather(o.ghe, o.org, login, now(), want, wantDays).then(
           (h) => {

@@ -1,3 +1,4 @@
+import { type Calls, createCalls, graphqlSiteOf, siteOf } from "../forge/calls.ts";
 import { ownerQuery, ownersOf } from "../owners.ts";
 /**
  * GitHub Enterprise (acme.ghe.com): my PRs, review requests, notifications, the org's movement and
@@ -9,6 +10,8 @@ export type Ghe = {
   host: string;
   rest<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T>;
   graphql<T>(query: string): Promise<T>;
+  /** Every call it made, counted, and the quota GitHub said is left (src/forge/calls.ts). */
+  calls?: Calls;
 };
 
 /**
@@ -24,7 +27,8 @@ export function apiEndpointsOf(host: string): { rest: string; graphql: string } 
 /** A token, or a function that gives the current one (a rotating token: it's asked before every call, so caching is its job). */
 export type TokenSource = string | (() => Promise<string>);
 
-export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fetch }): Ghe {
+export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fetch; calls?: Calls }): Ghe {
+  const calls = opts.calls ?? createCalls();
   const endpoints = apiEndpointsOf(opts.host);
   const f = opts.fetchFn ?? fetch;
   const t = opts.token;
@@ -33,6 +37,7 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
   const headersOf = async () => ({ authorization: `Bearer ${await tokenOf()}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "dovre" });
   return {
     host: opts.host,
+    calls,
     async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
       const headers = await headersOf();
       const res = await f(endpoints.rest + path, {
@@ -40,12 +45,14 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
         headers: init.body ? { ...headers, "content-type": "application/json" } : headers,
         body: init.body ? JSON.stringify(init.body) : undefined,
       });
+      calls.record(siteOf(init.method ?? "GET", path), res.headers);
       if (!res.ok) throw new Error(`GHE ${init.method ?? "GET"} ${path}: ${res.status} ${(await res.text()).slice(0, 200)}`);
       return (res.status === 204 ? null : await res.json()) as T;
     },
     async graphql<T>(query: string) {
       const headers = await headersOf();
       const res = await f(endpoints.graphql, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ query }) });
+      calls.record(graphqlSiteOf(query), res.headers);
       const text = await res.text();
       let body: { data?: T; errors?: { message: string }[] };
       try {

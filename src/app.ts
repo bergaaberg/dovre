@@ -52,6 +52,7 @@ import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
 import { agentViews, createReviewRoutes, type ReviewDeps } from "./pages/reviews.ts";
 import type { Kept } from "./issues/templates.ts";
 import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
+import { callsPanels } from "./pages/calls.ts";
 import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
@@ -170,6 +171,15 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       return next();
     });
   const { gatherer, ghe } = deps;
+  // GitHub's call counts (#253) reach D1 after a request, at most every 30 s; hosted, while the Worker still runs.
+  if (ghe.calls)
+    app.use(async (c, next) => {
+      await next();
+      const p = ghe.calls!.flush(env.DB);
+      try {
+        c.executionCtx.waitUntil(p);
+      } catch {}
+    });
   const summary = (key: string) => deps.summaries?.get(key);
   let flash: { ok: boolean; message: string } | undefined;
   const asks = deps.asks ?? createAsks();
@@ -1164,6 +1174,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         return agentToolsPanel({ ...deps.agentTools!.view(), said: takeToolsSaid() });
       case "packs":
         return packsList(packSettings());
+      case "calls":
+        return callsPanels((await ghe.calls?.view(env.DB)) ?? { quota: [], counts: [], now: Date.now() }, forge.name);
       case "sent":
         return sentPanels(await sentNow());
       case "about":
