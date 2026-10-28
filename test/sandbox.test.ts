@@ -10,7 +10,7 @@ import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { createRunner, type Run, type StartOpts } from "../src/agents/runner.ts";
 import { claudeHarness, argsFor, SANDBOX_NOTE } from "../src/agents/harnesses/claude/harness.ts";
-import { appleContainer, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
+import { appleContainer, boxEnv, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
 import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { WORK } from "../src/agents/workdir.ts";
@@ -20,6 +20,26 @@ import { openSandboxPr, sandboxKind } from "../src/actions/sandbox.ts";
 import { openDb } from "../src/db.ts";
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+
+/** `container network inspect` of a host-only network. */
+const NET_JSON = JSON.stringify([{ configuration: { mode: "hostOnly", name: "dovre-sandbox" }, status: { ipv4Gateway: "192.168.128.1", ipv4Subnet: "192.168.128.0/24" } }]);
+/** The engine's container calls, with the sandbox network there. */
+const withNet = (exec: (bin: string, args: string[]) => Promise<{ ok: boolean; out: string; err?: string }>) => async (bin: string, args: string[]) => (args[0] === "network" ? { ok: true, out: NET_JSON } : exec(bin, args));
+/** The proxy, not listening: the runs it was given, and those dropped. */
+function fakeEgress() {
+  const opened: { key: string; token: string; allow: string[]; dropped: boolean }[] = [];
+  const subnets: string[] = [];
+  const egress = async (o: { subnet: string }) => {
+    subnets.push(o.subnet);
+    return {
+      port: 40001,
+      add: (key: string, r: { token: string; allow: string[] }) => void opened.push({ key, token: r.token, allow: r.allow, dropped: false }),
+      drop: (key: string) => void opened.filter((x) => x.key === key).forEach((x) => (x.dropped = true)),
+      close: () => {},
+    };
+  };
+  return { egress, opened, subnets };
+}
 
 /** A turn that says its session, then ends (or hangs until killed). */
 function fakeSpawn(o: { hang?: boolean } = {}) {
@@ -66,9 +86,9 @@ function fakeEngine(state: SandboxState = { ok: true }, maxMs = 60_000, out: San
   return { engine, calls };
 }
 
-test("container args: the prompt on stdin (-i), the clone mounted at /work, the token through an env file, then the image and the harness", () => {
-  const args = containerArgs({ name: "dovre-1", work: "/b/1/work", envFile: "/b/1/env", image: "dovre-sandbox", memory: "4g", cpus: 4 }, ["claude", "-p"]);
-  assert.deepEqual(args, ["run", "--progress", "none", "--rm", "-i", "--name", "dovre-1", "-m", "4g", "-c", "4", "--env-file", "/b/1/env", "-v", "/b/1/work:/work", "-w", "/work", "dovre-sandbox", "claude", "-p"]);
+test("container args: the prompt on stdin (-i), on the host-only network, the clone mounted at /work, an env file, then the image and the harness", () => {
+  const args = containerArgs({ name: "dovre-1", work: "/b/1/work", envFile: "/b/1/env", image: "dovre-sandbox", memory: "4g", cpus: 4, network: "dovre-sandbox" }, ["claude", "-p"]);
+  assert.deepEqual(args, ["run", "--progress", "none", "--rm", "-i", "--name", "dovre-1", "--network", "dovre-sandbox", "-m", "4g", "-c", "4", "--env-file", "/b/1/env", "-v", "/b/1/work:/work", "-w", "/work", "dovre-sandbox", "claude", "-p"]);
   assert.ok(!args.some((a) => a.includes("oat01")), "no token in argv");
 });
 
@@ -135,7 +155,7 @@ test("sandbox runs are refused without an engine, when it isn't ready, for a res
   assert.equal(f.seen.length, 0, "nothing started");
 });
 
-test("Apple container engine: a fresh clone at the base with origin gone, the token in a 0600 env file that goes when it ends", async () => {
+test("Apple container engine: a fresh clone at the base with origin gone; the token stays in the run's proxy, the box gets a placeholder, and both go when it ends", async () => {
   const root = mkdtempSync(join(tmpdir(), "dovre-box-"));
   const repo = join(root, "repo");
   mkdirSync(repo);
@@ -143,21 +163,41 @@ test("Apple container engine: a fresh clone at the base with origin gone, the to
   git("init", "-q");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
   git("remote", "add", "origin", "https://example.invalid/repo.git");
-  const head = git("rev-parse", "HEAD");
   const tokenFile = join(root, "token");
   writeFileSync(tokenFile, "sk-ant-oat01-test\n", { mode: 0o600 });
-  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: async () => ({ ok: true, out: "" }) });
+  git("config", "user.name", "t");
+  git("config", "user.email", "t@t");
+  mkdirSync(join(repo, ".dovre"));
+  writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ allow: ["registry.npmjs.org", "*.Example.com", "bad host", 7] }));
+  git("add", "-A");
+  git("commit", "-q", "-m", "allow npm");
+  const head = git("rev-parse", "HEAD");
+  // Widened after the base: not what the run gets.
+  writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ allow: ["evil.example.org"] }));
+  const { egress, opened, subnets } = fakeEgress();
+  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: withNet(async () => ({ ok: true, out: "" })), egress });
+  assert.throws(() => engine.prepare({ id: "aaaaaaaa-0000", repo }), /network isn't ready/);
+  await tick();
   const box: SandboxBox = engine.prepare({ id: "aaaaaaaa-1111", repo });
   assert.equal(box.base, head);
   assert.equal(box.name, "dovre-aaaaaaaa");
   const work = join(box.dir, "work");
   assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: work, encoding: "utf8" }).trim(), head);
   assert.equal(execFileSync("git", ["remote"], { cwd: work, encoding: "utf8" }).trim(), "", "no origin to push to");
+  assert.deepEqual(box.allow, ["registry.npmjs.org", "*.example.com"]);
+  assert.deepEqual(subnets, ["192.168.128.0/24"]);
+  const key = opened[0]!.key;
+  assert.match(key, /^[\w-]{24}$/);
+  assert.deepEqual(opened, [{ key, token: "sk-ant-oat01-test", allow: ["registry.npmjs.org", "*.example.com"], dropped: false }]);
   const env = join(box.dir, "env");
-  assert.equal(readFileSync(env, "utf8"), "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test\n");
+  assert.equal(readFileSync(env, "utf8"), boxEnv("192.168.128.1", 40001, key));
+  assert.ok(!readFileSync(env, "utf8").includes("oat01-test"), "the token never goes in the box");
   assert.equal(statSync(env).mode & 0o777, 0o600);
-  assert.ok(!engine.command(box, ["claude"]).args.join(" ").includes("oat01"));
+  const args = engine.command(box, ["claude"]).args;
+  assert.ok(!args.join(" ").includes("oat01"));
+  assert.equal(args[args.indexOf("--network") + 1], "dovre-sandbox");
   engine.ended(box);
+  assert.ok(opened[0]!.dropped, "its key gets nothing any more");
   assert.ok(!existsSync(env) && existsSync(work));
   engine.remove(box);
   assert.ok(!existsSync(box.dir));
@@ -254,7 +294,8 @@ test("Apple container engine: the commits come home as sandbox/<id> (uncommitted
   const { root, repo, bare, git } = checkout();
   const tokenFile = join(root, "token");
   writeFileSync(tokenFile, "sk-ant-oat01-test\n", { mode: 0o600 });
-  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: playContainer });
+  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: withNet(playContainer), egress: fakeEgress().egress });
+  await tick();
   const box = engine.prepare({ id: "bbbbbbbb-2222", repo });
   const work = join(box.dir, "work");
   // The agent: one commit touching CI, one file left uncommitted, and a hook that would fail any commit.
@@ -288,7 +329,9 @@ test("Apple container engine: no commits is 'none'; a failed bundle is 'failed' 
   const { root, repo } = checkout();
   const tokenFile = join(root, "token");
   writeFileSync(tokenFile, "t\n", { mode: 0o600 });
-  const box = appleContainer({ root: join(root, "boxes"), tokenFile, exec: playContainer }).prepare({ id: "cccccccc-3333", repo });
+  const first = appleContainer({ root: join(root, "boxes"), tokenFile, exec: withNet(playContainer), egress: fakeEgress().egress });
+  await tick();
+  const box = first.prepare({ id: "cccccccc-3333", repo });
   assert.deepEqual(await appleContainer({ root: join(root, "boxes"), tokenFile, exec: playContainer }).collect(box, { cwd: repo, branch: "sandbox/cccccccc" }), { state: "none" });
   const broken = appleContainer({ root: join(root, "boxes"), tokenFile, exec: async (_b, a) => (a[0] === "run" ? { ok: false, out: "", err: "boom\n" } : { ok: true, out: "" }) });
   const r = await broken.collect(box, { cwd: repo, branch: "sandbox/cccccccc" });
@@ -315,6 +358,28 @@ test("the runner: a sandbox run's commits are collected when it ends, pushed on 
   assert.ok(runner.discard(run.id));
   await tick();
   assert.ok(calls.includes("drop /code/a sandbox/aaaa"));
+});
+
+test("the runner: hosts the box was refused are kept on the run, and its page lists them (escaped) with where to allow more", async () => {
+  const f = fakeSpawn({ hang: true });
+  const { engine } = fakeEngine({ ok: true }, 60_000, structuredClone(READY));
+  let deny: ((h: string) => void) | undefined;
+  const prepare = engine.prepare;
+  engine.prepare = (o) => ((deny = o.onDeny), { ...prepare(o), allow: ["registry.npmjs.org"] });
+  const seen: Run[] = [];
+  const runner = createRunner({ harnesses: { claude: claudeHarness() }, spawnFn: f.spawnFn, sandbox: engine, onChange: (r) => void seen.push(r) });
+  const run = runner.start({ cwd: "/code/a", prompt: "p", sandbox: true });
+  deny?.("proxy.golang.org");
+  deny?.("<b>x</b>");
+  assert.deepEqual(run.blocked, ["proxy.golang.org", "<b>x</b>"]);
+  assert.ok(seen.length >= 2, "each one is a change");
+  const body = String(agentPage({ sessionId: "11111111-1111-4111-8111-111111111111", turns: [], run: { ...run, status: "done", out: READY } }).body);
+  assert.match(body, /2 hosts refused/);
+  assert.match(body, /<code>proxy\.golang\.org<\/code>/);
+  assert.match(body, /<code>registry\.npmjs\.org<\/code>/);
+  assert.match(body, /\.dovre\/sandbox\.json/);
+  assert.ok(!body.includes("<b>x</b>"));
+  runner.stop?.(run.sessionId ?? "");
 });
 
 test("the hub keeps a sandbox run's branch and PR, not its commits' subjects or paths", () => {

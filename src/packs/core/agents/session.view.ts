@@ -112,9 +112,15 @@ function sandboxPanel(run: Run) {
   const said = result && !result.error && result.text.trim() ? html`<div class="bubble">${markdown(trunc(result.text, 8000), { headingOffset: 3 })}</div>` : "";
   const discard = (what: string) => Confirm({ kind: "sandbox.discard", action: `/agents/r/${run.id}/discard`, label: "Discard", danger: true, question: what });
   const cost = run.cost ? html` · $${run.cost.toFixed(2)}` : "";
+  const blocked = run.blocked ?? [];
+  const allow = run.sandbox?.allow ?? [];
+  // The network (#208): what it was refused, and where the list it may reach lives.
+  const net = blocked.length
+    ? html`<details><summary>${blocked.length} host${blocked.length === 1 ? "" : "s"} refused</summary><ul class="calls">${blocked.map((h) => html`<li><code>${h}</code></li>`)}</ul><p class="t3">The sandbox reaches the model API${allow.length ? html` and ${allow.map((h, i) => html`${i ? ", " : ""}<code>${h}</code>`)}` : ""} only. To let it reach more, list hosts under <code>allow</code> in the repo's <code>.dovre/sandbox.json</code>.</p></details>`
+    : "";
   if (!out || out.state === "collecting") return Panel({ title: "What it made", children: html`<p class="t3">Bringing its commits out of the sandbox…</p>` });
-  if (out.state === "none") return Panel({ title: "What it made", meta: html`no commits${cost}`, actions: discard("Discard this run and its sandbox?"), children: html`${said}<p class="t3">It changed nothing.</p>` });
-  if (out.state === "failed") return Panel({ title: "What it made", meta: cost, actions: discard("Discard this run and its sandbox? Its commits go with it."), children: html`${said}${Notice({ tone: "bad", children: out.why })}` });
+  if (out.state === "none") return Panel({ title: "What it made", meta: html`no commits${cost}`, actions: discard("Discard this run and its sandbox?"), children: html`${said}<p class="t3">It changed nothing.</p>${net}` });
+  if (out.state === "failed") return Panel({ title: "What it made", meta: cost, actions: discard("Discard this run and its sandbox? Its commits go with it."), children: html`${said}${Notice({ tone: "bad", children: out.why })}${net}` });
   const add = out.files.reduce((n, f) => n + f.add, 0);
   const del = out.files.reduce((n, f) => n + f.del, 0);
   const n = out.commits.length;
@@ -128,7 +134,7 @@ function sandboxPanel(run: Run) {
     children: html`${out.ci && !out.pr ? Notice({ tone: "warn", children: html`<strong>It changed CI config.</strong> A push runs the repo's workflows with its secrets: read the diff before you open the PR.` }) : ""}${said}
 <p class="t3">On branch <code>${out.branch}</code> of the checkout${out.repo ? html` (${out.repo})` : ""}${out.pr ? ", pushed" : ", not pushed"}.</p>
 <ul class="calls">${out.commits.map((c) => html`<li><code>${c.sha.slice(0, 7)}</code> <span class="t2">${c.subject}</span></li>`)}</ul>
-<details><summary>${out.files.length} file${out.files.length === 1 ? "" : "s"} changed</summary><ul class="calls">${out.files.map((f) => html`<li><code>${f.path}</code> <span class="t2">+${f.add} −${f.del}</span></li>`)}</ul></details>`,
+<details><summary>${out.files.length} file${out.files.length === 1 ? "" : "s"} changed</summary><ul class="calls">${out.files.map((f) => html`<li><code>${f.path}</code> <span class="t2">+${f.add} −${f.del}</span></li>`)}</ul></details>${net}`,
   });
 }
 
