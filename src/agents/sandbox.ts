@@ -23,9 +23,9 @@
  */
 import { execFile, execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { allowOf, type Egress, openEgress, PLACEHOLDER_TOKEN } from "./egress.ts";
 
 export const SANDBOX_IMAGE = "dovre-sandbox";
@@ -54,8 +54,10 @@ export type SandboxEngine = {
   kill(box: SandboxBox): void;
   /** The run ended: its proxy closes and its env file goes. */
   ended(box: SandboxBox): void;
-  /** The run is discarded: its whole folder goes. */
+  /** The run is discarded, or its commits are home: its whole folder goes. */
   remove(box: SandboxBox): void;
+  /** Removes run folders no run is kept for any more (`keep`: the boxes' dirs still wanted). Toolchain images' folders stay. */
+  prune?(keep: string[]): void;
   /**
    * The run ended: a second container bundles its commits, and the bundle is fetched into `cwd`
    * (the checkout it was cloned from) as `branch`. Never throws: a failure is the answer's `why`.
@@ -241,6 +243,9 @@ export function readToken(file: string): string {
   return t;
 }
 
+/** A run's folder under the root: its id, a UUID. */
+const RUN_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export function appleContainer(o: { root: string; checkout?: (repo: string) => string | undefined; tokenFile?: string; image?: string; memory?: string; cpus?: number; maxMs?: number; bin?: string; exec?: Exec; git?: (args: string[], cwd: string) => string; hostGit?: HostGit; egress?: typeof openEgress }): SandboxEngine {
   const bin = o.bin ?? "container";
   const image = o.image ?? SANDBOX_IMAGE;
@@ -398,6 +403,17 @@ export function appleContainer(o: { root: string; checkout?: (repo: string) => s
       rmSync(envFile(box), { force: true });
     },
     remove: (box) => rmSync(box.dir, { recursive: true, force: true }),
+    prune(keep) {
+      const wanted = new Set(keep.map((d) => resolve(d)));
+      let names: string[] = [];
+      try {
+        names = readdirSync(o.root);
+      } catch {
+        return;
+      }
+      // Only folders named as runs are (their ids); never .toolchain or anything else in the root.
+      for (const n of names) if (RUN_DIR.test(n) && !wanted.has(resolve(o.root, n))) rmSync(join(o.root, n), { recursive: true, force: true });
+    },
     async collect(box, { cwd, branch }) {
       const out = join(box.dir, "out");
       try {
