@@ -18,7 +18,10 @@ import type { Ghe } from "../../../sources/ghe.ts";
 import type { Html } from "../../../ui/kit.ts";
 import type { Here } from "./here.ts";
 import { sessionsOf } from "./index.ts";
-import { agentPage, goneAgentPage, newAgentPage } from "./session.view.ts";
+import { needsOf } from "../../../home/needs.ts";
+import { WORK } from "../../../agents/workdir.ts";
+import { type Picks, issuePrompt, needPicks } from "./picks.ts";
+import { type PicksView, agentPage, goneAgentPage, newAgentPage } from "./session.view.ts";
 import { agentsPage, worktreesPage } from "./view.ts";
 
 type C = Context<AppEnv>;
@@ -55,7 +58,7 @@ function backTo(c: C, to: string): string {
 
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 
-export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here, github, alone }: { desk: Desk; dismissed: Dismissed; here?: Here; github?: { ghe: Pick<Ghe, "rest">; owners: () => string }; /** Auto runs' panel (#209). */ alone?: () => Html | "" }) {
+export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here, github, alone, picks, autoOn }: { desk: Desk; dismissed: Dismissed; here?: Here; github?: { ghe: Pick<Ghe, "rest">; owners: () => string }; /** Auto runs' panel (#209). */ alone?: () => Html | ""; /** Quick picks on a new session (#243). */ picks?: Picks; /** Auto runs are on for this repo (owner/name). */ autoOn?: (repo: string) => boolean }) {
   /**
    * Hosted: the machines online or when each was last; with `id`, the one that session or run is
    * on (its page's forms go there). Locally nothing to say.
@@ -98,16 +101,43 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const v = desk.view();
     return ctx.page(c, agentsPage(s, sessionsOf(desk, here, dismissed), v.runs, { workDir: v.workDir, mac: macOf(), alone: alone?.(), panels: ctx.fill("agents.panel", {}), resume: (session) => ctx.fill("session.resume", { session }) }));
   });
+  /**
+   * The quick picks for a checkout (#243): its repo's open issues and Today's needs about it. The
+   * forge failing leaves a note, not a broken page; the needs come from the newest snapshot as is.
+   */
+  const picksOf = async (dir: string, repos: string[]): Promise<PicksView | undefined> => {
+    if (!picks || dir === WORK || !repos.includes(dir)) return undefined;
+    const repo = await picks.repoFor(dir).catch(() => undefined);
+    if (!repo) return undefined;
+    const s = ctx.snapshot();
+    const needs = s ? needPicks(needsOf(s), repo) : [];
+    const on = autoOn?.(repo) ?? false;
+    try {
+      return { dir, repo, issues: await picks.issues(repo), needs, autoOn: on };
+    } catch (e) {
+      return { dir, repo, issues: [], needs, autoOn: on, error: `Couldn't list ${repo}'s issues: ${String((e as Error)?.message ?? e).slice(0, 120)}` };
+    }
+  };
   app.get("/agents/new", async (c) => {
     const v = desk.view();
-    return ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: c.req.query("repo"), prompt: c.req.query("prompt"), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), sandbox: v.sandbox, fields: (repo) => ctx.fill("agents.new", { repo }) }));
+    const repos = await desk.repos();
+    const dir = c.req.query("repo") ?? "";
+    const p = await picksOf(dir, repos);
+    // An issue picked: its text, read again in full, is the prompt (never carried in the link).
+    const n = Number(c.req.query("issue"));
+    const picked = p?.repo && picks && Number.isInteger(n) && n > 0 ? await picks.issue(p.repo, n).catch(() => undefined) : undefined;
+    const labelled = Number(c.req.query("labelled"));
+    const note = p?.repo && Number.isInteger(labelled) && labelled > 0 ? `${p.repo}#${labelled} is labelled for auto runs: the next pass starts it in a sandbox, within the limits.` : undefined;
+    const error = c.req.query("error") ?? (c.req.query("issue") && p && !picked ? `#${c.req.query("issue")} isn't an open issue in ${p.repo}.` : undefined);
+    return ctx.page(c, newAgentPage({ repos, repo: dir, prompt: picked ? issuePrompt(picked) : c.req.query("prompt"), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: c.req.query("machine"), sandbox: v.sandbox, fields: (repo) => ctx.fill("agents.new", { repo }), picks: p, note, error }));
   });
   app.post("/agents/new", async (c) => {
     const form = await c.req.parseBody();
     const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model, machine: form.machine, sandbox: form.sandbox });
     if ("to" in r) return c.redirect(r.to, 303);
     const v = desk.view();
-    const res = await ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: String(form.repo ?? ""), prompt: String(form.prompt ?? ""), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: typeof form.machine === "string" ? form.machine : undefined, error: r.error, sandbox: v.sandbox, sandboxed: form.sandbox === "on", fields: (repo) => ctx.fill("agents.new", { repo }) }));
+    const repos = await desk.repos();
+    const res = await ctx.page(c, newAgentPage({ repos, picks: await picksOf(String(form.repo ?? ""), repos), repo: String(form.repo ?? ""), prompt: String(form.prompt ?? ""), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: typeof form.machine === "string" ? form.machine : undefined, error: r.error, sandbox: v.sandbox, sandboxed: form.sandbox === "on", fields: (repo) => ctx.fill("agents.new", { repo }) }));
     return new Response(res.body, { status: 400, headers: res.headers });
   });
   const gone = async (c: Context<AppEnv>) => {

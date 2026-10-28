@@ -1292,6 +1292,19 @@ document.addEventListener("change", (e) => {
   if (form && e.target.tagName === "SELECT") form.requestSubmit();
 });
 
+// ── Picking a checkout on a new session (select[data-requery]) reloads the page for it, so its
+// quick picks show; what's typed in the prompt so far comes along when it's short enough for a link. ──
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest && e.target.closest("select[data-requery]");
+  if (!sel || !sel.form) return;
+  const q = new URLSearchParams({ repo: sel.value });
+  const typed = sel.form.elements.prompt && sel.form.elements.prompt.value;
+  if (typed && typed.length <= 2000) q.set("prompt", typed);
+  const m = sel.form.elements.machine && sel.form.elements.machine.value;
+  if (m) q.set("machine", m);
+  location.assign(location.pathname + "?" + q);
+});
+
 // ── A link to /page#id opens that row in place (a <details> closed by default) ──
 function openTarget() {
   const el = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));

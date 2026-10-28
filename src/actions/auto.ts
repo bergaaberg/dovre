@@ -143,6 +143,32 @@ export async function runAgain(o: { db: D1; ghe: Forge; owners: string; key: str
   return { ok: true };
 }
 
+/**
+ * Run in sandbox (#243): an issue picked on /agents/new handed to auto runs, by labelling it
+ * `dovre:auto` as me; the next pass checks it as any labelled issue and starts it within the
+ * limits. Checked first: my repos, auto runs on for that repo, an open issue (not a PR).
+ */
+export async function labelForAuto(o: { db: D1; ghe: Forge; owners: string; settings: AutoSettings; repo: unknown; number: unknown }): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
+  const repo = ownedRepo(o.owners, o.repo);
+  const number = Number(o.number);
+  if (!repo || !Number.isInteger(number) || number < 1) return { ok: false, error: "Not an issue in your repos." };
+  const target = `${repo}#${number}`;
+  const fail = async (error: string) => (await logAction(o.db, { kind: "auto.label", target, ok: false, error }).catch(() => {}), { ok: false as const, error });
+  if (!repoOn(o.settings, repo)) return fail(`Auto runs are off for ${repo}.`);
+  const base = `/repos/${repo}/issues/${number}`;
+  try {
+    const issue = await o.ghe.rest<{ state: string; pull_request?: unknown; labels?: { name?: string }[] }>(base);
+    if (issue.pull_request) return fail(`${target} is a pull request.`);
+    if (issue.state !== "open") return fail(`${target} is closed.`);
+    if ((issue.labels ?? []).some((l) => l.name === AUTO_LABEL)) return fail(`${target} is labelled ${AUTO_LABEL} already.`);
+    await o.ghe.rest(`${base}/labels`, { method: "POST", body: { labels: [AUTO_LABEL] } });
+  } catch (e) {
+    return fail(`Couldn't label it: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+  }
+  await logAction(o.db, { kind: "auto.label", target, ok: true }).catch(() => {});
+  return { ok: true, key: autoKey(repo, number) };
+}
+
 /** The agent's last word, for the comment. */
 const lastWord = (run: Run | undefined) => {
   const r = run ? [...run.events].reverse().find((e) => e.t === "result" || e.t === "error") : undefined;

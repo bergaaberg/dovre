@@ -29,8 +29,9 @@ import { agentRoutes } from "./routes.ts";
 import { agentBrief, agentFeed, agentGlance, agentLane, agentsCard } from "./today.ts";
 import { agentActivity, turnNote, turnWatch } from "./turns.ts";
 import { askBar } from "./view.ts";
-import { type AutoPass, autoTick, runAgain } from "../../../actions/auto.ts";
-import { type AutoSettings, DEFAULT_AUTO, autoSettingsOf, loadAutoSettings, saveAutoSettings } from "../../../agents/auto.ts";
+import { type AutoPass, autoTick, labelForAuto, runAgain } from "../../../actions/auto.ts";
+import { type AutoSettings, DEFAULT_AUTO, autoSettingsOf, loadAutoSettings, repoOn, saveAutoSettings } from "../../../agents/auto.ts";
+import { issuePicks } from "./picks.ts";
 import { writeClicksStore } from "../../../writes.ts";
 import { alonePanel, autoNeeds, autoPanel } from "./auto.ts";
 
@@ -47,6 +48,8 @@ export type AgentsDeps = {
   longTurnMs?: () => number;
   /** The forge, for a sandbox run's draft PR (#206) and auto runs (#207): absent, a run's commits stay a branch on its machine. */
   github?: { ghe: Pick<Ghe, "rest" | "graphql">; owners: () => string };
+  /** Locally: the repo (owner/name) a checkout's origin is, for the quick picks (#243). Hosted, a checkout named like a repo is that repo. */
+  repoOf?: (dir: string) => string | undefined;
 };
 
 const NONE: Sessions = { live: [], recent: [] };
@@ -57,12 +60,13 @@ export function sessionsOf(desk: Desk, here: Here | undefined, dismissed?: Pick<
   return dismissed ? { live: all.live, recent: all.recent.filter((x) => !dismissed.has(x.sessionId)) } : all;
 }
 
-export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }: AgentsDeps): Pack {
+export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, repoOf }: AgentsDeps): Pack {
   const sessions = (cleared?: boolean) => sessionsOf(desk, here, cleared ? dismissed : undefined);
   let stop = () => {};
   // Auto runs (#207): the limits and the last pass, kept for needs and the Settings panel.
   let auto: AutoSettings = { ...DEFAULT_AUTO };
   let pass: AutoPass | undefined;
+  const picks = github ? issuePicks({ ghe: github.ghe, owners: github.owners, repoOf }) : undefined;
   return {
     manifest: {
       api: PACK_API,
@@ -127,7 +131,16 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }
     finds: (ctx) => agentFinds(sessions(true), desk.view().runs, ctx.hosted ? [] : (here?.worktrees() ?? [])),
     feed: (ctx) => agentFeed(sessions(true), desk.view().runs, Date.now()),
     routes: (app, ctx) => {
-      agentRoutes(app, ctx, { desk, dismissed, here, github, ...(github ? { alone: () => alonePanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", Date.now()) } : {}) });
+      agentRoutes(app, ctx, { desk, dismissed, here, github, picks, autoOn: (r) => repoOn(auto, r), ...(github ? { alone: () => alonePanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", Date.now()) } : {}) });
+      // Quick picks → Run in sandbox (#243): the issue labelled dovre:auto, for the next pass.
+      if (github)
+        app.post("/agents/auto/label", async (c) => {
+          const form = await c.req.parseBody();
+          const dir = String(form.dir ?? "");
+          const r = await labelForAuto({ db: ctx.db, ghe: github.ghe, owners: github.owners(), settings: auto, repo: form.repo, number: form.number });
+          const q = new URLSearchParams({ repo: dir, ...(r.ok ? { labelled: String(Number(form.number)) } : { error: r.error }) });
+          return c.redirect(`/agents/new?${q}`, 303);
+        });
       // Settings → Packs → Agents: the auto runs' limits.
       if (github)
         app.post("/agents/auto", async (c) => {

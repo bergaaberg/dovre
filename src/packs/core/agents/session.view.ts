@@ -8,7 +8,10 @@ import { WORK, WORK_LABEL } from "../../../agents/workdir.ts";
 import type { PageOpts } from "../../types.ts";
 import { HARNESS_LABEL, MODE_SHORT, modelSelect, modeSelect } from "../../../pages/models.ts";
 import type { Session } from "../../../sources/claude.ts";
-import { type Child, Confirm, Empty, Notice, PageHeader, Panel, Pill, icon } from "../../../ui/kit.ts";
+import { type Child, Confirm, Empty, Item, List, Notice, PageHeader, Panel, Pill, icon } from "../../../ui/kit.ts";
+import { AUTO_LABEL } from "../../../agents/auto.ts";
+import type { Need } from "../../../home/needs.ts";
+import { type IssuePick, needPrompt } from "./picks.ts";
 import { markdown } from "../../../ui/markdown.ts";
 import { Ago, HARNESS_NAME, harnessTag, type MacStatus, macNotice, resumeCommand, safeUrl, trunc } from "../../../pages/parts.ts";
 import { sandboxKind } from "../../../actions/sandbox.ts";
@@ -208,7 +211,35 @@ function sandboxField(st: { ok: boolean; why?: string }, ticked: boolean) {
   }</span></div>`;
 }
 
-export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: a catalog pack's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string; /** Sandbox runs (src/agents/sandbox.ts): offered when set, ticked off with the reason when they can't start. */ sandbox?: { ok: boolean; why?: string }; sandboxed?: boolean }): PageOpts {
+/** What the quick picks show for the checkout picked (#243): or why there are none. */
+export type PicksView = { dir: string; repo?: string; issues: IssuePick[]; needs: Need[]; /** Auto runs are on for the repo: an issue can go to them. */ autoOn: boolean; error?: string };
+
+const pickHref = (dir: string, q: Record<string, string>) => safeUrl(`/agents/new?${new URLSearchParams({ repo: dir, ...q })}`);
+
+/** Quick picks: the checkout's open issues and Today's needs about its repo, each filling the prompt above. */
+function picksPanel(p: PicksView) {
+  if (!p.repo) return "";
+  const issue = (i: IssuePick) =>
+    Item({
+      title: html`<a href="${pickHref(p.dir, { issue: String(i.number) })}" title="Fill the prompt with this issue"><strong>#${i.number}</strong> ${i.title}</a>${i.auto ? html` ${Pill({ children: AUTO_LABEL })}` : ""}`,
+      trail:
+        p.autoOn && !i.auto
+          ? Confirm({ kind: "auto.label", action: "/agents/auto/label", fields: { repo: i.repo, number: String(i.number), dir: p.dir }, label: "Run in sandbox", question: html`Label ${i.repo}#${i.number} <code>${AUTO_LABEL}</code>? The next auto pass works on it alone, in a sandbox, within the limits, and ends in a draft PR.` })
+          : html`<a class="t3" href="${safeUrl(i.url)}">On the forge</a>`,
+    });
+  const need = (n: Need) => Item({ title: html`<a href="${pickHref(p.dir, { prompt: needPrompt(n) })}" title="Fill the prompt with this">${n.title}</a>`, line: n.line ?? "" });
+  const none = !p.issues.length && !p.needs.length;
+  return Panel({
+    title: "Start from",
+    meta: p.repo,
+    flush: !none && !p.error,
+    children: html`${p.error ? Notice({ tone: "warn", children: p.error }) : ""}${p.needs.length ? List(p.needs.map(need)) : ""}${p.issues.length ? List(p.issues.map(issue)) : ""}${
+      none && !p.error ? html`<p class="t2">No open issues in ${p.repo}, and nothing on Today about it.</p>` : ""
+    }`,
+  });
+}
+
+export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: a catalog pack's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string; /** Sandbox runs (src/agents/sandbox.ts): offered when set, ticked off with the reason when they can't start. */ sandbox?: { ok: boolean; why?: string }; sandboxed?: boolean; /** Quick picks for the checkout picked (#243). */ picks?: PicksView; /** A note above the form (an issue handed to auto runs). */ note?: string }): PageOpts {
   const harnesses = opts.harnesses ?? (["claude"] as HarnessId[]);
   // Hosted with the Mac offline: no form, nothing would take it.
   if (opts.mac?.online === false)
@@ -229,18 +260,19 @@ export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: st
   const repo = opts.repo && opts.repos.includes(opts.repo) ? opts.repo : WORK;
   const componentChips = repo !== WORK && opts.fields ? opts.fields(repo) : "";
   const body = html`${PageHeader({ title: "New agent session", crumbs: [{ href: "/agents", label: "Agents" }], sub: html`Starts ${harnesses.map((h) => HARNESS_LABEL[h]).join(" or ")} headless, in a repo or in Dovre's own folder. You talk to it here; it asks before it acts, as you choose below.` })}
-${opts.error ? Notice({ tone: "bad", children: opts.error }) : ""}
+${opts.error ? Notice({ tone: "bad", children: opts.error }) : ""}${opts.note ? Notice({ tone: "ok", children: opts.note }) : ""}
 ${Panel({
   children: html`<form method="post" action="/agents/new">
 ${opts.machines && opts.machines.length > 1 ? html`<label class="field"><span class="label">On</span><select name="machine" required>${opts.machines.map((m) => html`<option value="${m.id}"${m.id === opts.machine ? html` selected` : ""}>${m.name}</option>`)}</select><span class="hint">The machine it runs on: the checkout must be there.</span></label>` : ""}
-<label class="field"><span class="label">Runs in</span><select name="repo" required><option value="${WORK}"${repo === WORK ? html` selected` : ""}>${WORK_LABEL}</option><optgroup label="Checkouts">${opts.repos.map((r) => html`<option value="${r}"${r === repo ? html` selected` : ""}>${r}</option>`)}</optgroup></select><span class="hint">Dovre's own folder${opts.workDir ? html` (<code>${opts.workDir}</code>)` : ""} is for work that isn't in one repo, and keeps it out of your checkouts. Or a git checkout in your code folder, worktrees included.</span></label>
+<label class="field"><span class="label">Runs in</span><select name="repo" required data-requery><option value="${WORK}"${repo === WORK ? html` selected` : ""}>${WORK_LABEL}</option><optgroup label="Checkouts">${opts.repos.map((r) => html`<option value="${r}"${r === repo ? html` selected` : ""}>${r}</option>`)}</optgroup></select><span class="hint">Dovre's own folder${opts.workDir ? html` (<code>${opts.workDir}</code>)` : ""} is for work that isn't in one repo, and keeps it out of your checkouts. Or a git checkout in your code folder, worktrees included.</span></label>
 ${componentChips}
 <label class="field"><span class="label">What should it do?</span><textarea name="prompt" rows="8" required placeholder="Skills work as usual: /some-skill …, or say what to do">${opts.prompt ?? ""}</textarea></label>
 ${opts.sandbox ? sandboxField(opts.sandbox, !!opts.sandboxed) : ""}
 <div class="fields"><label class="field"><span class="label">Agent</span><select name="harness">${harnesses.map((h) => html`<option value="${h}">${HARNESS_LABEL[h]}</option>`)}</select></label>${modeSelect()}${modelSelect("", harnesses)}<div class="field"><button type="submit" class="primary" data-busy="Starting">Start</button></div></div>
 ${harnesses.includes("omp") ? html`<p class="hint t3">omp's own setting may approve everything; sessions started here always ask first, in the mode you pick.</p>` : ""}
 </form>`,
-})}`;
+})}
+${opts.picks && repo !== WORK ? picksPanel(opts.picks) : ""}`;
   return { title: "New agent · Dovre", current: "/agents", body };
 }
 

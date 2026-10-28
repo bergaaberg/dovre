@@ -33,6 +33,9 @@ export type Need = {
   line?: string;
   href: string;
   tone: "bad" | "warn" | "accent" | "ok" | "neutral";
+  /** A core need: the repo it's about (owner/name), and its page on the forge when `href` is Dovre's. */
+  repo?: string;
+  url?: string;
 };
 
 export const KIND_LABEL: Record<NeedKind, string> = { deploy: "Deploy", ci: "Red build", review: "Review", "my-pr": "My PR", mention: "Mention", pack: "App" };
@@ -63,11 +66,12 @@ export function needsOf(s: Snapshot): Need[] {
         line: [live ? "already live: a leftover run to reject" : ships, `${d.name} · by ${d.actor} · ${d.sha}`, d.superseded.length ? `${d.superseded.length}${d.more ? "+" : ""} older waiting runs superseded` : ""].filter(Boolean).join(" · "),
         href: "/deploys",
         tone: live ? "neutral" : "bad",
+        repo: d.repo,
       });
     }
 
   for (const r of s.red)
-    out.push({ kind: "ci", key: `ci:${r.repo}:${r.branch}:${r.workflow}`, ring: "ci", rank: 0, at: Date.parse(r.since), title: `${short(r.repo, s.org)} ${r.branch} is red`, line: `${r.workflow}: the newest run failed; ${r.failures} failure ${r.failures === 1 ? "notice" : "notices"} unread`, href: r.url, tone: "bad" });
+    out.push({ kind: "ci", key: `ci:${r.repo}:${r.branch}:${r.workflow}`, ring: "ci", rank: 0, at: Date.parse(r.since), title: `${short(r.repo, s.org)} ${r.branch} is red`, line: `${r.workflow}: the newest run failed; ${r.failures} failure ${r.failures === 1 ? "notice" : "notices"} unread`, href: r.url, tone: "bad", repo: r.repo, url: r.url });
 
   if (s.prs.ok) {
     for (const p of s.prs.value.review)
@@ -81,6 +85,8 @@ export function needsOf(s: Snapshot): Need[] {
         line: `${p.author} asks for your review${p.draft ? " (draft)" : ""}`,
         href: prHref(p),
         tone: "accent",
+        repo: p.repo,
+        url: p.url,
       });
     for (const p of s.prs.value.mine) {
       const why = prNeeds(p);
@@ -96,6 +102,8 @@ export function needsOf(s: Snapshot): Need[] {
         line: why.join(", "),
         href: prHref(p),
         tone: ready ? "ok" : why[0] === "checks failing" || why[0] === "changes requested" ? "bad" : "warn",
+        repo: p.repo,
+        url: p.url,
       });
     }
   }
@@ -103,7 +111,7 @@ export function needsOf(s: Snapshot): Need[] {
   if (s.notes.ok)
     for (const n of s.notes.value)
       if (n.reason === "mention" || n.reason === "team_mention")
-        out.push({ kind: "mention", key: `mention:${n.id}:${n.updatedAt}`, ring: "mention", rank: 4, at: Date.parse(n.updatedAt), title: n.title, line: `${short(n.repo, s.org)} · ${n.reason === "team_mention" ? "your team was mentioned" : "you were mentioned"}`, href: n.url, tone: "neutral" });
+        out.push({ kind: "mention", key: `mention:${n.id}:${n.updatedAt}`, ring: "mention", rank: 4, at: Date.parse(n.updatedAt), title: n.title, line: `${short(n.repo, s.org)} · ${n.reason === "team_mention" ? "your team was mentioned" : "you were mentioned"}`, href: n.url, tone: "neutral", repo: n.repo, url: n.url });
 
   return rankNeeds(out);
 }
