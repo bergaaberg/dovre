@@ -10,7 +10,7 @@ import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { createRunner, type Run, type StartOpts } from "../src/agents/runner.ts";
 import { claudeHarness, argsFor, SANDBOX_NOTE } from "../src/agents/harnesses/claude/harness.ts";
-import { appleContainer, boxEnv, imageIdOf, siblingsOf, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
+import { appleContainer, boxEnv, imageIdOf, siblingsOf, staleToolchains, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
 import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { WORK } from "../src/agents/workdir.ts";
@@ -551,6 +551,80 @@ test("Apple container engine: a repo's toolchain is built from the file at the b
   assert.throws(() => engine.prepare({ id: "bbbbbbbb-6666", repo }), /must end on `FROM dovre-sandbox`/);
   await tick();
   assert.equal(builds.length, 2);
+});
+
+test("stale toolchains: the same repo's other tags, never the new one, one in use, another repo's or the base", () => {
+  const h = (c: string) => c.repeat(16);
+  const list = JSON.stringify([
+    { configuration: { name: `docker.io/library/dovre-sandbox-skribb:${h("a")}` } },
+    { configuration: { name: `docker.io/library/dovre-sandbox-skribb:${h("b")}` } },
+    { configuration: { name: `dovre-sandbox-skribb:${h("c")}` } },
+    { configuration: { name: `docker.io/library/dovre-sandbox-skribb-web:${h("d")}` } },
+    { configuration: { name: "docker.io/library/dovre-sandbox:latest" } },
+    { configuration: { name: "docker.io/library/dovre-sandbox-skribb:latest" } },
+    {},
+  ]);
+  assert.deepEqual(staleToolchains(list, `dovre-sandbox-skribb:${h("a")}`, [`dovre-sandbox-skribb:${h("b")}`]), [`dovre-sandbox-skribb:${h("c")}`]);
+  assert.deepEqual(staleToolchains("not json", `dovre-sandbox-skribb:${h("a")}`, []), []);
+});
+
+test("Apple container engine: after a toolchain build, the repo's older images and folders go, unless a box still uses one (#232)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dovre-box-"));
+  const repo = join(root, "skribb");
+  mkdirSync(join(repo, ".dovre"), { recursive: true });
+  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "t");
+  git("config", "user.email", "t@t");
+  const commit = (body: string) => {
+    writeFileSync(join(repo, TOOLCHAIN_FILE), body);
+    git("add", "-A");
+    git("commit", "-q", "-m", body);
+    return toolchainTag(repo, BASE_ID, body.trim());
+  };
+  const tokenFile = join(root, "token");
+  writeFileSync(tokenFile, "sk-ant-oat01-test\n", { mode: 0o600 });
+  const other = `dovre-sandbox-web:${"e".repeat(16)}`;
+  const old = `dovre-sandbox-skribb:${"0".repeat(16)}`;
+  const have = new Set([`docker.io/library/${old}`, `docker.io/library/${other}`]);
+  const deleted: string[] = [];
+  const exec = withNet(async (_bin, args) => {
+    if (args[0] === "image" && args[1] === "inspect") return { ok: have.has(`docker.io/library/${args[2]}`), out: "" };
+    if (args[0] === "image" && args[1] === "list") return { ok: true, out: JSON.stringify([...have].map((name) => ({ configuration: { name } }))) };
+    if (args[0] === "image" && args[1] === "delete") {
+      deleted.push(args[2]!);
+      have.delete(`docker.io/library/${args[2]}`);
+      return { ok: true, out: "" };
+    }
+    if (args[0] === "build") have.add(`docker.io/library/${args[args.indexOf("-t") + 1]}`);
+    return { ok: true, out: "" };
+  });
+  const { egress } = fakeEgress();
+  const boxes = join(root, "boxes");
+  mkdirSync(join(boxes, ".toolchain", old.replace(":", "_")), { recursive: true });
+  mkdirSync(join(boxes, ".toolchain", other.replace(":", "_")), { recursive: true });
+  const engine = appleContainer({ root: boxes, tokenFile, exec, egress });
+  await tick();
+
+  const a = commit("FROM dovre-sandbox\nRUN a\n");
+  assert.throws(() => engine.prepare({ id: "cccccccc-1111", repo }), /being built/);
+  await tick();
+  assert.deepEqual(deleted, [old], "the older one goes; another repo's stays");
+  const box = engine.prepare({ id: "cccccccc-2222", repo });
+  assert.equal(box.image, a);
+
+  const b = commit("FROM dovre-sandbox\nRUN b\n");
+  assert.throws(() => engine.prepare({ id: "cccccccc-3333", repo }), /being built/);
+  await tick();
+  assert.deepEqual(deleted, [old], "the running box's image stays");
+  assert.deepEqual(readdirSync(join(boxes, ".toolchain")).sort(), [a, b, other].map((t) => t.replace(":", "_")).sort());
+
+  engine.ended(box);
+  commit("FROM dovre-sandbox\nRUN c\n");
+  assert.throws(() => engine.prepare({ id: "cccccccc-4444", repo }), /being built/);
+  await tick();
+  assert.deepEqual(deleted, [old, a, b], "once it ends, it goes with the rest");
+  assert.ok(have.has(`docker.io/library/${other}`));
 });
 
 test("siblings: plain owner/name only, each name once, at most five; mounted read-only under /siblings", () => {
