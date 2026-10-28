@@ -8,8 +8,8 @@
  * 3. The forge's branch is checked to be at that head, and that no PR is open from it yet.
  * 4. A draft PR into the default branch. If that fails, the pushed branch is deleted again.
  *
- * Logged under `sandbox.pr`, or `sandbox.pr-ci` when the diff touches CI config: that kind always
- * asks twice (src/writes.ts), since a push runs the repo's workflows with its secrets.
+ * Logged under `sandbox.pr`, or `sandbox.pr-ci` when the diff touches CI config, a kind of its own
+ * (src/writes.ts) to set to ask twice, since a push runs the repo's workflows with its secrets.
  */
 import type { D1 } from "../db.ts";
 import type { Run } from "../agents/runner.ts";
@@ -19,7 +19,7 @@ import { ownedRepo } from "../sources/files.ts";
 import { logAction } from "./deploys.ts";
 import type { Proposed } from "./propose.ts";
 
-/** The write kind a run's PR goes under: the CI one has a twice floor. */
+/** The write kind a run's PR goes under: CI changes have their own. */
 export const sandboxKind = (out: Pick<SandboxReady, "ci">) => (out.ci ? "sandbox.pr-ci" : "sandbox.pr");
 
 const line = (s: unknown, max: number) => String(s ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, max);

@@ -289,8 +289,7 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
   assert.equal(preview.status, 200);
   assertInert("preview", preview.text);
   assert.match(preview.text, /One comment isn&#39;t on a line of the diff/);
-  assert.match(preview.text, /Post the review…/);
-  assert.match(preview.text, /as <strong>Comment<\/strong>/);
+  assert.match(preview.text, />Post the review<\/button>/);
   assert.equal(w.writes().length, 0, "a preview posts nothing");
   assert.match(preview.text, /Hva om lista er tom\? \(endret\)/, "the form keeps my edits");
 
@@ -345,7 +344,7 @@ test("new commits since the review, a closed PR, or my own PR: nothing is posted
   const m = await moved.post("/prs/draft/preview", form);
   assert.equal(m.status, 409);
   assert.match(m.text, /new commits since the agent read it \(aaa1111 → bbb2222\): review it again/);
-  assert.doesNotMatch(m.text, /Post the review…/);
+  assert.doesNotMatch(m.text, />Post the review<\/button>/);
   const listed = (await moved.get("/prs/draft?run=run-1")).text;
   assert.match(listed, /new commits since the review \(aaa1111 → bbb2222\), so the comments are listed here, not in the diff/);
   assert.doesNotMatch(listed, /The diff<\/p>/);
@@ -353,7 +352,7 @@ test("new commits since the review, a closed PR, or my own PR: nothing is posted
   // Moved between the preview and the Post: the Post checks again.
   const late = await reviewed(REPORT);
   const p = await late.post("/prs/draft/preview", form);
-  assert.match(p.text, /Post the review…/);
+  assert.match(p.text, />Post the review<\/button>/);
   late.gh.head = "ccc3333dddd";
   await late.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
   assert.equal(late.reviews.length, 0);
@@ -401,7 +400,7 @@ test("replies on my PR: one per thread (a reply to a reply goes to its thread), 
   assert.doesNotMatch(page.text, /name="verdict"/, "replies have no verdict");
   const p = await w.post("/prs/draft/preview", { run: "run-1", keep_0: "on", body_0: "Fikset", keep_1: "on", body_1: "Bevisst, se AGENTS.md", keep_2: "on", body_2: "Borte", comment: "Takk for gjennomgangen" });
   assert.match(p.text, /One reply answers a comment that isn&#39;t on this PR: left out/);
-  assert.match(p.text, /Post the replies…/);
+  assert.match(p.text, />Post the replies<\/button>/);
   await w.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
   assert.deepEqual(posted, [
     { path: "replies/11", body: { body: "Fikset" } },

@@ -116,7 +116,7 @@ test("addLeftOut refuses a PR that isn't one of combine()'s, and a repo with no 
 test("the page offers to add left-out bumps only in local mode, with a combined PR open", () => {
   const frame = { operator: "me", nav: [] } as unknown as Parameters<typeof dependabotPage>[0];
   const repos = [{ repo: "ACME/web", prs: [{ repo: "ACME/web", number: 2, title: "Bump b", url: "https://x/2", createdAt: "2026-10-01T00:00:00Z", security: false }], oldest: "2026-10-01T00:00:00Z", security: 0, combined: { number: 99, url: "https://x/99", checks: null, mergeable: null, draft: false } }];
-  assert.match(dependabotPage(frame, { org: "ACME", repos, relock: true }), /Add left-out bumps[\s\S]*name="number" value="99"/);
+  assert.match(dependabotPage(frame, { org: "ACME", repos, relock: true }), /name="number" value="99"[\s\S]*Add left-out bumps/);
   assert.doesNotMatch(dependabotPage(frame, { org: "ACME", repos }), /Add left-out bumps/);
 });
 

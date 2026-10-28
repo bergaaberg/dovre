@@ -322,8 +322,8 @@ export function settingRows(s: RowsState): SettingRow[] {
     { area: "notifications", label: "Send a test notification", href: "/settings/notifications#rang-lately", also: ["test", "rang lately"] },
   );
   for (const w of s.writes.kinds) {
-    const once = !w.floor && s.writes.chosen.get(w.kind) === "once";
-    rows.push({ area: "writes", label: w.label, href: "/settings/writes", now: w.floor ? "Always asks twice" : once ? "One click" : "Asks twice", changed: once, also: [w.group, w.kind] });
+    const twice = s.writes.chosen.get(w.kind) === "twice";
+    rows.push({ area: "writes", label: w.label, href: "/settings/writes", now: twice ? "Asks twice" : "One click", changed: twice, also: [w.group, w.kind] });
   }
   rows.push({ area: "keys", label: "j / k scroll", href: "/settings/keys", now: SCROLL_STEPS.find((x) => x.px === s.keys.scroll)?.label, changed: s.keys.scroll !== DEFAULT_KEYS.scroll, also: ["speed", "scroll"] });
   for (const g of KEY_GROUPS) {

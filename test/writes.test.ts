@@ -1,4 +1,4 @@
-// Writes' clicks (dovre#104): a kind set to one click on Settings draws a Post; a floor keeps asking.
+// Writes' clicks (dovre#104): a Post by default; a kind set to ask twice on Settings draws a Confirm.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
@@ -21,32 +21,33 @@ const probe: Pack = {
     ),
 };
 
-test("writes: ask twice by default; ticked kinds take one click; floors and unnamed writes keep asking", async () => {
+test("writes: one click by default; ticked kinds ask twice; unnamed writes take one click", async () => {
   const { app, get } = signedIn(snapshot(), {}, { packs: [probe] });
   const before = await (await get("/probe")).text();
-  assert.equal((before.match(/<details class="confirm">/g) ?? []).length, 3);
+  assert.equal((before.match(/<details class="confirm">/g) ?? []).length, 0);
+  assert.match(before, /<form class="post" method="post" action="\/d">/, "deleting too: one click until I say");
 
   const settings = await (await get("/settings/writes")).text();
   assert.match(settings, /id="writes"/);
-  assert.match(settings, /name="once" value="deploy.approve"/);
-  assert.doesNotMatch(settings, /name="once" value="todo.delete"/, "a floor can't be ticked");
+  assert.match(settings, /name="twice" value="deploy.approve"/);
+  assert.match(settings, /name="twice" value="todo.delete"/, "every kind can be ticked");
 
   const save = (body: string, origin = "http://localhost") =>
     app.request("http://localhost/settings/writes", { method: "POST", headers: { cookie: "u_tk=test-token", origin, "content-type": "application/x-www-form-urlencoded" }, body });
-  assert.equal((await save("once=deploy.approve&once=todo.delete&once=made.up")).status, 303);
+  assert.equal((await save("twice=todo.delete&twice=made.up")).status, 303);
   const after = await (await get("/probe")).text();
   assert.match(after, /<form class="post" method="post" action="\/a">/, "approve: one click");
-  assert.match(after, /<details class="confirm"><summary>Delete/, "delete: always asks");
-  assert.match(after, /<details class="confirm"><summary>None/, "no kind: asks");
-  assert.match(await (await get("/settings/writes")).text(), /value="deploy.approve" checked/);
+  assert.match(after, /<details class="confirm"><summary>Delete/, "delete: ticked, asks twice");
+  assert.match(after, /<form class="post" method="post" action="\/n">/, "no kind: one click");
+  assert.match(await (await get("/settings/writes")).text(), /value="todo.delete" checked/);
 
   assert.equal((await save("", "https://evil.example")).status, 403, "only from this app");
   assert.equal((await save("")).status, 303);
-  assert.equal(((await (await get("/probe")).text()).match(/<details class="confirm">/g) ?? []).length, 3, "untick: asks again");
+  assert.equal(((await (await get("/probe")).text()).match(/<details class="confirm">/g) ?? []).length, 0, "untick: one click again");
 });
 
-test("writes: outside a request (no choices), Confirm asks", () => {
-  assert.match(String(Confirm({ kind: "deploy.approve", action: "/a", label: "A", question: "Q" })), /details class="confirm"/);
+test("writes: outside a request (no choices), Confirm is one click", () => {
+  assert.match(String(Confirm({ kind: "deploy.approve", action: "/a", label: "A", question: "Q" })), /<form class="post"/);
   assert.equal(new Set(WRITES.map((w) => w.kind)).size, WRITES.length, "kinds are unique");
 });
 
@@ -70,20 +71,20 @@ const shop: Pack = {
     ),
 };
 
-test("writes: a pack's own kinds (dovre#104) are on Settings under its name and take one click when ticked; its floor keeps asking", async () => {
+test("writes: a pack's own kinds (dovre#104) are on Settings under its name and ask twice when ticked; an old floor is ignored", async () => {
   const kinds = writeKinds([shop]);
   assert.deepEqual(kinds.slice(WRITES.length), [
     { kind: "shop.refund", label: "Refund an order", group: "Shop" },
-    { kind: "shop.wipe", label: "Delete a customer", group: "Shop", floor: "twice" },
+    { kind: "shop.wipe", label: "Delete a customer", group: "Shop" },
   ]);
   const { app, get } = signedIn(snapshot(), {}, { packs: [shop] });
   const settings = await (await get("/settings/writes")).text();
-  assert.match(settings, /<legend>Shop<\/legend><label class="write-row"><input type="checkbox" name="once" value="shop.refund">/);
-  assert.doesNotMatch(settings, /value="shop.wipe"/);
+  assert.match(settings, /<legend>Shop<\/legend><label class="write-row"><input type="checkbox" name="twice" value="shop.refund">/);
+  assert.match(settings, /value="shop.wipe"/);
   const save = (body: string) =>
     app.request("http://localhost/settings/writes", { method: "POST", headers: { cookie: "u_tk=test-token", origin: "http://localhost", "content-type": "application/x-www-form-urlencoded" }, body });
-  assert.equal((await save("once=shop.refund&once=shop.wipe&once=other.refund")).status, 303);
+  assert.equal((await save("twice=shop.wipe&twice=other.refund")).status, 303);
   const page = await (await get("/shop")).text();
   assert.match(page, /<form class="post" method="post" action="\/shop\/r">/, "refund: one click");
-  assert.match(page, /<details class="confirm"><summary>Wipe/, "the pack's floor: always asks");
+  assert.match(page, /<details class="confirm"><summary>Wipe/, "wipe: ticked, asks twice");
 });

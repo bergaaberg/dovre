@@ -138,8 +138,8 @@ Also:
 
 - Packs reach each other's pages through slots, never imports.
 - Writes to a pack's own app re-check state, log to `actions`, and go through a Confirm with
-  `kind: "<id>.<kind>"` (listed in `writes`). Settings → Writes can make a kind one click
-  unless it has a `twice` floor.
+  `kind: "<id>.<kind>"` (listed in `writes`). Each kind takes one click unless Settings →
+  Writes sets it to ask twice.
 - A pack showing content not fit for a model (chats, mail, query results) sets `private`: from
   its pages, Bino hears only the pack's name.
 - `bino` and `about` give names, states and counts. Never content, addresses or tokens.

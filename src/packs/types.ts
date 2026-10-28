@@ -377,7 +377,12 @@ export type ScheduledEvent = { cron: string; scheduledTime: number };
 export type Defer = (p: Promise<unknown>) => void;
 
 /** A kind of write a pack makes: a lowercase word (dashes allowed), and what Settings calls it. */
-export type PackWrite = { kind: string; label: string; floor?: "twice" };
+export type PackWrite = {
+  kind: string;
+  label: string;
+  /** @deprecated Ignored: every kind takes one click unless I set it to ask twice. */
+  floor?: "twice";
+};
 
 export type Pack = {
   manifest: PackManifest;
@@ -397,8 +402,7 @@ export type Pack = {
   dispose?(): Promise<void> | void;
   /**
    * Its kinds of write to its own app (dovre#104), listed on Settings → Writes under its name. Its
-   * Confirms pass `kind: "<pack id>.<kind>"`: those ask twice unless I set that kind to one click.
-   * A `floor` of "twice" (deleting, ending things) always asks.
+   * Confirms pass `kind: "<pack id>.<kind>"`: those take one click unless I set that kind to ask twice.
    */
   writes?: PackWrite[];
   /** CSS for its own classes, served beside the core's and linked from every page. */

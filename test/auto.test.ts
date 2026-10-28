@@ -126,7 +126,7 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
       if (r.out?.state === "ready") r.out.pr = { number: pr.number as number, url: pr.url as string };
     },
   } as unknown as Desk;
-  let clicks = new Map<string, "once" | "twice">();
+  let clicks = new Map<string, "once" | "twice">([["auto.pr", "twice"]]);
   const tick = (now = Date.parse("2026-10-28T12:00:00Z")) => autoTick({ db: db.DB, ghe, owners: "acme", desk, clicks: async () => clicks, tz: "UTC", now: () => now });
   return { db, ghe, desk, runs, started, pushed, writes, tick, setClicks: (c: Map<string, "once" | "twice">) => (clicks = c), close: () => (issueOpen = false), relabel: (at: string) => (labelAt = at) };
 }
@@ -187,10 +187,10 @@ test("autoTick: a run with commits waits for my OK (a need), and once its PR is 
   assert.deepEqual(logged, [{ kind: "auto.done", ok: 1 }]);
 });
 
-test("autoTick: with auto.pr at one click the PR opens by itself; CI changes still wait", async () => {
+test("autoTick: with auto.pr at one click (the default) the PR opens by itself; CI changes still wait", async () => {
   const w = world();
   await on(w.db);
-  w.setClicks(new Map([["auto.pr", "once"]]));
+  w.setClicks(new Map());
   await w.tick();
   const run = w.runs.get("run-1")!;
   run.status = "done";
@@ -202,7 +202,7 @@ test("autoTick: with auto.pr at one click the PR opens by itself; CI changes sti
 
   const ci = world();
   await on(ci.db);
-  ci.setClicks(new Map([["auto.pr", "once"]]));
+  ci.setClicks(new Map());
   await ci.tick();
   Object.assign(ci.runs.get("run-1")!, { status: "done", out: READY({ ci: true }) });
   const q = await ci.tick();

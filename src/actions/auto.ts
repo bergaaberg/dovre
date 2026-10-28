@@ -269,8 +269,8 @@ async function follow(d: AutoDeps, store: AutoStore, rows: AutoRow[], now: () =>
       continue;
     }
     if (row.state === "waiting") continue;
-    // One click on Settings → Writes, and no CI config touched: the PR opens now. Else it waits for me.
-    if (!out.ci && (await d.clicks()).get("auto.pr") === "once") {
+    // Not set to ask twice on Settings → Writes, and no CI config touched: the PR opens now. Else it waits for me.
+    if (!out.ci && (await d.clicks()).get("auto.pr") !== "twice") {
       const r = await openSandboxPr({ db: d.db, ghe: d.ghe, owners: d.owners, run, push: () => d.desk.pushSandbox(run.id) });
       if (r.ok) {
         await d.desk.landed(run.id, { number: r.number, url: r.url });

@@ -1213,8 +1213,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   });
   app.post("/settings/writes", async (c) => {
     const f = await c.req.parseBody({ all: true });
-    const once = ([] as unknown[]).concat(f.once ?? []).filter((v): v is string => typeof v === "string");
-    await clicks.set(once);
+    const twice = ([] as unknown[]).concat(f.twice ?? []).filter((v): v is string => typeof v === "string");
+    await clicks.set(twice);
     saved = true;
     return c.redirect("/settings/writes", 303);
   });
