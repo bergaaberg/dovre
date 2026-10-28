@@ -5,7 +5,7 @@
  * - WP-M6: Pre-built packs installation (`addPack`, `wirePackIntoFile`, `listAvailablePacks`) from `dovre-packs`.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -242,8 +242,9 @@ test("WP-M5: provisionInstance auto-creates D1, patches wrangler.jsonc, applies 
   assert.match(patchWranglerConfig(patched, { domain: "new.acme.dev" }), /"pattern": "new\.acme\.dev"/);
 });
 
-test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-packs and wire them into crates.ts", () => {
-  const packsRepo = resolve(import.meta.dirname, "..", "..", "dovre-packs");
+// Needs a dovre-packs checkout beside this one; a lone clone (CI, a sandbox) skips it.
+const packsRepo = resolve(import.meta.dirname, "..", "..", "dovre-packs");
+test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-packs and wire them into crates.ts", { skip: !existsSync(packsRepo) && "no ../dovre-packs checkout" }, () => {
   const avail = listAvailablePacks(packsRepo);
   // At least these, sorted: a new pack in dovre-packs mustn't fail core's tests.
   for (const id of ["cf-health", "custom-app", "docker", "http-otel", "jira"]) assert.ok(avail.includes(id), id);
