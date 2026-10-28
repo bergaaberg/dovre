@@ -467,7 +467,9 @@ function busyWith(region) {
 // ── Motion (WP-S5): what a swap changes moves a little, so the eye finds it. What's new comes in
 // (.fresh), what's gone fades out first (.leaving), a count that changed bumps (.bump), and an agent's
 // turn that finished settles (.settled). The CSS is in src/ui/style.ts; under reduced motion, nothing moves. ──
-const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Less motion: the system asks for it, and Settings → Look doesn't say Always (data-motion on <html>). */
+const lessMotion = () => document.documentElement.dataset.motion !== "always" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const STILL = lessMotion();
 /** Things a page names (an id, or data-key on a list's items): new ones enter, gone ones leave. */
 const keyOf = (el) => (el.dataset.key ? "k:" + el.dataset.key : el.id ? "#" + el.id : "");
 const keyed = (root) => new Map([...root.querySelectorAll("[data-key],[id]")].map((el) => [keyOf(el), el]));
@@ -901,7 +903,7 @@ function hintKey(e) {
 }
 
 // ── The rest of the keys ──
-const smooth = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+const smooth = () => (lessMotion() ? "auto" : "smooth");
 const scrollBy_ = (dy) => scrollBy({ top: dy, behavior: smooth() });
 // Settings → Keys (dovre#87, src/keys.ts): how far j/k scroll, and the groups switched off.
 const KEYPREFS = (() => {

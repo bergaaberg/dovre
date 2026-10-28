@@ -26,13 +26,14 @@ export type LayoutView = {
 
 type Opt = { value: string; label: string };
 /** Look's choices: the key in Layout, its label, and its options (the default's value is ""). */
-export const LOOK: { key: "theme" | "accent" | "font" | "textSize" | "lineHeight" | "binoButton"; label: string; choices: Opt[] }[] = [
+export const LOOK: { key: "theme" | "accent" | "font" | "textSize" | "lineHeight" | "binoButton" | "motion"; label: string; choices: Opt[] }[] = [
   { key: "theme", label: "Theme", choices: [{ value: "", label: "As the system" }, { value: "light", label: "Light (cabin)" }, { value: "dark", label: "Dark (night)" }, { value: "birch", label: "Birch (cool light)" }, { value: "polar", label: "Polar (black)" }, { value: "ember", label: "Ember (warm dark)" }] },
   { key: "accent", label: "Accent", choices: [{ value: "", label: "Fjord (blue)" }, { value: "heather", label: "Heather (violet)" }, { value: "glacier", label: "Glacier (ice blue)" }] },
   { key: "font", label: "Font", choices: [{ value: "", label: "Nordwand Mono" }, { value: "sans", label: "Sans (system)" }, { value: "serif", label: "Serif (system)" }] },
   { key: "textSize", label: "Text size", choices: [{ value: "small", label: "Small" }, { value: "", label: "Default" }, { value: "large", label: "Large" }, { value: "larger", label: "Larger" }] },
   { key: "lineHeight", label: "Line height", choices: [{ value: "tight", label: "Tight" }, { value: "", label: "Default" }, { value: "loose", label: "Loose" }] },
   { key: "binoButton", label: "Bino's button", choices: [{ value: "", label: "The face a pack draws, when there is one" }, { value: "icon", label: "The assistant icon" }] },
+  { key: "motion", label: "Motion", choices: [{ value: "", label: "As the system (still when it asks for less motion)" }, { value: "always", label: "Always (animate whatever the system says)" }] },
 ];
 export const LOOK_KEYS = LOOK.map((l) => l.key);
 
@@ -58,6 +59,7 @@ const SAMPLE: Record<string, (value: string) => Html | ""> = {
   textSize: (v) => html`<span class="sample size-${v || "default"}" aria-hidden="true">A</span>`,
   lineHeight: (v) => html`<span class="sample lh lh-${v || "default"}" aria-hidden="true"><i></i><i></i><i></i></span>`,
   binoButton: () => "",
+  motion: () => "",
 };
 
 /** One of Look's settings as a row of choices you can see, a radio each (the form saves on change). */

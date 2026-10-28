@@ -75,7 +75,7 @@ export const SPLASH_CSS = String.raw`
 /* By day there are no stars. */
 @media (prefers-color-scheme: light) { .sp-star { display: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .sp-star, .sp-sun, .sp-line, .splash-fade, .splash-fade-2, .splash-pic { animation: none; }
-  .sp-line { stroke-dashoffset: 0; }
+  :root:not([data-motion="always"]) .sp-star, :root:not([data-motion="always"]) .sp-sun, :root:not([data-motion="always"]) .sp-line, :root:not([data-motion="always"]) .splash-fade, :root:not([data-motion="always"]) .splash-fade-2, :root:not([data-motion="always"]) .splash-pic { animation: none; }
+  :root:not([data-motion="always"]) .sp-line { stroke-dashoffset: 0; }
 }
 `;

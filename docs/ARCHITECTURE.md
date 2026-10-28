@@ -54,6 +54,9 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
    another pack owns, or a `routes` that throws. Pack `styles` and `script`s are served as one
    hashed file each; scripts listen for `dovre:change` and `dovre:swap` on `document`.
+   A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
+   `data-motion="always"` (Settings → Look → Motion): scope those rules under
+   `:root:not([data-motion="always"])`, and check the attribute in scripts too.
 5. **Started** (`initAll`). A pack whose `init` throws is turned off.
 6. **Refreshed** (`refresher`). Every `everyMs` (default 5 min), one run at a time per pack.
    Runs longer than `maxMs` are abandoned. Starts, ends and errors go to the Packs page.

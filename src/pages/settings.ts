@@ -291,7 +291,7 @@ export type RowsState = {
   canRestart?: boolean;
 };
 
-const LOOK_ALSO: Record<string, string[]> = { theme: ["dark", "light", "mode", "colour", "color"], accent: ["colour", "color"], font: ["typeface", "sans", "serif", "mono"], textSize: ["font size", "zoom", "bigger", "smaller"], lineHeight: ["spacing", "leading"], binoButton: ["assistant", "avatar", "face"] };
+const LOOK_ALSO: Record<string, string[]> = { theme: ["dark", "light", "mode", "colour", "color"], accent: ["colour", "color"], font: ["typeface", "sans", "serif", "mono"], textSize: ["font size", "zoom", "bigger", "smaller"], lineHeight: ["spacing", "leading"], binoButton: ["assistant", "avatar", "face"], motion: ["animation", "animations", "reduced motion", "movement"] };
 const onOff = (on: boolean) => (on ? "On" : "Off");
 
 export function settingRows(s: RowsState): SettingRow[] {

@@ -185,3 +185,30 @@ test("Bino's button: the assistant icon without an avatar; with one, the avatar 
   assert.match(await (await get("/settings/look")).text(), /name="binoButton" value="icon" checked>[^]*?The assistant icon/);
   assert.deepEqual(layoutOf({ binoButton: "face" }), {}, "only what it knows");
 });
+
+test("motion: Always puts data-motion on <html>, and the reduced-motion rules and script step aside for it; back to the system's", async () => {
+  const { STYLE } = await import("../src/ui/style.ts");
+  const { SCRIPT } = await import("../src/ui/app.js.ts");
+  // Each reduced-motion block's body, by matching braces, comments left out.
+  const reduced = [...STYLE.matchAll(/@media \(prefers-reduced-motion: reduce\) \{/g)].map((m) => {
+    const from = m.index! + m[0].length;
+    let depth = 1;
+    let i = from;
+    for (; depth; i++) depth += STYLE[i] === "{" ? 1 : STYLE[i] === "}" ? -1 : 0;
+    return STYLE.slice(from, i - 1).replace(/\/\*[^]*?\*\//g, "");
+  });
+  assert.ok(reduced.length >= 3, "core's two and the splash's");
+  // Every rule under reduced motion is scoped to "not Always", and the page swap no longer switches off by @view-transition.
+  for (const block of reduced) for (const rule of block.split("}").map((r) => r.split("{")[0]!.trim()).filter(Boolean))
+    for (const sel of rule.split(",")) assert.match(sel.trim(), /^:root:not\(\[data-motion="always"\]\)/, sel);
+  assert.doesNotMatch(STYLE, /navigation: none/);
+  assert.match(SCRIPT, /dataset\.motion !== "always"/);
+  assert.deepEqual(layoutOf({ motion: "never" }), {}, "only what it knows");
+  const { get, post } = signedIn(snapshot());
+  assert.doesNotMatch(await (await get("/prs")).text(), /data-motion/);
+  await post("/settings/layout", { motion: "always" });
+  assert.match(await (await get("/prs")).text(), /<html lang="en" data-motion="always">/);
+  assert.match(await (await get("/settings/look")).text(), /name="motion" value="always" checked>/);
+  await post("/settings/layout", { motion: "" });
+  assert.match(await (await get("/prs")).text(), /<html lang="en">/);
+});
