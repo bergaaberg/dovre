@@ -78,7 +78,7 @@ function permissionCard(all: Extract<Run["events"][number], { t: "denied" }>[], 
   const what = denied.length === 1 ? `Wants to run ${denied[0]!.tool}` : `Wants to run ${denied.length} calls`;
   return html`${stuck}<li class="turn-row ask" data-stop="2"><form method="post" action="/agents/s/${sessionId}/allow" class="ask-card perm"><div class="who">${what}</div>${denied.map(
     (d) => html`<label class="ask-o"><input type="checkbox" name="spec" value="${d.spec}" checked><span><strong>${d.tool}</strong><pre class="output">${d.detail}</pre></span></label>`,
-  )}<input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"><div class="buttons"><button type="submit" class="primary" data-busy="Allowing" title="Each exactly as it was refused, for the next turn only">${denied.length === 1 ? "Allow and go on" : "Allow ticked and go on"}</button><button type="submit" form="deny-${sessionId}" class="ghost">No</button></div></form><form method="post" action="/agents/s/${sessionId}/reply" id="deny-${sessionId}" hidden><input type="hidden" name="prompt" value="${NO}"><input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"></form></li>`;
+  )}<input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"><div class="buttons"><button type="submit" class="primary" data-busy="Allowing" data-hotkey="A" title="Each exactly as it was refused, for the next turn only (A)">${denied.length === 1 ? "Allow and go on" : "Allow ticked and go on"}</button><button type="submit" form="deny-${sessionId}" class="ghost">No</button></div></form><form method="post" action="/agents/s/${sessionId}/reply" id="deny-${sessionId}" hidden><input type="hidden" name="prompt" value="${NO}"><input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"></form></li>`;
 }
 
 /** What the current run in Dovre is doing, after the transcript's turns. */
@@ -160,7 +160,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
     ? ""
     : run?.sandbox
     ? running
-      ? html`<form method="post" action="/agents/s/${sessionId}/stop" class="inline"><button type="submit" class="danger sm" title="Stop the sandbox run">Stop</button></form>${Notice({ children: "A sandbox run takes one prompt, so there's no replying. When it ends, its commits come home as a branch you can open a draft PR from." })}`
+      ? html`<form method="post" action="/agents/s/${sessionId}/stop" class="inline"><button type="submit" class="danger sm" title="Stop the sandbox run (.)" data-hotkey=".">Stop</button></form>${Notice({ children: "A sandbox run takes one prompt, so there's no replying. When it ends, its commits come home as a branch you can open a draft PR from." })}`
       : sandboxPanel(run)
     : readOnly
     ? Notice({ children: html`Copilot CLI sessions are read here, not replied to yet. To carry on in a terminal: <code data-copy="${resumeCommand(s!)}">${resumeCommand(s!)}</code>` })
@@ -168,7 +168,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
       inTerminal ? Notice({ tone: "warn", children: html`<strong>Open in a terminal.</strong> What you send here starts a copy of this session. The copy doesn't see what the terminal does next, and the terminal never sees the copy.` }) : ""
     }<form method="post" action="/agents/s/${sessionId}/reply" class="chatbox">
 <div class="chatbox-in"><textarea name="prompt" rows="1" required aria-label="${running ? "Message for after this turn" : "Reply"}" placeholder="${running ? "Working… write now, it goes when this turn ends" : inTerminal ? "Reply in a copy…" : "Reply…"}" data-enter-send spellcheck="false"></textarea>${
-    running ? html`<button type="submit" form="stop-form" class="danger sm" title="Stop this turn">Stop</button>` : ""
+    running ? html`<button type="submit" form="stop-form" class="danger sm" title="Stop this turn (.)" data-hotkey=".">Stop</button>` : ""
   }<button type="submit" class="primary send" data-busy="…" title="${running ? "Queue (Enter)" : "Send (Enter)"}" aria-label="${running ? "Queue" : inTerminal ? "Send to a copy" : "Send"}">${icon("arrow")}</button></div>
 <div class="chatbox-opts"><details class="chat-opts"><summary>${MODE_SHORT[mode] ?? mode} · ${run?.model || "default model"}</summary><div class="fields">${modeSelect(run?.mode)}${modelSelect(run?.model, [run?.harness ?? (s?.harness === "omp" ? "omp" : "claude")])}</div></details><span>Enter ${running ? "queues" : "sends"} · Shift+Enter new line · \`\`\` for code</span></div>
 </form>`;

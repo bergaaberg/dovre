@@ -99,6 +99,7 @@ test("the session page: write while it works, see it queued, remove one; the res
   let page = await get(`/agents/s/${SID}`);
   assert.match(page, /placeholder="Working… write now, it goes when this turn ends"/);
   assert.match(page, /<form method="post" action="\/agents\/s\/[^"]+\/stop" id="stop-form" hidden><\/form>/);
+  assert.match(page, /form="stop-form"[^>]*data-hotkey="\."/, "Stop is the . key (#244)");
   assert.match(page, /<div data-live id="reply">/, "the box is its own region, so the chat streams on while I type");
   for (const text of ["also run the tests", H, "and push"]) assert.equal((await post(`/agents/s/${SID}/reply`, [["prompt", text], ["mode", "default"], ["model", ""]])).status, 303);
   assert.equal(f.prompts.length, 1, "nothing sent while it works");

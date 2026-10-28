@@ -45,3 +45,9 @@ test("Bino's keys (#85): Enter sends a chat box, ↑ brings back the last messag
   assert.match(SCRIPT, /u-chat-last/);
   assert.match(SCRIPT, /DOCK_KEYS\[e\.data\.key\] === from\.id \? dockOpen\(from, false, true\)/, "a dock's own key from inside it closes it");
 });
+
+test("the agents' keys (#244): . stops a turn and A allows, from a plain button only, and the help says so", () => {
+  for (const key of [".", "A"]) assert.ok(SCRIPT.includes(`["${key}", `), `the help lists ${key}`);
+  assert.match(SCRIPT, /querySelectorAll\("button\[data-hotkey\]"\)/);
+  assert.match(SCRIPT, /"\.": "page", A: "page"/, "switched off with This page");
+});
