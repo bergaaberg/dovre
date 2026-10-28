@@ -15,6 +15,8 @@ import { type IssuePick, needPrompt } from "./picks.ts";
 import { markdown } from "../../../ui/markdown.ts";
 import { Ago, HARNESS_NAME, harnessTag, type MacStatus, macNotice, resumeCommand, safeUrl, trunc } from "../../../pages/parts.ts";
 import { sandboxKind } from "../../../actions/sandbox.ts";
+import type { TurnStat } from "../../../agents/latest.ts";
+import { duration } from "../../../format.ts";
 
 
 /**
@@ -84,8 +86,36 @@ function permissionCard(all: Extract<Run["events"][number], { t: "denied" }>[], 
   )}<input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"><div class="buttons"><button type="submit" class="primary" data-busy="Allowing" data-hotkey="A" title="Each exactly as it was refused, for the next turn only (A)">${denied.length === 1 ? "Allow and go on" : "Allow ticked and go on"}</button><button type="submit" form="deny-${sessionId}" class="ghost">No</button></div></form><form method="post" action="/agents/s/${sessionId}/reply" id="deny-${sessionId}" hidden><input type="hidden" name="prompt" value="${NO}"><input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"></form></li>`;
 }
 
+/** A turn's line once it ended (#241): what it cost, how long it took, what it changed in the checkout (linked to the diff). */
+function statLine(t: Pick<TurnStat, "startedAt" | "endedAt" | "cost" | "diff">, diff?: string) {
+  const d = t.diff;
+  const changed = d ? (d.files ? html`${d.files} ${d.files === 1 ? "file" : "files"} <span class="add">+${d.add}</span> <span class="del">−${d.del}</span>` : "no changes") : "";
+  const parts = [t.cost ? `$${t.cost.toFixed(3)}` : "", t.endedAt && t.endedAt > t.startedAt ? duration(t.endedAt - t.startedAt) : ""].filter(Boolean).join(" · ");
+  if (!parts && !changed) return "";
+  return html`<li class="turn-row meta t3">${parts}${parts && changed ? " · " : ""}${changed && diff && d?.files ? html`<a href="${diff}" title="What's changed in its checkout now">${changed}</a>` : changed}</li>`;
+}
+
+/**
+ * Where each ended turn's line goes: before my next message after the one that started it. The
+ * run shown live (`skip`) has its line after everything; a turn not found in the transcript has none.
+ */
+export function statsAt(turns: Turn[], stats: TurnStat[], skip?: string): Map<number, TurnStat[]> {
+  const at = new Map<number, TurnStat[]>();
+  const mine = turns.flatMap((t, i) => (t.role === "user" && t.at ? [{ i, ms: Date.parse(t.at) }] : []));
+  let from = 0;
+  for (const st of stats) {
+    if (st.id === skip || !st.endedAt) continue;
+    const u = mine.findIndex((m, k) => k >= from && m.ms >= st.startedAt - 5000 && m.ms <= st.endedAt!);
+    if (u < 0) continue;
+    from = u + 1;
+    const next = mine[u + 1]?.i ?? turns.length;
+    at.set(next, [...(at.get(next) ?? []), st]);
+  }
+  return at;
+}
+
 /** What the current run in Dovre is doing, after the transcript's turns. */
-function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?: number; /** The transcript has this run's turns already: don't list its calls twice. */ written?: boolean } = {}) {
+function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?: number; /** The transcript has this run's turns already: don't list its calls twice. */ written?: boolean; diff?: string } = {}) {
   const turnCostOf = o.turnCost ?? run.cost;
   // A run's question shows from the transcript when there is one; otherwise from the run itself.
   const asks = o.askShown ? [] : run.events.filter((e): e is Extract<Run["events"][number], { t: "ask" }> => e.t === "ask");
@@ -102,7 +132,7 @@ function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?
       : ""
   }${errors.map((e) => (e.t === "error" ? html`<li class="turn-row">${Notice({ tone: "bad", children: html`<pre class="output">${e.text}</pre>` })}</li>` : ""))}${
     result?.error ? html`<li class="turn-row">${Notice({ tone: "bad", children: result.text || "The run ended with an error." })}</li>` : ""
-  }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model }))}${run.status !== "running" && turnCostOf ? html`<li class="turn-row meta t3">Last turn cost $${turnCostOf.toFixed(3)}</li>` : ""}`;
+  }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model }))}${run.status !== "running" ? statLine({ startedAt: run.startedAt, endedAt: run.endedAt, cost: turnCostOf, diff: run.diff }, o.diff) : ""}`;
 }
 
 /**
@@ -142,8 +172,10 @@ function sandboxPanel(run: Run) {
   });
 }
 
-export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string; /** Local, in a checkout: its diff page (dovre#105). */ diff?: string }): PageOpts {
+export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string; /** Local, in a checkout: its diff page (dovre#105). */ diff?: string; /** Its turns started here (#241). */ stats?: TurnStat[] }): PageOpts {
   const { sessionId, session: s, turns, run } = opts;
+  const lines = statsAt(turns, opts.stats ?? [], run?.id);
+  const linesAt = (i: number) => (lines.get(i) ?? []).map((t) => statLine(t, opts.diff));
   const running = run?.status === "running";
   const inTerminal = !!opts.replyCopies;
   // The transcript already has this run's turns (it's written as the agent works).
@@ -194,7 +226,7 @@ ${s?.summary ? html`<p class="ai"><span class="spark">Recap</span>${s.summary}</
 <div data-live id="chat">
 ${Panel({
   flush: true,
-  children: turns.length || run ? html`<ol class="chat" data-follow>${turns.map((t, i) => turnView(t, { sid: sessionId, answerable: i === turns.length - 1 && !running, mode: run?.mode, model: run?.model, inTerminal: !!inTerminal }, turns[i - 1]))}${run ? liveRun(run, sessionId, { askShown: turns.some((t) => t.role === "ask"), turnCost: opts.turnCost, written }) : ""}${waiting}</ol>` : Empty({ title: "Nothing said yet" }),
+  children: turns.length || run ? html`<ol class="chat" data-follow>${turns.map((t, i) => html`${linesAt(i)}${turnView(t, { sid: sessionId, answerable: i === turns.length - 1 && !running, mode: run?.mode, model: run?.model, inTerminal: !!inTerminal }, turns[i - 1])}`)}${linesAt(turns.length)}${run ? liveRun(run, sessionId, { askShown: turns.some((t) => t.role === "ask"), turnCost: opts.turnCost, written, diff: opts.diff }) : ""}${waiting}</ol>` : Empty({ title: "Nothing said yet" }),
 })}
 </div>
 <div data-live id="reply">${reply}</div>`;

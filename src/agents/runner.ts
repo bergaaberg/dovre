@@ -15,6 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { COPY_NOTE, type Question } from "./conversation.ts";
 import { claudeHarness } from "./harnesses/claude/harness.ts";
 import { mcpConfig, mcpEnv } from "./harnesses/shared.ts";
+import type { TurnDiff, TurnDiffer } from "./turndiff.ts";
 import { type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxReady, type SandboxState, sandboxBranch } from "./sandbox.ts";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -91,6 +92,9 @@ export type Run = {
   budget?: number;
   /** A sandbox run (#208): hosts it tried to reach and its repo doesn't allow, in the order tried. */
   blocked?: string[];
+  /** The checkout's tree when the turn started (#241), and what the turn changed in it once it ended. */
+  base?: string;
+  diff?: TurnDiff;
   /** Discarded (or cleared away) at: off the lists, its sandbox and branch gone; its record stays for its page until the week's sweep. */
   discarded?: number;
 };
@@ -164,6 +168,8 @@ export function createRunner(opts: {
   mcp?: { url: string; on?: () => boolean };
   /** Where sandbox runs go (src/agents/sandbox.ts). Without it, none start. */
   sandbox?: SandboxEngine;
+  /** What each turn changes in its checkout (src/agents/turndiff.ts). Without it, nothing's counted. */
+  diff?: TurnDiffer;
 } = {}): Runner {
   // Given harnesses are all there is (only what this machine has); without any, Claude Code's.
   const harnesses: Partial<Record<HarnessId, Harness>> = opts.harnesses ?? { claude: claudeHarness() };
@@ -181,6 +187,31 @@ export function createRunner(opts: {
     if (!r.sandbox || !opts.sandbox) return;
     opts.sandbox.ended(r.sandbox);
     if (!r.out || r.out.state === "collecting") void collect(r);
+  };
+  /** A turn in a checkout (not a sandbox's clone): its tree as it starts, read in the background. */
+  const diffFrom = (r: Run) => {
+    if (!opts.diff || r.sandbox) return;
+    void opts.diff.tree(r.cwd).then((t) => {
+      if (!t) return;
+      r.base = t;
+      // It ended before the tree was read: count it now.
+      if (r.status !== "running") void diffTo(r);
+    });
+  };
+  /** A turn that ended: what it changed, then its page redraws. */
+  const diffTo = async (r: Run) => {
+    if (!opts.diff || !r.base || r.diff) return;
+    const t = await opts.diff.tree(r.cwd);
+    const d = t ? await opts.diff.between(r.cwd, r.base, t) : undefined;
+    if (!d) return;
+    r.diff = d;
+    if (host) keep(r);
+    changed(r);
+  };
+  /** Every end of a turn this runner watched: a sandbox run's box, and a checkout's diff. */
+  const ended = (r: Run) => {
+    boxEnded(r);
+    void diffTo(r);
   };
   const collecting = new Set<string>();
   /** Brings a sandbox run's commits home as a branch of its checkout (the engine's `collect`). */
@@ -276,7 +307,7 @@ export function createRunner(opts: {
       if (error && run.status === "failed") run.events.push({ t: "error", text: error.slice(-600) });
       run.endedAt ??= now();
       pids.delete(run.id);
-      boxEnded(run);
+      ended(run);
       keep(run);
       changed(run);
     };
@@ -382,6 +413,7 @@ export function createRunner(opts: {
         ...(caps.maxMs ? { maxMs: caps.maxMs } : {}), ...(caps.budget ? { budget: caps.budget } : {}),
       };
       runs.set(run.id, run);
+      diffFrom(run);
       // A token per turn, good while the turn runs: Claude Code and Codex get it in their arguments
       // and environment, omp and agy in the environment for the stdio bridge (#172). Not into a sandbox.
       if (!box && opts.mcp && (opts.mcp.on?.() ?? true)) {
@@ -405,7 +437,7 @@ export function createRunner(opts: {
           run.events.push({ t: "error", text: String(e.message) });
           run.status = "failed";
           run.endedAt = now();
-          boxEnded(run);
+          ended(run);
           keep(run);
           changed(run);
         });
@@ -435,7 +467,7 @@ export function createRunner(opts: {
         run.events.push({ t: "error", text: String(e.message) });
         run.status = "failed";
         run.endedAt = Date.now();
-        boxEnded(run);
+        ended(run);
         changed(run);
       });
       child.on("close", (code) => {
@@ -444,7 +476,7 @@ export function createRunner(opts: {
         if (run.status === "running") run.status = code === 0 ? "done" : "failed";
         if (code !== 0 && run.status === "failed" && err.trim()) run.events.push({ t: "error", text: err.trim().slice(-600) });
         run.endedAt = Date.now();
-        boxEnded(run);
+        ended(run);
         changed(run);
       });
       child.stdin?.end(h.stdinPrompt ? o.prompt : "");

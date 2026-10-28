@@ -40,6 +40,7 @@ import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
 import { createRunner, HARNESSES, type Run } from "./agents/runner.ts";
+import { gitTurnDiff } from "./agents/turndiff.ts";
 import { appleContainer } from "./agents/sandbox.ts";
 import { findHarnessTools, harnessesFor, useFoundModels } from "./agents/harnesses/index.ts";
 import { foundModels } from "./agents/harnesses/found.ts";
@@ -265,6 +266,8 @@ let mcpOn = () => false;
 /** How omp and agy start Dovre's stdio MCP bridge (src/mcp-stdio.ts). */
 const toolsEntry = bridgeEntry();
 const runner = createRunner({
+  // What each turn changes in its checkout (#241).
+  diff: gitTurnDiff(),
   // Each turn gets Dovre's MCP server, with its own token, when packs offer tools (omp and agy once Settings sets them up).
   mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() },
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,

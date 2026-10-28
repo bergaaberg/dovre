@@ -5,7 +5,7 @@ import type { Session } from "../../../sources/claude.ts";
 import type { Sessions } from "../../../sources/sessions.ts";
 import type { Worktree } from "../../../sources/worktrees.ts";
 import { Confirm, Empty, type Html, Item, List, PageHeader, Panel, Pill } from "../../../ui/kit.ts";
-import { latestRuns, sessionCost } from "../../../agents/latest.ts";
+import { daySpend, latestRuns, sessionCost } from "../../../agents/latest.ts";
 import { inWorkDir } from "../../../agents/workdir.ts";
 import type { Run } from "../../../agents/runner.ts";
 import { mineByKey } from "../../../pages/parts.ts";
@@ -24,6 +24,9 @@ export function askBar(a: AgentAsk): Html {
 /** One run started here: what it was asked, how it's doing, and Stop or Clear away. */
 function runItem(r: Run, all: Run[]) {
   const cost = sessionCost(r, all);
+  // A session going on for days: what it cost in the last 24 hours, the whole in the tooltip (#241).
+  const today = daySpend(r.sessionId, all, Date.now());
+  const older = today > 0 && today < cost - 0.005;
   const href = r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.id}`;
   const denied = r.events.some((e) => e.t === "denied");
   const tone = r.status === "running" ? "ok" : r.status === "failed" ? "bad" : denied ? "warn" : undefined;
@@ -37,7 +40,7 @@ function runItem(r: Run, all: Run[]) {
     title: html`<a class="name" href="${href}"><strong>${r.prompt.split("\n")[0]!.slice(0, 120)}</strong></a> ${Pill({ tone, children: label })}`,
     line: html`${harnessTag(r.harness, r.model)} ${r.machine ? html`<span class="t3">${r.machine}</span> · ` : ""}${r.repo} · ${r.mode}${r.forked ? " · copy" : ""}`,
     more: html`<span class="actions">${act}</span>`,
-    trail: html`${Ago(r.startedAt)}${cost ? html`<span class="t3">$${cost.toFixed(2)}</span>` : ""}`,
+    trail: html`${Ago(r.startedAt)}${cost ? (older ? html`<span class="t3" title="$${cost.toFixed(2)} in all">$${today.toFixed(2)} today</span>` : html`<span class="t3">$${cost.toFixed(2)}</span>`) : ""}`,
     quiet: r.status !== "running" && !denied,
   });
 }

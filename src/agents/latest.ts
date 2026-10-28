@@ -42,3 +42,20 @@ export function turnCost(r: Run, runs: Run[]): number {
   const prev = before(r, runs);
   return prev && prev.cost > 0 && prev.cost <= r.cost ? r.cost - prev.cost : r.cost;
 }
+
+/** One turn started here, for its line on the session's page (#241): what it cost, how long, what it changed. */
+export type TurnStat = { id: string; startedAt: number; endedAt?: number; cost: number; diff?: Run["diff"] };
+
+/** The turns of a session started here, oldest first. */
+export function turnStats(sid: string, runs: Run[]): TurnStat[] {
+  return runs
+    .filter((r) => r.sessionId === sid)
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((r) => ({ id: r.id, startedAt: r.startedAt, ...(r.endedAt ? { endedAt: r.endedAt } : {}), cost: turnCost(r, runs), ...(r.diff ? { diff: r.diff } : {}) }));
+}
+
+/** What a session's turns started here cost in the last 24 hours. */
+export function daySpend(sid: string | undefined, runs: Run[], now: number): number {
+  if (!sid) return 0;
+  return runs.filter((r) => r.sessionId === sid && r.startedAt >= now - 86400e3).reduce((n, r) => n + turnCost(r, runs), 0);
+}
