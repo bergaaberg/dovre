@@ -14,12 +14,15 @@
  *   proxy, which tunnels only to the hosts the repo allows in `.dovre/sandbox.json` and reports
  *   the rest on the run.
  * - Yolo is only ever turned on by the runner for a sandbox run (`HarnessOpts.yolo`).
+ * - A repo's toolchain (#208): an optional `.dovre/sandbox.Containerfile` at the base commit, built
+ *   `FROM dovre-sandbox` with an empty context (nothing of the host goes in) and cached per base
+ *   image and file. A run waits (refused with why) until its image is built.
  *
  * The engine here is Apple's `container` (a light VM per container, macOS 26). Docker/berth can
  * sit behind the same `SandboxEngine` later.
  */
 import { execFile, execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -30,12 +33,14 @@ export const SANDBOX_IMAGE = "dovre-sandbox";
 export const SANDBOX_NET = "dovre-sandbox";
 /** A repo's sandbox settings, read from its checkout at the run's base commit. */
 export const SANDBOX_CONFIG = ".dovre/sandbox.json";
+/** A repo's toolchain on top of the base image, read from its checkout at the run's base commit. */
+export const TOOLCHAIN_FILE = ".dovre/sandbox.Containerfile";
 
 /** Where the subscription token is read from: SANDBOX_TOKEN_FILE, else ~/.dovre/sandbox-token. */
 export const sandboxTokenFile = (v: string | undefined = process.env.SANDBOX_TOKEN_FILE, home = homedir()) => v?.trim() || join(home, ".dovre", "sandbox-token");
 
 /** A sandbox run as the runner keeps it: its folder (the clone is `work/` in it), its container, the commit it started from, and the hosts it may reach. */
-export type SandboxBox = { dir: string; name: string; base: string; allow?: string[] };
+export type SandboxBox = { dir: string; name: string; base: string; allow?: string[]; image?: string };
 
 /** What a sandbox run needs from where it runs. */
 export type SandboxEngine = {
@@ -169,6 +174,34 @@ export function netOf(json: string): { gateway: string; subnet: string } | undef
   }
 }
 
+/** The image's id from `container image inspect`, else undefined. */
+export function imageIdOf(json: string): string | undefined {
+  try {
+    const id = (JSON.parse(json) as { id?: unknown }[])[0]?.id;
+    return typeof id === "string" && /^[0-9a-f]{64}$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Why a repo's toolchain file can't be built on the base image, else undefined: its last stage must be `FROM dovre-sandbox`. */
+export function toolchainWhy(file: string, base = SANDBOX_IMAGE): string | undefined {
+  const froms = file
+    .replace(/\\\r?\n/g, " ")
+    .split(/\r?\n/)
+    .map((l) => /^\s*FROM\s+(?:--\S+\s+)*(\S+)/i.exec(l)?.[1])
+    .filter((f): f is string => !!f);
+  const last = froms.at(-1);
+  if (!last) return `${TOOLCHAIN_FILE} has no FROM line.`;
+  return last === base || last === `${base}:latest` ? undefined : `${TOOLCHAIN_FILE} must end on \`FROM ${base}\` (its last stage is \`FROM ${last}\`).`;
+}
+
+/** The toolchain image's tag: the repo's folder name, and a hash of the base image and the file, so either changing builds anew. */
+export function toolchainTag(repo: string, baseId: string, file: string): string {
+  const name = (repo.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "repo";
+  return `${SANDBOX_IMAGE}-${name}:${createHash("sha256").update(`${baseId}\n${file}`).digest("hex").slice(0, 16)}`;
+}
+
 /** The token as written by `claude setup-token`: one line, no spaces. */
 export function readToken(file: string): string {
   let t: string;
@@ -194,6 +227,45 @@ export function appleContainer(o: { root: string; tokenFile?: string; image?: st
   const keys = new Map<string, string>();
   let proxy: Egress | undefined;
   let net: { gateway: string; subnet: string } | undefined;
+  /** The base image's id, from the last check: part of every toolchain image's tag. */
+  let baseId: string | undefined;
+  /** Toolchain images by tag: there, being built, or failed (tried again after a while). */
+  const images = new Map<string, { state: "ready" } | { state: "building" } | { state: "failed"; why: string; at: number }>();
+  /** Makes sure a toolchain image is there: built from the file alone, with an empty context, so nothing of the host goes in. */
+  const toolchain = async (tag: string, file: string) => {
+    images.set(tag, { state: "building" });
+    try {
+      if ((await run(bin, ["image", "inspect", tag])).ok) return void images.set(tag, { state: "ready" });
+      const dir = join(o.root, ".toolchain", tag.replace(/[^\w.-]+/g, "_"));
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(join(dir, "context"), { recursive: true, mode: 0o700 });
+      writeFileSync(join(dir, "Containerfile"), file, { mode: 0o600 });
+      const r = await run(bin, ["build", "--progress", "plain", "-t", tag, "-f", join(dir, "Containerfile"), join(dir, "context")], 30 * 60_000);
+      writeFileSync(join(dir, "build.log"), `${r.out}\n${r.err ?? ""}`, { mode: 0o600 });
+      if (r.ok) images.set(tag, { state: "ready" });
+      else images.set(tag, { state: "failed", why: (r.err || r.out).trim().split("\n").slice(-1)[0]?.slice(0, 200) || "the build failed", at: Date.now() });
+    } catch (e) {
+      images.set(tag, { state: "failed", why: String((e as Error).message).split("\n")[0] ?? "the build failed", at: Date.now() });
+    }
+  };
+  /** The image a run at `sha` uses: the base, or its repo's toolchain once built. Throws why it can't start yet. */
+  const imageFor = (repo: string, sha: string): string => {
+    let file: string;
+    try {
+      file = git(["cat-file", "blob", `${sha}:${TOOLCHAIN_FILE}`], repo);
+    } catch {
+      return image;
+    }
+    const bad = toolchainWhy(file, image);
+    if (bad) throw new Error(bad);
+    if (!baseId) throw new Error(`The ${image} image isn't checked yet.`);
+    const tag = toolchainTag(repo, baseId, file);
+    const st = images.get(tag);
+    if (st?.state === "ready") return tag;
+    if (st?.state === "failed" && Date.now() - st.at < 10 * 60_000) throw new Error(`This repo's toolchain image (${TOOLCHAIN_FILE}) didn't build: ${st.why}`);
+    if (st?.state !== "building") void toolchain(tag, file);
+    throw new Error(`This repo's toolchain image (${TOOLCHAIN_FILE}) is being built; the run can start once it's ready.`);
+  };
   let last: SandboxState = { ok: false, why: "Checking the sandbox engine." };
   let checked = 0;
   let checking = false;
@@ -213,7 +285,7 @@ export function appleContainer(o: { root: string; tokenFile?: string; image?: st
     try {
       const sys = await run(bin, ["system", "status"]);
       if (!sys.ok) last = { ok: false, why: "Apple container isn't running: `brew install container`, then `container system start`." };
-      else if (!(await run(bin, ["image", "inspect", image])).ok) last = { ok: false, why: `The ${image} image isn't built: container build -t ${image} -f scripts/sandbox/Containerfile scripts/sandbox` };
+      else if (!(baseId = imageIdOf((await run(bin, ["image", "inspect", image])).out))) last = { ok: false, why: `The ${image} image isn't built: container build -t ${image} -f scripts/sandbox/Containerfile scripts/sandbox` };
       else if (!existsSync(tokenFile)) last = { ok: false, why: `No sandbox token at ${tokenFile}: run \`claude setup-token\` and save it there.` };
       else if (!(net = await network())) last = { ok: false, why: `The ${SANDBOX_NET} network isn't host-only: \`container network rm ${SANDBOX_NET}\` and Dovre makes it again.` };
       else if (!(proxy ??= await egress({ subnet: net.subnet }).catch(() => undefined))) last = { ok: false, why: "The sandbox's proxy couldn't start." };
@@ -237,11 +309,18 @@ export function appleContainer(o: { root: string; tokenFile?: string; image?: st
       if (!net || !proxy) throw new Error("The sandbox network isn't ready yet.");
       const way = proxy;
       const gateway = net.gateway;
+      let sha: string;
+      try {
+        sha = git(["rev-parse", "--verify", `${base ?? "HEAD"}^{commit}`], repo);
+      } catch (e) {
+        throw new Error(`Couldn't find the run's base commit: ${String((e as Error).message).split("\n")[0]}`);
+      }
+      // Read from the real checkout at the base, so the agent can't change it.
+      const img = imageFor(repo, sha);
       const dir = join(o.root, id);
       const work = join(dir, "work");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       try {
-        const sha = git(["rev-parse", "--verify", `${base ?? "HEAD"}^{commit}`], repo);
         git(["clone", "-q", "--no-local", "--no-checkout", repo, work], dir);
         git(["checkout", "-q", "-b", "work", sha], work);
         git(["remote", "remove", "origin"], work);
@@ -258,13 +337,13 @@ export function appleContainer(o: { root: string; tokenFile?: string; image?: st
         writeFileSync(join(dir, "env"), boxEnv(gateway, way.port, key), { mode: 0o600 });
         way.add(key, { token, allow, ...(onDeny ? { onDeny } : {}) });
         keys.set(name, key);
-        return { dir, name, base: sha, allow };
+        return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}) };
       } catch (e) {
         rmSync(dir, { recursive: true, force: true });
         throw new Error(`Couldn't make the sandbox's clone: ${String((e as Error).message).split("\n")[0]}`);
       }
     },
-    command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET }, inner) }),
+    command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET }, inner) }),
     kill: (box) => void run(bin, ["kill", box.name]),
     ended: (box) => {
       const key = keys.get(box.name);
