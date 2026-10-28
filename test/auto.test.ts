@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { autoTick, type IssueCheck, runAgain, untrusted } from "../src/actions/auto.ts";
 import { autoIssueOf, sandboxPrText } from "../src/actions/sandbox.ts";
-import { type AutoRow, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
+import { type AutoRow, autoKey, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
 import { capsOf, type Desk } from "../src/agents/desk.ts";
 import { argsFor } from "../src/agents/harnesses/claude/harness.ts";
 import type { Run } from "../src/agents/runner.ts";
@@ -257,8 +257,10 @@ test("autoTick: limits hold: at once, the day's cost, quiet hours, a repo left o
 
   const spent = world();
   await on(spent.db, { dayUsd: 1 });
-  await autoStore(spent.db.DB).put({ repo: "acme/old", number: 1, title: "old", state: "refused" });
-  await spent.db.DB.prepare("UPDATE auto_runs SET cost = 3, at = ?").bind(Date.parse("2026-10-28T11:00:00Z")).run();
+  const old = autoStore(spent.db.DB, () => Date.parse("2026-10-28T11:00:00Z"));
+  await old.put({ repo: "acme/old", number: 1, title: "old", state: "refused" });
+  await spent.db.DB.prepare("UPDATE auto_runs SET run = 'r-old'").run();
+  await old.setCost(autoKey("acme/old", 1), 3);
   const p2 = await spent.tick();
   assert.equal(spent.started.length, 0);
   assert.match(p2.paused!, /day's cap/);
@@ -346,4 +348,22 @@ test("alonePanel: active rows and the last four days, cost against its cap, Run 
   const bad = String(alonePanel(s, { rows: [row({ title: H, run: H, why: H, pr: "javascript:alert(1)", state: "stuck", key: H })], paused: H }, "github.com", now));
   assertInert("working alone", bad);
   assert.ok(!bad.includes("javascript:"));
+});
+
+test("autoStore: a run's cost still counts for the day after its issue is relabelled or run again (#234)", async () => {
+  const { DB } = openDb();
+  let t = 1_000;
+  const store = autoStore(DB, () => t);
+  const key = autoKey("acme/app", 7);
+  await store.put({ repo: "acme/app", number: 7, title: "x", state: "queued" });
+  await store.move(key, "queued", "running", { run: "r1" });
+  await store.setCost(key, 2);
+  assert.ok(await store.move(key, "running", "stuck", { cost: 2.5, why: "no" }));
+  t = 2_000;
+  await store.put({ repo: "acme/app", number: 7, title: "x", state: "queued" }); // relabelled
+  assert.equal((await store.get(key))!.cost, 0);
+  await store.move(key, "queued", "running", { run: "r2" });
+  await store.setCost(key, 1);
+  assert.equal(await store.spent(0), 3.5);
+  assert.equal(await store.spent(1_500), 1);
 });
