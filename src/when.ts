@@ -8,6 +8,15 @@
 
 export type GreetingLang = "en" | "no";
 
+const formats = new Map<string, Intl.DateTimeFormat>();
+/** A date format, made once per locale and options: making one costs far more than using it (a page of dates froze the server for seconds). */
+export function dtf(locale: string, opts: Intl.DateTimeFormatOptions = {}): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(opts)}`;
+  let f = formats.get(key);
+  if (!f) formats.set(key, (f = new Intl.DateTimeFormat(locale, opts)));
+  return f;
+}
+
 const zoneOk = (name: string) => {
   try {
     new Intl.DateTimeFormat("en-GB", { timeZone: name });
@@ -61,7 +70,7 @@ export function currentTz(): string {
 
 /** The hour (0–23) of a time in the configured timezone, or in `tz`. */
 export function hourAt(at: number, tz = currentTz()): number {
-  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
+  return Number(dtf("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
 }
 
 /** The currently configured greeting language ("en" by default). */

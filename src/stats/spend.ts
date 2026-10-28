@@ -11,12 +11,12 @@
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { currentTz } from "../when.ts";
+import { currentTz, dtf } from "../when.ts";
 
 export type SpendDay = { day: string; claude: number; omp: number; sessions: number };
 
 /** The day (YYYY-MM-DD) in the instance timezone of a time. */
-export const osloDay = (at: number | string | Date, tz = currentTz()) => new Intl.DateTimeFormat("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+export const osloDay = (at: number | string | Date, tz = currentTz()) => dtf("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
 
 const TS = /"timestamp":"(\d{4}-\d\d-\d\dT[\d:.]+Z)"/;
 

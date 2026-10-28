@@ -14,7 +14,7 @@
 import { spawn } from "node:child_process";
 import type { D1 } from "./db.ts";
 import type { Need, RingKind } from "./home/needs.ts";
-import { currentTz } from "./when.ts";
+import { currentTz, dtf } from "./when.ts";
 
 /** `kind`: a RingKind, a pack's ring kind, or "bundle" / "test". */
 export type Note = { title: string; body?: string; url?: string; tag: string; kind?: string };
@@ -103,7 +103,7 @@ export function createNotifier() {
 
 /** Mon–Fri 08:00–17:00 in the instance timezone. */
 export function workHours(at: number, tz = currentTz()): boolean {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const parts = dtf("en-GB", { timeZone: tz, weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(at);
   const day = parts.find((p) => p.type === "weekday")!.value;
   const hour = Number(parts.find((p) => p.type === "hour")!.value);
   return !["Sat", "Sun"].includes(day) && hour >= 8 && hour < 17;

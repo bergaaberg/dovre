@@ -13,7 +13,7 @@ import { SCRIPT_PATH } from "./ui/app.js.ts";
 import type { AskView } from "./relay/asks.ts";
 import type { DockView } from "./packs/registry.ts";
 import { Confirm, icon } from "./ui/kit.ts";
-import { currentTz } from "./when.ts";
+import { currentTz, dtf } from "./when.ts";
 import { isDefaultKeys, type KeyPrefs } from "./keys.ts";
 
 /**
@@ -100,7 +100,7 @@ function docksOf(frame: Frame, current: string): Html | "" {
   return bino || packs.length ? html`<div class="docks">${bino ? binoDock(frame.look?.binoIcon ? "" : (frame.face?.({ place: "dock" }) ?? "")) : ""}${packs.map(packDock)}</div>` : "";
 }
 
-const hm = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
+const hm = (at: number, tz = currentTz()) => dtf("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
 
 /** The mountain mark: a ridge, a summit cairn, the sun (src/ui/splash.ts). */
 export { MARK } from "./ui/splash.ts";

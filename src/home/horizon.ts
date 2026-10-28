@@ -13,7 +13,7 @@ import type { Lane } from "../packs/types.ts";
 import type { Deploy, Move } from "../sources/ghe.ts";
 import type { Html } from "../ui/kit.ts";
 
-import { currentTz } from "../when.ts";
+import { currentTz, dtf } from "../when.ts";
 export const W = 1320;
 /** A lane's height; the picture grows by one per lane after the first. */
 const LANE_H = 21;
@@ -27,8 +27,8 @@ const OSLO = { lat: 59.91, lon: 10.75 };
 
 const f1 = (n: number) => (Math.round(n * 10) / 10).toString();
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-const hm = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
-const hourOf = (at: number, tz = currentTz()) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
+const hm = (at: number, tz = currentTz()) => dtf("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
+const hourOf = (at: number, tz = currentTz()) => Number(dtf("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
 
 /** A small seeded random source, so the ridge's rock texture is the same on every draw. */
 export function rng(seed: number) {
@@ -287,7 +287,7 @@ export function horizon(opts: { moves: Move[]; deploys: Deploy[]; /** The packs'
     const h = hourOf(t, tz);
     const x = X(t);
     if (h % 2 || x < 40 || x > W - 70) continue;
-    const label = h === 0 ? new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", day: "numeric" }).format(t) : String(h).padStart(2, "0");
+    const label = h === 0 ? dtf("en-GB", { timeZone: tz, weekday: "short", day: "numeric" }).format(t) : String(h).padStart(2, "0");
     out.push(`<line class="hz-tick" x1="${f1(x)}" x2="${f1(x)}" y1="${BASE}" y2="${BASE + 4}"/><text class="${h === 0 ? "hz-axis day" : "hz-axis"}" x="${f1(x)}" y="${AXIS_Y}" text-anchor="middle">${esc(label)}</text>`);
   }
   out.push(`<text class="hz-axis now" x="${W}" y="${AXIS_Y}" text-anchor="end">now ${hm(now, tz)}</text><line class="hz-now" x1="${W - 0.5}" x2="${W - 0.5}" y1="${LABEL_Y + 10}" y2="${lastY + 8}"/>`);

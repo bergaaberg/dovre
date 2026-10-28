@@ -1,23 +1,23 @@
 /** Times and sizes as the pages show them, in the instance timezone. */
-import { currentTz } from "./when.ts";
+import { currentTz, dtf } from "./when.ts";
 
-const dayOf = (at: number, zone = currentTz()) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(at);
+const dayOf = (at: number, zone = currentTz()) => dtf("en-CA", { timeZone: zone }).format(at);
 
 /** Short, for a list: the time today, the date this year, the date with its year before that. */
 export function when(at: number, now = Date.now(), zone = currentTz()): string {
-  if (dayOf(at, zone) === dayOf(now, zone)) return new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(at);
+  if (dayOf(at, zone) === dayOf(now, zone)) return dtf("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(at);
   const sameYear = dayOf(at, zone).slice(0, 4) === dayOf(now, zone).slice(0, 4);
-  return new Intl.DateTimeFormat("en-GB", { timeZone: zone, day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
+  return dtf("en-GB", { timeZone: zone, day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
 }
 
 /** The hour, in the instance timezone: "14:00". */
 export function hourOf(at: number, zone = currentTz()): string {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(at);
+  return dtf("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(at);
 }
 
 /** In full, for a message. */
 export function stamp(at: number, zone = currentTz()): string {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: zone, dateStyle: "medium", timeStyle: "short" }).format(at);
+  return dtf("en-GB", { timeZone: zone, dateStyle: "medium", timeStyle: "short" }).format(at);
 }
 
 export function bytes(n: number): string {

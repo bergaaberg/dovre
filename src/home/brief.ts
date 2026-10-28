@@ -6,7 +6,7 @@
 import type { Bit } from "../packs/types.ts";
 import type { Snapshot } from "../gather.ts";
 
-import { currentGreeting, currentTz, type GreetingLang } from "../when.ts";
+import { currentGreeting, currentTz, type GreetingLang, dtf } from "../when.ts";
 
 export type GreetingOpts = { tz?: string; lang?: GreetingLang };
 export type { Bit };
@@ -19,7 +19,7 @@ export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function greeting(at: number, opts: GreetingOpts = {}): string {
   const tz = opts.tz ?? currentTz();
   const lang = opts.lang ?? currentGreeting();
-  const h = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
+  const h = Number(dtf("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(at));
   if (lang === "no") {
     if (h < 5) return "God natt";
     if (h < 10) return "God morgen";
@@ -36,13 +36,13 @@ export function greeting(at: number, opts: GreetingOpts = {}): string {
 
 /** "Thursday 22 October · Week 43 · 09:42" */
 export function eyebrow(at: number, tz: string = currentTz()): string {
-  const day = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }).format(at).replace(",", "");
-  const time = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
+  const day = dtf("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }).format(at).replace(",", "");
+  const time = dtf("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(at);
   return `${day} · Week ${isoWeek(at, tz)} · ${time}`;
 }
 
 export function isoWeek(at: number, tz: string = currentTz()): number {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(at).split("-").map(Number);
+  const parts = dtf("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(at).split("-").map(Number);
   const d = new Date(Date.UTC(parts[0]!, parts[1]! - 1, parts[2]!));
   const dow = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dow);

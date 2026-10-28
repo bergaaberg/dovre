@@ -21,9 +21,9 @@ import { type Column, type Layout, type Slot, placeCards } from "../layout.ts";
 import type { Bit, Glance, Lane, RefRule, TodayCard } from "../packs/types.ts";
 import { type AgentOf, changelogBlock, prAnchor, prBody, type SummaryOf } from "./inline.ts";
 import { Ago, Chev, harnessTag, Link, mineByKey, safeUrl, st, trunc } from "./parts.ts";
-import { currentGreeting, currentTz } from "../when.ts";
+import { currentGreeting, currentTz, dtf } from "../when.ts";
 
-const hm = (at: number | string, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(typeof at === "string" ? Date.parse(at) : at);
+const hm = (at: number | string, tz = currentTz()) => dtf("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(typeof at === "string" ? Date.parse(at) : at);
 const short = (repo: string, org: string) => repo.replace(`${org}/`, "");
 
 
@@ -144,7 +144,7 @@ function feedRow(e: FeedEvent, org: string, now: number) {
   return html`<li class="fe${e.mine ? " mine" : ""}" data-key="${e.key}"><time>${now - e.at < 20 * 3600e3 ? hm(e.at) : day(e.at)}</time><div class="fe-b"><p class="fe-l">${st(e.tone, "")}<strong>${e.who}</strong> ${e.what}${e.title ? html` ${e.href ? Link(e.href, trunc(e.title, 110)) : trunc(e.title, 110)}` : ""}</p><p class="fe-m">${e.repo ? short(e.repo, org) : ""}${e.repo ? " · " : ""}${Ago(e.at)}</p></div></li>`;
 }
 
-const day = (at: number, tz = currentTz()) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short" }).format(at);
+const day = (at: number, tz = currentTz()) => dtf("en-GB", { timeZone: tz, weekday: "short" }).format(at);
 
 /**
  * `apps`: the packs' events (src/home/feed.ts packFeedOf). With `only`, the panel is those alone
