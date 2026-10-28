@@ -1,0 +1,19 @@
+# Sandbox image for autonomous agent runs (proof of concept, #201).
+# Build: container build -t dovre-sandbox -f scripts/sandbox/Containerfile scripts/sandbox
+FROM node:24-bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates curl ripgrep \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable
+
+# Claude Code refuses yolo mode as root, so the agent is a plain user.
+RUN useradd -m -s /bin/bash agent
+USER agent
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH=/home/agent/.local/bin:$PATH
+RUN git config --global user.name "Dovre agent" \
+ && git config --global user.email "agent@dovre.invalid" \
+ && git config --global --add safe.directory /work
+
+WORKDIR /work
