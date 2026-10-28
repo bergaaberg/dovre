@@ -19,11 +19,14 @@ export function prTabs(current: "list" | "stacks" | "dependabot", stacks = true,
 
 export const HARNESS_NAME = { claude: "Claude Code", omp: "Copilot · omp", copilot: "Copilot CLI", agy: "Antigravity · agy", codex: "Codex" } as const;
 
-/** Which harness an agent runs in (and its model, when known): a tag on every agent row. */
+/** Each harness's mark beside its name (#239), so its tag isn't told apart by colour alone. */
+export const HARNESS_GLYPH: Record<keyof typeof HARNESS_NAME, string> = { claude: "✳", codex: "◇", omp: "π", copilot: "◎", agy: "▲" };
+
+/** Which harness an agent runs in (and its model, when known): a tag on every agent row, in its own hue. */
 export function harnessTag(h: keyof typeof HARNESS_NAME | undefined, model?: string): Html {
   const id = h ?? "claude";
   const m = model ? model.replace(/^github-copilot\//, "") : "";
-  return html`<span class="harness ${id}" title="Runs in ${HARNESS_NAME[id]}${m ? `, ${m}` : ""}">${HARNESS_NAME[id]}${m ? html`<span class="harness-m"> · ${m}</span>` : ""}</span>`;
+  return html`<span class="harness ${id}" title="Runs in ${HARNESS_NAME[id]}${m ? `, ${m}` : ""}"><span class="harness-g" aria-hidden="true">${HARNESS_GLYPH[id]}</span>${HARNESS_NAME[id]}${m ? html`<span class="harness-m"> · ${m}</span>` : ""}</span>`;
 }
 
 /** On a New work preview: also put what's created on My list (on unless unticked). */
