@@ -6,12 +6,16 @@
  *
  * Permissions: in headless mode a tool that needs approval is denied, and the result lists
  * the denials. The page offers "Allow and continue", which resumes with exactly that tool
- * spec allowed. Modes are limited to default, acceptEdits and plan: never bypass.
+ * spec allowed. Modes are limited to default, acceptEdits and plan: never bypass outside a
+ * sandbox. A sandbox run (src/agents/sandbox.ts) is the one place yolo is turned on: the runner
+ * sets `HarnessOpts.yolo` itself, for a fresh clone inside a container, and nothing a caller
+ * passes can.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { COPY_NOTE, type Question } from "./conversation.ts";
 import { claudeHarness } from "./harnesses/claude/harness.ts";
 import { mcpConfig, mcpEnv } from "./harnesses/shared.ts";
+import type { SandboxBox, SandboxEngine, SandboxState } from "./sandbox.ts";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
@@ -40,14 +44,19 @@ export type Harness = {
   bin: string;
   /** Arguments before the harness's own: the script, when `bin` is node running an npm shim's target (src/tools.ts). */
   pre?: string[];
-  args(o: StartOpts): string[];
+  args(o: HarnessOpts): string[];
   apply(run: Run, line: string): void;
   stdinPrompt: boolean;
   /** Whether it can continue a copy of a session (fork) instead of the session itself. */
   canFork: boolean;
   /** It reaches Dovre's MCP server through the environment (mcpEnv), not only its arguments: Codex, omp, agy. */
   mcpEnv?: boolean;
+  /** It can run in a sandbox (src/agents/sandbox.ts): its program's name inside the image. */
+  sandbox?: { bin: string };
 };
+
+/** What a harness builds its arguments from: what the caller asked, plus `yolo`, which only the runner sets, and only for a sandbox run. */
+export type HarnessOpts = StartOpts & { yolo?: boolean };
 
 export type Run = {
   id: string;
@@ -70,10 +79,14 @@ export type Run = {
   cost: number;
   /** Hosted, with several machines: the one it ran on (H7). */
   machine?: string;
+  /** A sandbox run (yolo inside a container): its clone, container and base commit. `cwd` stays the checkout it was cloned from. */
+  sandbox?: SandboxBox;
 };
 
 export type StartOpts = {
   harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[];
+  /** Run in a sandbox: a fresh clone of `cwd` inside a container, in yolo mode. A new session only. */
+  sandbox?: boolean;
   /** Dovre's MCP server for this turn (src/mcp.ts): its address and the turn's own token. Set by the runner, not the caller. */
   mcp?: { url: string; token: string };
 };
@@ -107,6 +120,8 @@ export type Runner = {
   sessionOf(id: string, ms?: number): Promise<string | undefined>;
   /** The running turn an MCP token was made for (src/mcp.ts); undefined once it has ended. */
   byMcpToken(token: string): Run | undefined;
+  /** Whether sandbox runs can start here, and why not; undefined when they aren't set up at all. */
+  sandbox(): SandboxState | undefined;
 };
 
 type Spawn = (bin: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => ChildProcess;
@@ -126,6 +141,8 @@ export function createRunner(opts: {
   harnesses?: Partial<Record<HarnessId, Harness>>; spawnFn?: Spawn; onChange?: (run: Run) => void; host?: RunHost; now?: () => number;
   /** Dovre's MCP server (src/mcp.ts): each turn gets its address and a token of its own, while `on()` says packs offer tools. */
   mcp?: { url: string; on?: () => boolean };
+  /** Where sandbox runs go (src/agents/sandbox.ts). Without it, none start. */
+  sandbox?: SandboxEngine;
 } = {}): Runner {
   // Given harnesses are all there is (only what this machine has); without any, Claude Code's.
   const harnesses: Partial<Record<HarnessId, Harness>> = opts.harnesses ?? { claude: claudeHarness() };
@@ -138,6 +155,21 @@ export function createRunner(opts: {
   /** Each turn's MCP token (run id → token): kept apart from the run, so it's never drawn or sent to the Worker. */
   const mcpTokens = new Map<string, string>();
   const changed = (r: Run) => opts.onChange?.(r);
+  /** A sandbox run that ended: its token's env file goes (the clone stays, for its commits). */
+  const boxEnded = (r: Run) => {
+    if (r.sandbox) opts.sandbox?.ended(r.sandbox);
+  };
+  /** A sandbox run is stopped when it runs past the cap, also when picked up after a restart. */
+  const capped = (r: Run, stop: (id: string) => boolean) => {
+    if (!r.sandbox || !opts.sandbox) return;
+    const t = setTimeout(() => {
+      if (r.status !== "running") return;
+      stop(r.id);
+      r.events.push({ t: "error", text: `Stopped: the sandbox run went past ${Math.round(opts.sandbox!.maxMs / 60_000)} minutes.` });
+      changed(r);
+    }, Math.max(0, r.startedAt + opts.sandbox.maxMs - now()));
+    t.unref?.();
+  };
 
   // ── Turns apart from this process (host) ──
   // Absolute, since the host runs in the agent's working directory.
@@ -196,6 +228,7 @@ export function createRunner(opts: {
       if (error && run.status === "failed") run.events.push({ t: "error", text: error.slice(-600) });
       run.endedAt ??= now();
       pids.delete(run.id);
+      boxEnded(run);
       keep(run);
       changed(run);
     };
@@ -249,8 +282,11 @@ export function createRunner(opts: {
           runs.set(run.id, run);
           if (pid) pids.set(run.id, pid);
           if (typeof mcp === "string" && run.status === "running") mcpTokens.set(run.id, mcp);
-          if (run.status === "running") follow(run, h);
-          else {
+          if (run.status === "running") {
+            follow(run, h);
+            capped(run, (id) => api.stop(id));
+          } else {
+            boxEnded(run);
             // Done: its events, once, from its stream.
             for (const line of readFileSync(file(run.id, "out.jsonl"), "utf8").split("\n")) if (line.trim()) h.apply(run, line.trim());
           }
@@ -259,30 +295,44 @@ export function createRunner(opts: {
     } catch {}
   }
 
-  return {
-    start(o) {
-      const h = harnesses[o.harness ?? ((Object.keys(harnesses) as HarnessId[])[0] ?? "claude")];
-      if (!h) throw new Error(`No ${o.harness} harness here.`);
-      const fork = !!(o.resume && o.fork && h.canFork);
-      const prompt = o.prompt;
+  const api: Runner = {
+    start(given) {
+      const h = harnesses[given.harness ?? ((Object.keys(harnesses) as HarnessId[])[0] ?? "claude")];
+      if (!h) throw new Error(`No ${given.harness} harness here.`);
+      const box = !!given.sandbox;
+      if (box) {
+        if (!opts.sandbox) throw new Error("Sandbox runs aren't set up on this machine.");
+        if (!h.sandbox) throw new Error(`${h.id} can't run in a sandbox yet.`);
+        if (given.resume) throw new Error("A sandbox run starts a new session; it can't carry on an old one.");
+        const st = opts.sandbox.state();
+        if (!st.ok) throw new Error(st.why);
+      }
+      const fork = !!(given.resume && given.fork && h.canFork);
+      const prompt = given.prompt;
       // A copy is told it's one, so it leaves the terminal's unfinished work alone (the page shows the note as a line).
-      o = { ...o, fork, prompt: fork ? `${COPY_NOTE}\n\n${o.prompt}` : o.prompt };
+      // Yolo is set here and nowhere else: whatever the caller passed, only a sandbox run has it.
+      let o: HarnessOpts = { ...given, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
+      const id = randomUUID();
+      const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd }) : undefined;
       const run: Run = {
-        id: randomUUID(), harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
+        id, harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
         cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", allowed: o.allowed ?? [],
-        status: "running", startedAt: now(), events: [], partial: "", cost: 0,
+        status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox } : {}),
       };
       runs.set(run.id, run);
       // A token per turn, good while the turn runs: Claude Code and Codex get it in their arguments
-      // and environment, omp and agy in the environment for the stdio bridge (#172).
-      if (opts.mcp && (opts.mcp.on?.() ?? true)) {
+      // and environment, omp and agy in the environment for the stdio bridge (#172). Not into a sandbox.
+      if (!box && opts.mcp && (opts.mcp.on?.() ?? true)) {
         const token = randomBytes(32).toString("base64url");
         mcpTokens.set(run.id, token);
         o = { ...o, mcp: { url: opts.mcp.url, token } };
       }
-      const argv = [...(h.pre ?? []), ...(h.stdinPrompt ? h.args(o) : [...h.args(o), o.prompt])];
+      const own = h.stdinPrompt ? h.args(o) : [...h.args(o), o.prompt];
+      // In a sandbox the harness is the image's own program, run by the engine; never the host's.
+      const cmd = sandbox ? opts.sandbox!.command(sandbox, [h.sandbox!.bin, ...own]) : { bin: h.bin, args: [...(h.pre ?? []), ...own] };
+      capped(run, (rid) => api.stop(rid));
       if (host) {
-        const child = spawn(host.exe, ["agent-host", "--out", file(run.id, "out.jsonl"), "--err", file(run.id, "err.txt"), "--exit", file(run.id, "exit.json"), "--", h.bin, ...argv], {
+        const child = spawn(host.exe, ["agent-host", "--out", file(run.id, "out.jsonl"), "--err", file(run.id, "err.txt"), "--exit", file(run.id, "exit.json"), "--", cmd.bin, ...cmd.args], {
           cwd: o.cwd,
           env: o.mcp && h.mcpEnv ? { ...process.env, ...mcpEnv(o.mcp) } : undefined,
           detached: true,
@@ -293,6 +343,7 @@ export function createRunner(opts: {
           run.events.push({ t: "error", text: String(e.message) });
           run.status = "failed";
           run.endedAt = now();
+          boxEnded(run);
           keep(run);
           changed(run);
         });
@@ -303,7 +354,7 @@ export function createRunner(opts: {
         follow(run, h);
         return run;
       }
-      const child = spawnFn(h.bin, argv, o.mcp && h.mcpEnv ? { cwd: o.cwd, env: mcpEnv(o.mcp) } : { cwd: o.cwd });
+      const child = spawnFn(cmd.bin, cmd.args, o.mcp && h.mcpEnv ? { cwd: o.cwd, env: mcpEnv(o.mcp) } : { cwd: o.cwd });
       children.set(run.id, child);
       let buf = "";
       let err = "";
@@ -322,6 +373,7 @@ export function createRunner(opts: {
         run.events.push({ t: "error", text: String(e.message) });
         run.status = "failed";
         run.endedAt = Date.now();
+        boxEnded(run);
         changed(run);
       });
       child.on("close", (code) => {
@@ -330,6 +382,7 @@ export function createRunner(opts: {
         if (run.status === "running") run.status = code === 0 ? "done" : "failed";
         if (code !== 0 && run.status === "failed" && err.trim()) run.events.push({ t: "error", text: err.trim().slice(-600) });
         run.endedAt = Date.now();
+        boxEnded(run);
         changed(run);
       });
       child.stdin?.end(h.stdinPrompt ? o.prompt : "");
@@ -351,6 +404,8 @@ export function createRunner(opts: {
       if (!run || run.status !== "running" || (!child && !pid)) return false;
       run.status = "stopped";
       if (host) keep(run);
+      // The container is a VM of its own: ending its client may leave it running.
+      if (run.sandbox) opts.sandbox?.kill(run.sandbox);
       // The agent's own children (builds, tests) go too.
       if (process.platform === "win32" && pid) spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
       else if (child) child.kill();
@@ -366,6 +421,7 @@ export function createRunner(opts: {
       const run = runs.get(id);
       if (!run || run.status === "running") return false;
       runs.delete(id);
+      if (run.sandbox) opts.sandbox?.remove(run.sandbox);
       if (host) for (const ext of ["json", "out.jsonl", "err.txt", "exit.json"]) rmSync(file(id, ext), { force: true });
       changed(run);
       return true;
@@ -379,6 +435,7 @@ export function createRunner(opts: {
       }
       return runs.get(id)?.sessionId;
     },
+    sandbox: () => opts.sandbox?.state(),
     byMcpToken(token) {
       if (typeof token !== "string" || token.length < 32) return undefined;
       const given = Buffer.from(token);
@@ -395,4 +452,5 @@ export function createRunner(opts: {
       return undefined;
     },
   };
+  return api;
 }

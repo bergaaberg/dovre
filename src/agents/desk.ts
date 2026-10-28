@@ -18,6 +18,7 @@ import { turnCost as turnCostOf } from "./latest.ts";
 import { modelsOf } from "./harnesses/index.ts";
 import { HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
+import type { SandboxState } from "./sandbox.ts";
 
 export const SID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const RUN_ID = /^[\w-]{1,64}$/;
@@ -39,6 +40,8 @@ export type DeskView = {
   sessions?: { live: Session[]; recent: Session[] };
   /** Hosted: every paired machine (H7), online first. */
   machines?: MachineStatus[];
+  /** Sandbox runs (src/agents/sandbox.ts): whether one can start, and why not. Absent where they aren't set up. */
+  sandbox?: SandboxState;
 };
 
 /** Hosted: a paired machine, as pages name it. */
@@ -71,7 +74,8 @@ export type Desk = {
   run(id: string): Promise<Run | undefined>;
   session(sid: string): Promise<SessionView | undefined>;
   /** `machine`: hosted, the machine to start on (the one online when there's one). */
-  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; machine?: unknown }): Promise<{ to: string } | { error: string }>;
+  /** `sandbox`: run it in a sandbox (a fresh clone in a container, yolo inside), when the form ticked it. */
+  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; machine?: unknown; sandbox?: unknown }): Promise<{ to: string } | { error: string }>;
   reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown }): Promise<Done>;
   /** Answers to the agent's newest question (AskUserQuestion): the form as posted. */
   answer(sid: string, form: Record<string, unknown>): Promise<Done>;
@@ -93,6 +97,8 @@ export const modelOf = (v: unknown, h: HarnessId = "claude"): string => {
   const known = modelsOf(h).map((m) => m.value);
   return known.includes(String(v)) ? String(v) : "";
 };
+/** A ticked checkbox, as a form or the bridge sends it. */
+export const tickedOf = (v: unknown) => v === "on" || v === true;
 export const promptOf = (v: unknown) => (typeof v === "string" && v.trim() && v.length <= 20_000 ? v.trim() : null);
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 /** The specs of calls to allow: each one line, bounded, at most ten. */
@@ -156,6 +162,8 @@ export function localDesk(o: {
     if (!runner) throw new Error("Agents can't run here.");
     const current = runner.ofSession(sid);
     if (current?.status === "running") throw new Error("The agent is still working on the last turn.");
+    // Its session lived in the container, which is gone: a sandbox run takes one prompt.
+    if (current?.sandbox) throw new Error("A sandbox run takes one prompt: start a new one to carry on.");
     const session = findSession(env.CLAUDE_DIR, sid, await live()).session;
     const cwd = session?.cwd ?? current?.cwd;
     if (!cwd) throw new Error("Couldn't tell which folder this session ran in.");
@@ -199,7 +207,10 @@ export function localDesk(o: {
   };
 
   return {
-    view: () => ({ here: !!runner, online: true, harnesses: runner?.harnesses() ?? [], runs: runner?.list() ?? [], workDir }),
+    view: () => {
+      const sandbox = runner?.sandbox();
+      return { here: !!runner, online: true, harnesses: runner?.harnesses() ?? [], runs: runner?.list() ?? [], workDir, ...(sandbox ? { sandbox } : {}) };
+    },
     repos: async () => listRepos(env.CODE_DIR),
     run: async (id) => (RUN_ID.test(id) ? runner?.get(id) : undefined),
     async session(sid) {
@@ -222,7 +233,15 @@ export function localDesk(o: {
       if (!cwd) return { error: f.repo === WORK ? `Couldn't make Dovre's folder at ${workDir}.` : "Pick a checkout in your code folder, or Dovre's own folder." };
       if (!prompt) return { error: "Say what the agent should do." };
       const harness = harnessOf(f.harness);
-      const run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness) });
+      const sandbox = tickedOf(f.sandbox);
+      if (sandbox && f.repo === WORK) return { error: "A sandbox run works in a clone of a checkout: pick one." };
+      let run;
+      try {
+        run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness), sandbox });
+      } catch (e) {
+        if (!sandbox) throw e;
+        return { error: String((e as Error).message) };
+      }
       // Straight to the run: its page turns into the session's once the agent says which (a second or two).
       const sid = await runner.sessionOf(run.id, 300);
       return { to: sid ? page(sid) : `/agents/r/${run.id}` };

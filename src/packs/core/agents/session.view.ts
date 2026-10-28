@@ -92,7 +92,7 @@ function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?
   const result = [...run.events].reverse().find((e) => e.t === "result") as Extract<Run["events"][number], { t: "result" }> | undefined;
   return html`${
     run.status === "running"
-      ? html`<li class="turn-row agent live" data-stop="2"><div class="who"><span class="dot ok" aria-hidden="true"></span>Agent is working · ${MODE_SHORT[run.mode] ?? run.mode}</div><div class="bubble">${run.partial ? markdown(run.partial, { headingOffset: 3 }) : !tools.length && !o.written ? html`<p class="t3">Thinking…</p>` : ""}${
+      ? html`<li class="turn-row agent live" data-stop="2"><div class="who"><span class="dot ok" aria-hidden="true"></span>Agent is working · ${run.sandbox ? "in a sandbox, without asking" : (MODE_SHORT[run.mode] ?? run.mode)}</div><div class="bubble">${run.partial ? markdown(run.partial, { headingOffset: 3 }) : !tools.length && !o.written ? html`<p class="t3">Thinking…</p>` : ""}${
           tools.length ? html`<ul class="calls" data-grow>${tools.map((e) => (e.t === "tool" ? html`<li><code>${e.name}</code> <span class="t2">${e.detail}</span></li>` : ""))}</ul>` : ""
         }</div></li>`
       : ""
@@ -121,6 +121,8 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
   // Hosted with the Mac offline: nothing to send to (the notice above says so).
   const reply = opts.mac?.online === false
     ? ""
+    : run?.sandbox
+    ? html`${running ? html`<form method="post" action="/agents/s/${sessionId}/stop" class="inline"><button type="submit" class="danger sm" title="Stop the sandbox run">Stop</button></form>` : ""}${Notice({ children: "A sandbox run takes one prompt, so there's no replying. Its commits stay in the sandbox's clone until Dovre can bring them back as a draft PR." })}`
     : readOnly
     ? Notice({ children: html`Copilot CLI sessions are read here, not replied to yet. To carry on in a terminal: <code data-copy="${resumeCommand(s!)}">${resumeCommand(s!)}</code>` })
     : html`${running ? html`<form method="post" action="/agents/s/${sessionId}/stop" id="stop-form" hidden></form>` : ""}${
@@ -138,7 +140,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
   const body = html`${PageHeader({
     title,
     crumbs: [{ href: "/agents", label: "Agents" }],
-    sub: html`${harnessTag(s?.harness ?? run?.harness, s?.model ?? run?.model)} ${s?.repo ?? run?.repo ?? ""}${s?.branch ? html` · ${s.branch}` : ""} · ${status}${s?.cost ? html` · <span class="t3">$${s.cost.toFixed(2)} so far</span>` : ""}`,
+    sub: html`${harnessTag(s?.harness ?? run?.harness, s?.model ?? run?.model)} ${s?.repo ?? run?.repo ?? ""}${s?.branch ? html` · ${s.branch}` : ""}${run?.sandbox ? html` · <span class="t3">sandbox</span>` : ""} · ${status}${s?.cost ? html` · <span class="t3">$${s.cost.toFixed(2)} so far</span>` : ""}`,
     actions: html`${opts.diff ? html`<a class="btn ghost" href="${opts.diff}" title="What's changed in its checkout, committed or not">Diff</a>` : ""}${opts.discardable ? html`<form method="post" action="/agents/s/${sessionId}/discard"><button type="submit" class="ghost" title="Off Dovre's lists; the transcript stays, and replying brings it back">Clear away</button></form>` : ""}<a class="btn ghost" href="/agents/new">New session</a>`,
   })}
 ${opts.flash ? Notice({ tone: "bad", children: opts.flash }) : ""}
@@ -157,7 +159,16 @@ ${Panel({
   return { title: `${title} · Agents`, current: "/agents", body, head: html`<meta name="u-topics" content="snapshot run:${sessionId}${run && run.sessionId !== sessionId ? ` run:${run.id}` : ""}">` };
 }
 
-export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: a catalog pack's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string }): PageOpts {
+/** The sandbox option: a fresh clone in a container, where Claude Code runs without asking. */
+function sandboxField(st: { ok: boolean; why?: string }, ticked: boolean) {
+  return html`<div class="field"><label class="check"><input type="checkbox" name="sandbox" value="on"${ticked && st.ok ? html` checked` : ""}${st.ok ? "" : html` disabled`}> Run in a sandbox</label><span class="hint">${
+    st.ok
+      ? "Claude Code, in a fresh clone of the checkout inside a container: it runs anything without asking, and reaches nothing else on this machine. One prompt; its commits stay in the sandbox for now."
+      : st.why
+  }</span></div>`;
+}
+
+export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: string; error?: string; harnesses?: HarnessId[]; workDir?: string; /** What packs put under "Runs in" for a checkout (the "agents.new" slot: a catalog pack's components). */ fields?: (repo: string) => Child[]; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Hosted, with several online: the machines to pick from (H7). */ machines?: { id: string; name: string }[]; machine?: string; /** Sandbox runs (src/agents/sandbox.ts): offered when set, ticked off with the reason when they can't start. */ sandbox?: { ok: boolean; why?: string }; sandboxed?: boolean }): PageOpts {
   const harnesses = opts.harnesses ?? (["claude"] as HarnessId[]);
   // Hosted with the Mac offline: no form, nothing would take it.
   if (opts.mac?.online === false)
@@ -185,6 +196,7 @@ ${opts.machines && opts.machines.length > 1 ? html`<label class="field"><span cl
 <label class="field"><span class="label">Runs in</span><select name="repo" required><option value="${WORK}"${repo === WORK ? html` selected` : ""}>${WORK_LABEL}</option><optgroup label="Checkouts">${opts.repos.map((r) => html`<option value="${r}"${r === repo ? html` selected` : ""}>${r}</option>`)}</optgroup></select><span class="hint">Dovre's own folder${opts.workDir ? html` (<code>${opts.workDir}</code>)` : ""} is for work that isn't in one repo, and keeps it out of your checkouts. Or a git checkout in your code folder, worktrees included.</span></label>
 ${componentChips}
 <label class="field"><span class="label">What should it do?</span><textarea name="prompt" rows="8" required placeholder="Skills work as usual: /some-skill …, or say what to do">${opts.prompt ?? ""}</textarea></label>
+${opts.sandbox ? sandboxField(opts.sandbox, !!opts.sandboxed) : ""}
 <div class="fields"><label class="field"><span class="label">Agent</span><select name="harness">${harnesses.map((h) => html`<option value="${h}">${HARNESS_LABEL[h]}</option>`)}</select></label>${modeSelect()}${modelSelect("", harnesses)}<div class="field"><button type="submit" class="primary" data-busy="Starting">Start</button></div></div>
 ${harnesses.includes("omp") ? html`<p class="hint t3">omp's own setting may approve everything; sessions started here always ask first, in the mode you pick.</p>` : ""}
 </form>`,

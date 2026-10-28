@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { localDesk } from "../agents/desk.ts";
 import { createQueue } from "../agents/queue.ts";
 import { createRunner, type Run } from "../agents/runner.ts";
+import { appleContainer } from "../agents/sandbox.ts";
 import { findHarnessTools, harnessesFor } from "../agents/harnesses/index.ts";
 import { loadEnv, rawVars } from "../env.ts";
 import { localSessions } from "../sources/sessions.ts";
@@ -107,6 +108,8 @@ const queue = createQueue({ file: join(dataDir, "queue.json"), onChange: (sid) =
 const statusOf = new Map<string, Run["status"]>();
 const runner = createRunner({
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
+  // Sandbox runs (#205): Apple container, so macOS only for now.
+  sandbox: process.platform === "darwin" ? appleContainer({ root: join(dataDir, "sandboxes") }) : undefined,
   harnesses: harnessesFor(tools, harnessOn, { ompProfileOf }),
   onChange: (r) => {
     const was = statusOf.get(r.id);
