@@ -744,7 +744,7 @@ const KEYS = [
   ["Hints", [["f", "Letters on everything clickable: type them to press it"], ["F", "The same, links open in a new window"], ["Backspace", "Take back a letter"], ["Esc", "Put the letters away"]]],
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
   ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["g b", "Bino"], ["H / L", "Back / forward"]]],
-  ["This page", [["r", "Refresh the data"], ["B", "Bino: open its panel, told which page you are on; into it when it's open"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["c", "A PR's files: comment on the line under the pointer (Ctrl Enter adds it)"], ["v", "A PR's files: mark the file you're in viewed, on to the next"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
+  ["This page", [["r", "Refresh the data"], ["B", "Bino: open its panel, told which page you are on; into it when it's open"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["c", "A PR's files: comment on the line under the pointer (Ctrl Enter adds it)"], ["v", "A PR's files: mark the file you're in viewed, on to the next"], [".", "An agent session: stop its turn"], ["A", "An agent asks: allow it (the top one on Agents)"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
   ["Bino", [["Enter", "Send"], ["Shift Enter", "A new line"], ["↑", "In an empty box: what you last sent"], ["Esc / s", "While Bino answers: stop it"], ["Esc", "Out of the box; again closes the panel"], ["B", "In the panel: close it"]]],
 ];
 let help = null;
@@ -911,7 +911,7 @@ const KEYPREFS = (() => {
 })();
 const STEP = Number(KEYPREFS.scroll) || 70;
 const keysOff = (group) => Array.isArray(KEYPREFS.off) && KEYPREFS.off.includes(group);
-const GROUP_OF = { f: "hints", F: "hints", j: "moving", k: "moving", d: "moving", u: "moving", G: "moving", J: "moving", K: "moving", "]": "moving", "[": "moving", o: "moving", H: "going", L: "going", r: "page", "/": "page", a: "page", c: "page", v: "page" };
+const GROUP_OF = { f: "hints", F: "hints", j: "moving", k: "moving", d: "moving", u: "moving", G: "moving", J: "moving", K: "moving", "]": "moving", "[": "moving", o: "moving", H: "going", L: "going", r: "page", "/": "page", a: "page", c: "page", v: "page", ".": "page", A: "page" };
 function flash(text) {
   const el = document.createElement("div");
   el.className = "key-flash";
@@ -1043,9 +1043,11 @@ document.addEventListener("keydown", (e) => {
       else openPalette();
     },
   }[k];
-  if (!act) return;
-  e.preventDefault();
-  act();
+  if (act) { e.preventDefault(); act(); return; }
+  // A page's own key on a button (data-hotkey: an agent's Stop is ".", Allow is "A"): the first one showing.
+  // Only plain buttons carry one, never a write behind a Confirm.
+  const hot = [...document.querySelectorAll("button[data-hotkey]")].find((b) => b.dataset.hotkey === k && !b.disabled && b.getClientRects().length);
+  if (hot) { e.preventDefault(); hot.click(); }
 });
 
 enhance(document);

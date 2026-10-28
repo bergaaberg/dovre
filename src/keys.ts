@@ -9,7 +9,7 @@ export const KEY_GROUPS = [
   { id: "hints", label: "Hints", keys: "f, F" },
   { id: "moving", label: "Moving", keys: "j/k, d/u, gg, G, J/K, ]/[, o" },
   { id: "going", label: "Going to", keys: "g and a letter, H/L" },
-  { id: "page", label: "This page", keys: "r, yy, g i, /, a, c, v" },
+  { id: "page", label: "This page", keys: "r, yy, g i, /, a, c, v, ., A" },
   { id: "docks", label: "Panels", keys: "B for Bino, and the packs' letters" },
 ] as const;
 export type KeyGroup = (typeof KEY_GROUPS)[number]["id"];
