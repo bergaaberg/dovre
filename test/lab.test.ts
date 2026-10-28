@@ -46,7 +46,7 @@ test("every lab page has a way back to the app, and may show and frame only the 
 });
 
 test("every agent says which harness it runs in", async () => {
-  assert.match(String(harnessTag("claude")), /class="harness claude"[^>]*>Claude Code</);
+  assert.match(String(harnessTag("claude")), /class="harness claude"[^>]*><span class="harness-g" aria-hidden="true">✳<\/span>Claude Code</);
   assert.match(String(harnessTag("omp", "github-copilot/gpt-6-luna")), /Copilot · omp<span class="harness-m"> · gpt-6-luna/);
   assert.match(String(harnessTag(undefined)), /Claude Code/, "sessions from before harnesses were told apart are Claude's");
   const { get } = signedIn(snapshot(), {}, { sessions: { live: [session({ title: "A", harness: "omp" }), session({ title: "B", sessionId: "b0000000-0000-0000-0000-000000000000" })] } });
@@ -73,4 +73,15 @@ test("the side menu: Today, then Code, Agents and Plan in groups (a pack adds Op
   const js = await get("/assets/side.js");
   assert.equal(js.status, 200);
   assert.match(await js.text(), /u-side/);
+});
+
+test("each harness has its own hue and glyph (#239), apart from the status colours", async () => {
+  const { HARNESS_NAME, HARNESS_GLYPH } = await import("../src/pages/parts.ts");
+  const { STYLE } = await import("../src/ui/style.ts");
+  for (const id of Object.keys(HARNESS_NAME) as (keyof typeof HARNESS_NAME)[]) {
+    assert.ok(HARNESS_GLYPH[id], `${id} has a glyph`);
+    assert.match(STYLE, new RegExp(`--hn-${id}: #`), `${id} has a hue`);
+    assert.match(STYLE, new RegExp(`\\.harness\\.${id} \\{ --hn: var\\(--hn-${id}\\);`), `${id}'s tag uses it`);
+  }
+  assert.doesNotMatch(STYLE, /--hn-[a-z]+: var\(--(ok|warn|bad)\)/);
 });

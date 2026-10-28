@@ -275,6 +275,9 @@ export const STYLE = String.raw`
   --s1: var(--c1); --s2: var(--c2); --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --grid: var(--line); --axis: var(--line-2);
   /* the blue ramp (heatmaps, ordered outcomes): h1 faintest, h6 strongest on this surface */
   --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #256abf; --h6: #184f95;
+  /* each agent harness's hue (#239): identity, not status. Mixed with the theme's ink and surface
+     where used (.harness), so one value reads in every theme. */
+  --hn-claude: #c8693f; --hn-codex: #7277dc; --hn-omp: #9d62c8; --hn-copilot: #9d62c8; --hn-agy: #c4508f;
 }
 /* The accents (Settings → Layout), each checked against ok, warn and bad with the dataviz validator
    in both themes (colour blind and not) and for text contrast; green, amber and red stay status. */
@@ -551,8 +554,10 @@ ol.stack { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2p
 .stack-order { margin: 6px 0 0; font-size: var(--fs-s); }
 .stack-red { color: var(--bad); }
 /* Which AI harness an agent runs in: a quiet tag, not a status (solid Claude Code, dashed Copilot · omp, dotted Copilot CLI). */
-.harness { display: inline-block; margin-left: 7px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 999px; font: 600 11px/17px var(--sans); color: var(--ink-2); white-space: nowrap; vertical-align: 1px; }
-.harness.claude { border-style: solid; } .harness.omp { border-style: dashed; } .harness.copilot { border-style: dotted; }
+.harness { --hn: var(--ink-3); display: inline-block; margin-left: 7px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--hn) 50%, var(--surface)); border-radius: 999px; background: color-mix(in srgb, var(--hn) 10%, var(--surface)); font: 600 11px/17px var(--sans); color: color-mix(in srgb, var(--hn) 62%, var(--ink)); white-space: nowrap; vertical-align: 1px; }
+.harness.claude { --hn: var(--hn-claude); } .harness.codex { --hn: var(--hn-codex); } .harness.agy { --hn: var(--hn-agy); }
+.harness.omp { --hn: var(--hn-omp); border-style: dashed; } .harness.copilot { --hn: var(--hn-copilot); border-style: dotted; }
+.harness-g { margin-right: 4px; font-weight: 400; }
 .harness-m { font-weight: 400; color: var(--ink-3); }
 .page-head .harness { margin: 0 4px 0 0; }
 .chev { position: absolute; right: 4px; top: 16px; width: 8px; height: 8px; border-right: 1.5px solid var(--ink-3); border-bottom: 1.5px solid var(--ink-3); transform: rotate(45deg); transition: transform .15s; }
