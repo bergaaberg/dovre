@@ -42,6 +42,36 @@ document.addEventListener("focusout", () => setTimeout(kbCheck, 50));
 kbCheck();
 // Inside a dock (a frame of a /…/dock page on another of this app's pages).
 const framed = window.top !== window;
+
+// ── Links to other sites, in the default browser (Settings → Layout, src/open-link.ts): in the
+// installed app's window only, a link off this app goes to the server, which hands it to the
+// system's opener. If the server won't, it opens the way it would have. ──
+const toDefault = document.querySelector('meta[name="u-links"]')?.content === "default" && matchMedia("(display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: minimal-ui)").matches;
+function offSite(href) {
+  try {
+    const u = new URL(href, location.href);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.origin !== location.origin ? u.href : null;
+  } catch { return null; }
+}
+function openNew(href) {
+  const out = toDefault && offSite(href);
+  if (!out) { window.open(href, "_blank", "noopener"); return; }
+  fetch("/open-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: out }) })
+    .then((r) => { if (!r.ok) throw new Error(String(r.status)); })
+    .catch(() => window.open(out, "_blank", "noopener"));
+}
+function linkOut(e) {
+  if (!toDefault || e.defaultPrevented || (e.type === "click" ? e.button !== 0 : e.button !== 1)) return;
+  const a = e.target.closest?.("a[href]");
+  if (!a || a.hasAttribute("download")) return;
+  const href = offSite(typeof a.href === "string" ? a.href : a.getAttribute("href"));
+  if (!href) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openNew(href);
+}
+document.addEventListener("click", linkOut, true);
+document.addEventListener("auxclick", linkOut, true);
 // A dock's page has no frame of its own to say light or dark: it takes its page's (Settings → Layout).
 if (framed) try {
   const top = window.parent.document.documentElement;
@@ -842,7 +872,7 @@ function narrow() {
 }
 function press(el, newTab) {
   hideHints();
-  if (newTab && el.tagName === "A" && el.href) { window.open(el.href, "_blank", "noopener"); return; }
+  if (newTab && el.tagName === "A" && el.href) { openNew(el.href); return; }
   const tag = el.tagName;
   const field = tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && !/^(checkbox|radio|button|submit|reset|file|color|range|image)$/i.test(el.type || ""));
   if (field) {
@@ -1156,7 +1186,7 @@ async function palFetch(remote) {
 }
 function palGo(row) {
   pal.close();
-  if (row.target === "_blank") { window.open(row.href, "_blank", "noopener"); return; }
+  if (row.target === "_blank") { openNew(row.href); return; }
   going();
   location.href = row.href;
 }
@@ -1225,7 +1255,7 @@ document.addEventListener("keydown", (e) => {
   if (t.value.trim() && t.form) t.form.requestSubmit();
 }, true);
 
-// ── A form that saves as I change it (form[data-autosave]: Settings → Layout): posted in
+// ── A form that saves as I change it (form[data-autosave]: Settings → Look and layout): posted in
 // the background, then the page reloads where it is, so a theme or a tab shows at once. Typing in a
 // box saves when it loses focus (change), not on every key. ──
 document.addEventListener("change", async (e) => {

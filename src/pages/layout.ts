@@ -20,6 +20,8 @@ export type LayoutView = {
   packs: { id: string; name: string }[];
   /** What /stats can show: id, name, where it's from, shown or not, its order. */
   stats: { id: string; label: string; from: string; show: boolean; order: number }[];
+  /** This machine can open a link in the default browser (local, src/open-link.ts). */
+  opener?: boolean;
 };
 
 type Opt = { value: string; label: string };
@@ -94,6 +96,7 @@ export function layoutPanel(v: LayoutView) {
   const form = html`<form method="post" action="/settings/layout" data-autosave><input type="hidden" name="part" value="layout">
 <div class="field" id="tabs"><span class="label">On the phone</span><span class="hint">The bar at the foot: Today, then up to three pages, then More.</span></div>
 <div class="fields">${[0, 1, 2].map(tab)}</div>
+${v.opener ? html`<div class="fields" id="links">${pick("links", "Links to other sites", v.layout.links, [{ value: "", label: "In the browser the app was installed from" }, { value: "default", label: "In your default browser" }])}</div>` : ""}
 ${v.cards.length
   ? html`<div class="field" id="cards"><span class="label">Today's cards</span><span class="hint">Each in a column, lowest number first; hidden ones aren't drawn.</span></div>
 <div class="layout-rows">${v.cards.map(card)}</div>`
