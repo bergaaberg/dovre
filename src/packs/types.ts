@@ -9,6 +9,7 @@ import type { D1 } from "../db.ts";
 import type { AppEnv } from "../env.ts";
 import type { Snapshot } from "../gather.ts";
 import type { ForgeDecl, ForgeWork } from "../forge/types.ts";
+import type { PackProposal, Proposed } from "../actions/propose.ts";
 import type { NavItem } from "../html.ts";
 import type { Page } from "../search/search.ts";
 import type { Session } from "../sources/claude.ts";
@@ -299,6 +300,14 @@ export type PackForge = {
    * Absent: this forge doesn't say.
    */
   file?(repo: string, path: string): Promise<string | undefined>;
+  /**
+   * Opens a PR changing one file in one of the owners' repos: a branch off the default branch, one
+   * commit, the PR (dovre#203). `kind` is one of the pack's `writes`, so it shows on Settings → Writes
+   * and its page asks through a `Confirm` of kind `<id>.<kind>`. `expect` is the text the pack saw
+   * (null: no file): when the file says something else now, nothing is written. Logged either way.
+   * Absent: this forge doesn't say.
+   */
+  propose?(p: PackProposal): Promise<Proposed>;
 };
 
 /** A notification a pack rings (`PackContext.ring`): cut to size, its link made safe. */

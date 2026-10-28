@@ -72,7 +72,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `page()`, `dockPage()`: draw inside the shell
 - `log()`, `ring()`: log, or a one-off notification
 - `ask()`, `asking()`: put a question in the top bar and wait for the answer (local only)
-- `forge()`: user, owners, and the forge's `work` and `merged` (read-only)
+- `forge()`: user, owners, and the forge's `work` and `merged` (read-only); `repos()` and `file()` to read the owners' repos; `propose()` to open a PR changing one file (one of the pack's `writes` kinds, re-checked against `expect`, logged)
 - `startPicture(svg)`, `pulse()`
 
 **Hooks**, by where they land:

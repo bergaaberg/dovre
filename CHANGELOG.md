@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **Packs** can open a PR that changes one file in the owners' repos: `ctx.forge().propose({ kind, repo, path, text, expect, title, body })`. It makes a branch, one commit and the PR, locally and hosted. `kind` must be one of the pack's `writes`, and the try is logged as `<pack>.<kind>`. First it reads the file again, and writes nothing if the file no longer says `expect`. Repos outside `REPO_OWNERS`, paths that aren't plain, and text over 512 kB are refused before GitHub is asked (#203).
+
 ## 0.6.0 (2026-10-27)
 
 Added:
