@@ -159,7 +159,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     if (!v) return gone(c);
     const flash = flashes.get(sid);
     flashes.delete(sid);
-    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf, diff: ctx.hosted || v.run?.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, v.session?.cwd ?? v.run?.cwd) }));
+    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, stats: v.stats, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf, diff: ctx.hosted || v.run?.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, v.session?.cwd ?? v.run?.cwd) }));
   });
   /** Answers to the agent's newest question (AskUserQuestion), as its next message. Only offered choices count. */
   app.post("/agents/s/:sid/answer", async (c) => {

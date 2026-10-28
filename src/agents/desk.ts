@@ -14,7 +14,7 @@ import { ompAgentDirs, ompSessionById, ompTranscriptOf, ompTurnsOf } from "../so
 import { COPILOT_DIR, copilotEventsOf, copilotSessionById, copilotTurnsOf } from "../sources/copilot.ts";
 import { allowedPrompt, answersPrompt, type Turn, turnsOf as claudeTurns } from "./conversation.ts";
 import { joined, type Queue, type Queued } from "./queue.ts";
-import { turnCost as turnCostOf } from "./latest.ts";
+import { type TurnStat, turnCost as turnCostOf, turnStats } from "./latest.ts";
 import { modelsOf } from "./harnesses/index.ts";
 import { EFFORTS, type Effort, HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, type StartOpts, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
@@ -55,7 +55,7 @@ export type Copy = { sid?: string; run: string; startedAt: number; status: Run["
  * `replyCopies`: what I send goes to a copy (a terminal has the session open). `copies`: the
  * copies made of it from here; `copyOf`: the session this one is a copy of.
  */
-export type SessionView = { session?: Session; turns: Turn[]; run?: Run; queued: Queued[]; discardable: boolean; turnCost?: number; replyCopies?: boolean; copies?: Copy[]; copyOf?: string };
+export type SessionView = { session?: Session; turns: Turn[]; run?: Run; queued: Queued[]; discardable: boolean; turnCost?: number; /** Its turns started here: cost, time, diff (#241). */ stats?: TurnStat[]; replyCopies?: boolean; copies?: Copy[]; copyOf?: string };
 
 /** A reply forks when the session is open elsewhere (a terminal; not a background agent, not this desk's own turn on it). */
 export const replyCopies = (session: Session | undefined, run: Run | undefined) => !!session?.live && session.kind !== "background" && run?.status !== "running";
@@ -242,7 +242,8 @@ export function localDesk(o: {
       const turnCost = run ? turnCostOf(run, runner?.list() ?? []) : undefined;
       const copies = (runner?.copiesOf(sid) ?? []).map((r) => ({ sid: r.sessionId, run: r.id, startedAt: r.startedAt, status: r.status }));
       const copyOf = (runner?.list() ?? []).find((r) => r.forked && r.sessionId === sid)?.resumed;
-      return { session, turns, run, queued: queue.list(sid), discardable, turnCost, replyCopies: replyCopies(session, run), copies, copyOf };
+      const stats = turnStats(sid, runner?.list() ?? []);
+      return { session, turns, run, queued: queue.list(sid), discardable, turnCost, stats, replyCopies: replyCopies(session, run), copies, copyOf };
     },
     async start(f) {
       const cwd = cwdOf(f.repo);
