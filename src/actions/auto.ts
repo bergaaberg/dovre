@@ -2,7 +2,7 @@
  * Auto runs on the forge (#207): finding issues an owner labelled `dovre:auto`, checking them,
  * starting each as a sandbox run through the desk (hosted: on a machine over the bridge), and
  * when it ends, its draft PR, a comment on the issue and the label swapped for
- * `dovre:auto-done` or `dovre:auto-stuck`. `autoTick` is the whole loop, one pass; the agents
+ * `dovre:auto-done` or `dovre:auto-stuck` (stuck: only after a few tries). `autoTick` is the whole loop, one pass; the agents
  * pack calls it on its own slow schedule (not the gatherer's), since each new issue costs a
  * GraphQL call to see who labelled it.
  *
@@ -18,7 +18,7 @@
 import type { D1 } from "../db.ts";
 import type { Desk } from "../agents/desk.ts";
 import type { Run } from "../agents/runner.ts";
-import { AUTO_LABEL, type AutoOptions, type AutoRow, type AutoSettings, type AutoStore, BUSY, DONE_LABEL, STUCK_LABEL, autoKey, autoOptionsOf, autoPrompt, autoStore, capsFor, isQuiet, loadAutoSettings, localHour, repoOn } from "../agents/auto.ts";
+import { AUTO_LABEL, type AutoOptions, type AutoRow, type AutoSettings, type AutoStore, BUSY, DONE_LABEL, STUCK_LABEL, autoKey, autoOptionsOf, autoPrompt, autoStore, capsFor, isQuiet, loadAutoSettings, localHour, MAX_TRIES, repoOn } from "../agents/auto.ts";
 import { ownerQuery, ownersOf } from "../owners.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { ownedRepo } from "../sources/files.ts";
@@ -138,7 +138,7 @@ export async function runAgain(o: { db: D1; ghe: Forge; owners: string; key: str
     return fail(`Couldn't label it: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
   }
   await o.ghe.rest(`${base}/labels/${encodeURIComponent(STUCK_LABEL)}`, { method: "DELETE" }).catch(() => {});
-  if (!(await store.move(o.key, "stuck", "queued", { why: null }))) return fail("Another pass moved it first.");
+  if (!(await store.move(o.key, "stuck", "queued", { why: null, tries: 0 }))) return fail("Another pass moved it first.");
   await logAction(o.db, { kind: "auto.again", target, ok: true }).catch(() => {});
   return { ok: true };
 }
@@ -265,7 +265,7 @@ async function follow(d: AutoDeps, store: AutoStore, rows: AutoRow[], now: () =>
       continue;
     }
     if (out.repo?.toLowerCase() !== row.repo.toLowerCase()) {
-      await stuck(d, store, row, `Its checkout's origin is ${out.repo ?? "not on the forge"}, not ${row.repo}.`, run);
+      await stuck(d, store, row, `Its checkout's origin is ${out.repo ?? "not on the forge"}, not ${row.repo}.`, run, true);
       continue;
     }
     if (row.state === "waiting") continue;
@@ -285,10 +285,22 @@ async function follow(d: AutoDeps, store: AutoStore, rows: AutoRow[], now: () =>
   }
 }
 
-async function stuck(d: AutoDeps, store: AutoStore, row: AutoRow, why: string, run: Run | undefined) {
-  if (!(await store.move(row.key, row.state, "stuck", { why, ...(run ? { cost: run.cost } : {}) }))) return;
+/**
+ * Stuck (#254): back in the queue on its own, label kept and nothing said on the issue, until it
+ * has got stuck MAX_TRIES times since my label; then the comment, and dovre:auto swapped for
+ * -stuck. `final`: trying again can't help (no checkout, the wrong origin), so it closes out now.
+ */
+async function stuck(d: AutoDeps, store: AutoStore, row: AutoRow, why: string, run: Run | undefined, final = false) {
+  const tries = (row.tries ?? 0) + 1;
+  const cost = run ? { cost: run.cost } : {};
+  if (!final && tries < MAX_TRIES) {
+    await store.move(row.key, row.state, "queued", { why: `Stuck ${tries} of ${MAX_TRIES} times; trying again. ${why}`.slice(0, 600), tries, ...cost });
+    return;
+  }
+  if (!(await store.move(row.key, row.state, "stuck", { why, tries, ...cost }))) return;
   const said = lastWord(run);
-  await closeOut({ db: d.db, ghe: d.ghe, owners: d.owners, row, done: false, text: `Dovre's unattended run on this got stuck. ${why}${said && !why.includes(said) ? `\n\nIts last word:\n\n${said.replace(/^/gm, "> ")}` : ""}\n\nLabel it \`${AUTO_LABEL}\` again to try once more.` });
+  const times = tries > 1 ? ` ${tries} times; the last time:` : ".";
+  await closeOut({ db: d.db, ghe: d.ghe, owners: d.owners, row, done: false, text: `Dovre's unattended run on this got stuck${times} ${why}${said && !why.includes(said) ? `\n\nIts last word:\n\n${said.replace(/^/gm, "> ")}` : ""}\n\nLabel it \`${AUTO_LABEL}\` again to try once more.` });
 }
 
 /** Starts what's queued while there's room. Returns why nothing new starts now, when that's so. */
@@ -326,7 +338,7 @@ async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoR
         }
       }
       if (!checkout) {
-        await stuck(d, store, { ...row, state: "starting" }, `There's no checkout named ${name} in the code folder${machines.length ? " on a machine online" : ""}.`, undefined);
+        await stuck(d, store, { ...row, state: "starting" }, `There's no checkout named ${name} in the code folder${machines.length ? " on a machine online" : ""}.`, undefined, true);
         busy--;
         continue;
       }
