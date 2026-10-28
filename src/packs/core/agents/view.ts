@@ -47,7 +47,7 @@ function clearAll(n: number) {
   return Confirm({ kind: "agents.clear", action: "/agents/clear", label: "Clear finished", question: html`Clear away ${n} finished ${n === 1 ? "session" : "sessions"} started here, those waiting for your OK included? Their transcripts stay; replying to one brings it back.` });
 }
 
-export function agentsPage(s: Snapshot, sessions: Sessions, all: Run[] = [], o: { workDir?: string; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Packs' panels after "Started here" ("agents.panel"). */ panels?: (Html | "")[]; /** Packs' ways to pick an ended session up ("session.resume"). */ resume?: (s: Session) => (Html | "")[] } = {}): PageOpts {
+export function agentsPage(s: Snapshot, sessions: Sessions, all: Run[] = [], o: { workDir?: string; /** Hosted: the machines' agents, online or not. */ mac?: MacStatus; /** Packs' panels after "Started here" ("agents.panel"). */ panels?: (Html | "")[]; /** Auto runs' "Working alone" (#209), after "Started here". */ alone?: Html | ""; /** Packs' ways to pick an ended session up ("session.resume"). */ resume?: (s: Session) => (Html | "")[] } = {}): PageOpts {
   const runs = latestRuns(all);
   const here = (a: { cwd?: string }) => !!o.workDir && inWorkDir(o.workDir, a.cwd);
   const ctx = { org: s.org, mine: mineByKey(s), refs: s.refs, prs: 8, resume: o.resume, here, discard: (a: { sessionId: string; cwd?: string }) => here(a) || runs.some((r) => r.sessionId === a.sessionId) };
@@ -59,11 +59,13 @@ export function agentsPage(s: Snapshot, sessions: Sessions, all: Run[] = [], o: 
 ${macNotice(o.mac)}
 <div data-live id="agents">
 ${runs.length || clearable ? Panel({ title: "Started here", meta: String(runs.length), actions: clearable ? clearAll(clearable) : undefined, flush: true, children: runs.length ? List(runs.map((r) => runItem(r, all))) : Empty({ title: "Nothing working here", children: html`<p class="t2">Ended sessions from Dovre's folder are under Recent.</p>` }) }) : ""}
+${o.alone ?? ""}
 ${o.panels ?? ""}
 ${Panel({ title: "Running", meta: String(sessions.live.length), flush: true, children: sessions.live.length ? List(sessions.live.map((a) => sessionItem(a, ctx))) : Empty({ title: "No agents running" }) })}
 ${Panel({ title: "Recent", meta: String(sessions.recent.length), flush: true, children: sessions.recent.length ? List(sessions.recent.map((a) => sessionItem(a, ctx))) : Empty({ title: "Nothing in the last 4 days" }) })}
 </div>`;
-  return { title: "Agents · Dovre", current: "/agents", body };
+  // "agents": an auto pass that changed redraws "Working alone".
+  return { title: "Agents · Dovre", current: "/agents", body, head: html`<meta name="u-topics" content="snapshot agents">` };
 }
 
 export function worktreesPage(s: Snapshot, worktrees: Worktree[], actions: (name: string) => (Html | "")[] = () => []): PageOpts {
