@@ -288,13 +288,14 @@ const runner = createRunner({
 });
 /** What the packs say needs me (agents waiting…) and the PRs their pages link; set once the app is built. */
 let packNeeds: () => Need[] = () => [];
+let startsOff: ReadonlySet<string> = new Set();
 let packLinked = (): string[] => [];
 const refresher = startRefresher({ gatherer, hub });
 // What needs me rings once, checked again whenever pages are told something changed: a gather, or a
 // pack's own read (the agents pack's sessions every 15 s).
 hub.subscribe((c) => {
   const s = gatherer.peek();
-  if (s && c.topics.includes("snapshot")) ring(notifier.observe([...needsOf(s), ...packNeeds()], policy));
+  if (s && c.topics.includes("snapshot")) ring(notifier.observe([...needsOf(s), ...packNeeds()], policy, startsOff));
 });
 // A gather a page or an action started is published like the refresher's own.
 gathered = refresher.seen;
@@ -457,6 +458,7 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
 // Packs start, then refresh on their own schedule (checked every 30 s); pages never wait for either.
 const mountedPacks = packsOf(app)!;
 packNeeds = mountedPacks.needs;
+startsOff = mountedPacks.startsOff;
 packLinked = mountedPacks.linked;
 await initAll(mountedPacks, mountedPacks.ctxOf, (l) => console.log(l));
 if (mountedPacks.on.length) {

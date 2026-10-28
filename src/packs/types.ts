@@ -67,8 +67,8 @@ export type PackManifest = {
   private?: boolean;
 };
 
-/** A kind of notification: its id (lowercase), and how Settings says it. On unless I switch it off. */
-export type RingDecl = { kind: string; label: string; hint?: string };
+/** A kind of notification: its id (lowercase), and how Settings says it. On unless I switch it off, or `off`: off until I switch it on. */
+export type RingDecl = { kind: string; label: string; hint?: string; off?: boolean };
 
 /**
  * Something in this app that needs me now, from memory: a row in what needs me, and with `ring`, a

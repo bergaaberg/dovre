@@ -121,7 +121,7 @@ export function ringsOf(on: Pack[], taken: string[], log: (id: string, line: str
         continue;
       }
       seen.add(r.kind);
-      out.push({ pack: c.manifest.id, kind: r.kind, label: cut(r.label, 120) || r.kind, hint: cut(r.hint, 160) || undefined });
+      out.push({ pack: c.manifest.id, kind: r.kind, label: cut(r.label, 120) || r.kind, hint: cut(r.hint, 160) || undefined, ...(r.off === true ? { off: true } : {}) });
     }
   return out;
 }

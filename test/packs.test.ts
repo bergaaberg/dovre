@@ -436,13 +436,13 @@ test("slots: each pack fills a core page's place; one that throws fills nothing,
 test("needs: each pack's, keyed under its id, cut to size, an unsafe link made harmless, a ring only of its own kinds; one that throws adds none", () => {
   const rings = ringsOf(
     [
-      pack({ id: "shop", rings: [{ kind: "shop-down", label: `Shop is down ${H}` }, { kind: "deploy", label: "taken by the core" }, { kind: "Bad Kind", label: "x" }] }),
+      pack({ id: "shop", rings: [{ kind: "shop-down", label: `Shop is down ${H}` }, { kind: "shop-drift", label: "Drift", off: true }, { kind: "deploy", label: "taken by the core" }, { kind: "Bad Kind", label: "x" }] }),
       pack({ id: "other", rings: [{ kind: "shop-down", label: "taken by shop" }] }),
     ],
     ["deploy"],
     () => {},
   );
-  assert.deepEqual(rings.map((r) => `${r.pack}:${r.kind}`), ["shop:shop-down"], "the core's kinds, another pack's and odd ones refused");
+  assert.deepEqual(rings.map((r) => `${r.pack}:${r.kind}${r.off ? " (off)" : ""}`), ["shop:shop-down", "shop:shop-drift (off)"], "the core's kinds, another pack's and odd ones refused; one may start off");
   const shop = pack(
     { id: "shop" },
     {
@@ -461,6 +461,14 @@ test("needs: each pack's, keyed under its id, cut to size, an unsafe link made h
     ["shop:slow", undefined, 2, "/shop", "neutral", "shop"],
   ], "an empty title dropped; a ring the pack didn't declare dropped");
   assert.deepEqual(logged, ["boom: needs: no needs"]);
+});
+
+test("a pack's ring that starts off shows unchecked on Settings → Notifications; the others checked", async () => {
+  const shop = pack({ id: "shop", rings: [{ kind: "shop-down", label: "Shop is down" }, { kind: "shop-drift", label: "Shop drifts", off: true }] });
+  const { get } = signedIn(snapshot(), {}, { packs: [shop] });
+  const body = await (await get("/settings/notifications")).text();
+  assert.match(body, /value="shop-down" checked> Shop is down/);
+  assert.match(body, /value="shop-drift"> Shop drifts/);
 });
 
 test("banner: each pack's bar on every page, told the path; hostile text inert; one that throws leaves the page whole", async () => {

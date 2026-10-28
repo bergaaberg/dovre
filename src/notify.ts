@@ -79,8 +79,8 @@ export async function savePolicy(db: D1, p: Policy) {
 
 const TITLE: Record<Exclude<Need["kind"], "pack">, string> = { deploy: "Deploy waiting", ci: "Build is red", review: "Review asked", "my-pr": "Your PR", mention: "Mentioned" };
 
-/** Does this kind ring under the policy? A kind it doesn't name does. */
-export const rings = (p: Policy, kind: string | undefined) => !!kind && p.kinds[kind] !== false;
+/** Does this kind ring under the policy? A kind it doesn't name does, unless it starts off (a pack's ring declared `off`). */
+export const rings = (p: Policy, kind: string | undefined, startsOff?: ReadonlySet<string>) => !!kind && (p.kinds[kind] ?? !startsOff?.has(kind));
 
 export function noteOf(n: Need): Note {
   // A pack's need says itself whole.
@@ -92,9 +92,9 @@ export function createNotifier() {
   let seen: Set<string> | undefined;
   return {
     /** The needs that are new since last time and ring under the policy, as notes (none on the first look). */
-    observe(needs: Need[], policy: Policy = DEFAULT_POLICY): Note[] {
+    observe(needs: Need[], policy: Policy = DEFAULT_POLICY, startsOff?: ReadonlySet<string>): Note[] {
       const first = !seen;
-      const fresh = first ? [] : needs.filter((n) => !seen!.has(n.key) && rings(policy, n.ring));
+      const fresh = first ? [] : needs.filter((n) => !seen!.has(n.key) && rings(policy, n.ring, startsOff));
       seen = new Set(needs.map((n) => n.key));
       return fresh.map(noteOf);
     },

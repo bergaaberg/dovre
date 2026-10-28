@@ -179,6 +179,10 @@ test("notifications: the first look is silent; then only new things that ring un
   assert.equal(fresh[0]!.url, "/prs");
   assert.deepEqual(n.observe([need("x:1", "review")], { ...DEFAULT_POLICY, kinds: { ...DEFAULT_POLICY.kinds, review: false } }), [], "a kind switched off stays quiet");
   assert.equal(noteOf({ ...need("ci:x", "ci"), href: "https://acme.ghe.com/x" }).url, undefined, "only this app's own pages open from a note");
+  const off = new Set(["shop-drift"]);
+  assert.deepEqual(n.observe([need("shop:d:1", "shop-drift", "pack")], DEFAULT_POLICY, off), [], "a pack's kind that starts off stays quiet");
+  const on = { ...DEFAULT_POLICY, kinds: { ...DEFAULT_POLICY.kinds, "shop-drift": true } };
+  assert.deepEqual(n.observe([need("shop:d:2", "shop-drift", "pack")], on, off).map((x) => x.title), ["t"], "until I switch it on");
 });
 
 test("a newer deploy run superseding the last doesn't ring (agents need me through the agents pack, its own test)", () => {

@@ -215,11 +215,14 @@ export function appPanel(info: { version: string; startedAt: number } | undefine
   });
 }
 
+/** Is this kind on: my choice, else the default (a pack's ring that starts off is off). */
+const ringOn = (p: Policy, k: { kind: string; off?: boolean }) => p.kinds[k.kind] ?? !k.off;
+
 /** Notifications: what rings and when, and what rang lately. `rings`: the packs' kinds, after the core's. */
-export function notifyPanels(p: Policy, log: Rung[], rings: { kind: string; label: string; hint?: string }[] = []) {
+export function notifyPanels(p: Policy, log: Rung[], rings: { kind: string; label: string; hint?: string; off?: boolean }[] = []) {
   const form = html`<form method="post" action="/settings/notify">
 <div class="field" id="ring-for"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...rings].map(
-    (k) => html`<label class="check"><input type="checkbox" name="kind" value="${k.kind}"${p.kinds[k.kind] !== false ? html` checked` : ""}> ${k.label}${k.hint ? html` <span class="t3">· ${k.hint}</span>` : ""}</label><br>`,
+    (k) => html`<label class="check"><input type="checkbox" name="kind" value="${k.kind}"${ringOn(p, k) ? html` checked` : ""}> ${k.label}${k.hint ? html` <span class="t3">· ${k.hint}</span>` : ""}</label><br>`,
   )}</fieldset></div>
 <div class="fields aligned">
 <label class="field" id="long-turn"><span class="label">A long agent turn is at least</span><input type="number" name="longTurnMin" min="0" max="240" value="${p.longTurnMin}"><span class="hint">minutes. Ordinary replies never ring.</span></label>
@@ -278,7 +281,7 @@ export type PackSettings = { id: string; name: string; on: boolean; settings: { 
 export type RowsState = {
   layout: Layout;
   policy: Policy;
-  rings: { kind: string; label: string }[];
+  rings: { kind: string; label: string; off?: boolean }[];
   writes: { chosen: Map<string, Clicks>; kinds: WriteKind[] };
   keys: KeyPrefs;
   panes?: PanesView & { stored: Record<string, string | undefined> };
@@ -309,8 +312,8 @@ export function settingRows(s: RowsState): SettingRow[] {
   );
   const p = s.policy;
   for (const k of [...RING_KINDS, ...s.rings]) {
-    const on = p.kinds[k.kind] !== false;
-    rows.push({ area: "notifications", label: `Ring for: ${k.label}`, href: "/settings/notifications#ring-for", now: onOff(on), changed: on !== (DEFAULT_POLICY.kinds[k.kind] ?? true), also: ["ring", "notify"] });
+    const on = ringOn(p, k);
+    rows.push({ area: "notifications", label: `Ring for: ${k.label}`, href: "/settings/notifications#ring-for", now: onOff(on), changed: on !== (DEFAULT_POLICY.kinds[k.kind] ?? !("off" in k && k.off === true)), also: ["ring", "notify"] });
   }
   rows.push(
     { area: "notifications", label: "A long agent turn is at least", href: "/settings/notifications#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes"] },
