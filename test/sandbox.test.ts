@@ -132,6 +132,9 @@ test("a sandbox run: the engine's command around the image's own claude, yolo, n
   assert.equal(run.status, "done");
   assert.ok(runner.discard(run.id));
   assert.equal(calls.at(-1), `remove /boxes/${run.id}`);
+  assert.ok(runner.get(run.id)?.discarded, "its record stays");
+  assert.deepEqual(runner.list(), [], "off the lists");
+  assert.equal(runner.discard(run.id), false, "once");
 });
 
 test("stopping a sandbox run kills its container too, and the wall-clock cap stops it", async () => {
@@ -362,6 +365,7 @@ test("the runner: a sandbox run's commits are collected when it ends, pushed on 
   assert.ok(runner.discard(run.id));
   await tick();
   assert.ok(calls.includes("drop /code/a sandbox/aaaa"));
+  await assert.rejects(runner.pushSandbox(run.id), /discarded|open already/);
 });
 
 test("the runner: hosts the box was refused are kept on the run, and its page lists them (escaped) with where to allow more", async () => {
@@ -403,6 +407,12 @@ test("the run page: what it made, escaped; Open draft PR asks under its kind, an
   const landed = String(agentPage({ sessionId: "11111111-1111-4111-8111-111111111111", turns: [], run: { ...run, out: { ...READY, pr: { number: 3, url: "javascript:alert(1)" } } } }).body);
   assert.ok(!landed.includes("javascript:"));
   assert.match(landed, /Draft PR #3/);
+  // Discarded: its record and last word stay, nothing to act on, a PR link still through safeUrl.
+  const put = String(agentPage({ sessionId: "11111111-1111-4111-8111-111111111111", turns: [], run: { ...run, discarded: 2, out: { ...READY, pr: { number: 3, url: "javascript:alert(1)" } } } }).body);
+  assert.match(put, /discarded/);
+  assert.match(put, /Its sandbox and branch are gone/);
+  assert.ok(!put.includes("javascript:") && !put.includes("<iframe"));
+  assert.doesNotMatch(put, /action="\/agents\/r\/run-1\/(pr|discard)"/);
 });
 
 test("openSandboxPr: refused before any push outside the owners; else pushed, checked again, a draft PR, logged under its kind", async () => {

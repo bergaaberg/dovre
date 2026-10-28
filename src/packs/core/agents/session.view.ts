@@ -118,6 +118,7 @@ function sandboxPanel(run: Run) {
   const net = blocked.length
     ? html`<details><summary>${blocked.length} host${blocked.length === 1 ? "" : "s"} refused</summary><ul class="calls">${blocked.map((h) => html`<li><code>${h}</code></li>`)}</ul><p class="t3">The sandbox reaches the model API${allow.length ? html` and ${allow.map((h, i) => html`${i ? ", " : ""}<code>${h}</code>`)}` : ""} only. To let it reach more, list hosts under <code>allow</code> in the repo's <code>.dovre/sandbox.json</code>.</p></details>`
     : "";
+  if (run.discarded) return Panel({ title: "What it made", meta: html`discarded ${Ago(run.discarded)}${cost}`, children: html`${said}<p class="t3">${out?.state === "ready" && out.pr ? html`Its draft PR stays: <a href="${safeUrl(out.pr.url)}">#${out.pr.number}</a>. ` : ""}Its sandbox and branch are gone.</p>${net}` });
   if (!out || out.state === "collecting") return Panel({ title: "What it made", children: html`<p class="t3">Bringing its commits out of the sandbox…</p>` });
   if (out.state === "none") return Panel({ title: "What it made", meta: html`no commits${cost}`, actions: discard("Discard this run and its sandbox?"), children: html`${said}<p class="t3">It changed nothing.</p>${net}` });
   if (out.state === "failed") return Panel({ title: "What it made", meta: cost, actions: discard("Discard this run and its sandbox? Its commits go with it."), children: html`${said}${Notice({ tone: "bad", children: out.why })}${net}` });
@@ -241,4 +242,14 @@ ${harnesses.includes("omp") ? html`<p class="hint t3">omp's own setting may appr
 </form>`,
 })}`;
   return { title: "New agent · Dovre", current: "/agents", body };
+}
+
+/** A run or session link that leads nowhere: kept a week, then swept; or on a machine that's gone. */
+export function goneAgentPage(): PageOpts {
+  return {
+    title: "Not here any more",
+    current: "/agents",
+    body: html`${PageHeader({ title: "Not here any more", crumbs: [{ href: "/agents", label: "Agents" }] })}
+${Empty({ title: "That run isn't here any more", children: html`<p class="t2">A run's record is kept for a week after it ends, then swept away. One on a machine that's gone goes with it.</p><p><a class="btn" href="/agents">Agents</a></p>` })}`,
+  };
 }

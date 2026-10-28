@@ -18,7 +18,7 @@ import type { Ghe } from "../../../sources/ghe.ts";
 import type { Html } from "../../../ui/kit.ts";
 import type { Here } from "./here.ts";
 import { sessionsOf } from "./index.ts";
-import { agentPage, newAgentPage } from "./session.view.ts";
+import { agentPage, goneAgentPage, newAgentPage } from "./session.view.ts";
 import { agentsPage, worktreesPage } from "./view.ts";
 
 type C = Context<AppEnv>;
@@ -110,9 +110,13 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const res = await ctx.page(c, newAgentPage({ repos: await desk.repos(), repo: String(form.repo ?? ""), prompt: String(form.prompt ?? ""), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: typeof form.machine === "string" ? form.machine : undefined, error: r.error, sandbox: v.sandbox, sandboxed: form.sandbox === "on", fields: (repo) => ctx.fill("agents.new", { repo }) }));
     return new Response(res.body, { status: 400, headers: res.headers });
   });
+  const gone = async (c: Context<AppEnv>) => {
+    const res = await ctx.page(c, goneAgentPage());
+    return new Response(res.body, { status: 404, headers: res.headers });
+  };
   app.get("/agents/r/:run", async (c) => {
     const run = await desk.run(c.req.param("run"));
-    if (!run) return c.notFound();
+    if (!run) return gone(c);
     if (run.sessionId) return c.redirect(`/agents/s/${run.sessionId}`, 303);
     const flash = flashes.get(run.id);
     flashes.delete(run.id);
@@ -122,7 +126,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const sid = c.req.param("sid");
     if (!SID.test(sid)) return c.notFound();
     const v = await desk.session(sid);
-    if (!v) return c.notFound();
+    if (!v) return gone(c);
     const flash = flashes.get(sid);
     flashes.delete(sid);
     return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf, diff: ctx.hosted || v.run?.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, v.session?.cwd ?? v.run?.cwd) }));

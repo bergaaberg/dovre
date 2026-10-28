@@ -114,7 +114,13 @@ test("a working run has Stop; an ended one is cleared away (off the lists), and 
   assert.equal((await w.post(`/agents/r/${slow.id}/discard`)).status, 303);
   assert.ok(w.runner.get(slow.id), "a running run stays");
   assert.equal((await w.post(`/agents/r/${quick.id}/discard`, {}, "http://localhost/")).location, "/", "back to Today");
-  assert.equal(w.runner.get(quick.id), undefined);
+  assert.ok(w.runner.get(quick.id)?.discarded, "its record stays, for its page");
+  assert.ok(!w.runner.list().some((r) => r.id === quick.id), "off the lists");
+  const kept = await w.get(`/agents/r/${quick.id}`);
+  assert.doesNotMatch(kept, /isn(&#39;|')t here any more/, "its page still opens");
+  const gone = await w.get("/agents/r/run-nope<script>");
+  assert.match(gone, /That run isn(&#39;|')t here any more/);
+  assert.ok(!gone.includes("<script>"));
   assert.equal((await w.post(`/agents/r/${slow.id}/stop`)).location, "/agents");
   assert.equal(w.runner.get(slow.id)!.status, "stopped");
 });

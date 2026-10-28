@@ -91,6 +91,8 @@ export type Run = {
   budget?: number;
   /** A sandbox run (#208): hosts it tried to reach and its repo doesn't allow, in the order tried. */
   blocked?: string[];
+  /** Discarded (or cleared away) at: off the lists, its sandbox and branch gone; its record stays for its page until the week's sweep. */
+  discarded?: number;
 };
 
 export type StartOpts = {
@@ -129,7 +131,7 @@ export type Runner = {
   copiesOf(sessionId: string): Run[];
   list(): Run[];
   stop(id: string): boolean;
-  /** Forgets an ended run: off the lists, its files in the runs folder gone. The session's own transcript stays. */
+  /** Puts an ended run away: off the lists, its sandbox and branch gone. Its record stays for its page (a week, like any run); the session's own transcript stays too. */
   discard(id: string): boolean;
   /** Resolves when the run knows its session id (or ends), at most `ms` later. */
   sessionOf(id: string, ms?: number): Promise<string | undefined>;
@@ -447,8 +449,8 @@ export function createRunner(opts: {
       for (const r of runs.values()) if ((r.sessionId === sessionId || (r.resumed === sessionId && !r.forked)) && (!hit || r.startedAt > hit.startedAt)) hit = r;
       return hit;
     },
-    copiesOf: (sessionId) => [...runs.values()].filter((r) => r.forked && r.resumed === sessionId).sort((a, b) => b.startedAt - a.startedAt),
-    list: () => [...runs.values()].sort((a, b) => b.startedAt - a.startedAt),
+    copiesOf: (sessionId) => [...runs.values()].filter((r) => r.forked && r.resumed === sessionId && !r.discarded).sort((a, b) => b.startedAt - a.startedAt),
+    list: () => [...runs.values()].filter((r) => !r.discarded).sort((a, b) => b.startedAt - a.startedAt),
     stop(id) {
       const run = runs.get(id);
       const child = children.get(id);
@@ -471,13 +473,13 @@ export function createRunner(opts: {
     },
     discard(id) {
       const run = runs.get(id);
-      if (!run || run.status === "running") return false;
-      runs.delete(id);
+      if (!run || run.status === "running" || run.discarded) return false;
+      run.discarded = now();
       if (run.sandbox) opts.sandbox?.remove(run.sandbox);
       // Its branch in the checkout goes too (pushed, the PR's branch stays on the forge).
       const out = ready(run);
       if (out) void opts.sandbox?.dropBranch({ cwd: run.cwd, branch: out.branch });
-      if (host) for (const ext of ["json", "out.jsonl", "err.txt", "exit.json"]) rmSync(file(id, ext), { force: true });
+      if (host) keep(run);
       changed(run);
       return true;
     },
@@ -495,6 +497,7 @@ export function createRunner(opts: {
       const run = runs.get(id);
       const out = ready(run);
       if (!run || !opts.sandbox || !out) throw new Error("There's nothing from that run to push.");
+      if (run.discarded) throw new Error("It was discarded: its branch is gone.");
       if (out.pr) throw new Error(`Its draft PR is open already: #${out.pr.number}.`);
       if (!out.repo) throw new Error("The checkout's origin isn't a repo on the forge.");
       await opts.sandbox.push({ cwd: run.cwd, branch: out.branch, head: out.head, repo: out.repo });
