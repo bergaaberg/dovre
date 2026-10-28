@@ -30,6 +30,8 @@ export type Layout = {
   lineHeight?: LineHeight;
   /** What Bino's button shows: the face a pack draws, if any (unset), or the assistant icon. */
   binoButton?: "icon";
+  /** Motion: unset follows the system's reduce-motion setting; "always" animates anyway (data-motion on <html>). */
+  motion?: "always";
   /** Links to other sites from the installed app: the system's default browser instead of the app's own (local only, src/open-link.ts). */
   links?: "default";
   /** /stats's panels by id (core's, or `<pack>:<id>`): shown or hidden, and their order. Unset: each where its code puts it. */
@@ -90,6 +92,7 @@ export function layoutOf(raw: unknown): Layout {
   if (TEXT_SIZES.includes(v.textSize as TextSize)) out.textSize = v.textSize as TextSize;
   if (LINE_HEIGHTS.includes(v.lineHeight as LineHeight)) out.lineHeight = v.lineHeight as LineHeight;
   if (v.binoButton === "icon") out.binoButton = "icon";
+  if (v.motion === "always") out.motion = "always";
   if (v.links === "default") out.links = "default";
   if (v.stats && typeof v.stats === "object" && !Array.isArray(v.stats)) {
     const stats: Record<string, StatPlace> = {};
@@ -161,7 +164,7 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
     const at = one(`statorder:${id}`).trim();
     if (show === "on" || show === "off") stats[id] = { show: show === "on", order: at === "" ? 100 : order(Number(at)) };
   }
-  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), font: one("font"), textSize: one("textSize"), lineHeight: one("lineHeight"), binoButton: one("binoButton"), links: one("links"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")), statsDays: Number(/^(\d+)d$/.exec(one("statsWeeks"))?.[1]) });
+  return layoutOf({ tabs, cards, feedOff: here.feeds.filter((id) => !fed.has(id)), packsOff: here.packs.filter((id) => !shown.has(id)), theme: one("theme"), accent: one("accent"), font: one("font"), textSize: one("textSize"), lineHeight: one("lineHeight"), binoButton: one("binoButton"), motion: one("motion"), links: one("links"), stats: here.stats ? stats : undefined, statsWeeks: Number(one("statsWeeks")), statsDays: Number(/^(\d+)d$/.exec(one("statsWeeks"))?.[1]) });
 }
 
 /**

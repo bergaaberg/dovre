@@ -515,7 +515,7 @@ main.page { padding: 26px 0 0; min-width: 0; }
 .settled > .bubble { animation: settle 1.4s ease-out; border-radius: 6px; }
 @keyframes settle { from { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); } to { background: transparent; box-shadow: 0 0 0 6px transparent; } }
 @keyframes fe-in { from { opacity: 0; transform: translateY(-8px); background: var(--accent-soft); } to { opacity: 1; transform: none; background: transparent; } }
-@media (prefers-reduced-motion: reduce) { .fe.fresh { animation: none; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="always"]) .fe.fresh { animation: none; } }
 body:has(.docks) .feed { max-height: calc(100vh - 84px); }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 18px 22px 10px; min-width: 0; }
 /* An opened row gets the whole width, where it is: no jump to the top. */
@@ -1257,10 +1257,12 @@ button.busy::after { content: ""; display: inline-block; width: .75em; height: .
 .vtip strong { color: var(--ink); font-size: var(--fs-s); font-weight: 600; }
 @media (max-width: 1000px) { .stats-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (forced-colors: active) { .vb, .vd { fill: CanvasText; } .vl { stroke: CanvasText; } .vkey { background: CanvasText; } }
+/* Less motion when the system asks, unless Settings → Look says Always (data-motion="always"). */
 @media (prefers-reduced-motion: reduce) {
-  .fresh, .leaving, .bump, .settled > .bubble, .breathe, .turn-row.live .bubble::after, .live-dot.sync, .spinner, button.busy::after { animation: none; } .chev { transition: none; }
-  html.going::before { animation: none; background: var(--accent); }
-  @view-transition { navigation: none; }
+  :root:not([data-motion="always"]) .fresh, :root:not([data-motion="always"]) .leaving, :root:not([data-motion="always"]) .bump, :root:not([data-motion="always"]) .settled > .bubble, :root:not([data-motion="always"]) .breathe, :root:not([data-motion="always"]) .turn-row.live .bubble::after, :root:not([data-motion="always"]) .live-dot.sync, :root:not([data-motion="always"]) .spinner, :root:not([data-motion="always"]) button.busy::after { animation: none; } :root:not([data-motion="always"]) .chev { transition: none; }
+  :root:not([data-motion="always"]).going::before { animation: none; background: var(--accent); }
+  /* The page swap happens at once (the pseudo-elements hang off <html>, so this can follow the setting). */
+  :root:not([data-motion="always"])::view-transition-group(*), :root:not([data-motion="always"])::view-transition-old(*), :root:not([data-motion="always"])::view-transition-new(*) { animation: none; }
 }
 ` + CHARTS_CSS + ISSUES_CSS + SPLASH_CSS;
 

@@ -174,7 +174,7 @@ body { color: var(--ink); font: 15px/1.5 "Nordwand Mono", "Cascadia Mono", Conso
 #help p { margin: 0 0 14px; }
 a.btn { display: inline-block; padding: 9px 15px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
 code { font: 13px "Nordwand Mono", "Cascadia Mono", Consolas, monospace; }
-@media (prefers-reduced-motion: reduce) { #bar { transition: none; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="always"]) #bar { transition: none; } }
 </style></head>
 <body class="splash-page"><main class="splash" data-probe="${f ? "file" : "health"}" data-base="${f?.base ?? ""}" data-up="${f?.up ?? ""}">${RIDGE_ART}${f?.picture ? html`<img class="splash-pic" src="${f.picture}" alt="">` : ""}
 <div class="splash-text"><div class="splash-brand">${MARK}<h1>Dovre</h1></div>
