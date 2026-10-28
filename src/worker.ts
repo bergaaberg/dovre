@@ -5,7 +5,7 @@
  * request (src/access.ts); without it configured nobody gets in.
  */
 import { type Actor, actingAs, currentActor } from "./actor.ts";
-import { ownersOf, primaryOf } from "./owners.ts";
+import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
 import { keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
@@ -265,7 +265,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed }), assistantPack(), issues, ...instancePacks], { env: strings, bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), assistantPack(), issues, ...instancePacks], { env: strings, bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,

@@ -17,8 +17,11 @@ const str = (v: unknown, max = 200) => (typeof v === "string" && v.length <= max
 
 /** A run as the hub may keep it: what lists draw (status, the denied calls, the prompt's first line), never what was said. */
 export function runMeta(r: Run): Run {
+  // What a sandbox run made: its branch and PR, not its commits' subjects or paths (the agent wrote those).
+  const out = r.out?.state === "ready" ? { ...r.out, commits: [], files: [] } : r.out;
   return {
     ...r,
+    ...(out ? { out } : {}),
     prompt: r.prompt.split("\n")[0]!.slice(0, 200),
     events: r.events.filter((e) => e.t === "denied"),
     partial: "",
@@ -72,6 +75,10 @@ export async function answerCall(desk: Desk, c: Call): Promise<unknown> {
       return desk.discardRun(id);
     case "clear":
       return desk.clear();
+    case "pushSandbox":
+      return desk.pushSandbox(id);
+    case "landed":
+      return desk.landed(id, c.pr && typeof c.pr === "object" ? (c.pr as { number?: unknown; url?: unknown }) : {});
   }
   throw new Error(`The Mac doesn't do "${c.op.slice(0, 40)}".`);
 }

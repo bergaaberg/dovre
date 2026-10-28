@@ -18,6 +18,7 @@ import { html } from "hono/html";
 import type { Desk } from "../../../agents/desk.ts";
 import type { Dismissed } from "../../../agents/dismissed.ts";
 import type { Run } from "../../../agents/runner.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
 import { type Pack, PACK_API } from "../../types.ts";
 import { agentAsksOf } from "./asks.ts";
 import { aboutAgentPage, agentsForBino } from "./bino.ts";
@@ -40,6 +41,8 @@ export type AgentsDeps = {
   onTurn?: (listen: (r: Run) => void) => void;
   /** How long a turn runs before its end rings (Settings → Notifications); default 10 min. */
   longTurnMs?: () => number;
+  /** The forge, for a sandbox run's draft PR (#206): absent, a run's commits stay a branch on its machine. */
+  github?: { ghe: Pick<Ghe, "rest">; owners: () => string };
 };
 
 const NONE: Sessions = { live: [], recent: [] };
@@ -50,7 +53,7 @@ export function sessionsOf(desk: Desk, here: Here | undefined, dismissed?: Pick<
   return dismissed ? { live: all.live, recent: all.recent.filter((x) => !dismissed.has(x.sessionId)) } : all;
 }
 
-export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs }: AgentsDeps): Pack {
+export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }: AgentsDeps): Pack {
   const sessions = (cleared?: boolean) => sessionsOf(desk, here, cleared ? dismissed : undefined);
   let stop = () => {};
   return {
@@ -104,7 +107,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs }: Agents
     about: (ctx, path) => aboutAgentPage(path, sessions()),
     finds: (ctx) => agentFinds(sessions(true), desk.view().runs, ctx.hosted ? [] : (here?.worktrees() ?? [])),
     feed: (ctx) => agentFeed(sessions(true), desk.view().runs, Date.now()),
-    routes: (app, ctx) => agentRoutes(app, ctx, { desk, dismissed, here }),
+    routes: (app, ctx) => agentRoutes(app, ctx, { desk, dismissed, here, github }),
     // Not on the session's own page: it asks there itself.
     banner: (_ctx, { path }) => {
       const asks = agentAsksOf(desk.view().runs, (sid) => dismissed.has(sid)).filter((a) => path !== `/agents/s/${a.sid}`);

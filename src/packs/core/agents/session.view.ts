@@ -10,7 +10,8 @@ import { HARNESS_LABEL, MODE_SHORT, modelSelect, modeSelect } from "../../../pag
 import type { Session } from "../../../sources/claude.ts";
 import { type Child, Confirm, Empty, Notice, PageHeader, Panel, Pill, icon } from "../../../ui/kit.ts";
 import { markdown } from "../../../ui/markdown.ts";
-import { Ago, HARNESS_NAME, harnessTag, type MacStatus, macNotice, resumeCommand, trunc } from "../../../pages/parts.ts";
+import { Ago, HARNESS_NAME, harnessTag, type MacStatus, macNotice, resumeCommand, safeUrl, trunc } from "../../../pages/parts.ts";
+import { sandboxKind } from "../../../actions/sandbox.ts";
 
 
 /**
@@ -101,6 +102,36 @@ function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?
   }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model }))}${run.status !== "running" && turnCostOf ? html`<li class="turn-row meta t3">Last turn cost $${turnCostOf.toFixed(3)}</li>` : ""}`;
 }
 
+/**
+ * What a sandbox run made, once it ended (#206): its commits, brought home as a branch of the
+ * checkout, the files they change, the agent's last word, and "Open draft PR" or "Discard".
+ */
+function sandboxPanel(run: Run) {
+  const out = run.out;
+  const result = [...run.events].reverse().find((e) => e.t === "result") as Extract<Run["events"][number], { t: "result" }> | undefined;
+  const said = result && !result.error && result.text.trim() ? html`<div class="bubble">${markdown(trunc(result.text, 8000), { headingOffset: 3 })}</div>` : "";
+  const discard = (what: string) => Confirm({ kind: "sandbox.discard", action: `/agents/r/${run.id}/discard`, label: "Discard", danger: true, question: what });
+  const cost = run.cost ? html` · $${run.cost.toFixed(2)}` : "";
+  if (!out || out.state === "collecting") return Panel({ title: "What it made", children: html`<p class="t3">Bringing its commits out of the sandbox…</p>` });
+  if (out.state === "none") return Panel({ title: "What it made", meta: html`no commits${cost}`, actions: discard("Discard this run and its sandbox?"), children: html`${said}<p class="t3">It changed nothing.</p>` });
+  if (out.state === "failed") return Panel({ title: "What it made", meta: cost, actions: discard("Discard this run and its sandbox? Its commits go with it."), children: html`${said}${Notice({ tone: "bad", children: out.why })}` });
+  const add = out.files.reduce((n, f) => n + f.add, 0);
+  const del = out.files.reduce((n, f) => n + f.del, 0);
+  const n = out.commits.length;
+  const actions = out.pr
+    ? html`<a class="btn" href="${safeUrl(out.pr.url)}" target="_blank" rel="noopener">Draft PR #${out.pr.number}</a>`
+    : html`${Confirm({ kind: sandboxKind(out), action: `/agents/r/${run.id}/pr`, label: "Open draft PR", question: html`Push <code>${out.branch}</code> to ${out.repo ?? "origin"} and open a draft PR from it?${out.ci ? html` It changes CI config, which runs with the repo's secrets once pushed.` : ""}` })}${discard(`Discard ${n} commit${n === 1 ? "" : "s"}? The branch ${out.branch} and the sandbox go.`)}`;
+  return Panel({
+    title: "What it made",
+    meta: html`${n} commit${n === 1 ? "" : "s"} · ${out.files.length} file${out.files.length === 1 ? "" : "s"} +${add} −${del}${cost}`,
+    actions,
+    children: html`${out.ci && !out.pr ? Notice({ tone: "warn", children: html`<strong>It changed CI config.</strong> A push runs the repo's workflows with its secrets: read the diff before you open the PR.` }) : ""}${said}
+<p class="t3">On branch <code>${out.branch}</code> of the checkout${out.repo ? html` (${out.repo})` : ""}${out.pr ? ", pushed" : ", not pushed"}.</p>
+<ul class="calls">${out.commits.map((c) => html`<li><code>${c.sha.slice(0, 7)}</code> <span class="t2">${c.subject}</span></li>`)}</ul>
+<details><summary>${out.files.length} file${out.files.length === 1 ? "" : "s"} changed</summary><ul class="calls">${out.files.map((f) => html`<li><code>${f.path}</code> <span class="t2">+${f.add} −${f.del}</span></li>`)}</ul></details>`,
+  });
+}
+
 export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string; /** Local, in a checkout: its diff page (dovre#105). */ diff?: string }): PageOpts {
   const { sessionId, session: s, turns, run } = opts;
   const running = run?.status === "running";
@@ -122,7 +153,9 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
   const reply = opts.mac?.online === false
     ? ""
     : run?.sandbox
-    ? html`${running ? html`<form method="post" action="/agents/s/${sessionId}/stop" class="inline"><button type="submit" class="danger sm" title="Stop the sandbox run">Stop</button></form>` : ""}${Notice({ children: "A sandbox run takes one prompt, so there's no replying. Its commits stay in the sandbox's clone until Dovre can bring them back as a draft PR." })}`
+    ? running
+      ? html`<form method="post" action="/agents/s/${sessionId}/stop" class="inline"><button type="submit" class="danger sm" title="Stop the sandbox run">Stop</button></form>${Notice({ children: "A sandbox run takes one prompt, so there's no replying. When it ends, its commits come home as a branch you can open a draft PR from." })}`
+      : sandboxPanel(run)
     : readOnly
     ? Notice({ children: html`Copilot CLI sessions are read here, not replied to yet. To carry on in a terminal: <code data-copy="${resumeCommand(s!)}">${resumeCommand(s!)}</code>` })
     : html`${running ? html`<form method="post" action="/agents/s/${sessionId}/stop" id="stop-form" hidden></form>` : ""}${
@@ -141,7 +174,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
     title,
     crumbs: [{ href: "/agents", label: "Agents" }],
     sub: html`${harnessTag(s?.harness ?? run?.harness, s?.model ?? run?.model)} ${s?.repo ?? run?.repo ?? ""}${s?.branch ? html` · ${s.branch}` : ""}${run?.sandbox ? html` · <span class="t3">sandbox</span>` : ""} · ${status}${s?.cost ? html` · <span class="t3">$${s.cost.toFixed(2)} so far</span>` : ""}`,
-    actions: html`${opts.diff ? html`<a class="btn ghost" href="${opts.diff}" title="What's changed in its checkout, committed or not">Diff</a>` : ""}${opts.discardable ? html`<form method="post" action="/agents/s/${sessionId}/discard"><button type="submit" class="ghost" title="Off Dovre's lists; the transcript stays, and replying brings it back">Clear away</button></form>` : ""}<a class="btn ghost" href="/agents/new">New session</a>`,
+    actions: html`${opts.diff ? html`<a class="btn ghost" href="${opts.diff}" title="What's changed in its checkout, committed or not">Diff</a>` : ""}${opts.discardable && !run?.sandbox ? html`<form method="post" action="/agents/s/${sessionId}/discard"><button type="submit" class="ghost" title="Off Dovre's lists; the transcript stays, and replying brings it back">Clear away</button></form>` : ""}<a class="btn ghost" href="/agents/new">New session</a>`,
   })}
 ${opts.flash ? Notice({ tone: "bad", children: opts.flash }) : ""}
 ${macNotice(opts.mac)}
@@ -163,7 +196,7 @@ ${Panel({
 function sandboxField(st: { ok: boolean; why?: string }, ticked: boolean) {
   return html`<div class="field"><label class="check"><input type="checkbox" name="sandbox" value="on"${ticked && st.ok ? html` checked` : ""}${st.ok ? "" : html` disabled`}> Run in a sandbox</label><span class="hint">${
     st.ok
-      ? "Claude Code, in a fresh clone of the checkout inside a container: it runs anything without asking, and reaches nothing else on this machine. One prompt; its commits stay in the sandbox for now."
+      ? "Claude Code, in a fresh clone of the checkout inside a container: it runs anything without asking, and reaches nothing else on this machine. One prompt; when it ends, its commits come home as a branch you can open a draft PR from."
       : st.why
   }</span></div>`;
 }

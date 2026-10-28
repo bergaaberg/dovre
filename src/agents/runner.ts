@@ -15,7 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { COPY_NOTE, type Question } from "./conversation.ts";
 import { claudeHarness } from "./harnesses/claude/harness.ts";
 import { mcpConfig, mcpEnv } from "./harnesses/shared.ts";
-import type { SandboxBox, SandboxEngine, SandboxState } from "./sandbox.ts";
+import { type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxReady, type SandboxState, sandboxBranch } from "./sandbox.ts";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
@@ -81,6 +81,8 @@ export type Run = {
   machine?: string;
   /** A sandbox run (yolo inside a container): its clone, container and base commit. `cwd` stays the checkout it was cloned from. */
   sandbox?: SandboxBox;
+  /** A sandbox run that ended: what it made, brought home as a branch of `cwd` (#206). */
+  out?: SandboxOut;
 };
 
 export type StartOpts = {
@@ -122,6 +124,10 @@ export type Runner = {
   byMcpToken(token: string): Run | undefined;
   /** Whether sandbox runs can start here, and why not; undefined when they aren't set up at all. */
   sandbox(): SandboxState | undefined;
+  /** Pushes a sandbox run's branch to origin, once checked (src/agents/sandbox.ts `push`): what it pushed. Throws why not. */
+  pushSandbox(id: string): Promise<{ repo: string; branch: string; head: string }>;
+  /** A sandbox run's draft PR is open: kept on the run, and the clone goes. */
+  landed(id: string, pr: { number: number; url: string }): boolean;
 };
 
 type Spawn = (bin: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => ChildProcess;
@@ -155,10 +161,31 @@ export function createRunner(opts: {
   /** Each turn's MCP token (run id → token): kept apart from the run, so it's never drawn or sent to the Worker. */
   const mcpTokens = new Map<string, string>();
   const changed = (r: Run) => opts.onChange?.(r);
-  /** A sandbox run that ended: its token's env file goes (the clone stays, for its commits). */
+  /** A sandbox run that ended: its token's env file goes (the clone stays, for its commits), and its commits come home. */
   const boxEnded = (r: Run) => {
-    if (r.sandbox) opts.sandbox?.ended(r.sandbox);
+    if (!r.sandbox || !opts.sandbox) return;
+    opts.sandbox.ended(r.sandbox);
+    if (!r.out || r.out.state === "collecting") void collect(r);
   };
+  const collecting = new Set<string>();
+  /** Brings a sandbox run's commits home as a branch of its checkout (the engine's `collect`). */
+  const collect = async (r: Run) => {
+    if (!r.sandbox || !opts.sandbox || collecting.has(r.id)) return;
+    collecting.add(r.id);
+    r.out = { state: "collecting" };
+    changed(r);
+    try {
+      r.out = await opts.sandbox.collect(r.sandbox, { cwd: r.cwd, branch: sandboxBranch(r.id) });
+    } catch (e) {
+      r.out = { state: "failed", why: String((e as Error).message) };
+    } finally {
+      collecting.delete(r.id);
+    }
+    if (!runs.has(r.id)) return;
+    if (host) keep(r);
+    changed(r);
+  };
+  const ready = (r: Run | undefined): SandboxReady | undefined => (r?.out?.state === "ready" ? r.out : undefined);
   /** A sandbox run is stopped when it runs past the cap, also when picked up after a restart. */
   const capped = (r: Run, stop: (id: string) => boolean) => {
     if (!r.sandbox || !opts.sandbox) return;
@@ -422,6 +449,9 @@ export function createRunner(opts: {
       if (!run || run.status === "running") return false;
       runs.delete(id);
       if (run.sandbox) opts.sandbox?.remove(run.sandbox);
+      // Its branch in the checkout goes too (pushed, the PR's branch stays on the forge).
+      const out = ready(run);
+      if (out) void opts.sandbox?.dropBranch({ cwd: run.cwd, branch: out.branch });
       if (host) for (const ext of ["json", "out.jsonl", "err.txt", "exit.json"]) rmSync(file(id, ext), { force: true });
       changed(run);
       return true;
@@ -436,6 +466,26 @@ export function createRunner(opts: {
       return runs.get(id)?.sessionId;
     },
     sandbox: () => opts.sandbox?.state(),
+    async pushSandbox(id) {
+      const run = runs.get(id);
+      const out = ready(run);
+      if (!run || !opts.sandbox || !out) throw new Error("There's nothing from that run to push.");
+      if (out.pr) throw new Error(`Its draft PR is open already: #${out.pr.number}.`);
+      if (!out.repo) throw new Error("The checkout's origin isn't a repo on the forge.");
+      await opts.sandbox.push({ cwd: run.cwd, branch: out.branch, head: out.head, repo: out.repo });
+      return { repo: out.repo, branch: out.branch, head: out.head };
+    },
+    landed(id, pr) {
+      const run = runs.get(id);
+      const out = ready(run);
+      if (!run || !out || !Number.isInteger(pr?.number) || typeof pr?.url !== "string") return false;
+      out.pr = { number: pr.number, url: pr.url.slice(0, 300) };
+      // The work is on the forge now: the clone goes.
+      if (run.sandbox) opts.sandbox?.remove(run.sandbox);
+      if (host) keep(run);
+      changed(run);
+      return true;
+    },
     byMcpToken(token) {
       if (typeof token !== "string" || token.length < 32) return undefined;
       const given = Buffer.from(token);

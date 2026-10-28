@@ -357,7 +357,7 @@ const storybookBuilds = createBuilds({
 const storybookServer = buildServer(storybookBuilds.outDir, storybookPort, (l) => console.log(l));
 const storybookBuild = { builds: storybookBuilds, port: storybookPort, ensure: () => storybookServer.ensure() };
 const corePacks = [
-  agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000 }),
+  agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000, ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
   // My open issues from the forge (/tracker), where the forge has them.
