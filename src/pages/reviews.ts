@@ -23,6 +23,7 @@ import type { PrFile, Thread } from "../sources/prview.ts";
 import { type DiffLine, fileViews, placeDrafts } from "../viewer/diff.ts";
 import { fileView } from "./viewer.ts";
 import { type Child, Confirm, type Html, KeyValues, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
+import { later, Reading } from "./later.ts";
 import { markdown } from "../ui/markdown.ts";
 import { modelSelect } from "./models.ts";
 import { Ago, harnessTag, HARNESS_NAME, Link, safeUrl } from "./parts.ts";
@@ -90,7 +91,7 @@ function lineCards(comments: LineComment[], card: (i: number, label: Html) => Ht
   const one = (i: number) => card(i, html`<code class="draft-where">${whereOf(comments[i]!)}</code>`);
   const all = comments.map((_, i) => i);
   const list = (title: string, idx: number[], hint?: Child) => (idx.length ? html`<p class="draft-h">${title}</p>${hint ? html`<p class="hint">${hint}</p>` : ""}${idx.map(one)}` : "");
-  if (diff === "reading") return html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">Reading the diff from GHE…</p></section>${list("Line comments", all)}`;
+  if (diff === "reading") return html`${Reading({ text: "Reading the diff from GHE…" })}${list("Line comments", all)}`;
   if (!diff || !diff.ok) return list("Line comments", all, diff?.why);
   const views = fileViews(diff.files, diff.threads);
   const off = placeDrafts(views, comments);
@@ -297,21 +298,14 @@ export function createReviewRoutes(env: Env, deps: ReviewDeps & { ghe: Ghe; stal
     return { r, pr, ctx, base: split?.draft };
   };
   /** The reviewed diff, per PR and commit: up to 1.5 s, then the page reads on (data-pending) while it loads. Kept a minute. */
-  const diffs = new Map<string, { at: number; p: Promise<DraftDiff> }>();
+  const diffs = later({ max: 50 });
   const diffOf = async (d: { r: AgentReview; pr: { repo: string; number: number } }): Promise<DraftDiff | undefined> => {
     if (d.r.kind !== "review" || d.r.posted) return undefined;
-    const key = `${d.pr.repo}#${d.pr.number}@${d.r.headSha}`;
-    let hit = diffs.get(key);
-    if (!hit || Date.now() - hit.at > 60e3) {
-      const p: Promise<DraftDiff> = reviewedDiff(deps.ghe, d.pr.repo, d.pr.number, d.r.headSha).then(
-        (x) => ("moved" in x ? { ok: false, why: `The PR has new commits since the review (${d.r.headSha.slice(0, 7)} → ${x.moved.slice(0, 7)}), so the comments are listed here, not in the diff.` } : { ok: true, ...x }),
-        (e) => (diffs.delete(key), { ok: false, why: `The diff didn't load: ${String((e as Error)?.message ?? e)}` }),
-      );
-      hit = { at: Date.now(), p };
-      diffs.set(key, hit);
-      if (diffs.size > 50) diffs.delete(diffs.keys().next().value as string);
-    }
-    return Promise.race([hit.p, new Promise<"reading">((res) => setTimeout(() => res("reading"), 1500))]);
+    const r = await diffs(`${d.pr.repo}#${d.pr.number}@${d.r.headSha}`, () => reviewedDiff(deps.ghe, d.pr.repo, d.pr.number, d.r.headSha));
+    if (!r) return "reading";
+    if (!r.ok) return { ok: false, why: `The diff didn't load: ${r.error}` };
+    const x = r.value;
+    return "moved" in x ? { ok: false, why: `The PR has new commits since the review (${d.r.headSha.slice(0, 7)} → ${x.moved.slice(0, 7)}), so the comments are listed here, not in the diff.` } : { ok: true, ...x };
   };
   const html200 = (h: Html, status: 200 | 400 | 409 = 200) => new Response(String(h), { status, headers: { "content-type": "text/html; charset=UTF-8" } });
 

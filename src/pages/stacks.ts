@@ -3,6 +3,7 @@ import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type Problem, problemText, type Stack, type StackNode, type StackPr, waitText } from "../home/stacks.ts";
 import { Confirm, Empty, type Html, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
+import { Reading } from "./later.ts";
 import { Link, prTabs } from "./parts.ts";
 
 const short = (org: string, repo: string) => repo.replace(`${org}/`, "");
@@ -44,7 +45,7 @@ function stackPanel(s: Stack, org: string, me: string): Html {
 
 export function stacksPage(frame: Frame, o: { org: string; me: string; stacks?: Stack[]; error?: string; pending?: boolean; flash?: { ok: boolean; message: string } }): string {
   const body = o.pending
-    ? html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><h1>Reading stacks</h1><p class="t2">Your open PRs and review requests, and the chains they're in. The page fills in by itself.</p></section>`
+    ? Reading({ title: "Reading stacks", text: "Your open PRs and review requests, and the chains they're in. The page fills in by itself." })
     : html`${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${o.error ? Notice({ tone: "bad", children: html`Stacks didn't load: ${o.error}` }) : ""}${
         o.stacks && !o.stacks.length
           ? Empty({ title: "No stacks", children: html`<p class="t2">None of your open PRs or review requests sit on another PR's branch.</p>` })

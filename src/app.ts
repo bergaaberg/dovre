@@ -83,6 +83,7 @@ import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
+import { settle, within } from "./pages/later.ts";
 import { splitDraft } from "./reviews/draft.ts";
 import { latestReviews } from "./reviews/store.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
@@ -678,8 +679,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const shown = stackFlash;
     stackFlash = undefined;
     // A first read walks every chain (seconds): the page says so and fills itself in.
-    const loading = stackSource.load(s.login).then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }));
-    const got = await Promise.race([loading, new Promise<undefined>((res) => setTimeout(res, 1500))]);
+    const got = await within(settle(stackSource.load(s.login)));
     if (!got) return c.html(stacksPage(frame, { org: env.GHE_ORG, me: s.login, pending: true }));
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
     return c.html(stacksPage(frame, { org: env.GHE_ORG, me: s.login, flash: shown, ...(got.ok ? { stacks: stacksOf(got.value, { since }) } : { error: got.error }) }));

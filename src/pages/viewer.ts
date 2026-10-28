@@ -11,6 +11,7 @@ import type { AppEnv, Env } from "../env.ts";
 import { type Frame, shell } from "../html.ts";
 import { type Checkout, checkoutOf, checkouts } from "../issues/tasks.ts";
 import { type Kept, memoize } from "../issues/templates.ts";
+import { Reading, within } from "./later.ts";
 import type { Hub } from "../live.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { loadPrFiles, loadPrView, type PrFile, type PrView, type Thread } from "../sources/prview.ts";
@@ -237,7 +238,7 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
   const m = o.mine;
   const moved = !!m?.review && m.review.sha !== v.headSha;
   let inner: Html;
-  if (!o.files) inner = html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><p class="t2">Reading the files from GHE…</p></section>`;
+  if (!o.files) inner = Reading({ text: "Reading the files from GHE…" });
   else if (!o.files.ok) inner = Notice({ tone: "bad", children: html`<strong>The files didn't load.</strong> ${o.files.error}` });
   else {
     const views = fileViews(o.files.value, v.threads);
@@ -278,7 +279,7 @@ export function readingPage(frame: Frame, o: { repo: string; n: number; topic: s
     frame,
     current: "/prs",
     body: html`${PageHeader({ title: `${o.repo}#${o.n}`, crumbs: [{ href: "/prs", label: "Pull requests" }] })}${
-      o.error ? Notice({ tone: "bad", children: html`<strong>The pull request didn't load.</strong> ${o.error}` }) : html`<section class="pending" data-pending aria-busy="true"><span class="spinner" aria-hidden="true"></span><h1>Reading the pull request</h1><p class="t2">It fills in by itself.</p></section>`
+      o.error ? Notice({ tone: "bad", children: html`<strong>The pull request didn't load.</strong> ${o.error}` }) : Reading({ title: "Reading the pull request", text: "It fills in by itself." })
     }`,
     head: html`<meta name="u-topics" content="${o.topic}">`,
   });
@@ -463,7 +464,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
   /** The PR, at once if it's known (refreshed in the background, and the page told when it lands); else up to 1.5 s for the first read. */
   async function viewOf(repo: string, n: number): Promise<Res<PrView> | undefined> {
     const loading = settle(views(`prview:${repo}#${n}`, () => loadPrView(deps.ghe, repo, n).then((v) => (deps.hub?.publish([topicOf(repo, n)]), v))));
-    return Promise.race([loading, new Promise<undefined>((res) => setTimeout(res, 1500))]);
+    return within(loading);
   }
   const present = new Map<string, boolean>();
   async function hasCommit(dir: string, sha: string) {
@@ -536,10 +537,10 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     if (!got || !got.ok) return c.html(readingPage(frame, { ...at, topic, error: got && !got.ok ? got.error : undefined }), got ? 502 : 200);
     const v = got.value;
     const loading = settle(files(`files:${at.repo}#${at.n}@${v.headSha}`, () => loadPrFiles(deps.ghe, at.repo, at.n).then((f) => (deps.hub?.publish([topic]), f))));
-    const fs = await Promise.race([loading, new Promise<undefined>((res) => setTimeout(res, 1500))]);
     const co = checkoutOf(list(), at.repo);
-    const mine = deps.db ? await mineOn(c, at, v) : undefined;
-    return c.html(filesPage(frame, { view: v, files: fs, dir: co?.dir, present: co ? await hasCommit(co.dir, v.headSha) : false, topic, mine }));
+    // The files and the checkout's git in the same budget: neither holds the page. Still checking git: no "fetch" hint yet.
+    const [fs, mine, present] = await Promise.all([within(loading), deps.db ? mineOn(c, at, v) : undefined, co ? within(hasCommit(co.dir, v.headSha), 500) : false]);
+    return c.html(filesPage(frame, { view: v, files: fs, dir: co?.dir, present: present ?? true, topic, mine }));
   });
 
   // ── My own review (dovre#106): kept per person until posted ──
