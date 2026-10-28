@@ -12,6 +12,8 @@ export type CfGatewayOpts = {
   apiToken?: string;
   /** Sent as x-api-key when the gateway doesn't hold the provider key itself. */
   apiKey?: string;
+  /** The name of the key stored in the gateway (BYOK), when it isn't `default`: sent as cf-aig-byok-alias. */
+  keyAlias?: string;
   model?: string;
   fetchFn?: typeof fetch;
 };
@@ -34,6 +36,7 @@ export function createCfGatewayAsk(opts: CfGatewayOpts = {}): Ask {
   const gateway = opts.gateway ?? fromEnv("AI_GATEWAY") ?? "default";
   const token = opts.apiToken ?? fromEnv("CF_AIG_TOKEN");
   const apiKey = opts.apiKey ?? fromEnv("ANTHROPIC_API_KEY");
+  const keyAlias = (opts.keyAlias ?? fromEnv("AI_GATEWAY_KEY_ALIAS"))?.trim();
   const defaultModel = gatewayModelOf(opts.model);
   const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gateway}/anthropic/v1/messages`;
 
@@ -44,6 +47,7 @@ export function createCfGatewayAsk(opts: CfGatewayOpts = {}): Ask {
     };
     if (token) headers["cf-aig-authorization"] = `Bearer ${token}`;
     if (apiKey) headers["x-api-key"] = apiKey;
+    else if (keyAlias) headers["cf-aig-byok-alias"] = keyAlias;
     const res = await f(url, {
       method: "POST",
       headers,
