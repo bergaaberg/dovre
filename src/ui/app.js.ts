@@ -694,6 +694,15 @@ if ((WS || "EventSource" in window) && !framed) {
 // Without a working event stream, look again every minute; every few seconds while still gathering.
 setInterval(() => { if (!framed && Date.now() - lastEvent > 90000 && !document.hidden) swap(); }, 60000);
 setInterval(() => { if (document.querySelector("[data-pending]")) swap(); }, 3000);
+// A page whose data moves faster than anything the hub hears (a site's visits as they happen) asks to
+// be looked at again every N seconds while it's on screen: <meta name="u-every" content="15"> (5 or more).
+let looked = Date.now();
+setInterval(() => {
+  const n = Number(document.querySelector('meta[name="u-every"]')?.content);
+  if (!(n >= 5) || document.hidden || Date.now() - looked < n * 1000) return;
+  looked = Date.now();
+  swap();
+}, 1000);
 
 // ── Saved settings restart Dovre: wait until a new server answers, then open the page it names ──
 {
