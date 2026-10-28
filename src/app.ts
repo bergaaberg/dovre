@@ -141,7 +141,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 }
 
 /** A built app's packs, for the composition roots (their refresh schedule, cron, email). */
-const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
+const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
 export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
@@ -409,7 +409,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
           log: packLog(c.manifest.id),
           ring: (n) => {
             const note = noteFrom(c.manifest.id, n, packRings);
-            if (note && deps.notify && rings(deps.notify.policy(), note.kind)) deps.notify.ring?.([note]);
+            if (note && deps.notify && rings(deps.notify.policy(), note.kind, startsOff)) deps.notify.ring?.([note]);
           },
           // Its questions go to the bar, as the relay's do (only a person answers there); hosted, none.
           ask: async (q) => {
@@ -483,6 +483,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const packCards = (): Promise<{ cards: TodayCard[]; failed: Off[] }> => todayCards(shown(), ctxOf, packs.budgetMs ?? 250);
   /** The packs' kinds of notification (Settings), and what they say needs me (rung once per key by the composition root). */
   const packRings = ringsOf(packs.on, RING_KINDS.map((k) => k.kind), (id, line) => packLog(id)(line));
+  /** The packs' kinds that are off until I switch them on. */
+  const startsOff = new Set(packRings.filter((r) => r.off).map((r) => r.kind));
   const packNeeds = () => needsFrom(shown(), ctxOf, packRings, (id, line) => packLog(id)(line));
   const refreshes = refreshLog(() => deps.hub?.publish(["packs"]));
   const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), { record: refreshes, skip: hidden });
@@ -498,7 +500,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       pulsing = false;
     }
   };
-  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)) });
+  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)) });
   if (PACK_CSS)
     app.get(PACK_CSS.path, (c) => {
       c.header("Content-Type", "text/css; charset=utf-8");
