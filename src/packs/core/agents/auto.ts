@@ -6,7 +6,7 @@
 import { html } from "hono/html";
 import type { AutoPass } from "../../../actions/auto.ts";
 import type { AutoRow, AutoSettings } from "../../../agents/auto.ts";
-import { AUTO_LABEL } from "../../../agents/auto.ts";
+import { AUTO_LABEL, MAX_TRIES } from "../../../agents/auto.ts";
 import { Ago, safeUrl } from "../../../pages/parts.ts";
 import { Confirm, Empty, Item, List, Panel, Pill, type Tone } from "../../../ui/kit.ts";
 import type { PackNeed } from "../../types.ts";
@@ -47,7 +47,7 @@ const STATE: Record<AutoRow["state"], { label: string; tone?: Tone }> = {
 export function autoPanel(s: AutoSettings, pass: AutoPass | undefined, host: string, tz?: string) {
   const v = (n: number) => String(Math.round(n * 100) / 100);
   const form = html`<form method="post" action="/agents/auto">
-<p class="t2">Open issues in your repos that you label <code>${AUTO_LABEL}</code> are picked up on their own: Claude Code works on each in a sandbox run, then a draft PR, a comment on the issue, and the label swapped for <code>${AUTO_LABEL}-done</code> or <code>${AUTO_LABEL}-stuck</code>. Only a label an owner put there counts. An issue can narrow these in a fenced <code>dovre</code> block: <code>model</code>, <code>effort</code>, <code>budget</code>, <code>minutes</code>, <code>base</code>.</p>
+<p class="t2">Open issues in your repos that you label <code>${AUTO_LABEL}</code> are picked up on their own: Claude Code works on each in a sandbox run, then a draft PR, a comment on the issue, and the label swapped for <code>${AUTO_LABEL}-done</code>. A run that gets stuck goes back in the queue on its own; after ${MAX_TRIES} stuck runs, the label is swapped for <code>${AUTO_LABEL}-stuck</code>. Only a label an owner put there counts. An issue can narrow these in a fenced <code>dovre</code> block: <code>model</code>, <code>effort</code>, <code>budget</code>, <code>minutes</code>, <code>base</code>.</p>
 <div class="field"><label class="check"><input type="checkbox" name="on" value="on"${s.on ? html` checked` : ""}> Pick up labelled issues</label></div>
 <div class="fields aligned">
 <label class="field"><span class="label">At once</span><input type="number" name="atOnce" min="1" max="5" value="${s.atOnce}"><span class="hint">runs going at the same time</span></label>

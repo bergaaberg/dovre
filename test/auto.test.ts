@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { autoTick, type IssueCheck, runAgain, untrusted } from "../src/actions/auto.ts";
 import { autoIssueOf, sandboxPrText } from "../src/actions/sandbox.ts";
-import { type AutoRow, autoKey, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
+import { type AutoRow, autoKey, MAX_TRIES, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
 import { capsOf, type Desk } from "../src/agents/desk.ts";
 import { argsFor } from "../src/agents/harnesses/claude/harness.ts";
 import type { Run } from "../src/agents/runner.ts";
@@ -133,6 +133,14 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
 
 const on = (db: ReturnType<typeof openDb>, o: Partial<typeof DEFAULT_AUTO> = {}) => saveAutoSettings(db.DB, { ...DEFAULT_AUTO, on: true, ...o });
 
+/** Each try's run ends having made nothing, until the issue is stuck for good (#254). */
+async function stickAll(w: ReturnType<typeof world>, now?: number, events: unknown[] = []) {
+  for (let i = 0; i < MAX_TRIES; i++) {
+    Object.assign(w.runs.get(`run-${w.started.length}`)!, { status: "done", out: { state: "none" }, events });
+    await w.tick(now);
+  }
+}
+
 test("autoTick: off does nothing at all; on, an owner's issue is queued and started in a sandbox with its caps", async () => {
   const w = world();
   const p0 = await w.tick();
@@ -211,15 +219,44 @@ test("autoTick: with auto.pr at one click (the default) the PR opens by itself; 
   assert.equal(ci.pushed.length, 0);
 });
 
+test("autoTick: a stuck run goes back in the queue on its own, label kept and nothing said, and starts again (#254)", async () => {
+  const w = world();
+  await on(w.db);
+  await w.tick();
+  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
+  await on(w.db, { quiet: { from: 11, to: 13 } });
+  let p = await w.tick();
+  assert.equal(p.rows[0]!.state, "queued");
+  assert.equal(p.rows[0]!.tries, 1);
+  assert.match(p.rows[0]!.why!, /Stuck 1 of 3 times; trying again\. It ended without committing/);
+  assert.equal(w.writes.length, 0, "nothing on the issue, label kept");
+  await on(w.db);
+  p = await w.tick();
+  assert.equal(p.rows[0]!.state, "running");
+  assert.equal(w.started.length, 2);
+  for (const id of ["run-2", "run-3"]) {
+    Object.assign(w.runs.get(id)!, { status: "done", out: { state: "none" }, events: [] });
+    p = await w.tick();
+  }
+  assert.equal(p.rows[0]!.state, "stuck", "the third time: left for me");
+  assert.equal(p.rows[0]!.tries, 3);
+  assert.equal(w.started.length, 3);
+  assert.deepEqual(w.writes.map((x) => x.method), ["POST", "DELETE", "POST"], "comment, label swapped");
+  // Labelled again by me after it ended: a fresh count.
+  w.relabel("2026-10-28T12:30:00Z");
+  p = await w.tick(Date.parse("2026-10-28T12:31:00Z"));
+  assert.equal(p.rows[0]!.tries, 0);
+});
+
 test("autoTick: a run that makes nothing gets stuck, says why on the issue and swaps the label", async () => {
   const w = world();
   await on(w.db);
   await w.tick();
-  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [{ t: "result", text: "The issue isn't clear, cc @boss", cost: 0.3, error: false }] });
+  await stickAll(w, undefined, [{ t: "result", text: "The issue isn't clear, cc @boss", cost: 0.3, error: false }]);
   const p = await w.tick();
   assert.equal(p.rows[0]!.state, "stuck");
   const comment = w.writes.find((x) => x.path.endsWith("/comments"))!.body as { body: string };
-  assert.match(comment.body, /got stuck/);
+  assert.match(comment.body, /got stuck 3 times/);
   assert.ok(!comment.body.includes("@boss"), "no mentions from the agent's text");
   assert.deepEqual((w.writes.find((x) => x.path.endsWith("/labels") && x.method === "POST")!.body as { labels: string[] }).labels, ["dovre:auto-stuck"]);
   assert.equal(autoNeeds(p, "github.com", Date.now())[0]!.tone, "warn");
@@ -241,11 +278,12 @@ test("autoTick: a machine too busy to answer (pushing for a PR) isn't a run clea
   assert.equal(p.rows[0]!.state, "waiting");
   assert.equal(w.writes.length, 0, "nothing said on the issue");
   (w.desk as { run: Desk["run"] }).run = ask;
-  // Truly gone: stuck.
+  // Truly gone: stuck, so it tries again.
   w.runs.delete("run-1");
   p = await w.tick(later);
-  assert.equal(p.rows[0]!.state, "stuck");
-  assert.match(p.rows[0]!.why ?? "", /cleared away/);
+  assert.equal(w.started.length, 2, "tried again");
+  assert.equal(p.rows[0]!.tries, 1);
+  assert.equal(w.writes.length, 0);
 });
 
 test("autoTick: limits hold: at once, the day's cost, quiet hours, a repo left out, no checkout", async () => {
@@ -297,7 +335,7 @@ test("autoTick: an issue closed before its turn doesn't start", async () => {
 });
 
 test("autoPanel: hostile titles, reasons and links stay inert", () => {
-  const row = { key: "acme/app#1", repo: "acme/app", number: 1, title: H, state: "done" as const, run: H, cost: 1, why: H, pr: "javascript:alert(1)", seen: null, options: null, at: 1, updated: 1 };
+  const row = { key: "acme/app#1", repo: "acme/app", number: 1, title: H, state: "done" as const, run: H, cost: 1, why: H, pr: "javascript:alert(1)", seen: null, options: null, tries: 0, at: 1, updated: 1 };
   const out = String(autoPanel(DEFAULT_AUTO, { rows: [row], paused: H }, "github.com"));
   assertInert("auto panel", out);
   assert.ok(!out.includes("javascript:"));
@@ -307,23 +345,21 @@ test("autoTick: a stuck issue still showing its old label (closing out) doesn't 
   const w = world();
   await on(w.db);
   await w.tick();
-  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
-  await w.tick(Date.parse("2026-10-28T12:00:00Z"));
+  await stickAll(w, Date.parse("2026-10-28T12:00:00Z"));
   // Another pass, while the forge still shows dovre:auto from 09:00.
   const p = await w.tick(Date.parse("2026-10-28T12:00:05Z"));
   assert.equal(p.rows[0]!.state, "stuck");
-  assert.equal(w.started.length, 1, "not run twice");
+  assert.equal(w.started.length, MAX_TRIES, "not run again");
   w.relabel("2026-10-28T12:30:00Z");
   await w.tick(Date.parse("2026-10-28T12:31:00Z"));
-  assert.equal(w.started.length, 2, "labelled again after it ended");
+  assert.equal(w.started.length, MAX_TRIES + 1, "labelled again after it ended");
 });
 
 test("runAgain: a stuck issue is labelled dovre:auto again (-stuck off), queued, logged, and the next pass starts it", async () => {
   const w = world();
   await on(w.db);
   await w.tick();
-  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
-  await w.tick();
+  await stickAll(w);
   const key = "acme/app#12";
   assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "other", key }), { ok: false, error: "Not in your repos." });
   w.writes.length = 0;
@@ -331,19 +367,19 @@ test("runAgain: a stuck issue is labelled dovre:auto again (-stuck off), queued,
   assert.deepEqual(w.writes.map((x) => `${x.method} ${x.path}`), ["POST /repos/acme/app/issues/12/labels", "DELETE /repos/acme/app/issues/12/labels/dovre%3Aauto-stuck"]);
   assert.deepEqual((w.writes[0]!.body as { labels: string[] }).labels, ["dovre:auto"]);
   assert.equal((await autoStore(w.db.DB).get(key))!.state, "queued");
+  assert.equal((await autoStore(w.db.DB).get(key))!.tries, 0, "my say-so: a fresh count");
   assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "acme", key }), { ok: false, error: "That auto run isn't stuck any more." });
   const logged = w.db.raw.prepare("SELECT kind, ok, error FROM actions WHERE kind = 'auto.again'").all().map((l) => ({ ...l }));
   assert.deepEqual(logged, [{ kind: "auto.again", ok: 0, error: "Not in your repos." }, { kind: "auto.again", ok: 1, error: null }]);
   await w.tick();
-  assert.equal(w.started.length, 2, "started again");
+  assert.equal(w.started.length, MAX_TRIES + 1, "started again");
 });
 
 test("runAgain: a closed issue isn't labelled", async () => {
   const w = world();
   await on(w.db);
   await w.tick();
-  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
-  await w.tick();
+  await stickAll(w);
   w.close();
   w.writes.length = 0;
   assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "acme", key: "acme/app#12" }), { ok: false, error: "acme/app#12 is closed." });
@@ -352,7 +388,7 @@ test("runAgain: a closed issue isn't labelled", async () => {
 
 test("alonePanel: active rows and the last four days, cost against its cap, Run again on a stuck one; hostile input inert; nothing when off and empty", () => {
   const now = Date.parse("2026-10-28T12:00:00Z");
-  const row = (o: Partial<AutoRow>): AutoRow => ({ key: "acme/app#1", repo: "acme/app", number: 1, title: "t", state: "running", run: "run-1", cost: 1, why: null, pr: null, seen: null, options: null, at: now, updated: now, ...o });
+  const row = (o: Partial<AutoRow>): AutoRow => ({ key: "acme/app#1", repo: "acme/app", number: 1, title: "t", state: "running", run: "run-1", cost: 1, why: null, pr: null, seen: null, options: null, tries: 0, at: now, updated: now, ...o });
   const s = { ...DEFAULT_AUTO, on: true, runUsd: 5 };
   const out = String(alonePanel(s, { rows: [row({ options: JSON.stringify({ budget: 2 }) }), row({ key: "acme/app#2", number: 2, state: "stuck", why: "No commits." }), row({ key: "acme/app#3", number: 3, state: "done", updated: now - 5 * 86_400_000 })] }, "github.com", now));
   assert.match(out, /Working alone/);

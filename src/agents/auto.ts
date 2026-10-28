@@ -162,9 +162,14 @@ export type AutoRow = {
   pr: string | null;
   seen: string | null;
   options: string | null;
+  /** How many times it has got stuck since an owner last labelled it (#254). */
+  tries: number;
   at: number;
   updated: number;
 };
+
+/** Stuck this many times in a row and it's left for me: the label comes off. */
+export const MAX_TRIES = 3;
 
 export const autoKey = (repo: string, number: number) => `${repo.toLowerCase()}#${number}`;
 /** States that hold a slot (count against "at once"). */
@@ -197,16 +202,16 @@ export function autoStore(db: D1, now: () => number = Date.now) {
       await db
         .prepare(
           "INSERT INTO auto_runs (key, repo, number, title, state, run, cost, why, pr, seen, options, at, updated) VALUES (?, ?, ?, ?, ?, NULL, 0, ?, NULL, ?, ?, ?, ?) " +
-            "ON CONFLICT (key) DO UPDATE SET title = excluded.title, state = excluded.state, run = NULL, cost = 0, why = excluded.why, pr = NULL, seen = excluded.seen, options = excluded.options, at = excluded.at, updated = excluded.updated",
+            "ON CONFLICT (key) DO UPDATE SET title = excluded.title, state = excluded.state, run = NULL, cost = 0, tries = 0, why = excluded.why, pr = NULL, seen = excluded.seen, options = excluded.options, at = excluded.at, updated = excluded.updated",
         )
         .bind(autoKey(r.repo, r.number), r.repo, r.number, r.title.slice(0, 300), r.state, r.why ?? null, r.seen ?? null, r.options ? JSON.stringify(r.options) : null, t, t)
         .run();
     },
     /** Moves a row on, only from the state it was seen in: false when someone else (another isolate) moved it first. */
-    async move(key: string, from: AutoState, to: AutoState, set: { run?: string | null; cost?: number; why?: string | null; pr?: string | null } = {}): Promise<boolean> {
+    async move(key: string, from: AutoState, to: AutoState, set: { run?: string | null; cost?: number; why?: string | null; pr?: string | null; tries?: number } = {}): Promise<boolean> {
       const r = await db
-        .prepare("UPDATE auto_runs SET state = ?, run = COALESCE(?, run), cost = COALESCE(?, cost), why = ?, pr = COALESCE(?, pr), updated = ? WHERE key = ? AND state = ?")
-        .bind(to, set.run ?? null, set.cost ?? null, set.why ?? null, set.pr ?? null, now(), key, from)
+        .prepare("UPDATE auto_runs SET state = ?, run = COALESCE(?, run), cost = COALESCE(?, cost), why = ?, pr = COALESCE(?, pr), tries = COALESCE(?, tries), updated = ? WHERE key = ? AND state = ?")
+        .bind(to, set.run ?? null, set.cost ?? null, set.why ?? null, set.pr ?? null, set.tries ?? null, now(), key, from)
         .run();
       const moved = Number(r.meta?.changes ?? 0) === 1;
       if (moved && set.cost !== undefined) await setCost(key, set.cost);
