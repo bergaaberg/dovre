@@ -16,6 +16,7 @@ import { columns, compact, hbars, lines, sparkline } from "../ui/chart.ts";
 import { type Child, Empty, Notice, PageHeader, Panel } from "../ui/kit.ts";
 import { type ForgeView, GITHUB_VIEW } from "../forge/types.ts";
 import { Ago, safeUrl } from "./parts.ts";
+import { dtf } from "../when.ts";
 
 const DAY = 86400e3;
 const money = (n: number) => (n >= 100 ? `$${Math.round(n)}` : n >= 10 ? `$${n.toFixed(1)}` : `$${n.toFixed(2)}`);
@@ -30,7 +31,7 @@ function hourAxis(values: number[]) {
   for (let v = 0; v < max + step; v += step) ticks.push(v);
   return { ticks, axisFmt: (h: number) => (h === 0 ? "0" : h % 24 === 0 ? `${h / 24} d` : `${h} h`) };
 }
-const fmtDay = (key: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...o }).format(Date.parse(`${key}T12:00:00Z`));
+const fmtDay = (key: string, o: Intl.DateTimeFormatOptions) => dtf("en-GB", { timeZone: "UTC", ...o }).format(Date.parse(`${key}T12:00:00Z`));
 const dayTip = (key: string) => fmtDay(key, { weekday: "short", day: "numeric", month: "short" });
 const weekTip = (key: string, label: string) => `${label} · ${fmtDay(key, { day: "numeric", month: "short" })} – ${fmtDay(new Date(Date.parse(key) + 6 * DAY).toISOString().slice(0, 10), { day: "numeric", month: "short" })}`;
 

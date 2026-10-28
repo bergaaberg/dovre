@@ -7,6 +7,7 @@
  */
 import type { D1 } from "../db.ts";
 import { EFFORTS, type Effort } from "./runner.ts";
+import { dtf } from "../when.ts";
 
 export const AUTO_LABEL = "dovre:auto";
 export const DONE_LABEL = "dovre:auto-done";
@@ -70,7 +71,7 @@ export const repoOn = (s: AutoSettings, repo: string) => s.on && !s.off.includes
 
 /** The hour at `now` in `tz` (an IANA zone; invalid or empty: this machine's). */
 export function localHour(now: number, tz?: string): number {
-  const fmt = (zone?: string) => new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", hourCycle: "h23" });
+  const fmt = (zone?: string) => dtf("en-GB", { timeZone: zone, hour: "2-digit", hourCycle: "h23" });
   let f: Intl.DateTimeFormat;
   try {
     f = fmt(tz || undefined);
