@@ -1,0 +1,3 @@
+# esbuild needs its install script; pnpm only runs the ones listed here.
+allowBuilds:
+  esbuild: true
