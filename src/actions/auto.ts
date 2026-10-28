@@ -218,6 +218,9 @@ export async function autoTick(d: AutoDeps): Promise<AutoPass> {
       if (row && !(row.state === "done" || row.state === "stuck" || (row.state === "refused" && row.seen !== f.updated))) continue;
       try {
         const c = await checkIssue(d.ghe, f.repo, f.number);
+        // Ended: only a label put on after that counts. A pass that saw it while another was still
+        // closing it out (the comment posted, the label not yet off) would run it twice.
+        if (row && row.state !== "refused" && !(c.label && Date.parse(c.label.at) > row.updated)) continue;
         const why = untrusted(c, isOwner);
         await store.put({ repo: f.repo, number: f.number, title: c.title, state: why ? "refused" : "queued", why: why ?? undefined, seen: c.updated, options: autoOptionsOf(c.body) });
       } catch {}

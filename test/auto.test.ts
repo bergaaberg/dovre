@@ -88,6 +88,7 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
   const db = openDb();
   const writes: { method: string; path: string; body?: unknown }[] = [];
   let issueOpen = true;
+  let labelAt = "2026-10-28T09:00:00Z";
   const ghe = {
     async rest<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
       const method = init.method ?? "GET";
@@ -103,7 +104,7 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
       throw new Error(`unexpected ${method} ${path}`);
     },
     async graphql<T>(): Promise<T> {
-      return { repository: { issue: { state: issueOpen ? "OPEN" : "CLOSED", title: "Make it blue", body: "Blue please.\n```dovre\nbudget: 2\n```", updatedAt: "2026-10-28T10:00:00Z", lastEditedAt: null, author: { login: "stranger" }, editor: null, labels: { nodes: [{ name: "dovre:auto" }] }, timelineItems: { nodes: [{ __typename: "LabeledEvent", createdAt: "2026-10-28T09:00:00Z", actor: { login: o.labeller ?? "me" }, label: { name: "dovre:auto" } }] } } } } as T;
+      return { repository: { issue: { state: issueOpen ? "OPEN" : "CLOSED", title: "Make it blue", body: "Blue please.\n```dovre\nbudget: 2\n```", updatedAt: "2026-10-28T10:00:00Z", lastEditedAt: null, author: { login: "stranger" }, editor: null, labels: { nodes: [{ name: "dovre:auto" }] }, timelineItems: { nodes: [{ __typename: "LabeledEvent", createdAt: labelAt, actor: { login: o.labeller ?? "me" }, label: { name: "dovre:auto" } }] } } } } as T;
     },
   };
   const runs = new Map<string, Run>();
@@ -127,7 +128,7 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
   } as unknown as Desk;
   let clicks = new Map<string, "once" | "twice">();
   const tick = (now = Date.parse("2026-10-28T12:00:00Z")) => autoTick({ db: db.DB, ghe, owners: "acme", desk, clicks: async () => clicks, tz: "UTC", now: () => now });
-  return { db, ghe, desk, runs, started, pushed, writes, tick, setClicks: (c: Map<string, "once" | "twice">) => (clicks = c), close: () => (issueOpen = false) };
+  return { db, ghe, desk, runs, started, pushed, writes, tick, setClicks: (c: Map<string, "once" | "twice">) => (clicks = c), close: () => (issueOpen = false), relabel: (at: string) => (labelAt = at) };
 }
 
 const on = (db: ReturnType<typeof openDb>, o: Partial<typeof DEFAULT_AUTO> = {}) => saveAutoSettings(db.DB, { ...DEFAULT_AUTO, on: true, ...o });
@@ -300,6 +301,21 @@ test("autoPanel: hostile titles, reasons and links stay inert", () => {
   const out = String(autoPanel(DEFAULT_AUTO, { rows: [row], paused: H }, "github.com"));
   assertInert("auto panel", out);
   assert.ok(!out.includes("javascript:"));
+});
+
+test("autoTick: a stuck issue still showing its old label (closing out) doesn't start again; a label put on after it does", async () => {
+  const w = world();
+  await on(w.db);
+  await w.tick();
+  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
+  await w.tick(Date.parse("2026-10-28T12:00:00Z"));
+  // Another pass, while the forge still shows dovre:auto from 09:00.
+  const p = await w.tick(Date.parse("2026-10-28T12:00:05Z"));
+  assert.equal(p.rows[0]!.state, "stuck");
+  assert.equal(w.started.length, 1, "not run twice");
+  w.relabel("2026-10-28T12:30:00Z");
+  await w.tick(Date.parse("2026-10-28T12:31:00Z"));
+  assert.equal(w.started.length, 2, "labelled again after it ended");
 });
 
 test("runAgain: a stuck issue is labelled dovre:auto again (-stuck off), queued, logged, and the next pass starts it", async () => {
