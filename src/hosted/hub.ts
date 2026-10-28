@@ -90,6 +90,8 @@ export type HubEnv = {
   CF_ACCOUNT_ID?: string;
   CF_AIG_TOKEN?: string;
   AI_GATEWAY?: string;
+  /** The name of the Anthropic key stored in the gateway, when it isn't `default`. */
+  AI_GATEWAY_KEY_ALIAS?: string;
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   GEMINI_API_KEY?: string;
@@ -121,7 +123,7 @@ export function hostedBinoRoute(env: HubEnv, fetchFn?: typeof fetch, log?: (l: s
     return openRouterRouteOf({ openRouter: { apiKey: key, fetchFn }, model, reflectModel, log });
   }
   const route = gatewayRouteOf({
-    cfGateway: { accountId: str(env.CF_ACCOUNT_ID), apiToken: str(env.CF_AIG_TOKEN), gateway: str(env.AI_GATEWAY) ?? "dovre", apiKey: str(env.ANTHROPIC_API_KEY), fetchFn },
+    cfGateway: { accountId: str(env.CF_ACCOUNT_ID), apiToken: str(env.CF_AIG_TOKEN), gateway: str(env.AI_GATEWAY) ?? "dovre", apiKey: str(env.ANTHROPIC_API_KEY), keyAlias: str(env.AI_GATEWAY_KEY_ALIAS), fetchFn },
     model,
     reflectModel,
     log,

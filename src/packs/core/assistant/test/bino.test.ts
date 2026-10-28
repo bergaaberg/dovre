@@ -227,6 +227,20 @@ test("Stop cancels a gateway request in flight", async () => {
   assert.equal(seen?.aborted, true);
 });
 
+test("AI Gateway: a stored key named other than default is picked by its alias (cf-aig-byok-alias); a passed API key needs none", async () => {
+  const sent: Record<string, string>[] = [];
+  const fetchFn = (async (_u: string, init: RequestInit) => {
+    sent.push(init.headers as Record<string, string>);
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }] }));
+  }) as typeof fetch;
+  await createCfGatewayAsk({ accountId: "a", apiToken: "t", keyAlias: "Dovre", fetchFn })({ system: "S", user: "U" });
+  await createCfGatewayAsk({ accountId: "a", apiToken: "t", fetchFn })({ system: "S", user: "U" });
+  await createCfGatewayAsk({ accountId: "a", apiToken: "t", keyAlias: "Dovre", apiKey: "sk-ant-x", fetchFn })({ system: "S", user: "U" });
+  assert.equal(sent[0]!["cf-aig-byok-alias"], "Dovre");
+  assert.equal(sent[1]!["cf-aig-byok-alias"], undefined);
+  assert.equal(sent[2]!["cf-aig-byok-alias"], undefined);
+});
+
 test("the assistant pack is Bino's switch: PACK_ASSISTANT=off and there's no Bino, nor its menu entry", async () => {
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async () => ({ text: "Ok.", cost: 0 }) };
   const appWith = (env: Record<string, string>) =>

@@ -60,6 +60,8 @@ export interface WorkerBindings {
   /** Bino through AI Gateway: the gateway's token, and its name (default "dovre"). */
   CF_AIG_TOKEN?: string;
   AI_GATEWAY?: string;
+  /** The name of the Anthropic key stored in the gateway, when it isn't `default`. */
+  AI_GATEWAY_KEY_ALIAS?: string;
   /**
    * The bridge (PLAN D24, H6, H7): the key machines' frames are signed with (each machine's derived
    * from it), without which /bridge is closed; and the Access service token's client id the one
