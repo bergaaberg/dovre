@@ -40,6 +40,7 @@ import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
 import { createRunner, HARNESSES, type Run } from "./agents/runner.ts";
+import { appleContainer } from "./agents/sandbox.ts";
 import { findHarnessTools, harnessesFor } from "./agents/harnesses/index.ts";
 import { addLeftOut } from "./actions/relock.ts";
 import { ompProfileOf } from "./sources/omp.ts";
@@ -264,6 +265,8 @@ const runner = createRunner({
   // Each turn gets Dovre's MCP server, with its own token, when packs offer tools (omp and agy once Settings sets them up).
   mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() },
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
+  // Sandbox runs (#205): Apple container, so macOS only for now.
+  sandbox: process.platform === "darwin" ? appleContainer({ root: join(dataDir, "sandboxes") }) : undefined,
   harnesses: harnessesFor(tools, harnessOn, { ompProfileOf }),
   onChange: (r) => {
     // A turn that ends lets the messages written meanwhile go; whether it rings is the agents pack's call.

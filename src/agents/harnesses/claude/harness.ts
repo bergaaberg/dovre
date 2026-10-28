@@ -1,9 +1,10 @@
 /**
  * Claude Code: `claude -p` headless with stream-json out (launcher/keep_claude.go keeps what of it
- * may be stored). Modes are passed as --permission-mode, never bypass; "Allow and continue" resumes
- * with exactly the denied call allowed (toolSpec).
+ * may be stored). Modes are passed as --permission-mode, never bypass outside a sandbox; "Allow and
+ * continue" resumes with exactly the denied call allowed (toolSpec). In a sandbox run the runner sets
+ * `yolo`, and the turn skips permissions inside its container (src/agents/sandbox.ts).
  */
-import type { Harness, Run, StartOpts } from "../../runner.ts";
+import type { Harness, HarnessOpts, Run } from "../../runner.ts";
 import { askOf } from "../../conversation.ts";
 import { type HarnessDef, mcpConfig, toolDetail, toolSpec } from "../shared.ts";
 
@@ -23,8 +24,13 @@ export const CLAUDE_MODELS: { value: string; label: string }[] = [
 export const HEADLESS_NOTE =
   "You are running headless from Dovre. Keep every command and file inside this repo's folder: a call that touches a folder outside it (such as /tmp or another checkout) is refused, and allowing it doesn't help. If you need a separate checkout, make a git worktree inside this folder (for example .worktrees/<name>).";
 
-export function argsFor(o: StartOpts): string[] {
-  const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", o.mode ?? "default", "--append-system-prompt", HEADLESS_NOTE];
+/** Added to a sandbox run instead: it runs alone, may run anything in its clone, and ends in a commit. */
+export const SANDBOX_NOTE =
+  "You are running unattended from Dovre, in a sandbox: a fresh clone of this repo inside a container, with nothing of the user's machine. Nobody can answer questions, so don't ask any: decide, and say what you decided. Install, build and test as you need. When you are done, commit your work with git on the current branch. You cannot push; Dovre brings your commits back.";
+
+export function argsFor(o: HarnessOpts): string[] {
+  const perm = o.yolo ? ["--dangerously-skip-permissions"] : ["--permission-mode", o.mode ?? "default"];
+  const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", ...perm, "--append-system-prompt", o.yolo ? SANDBOX_NOTE : HEADLESS_NOTE];
   if (o.model) args.push("--model", o.model);
   if (o.resume) args.push("--resume", o.resume);
   if (o.resume && o.fork) args.push("--fork-session");
@@ -63,6 +69,6 @@ export function apply(run: Run, line: string) {
   }
 }
 
-export const claudeHarness = (bin = "claude"): Harness => ({ id: "claude", bin, args: argsFor, apply, stdinPrompt: true, canFork: true });
+export const claudeHarness = (bin = "claude"): Harness => ({ id: "claude", bin, args: argsFor, apply, stdinPrompt: true, canFork: true, sandbox: { bin: "claude" } });
 
 export const claude: HarnessDef = { id: "claude", bin: "claude", binVar: "CLAUDE_BIN", models: CLAUDE_MODELS, keep: "launcher/keep_claude.go", make: (t) => ({ ...claudeHarness(t.bin), pre: t.pre }) };

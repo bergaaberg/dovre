@@ -77,6 +77,7 @@ function fakeRunner(harnesses: HarnessId[] = ["claude", "omp"]) {
     },
     get: (id) => runs.get(id),
     ofSession: () => undefined,
+    sandbox: () => undefined,
     copiesOf: () => [],
     list: () => [...runs.values()],
     stop: () => true,

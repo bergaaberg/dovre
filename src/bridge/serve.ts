@@ -27,7 +27,7 @@ export function runMeta(r: Run): Run {
 
 export function stateOf(desk: Desk, sessions: { live: Session[]; recent: Session[] }, o: { at?: number; version?: string; name?: string } = {}): MacState {
   const v = desk.view();
-  return { at: o.at ?? Date.now(), version: o.version, ...(o.name ? { name: o.name } : {}), harnesses: v.harnesses, runs: v.runs.map(runMeta), sessions, workDir: v.workDir };
+  return { at: o.at ?? Date.now(), version: o.version, ...(o.name ? { name: o.name } : {}), harnesses: v.harnesses, runs: v.runs.map(runMeta), sessions, workDir: v.workDir, ...(v.sandbox?.ok ? { sandbox: true } : {}) };
 }
 
 /** Leaves room for the frame around an answer. */
@@ -53,7 +53,7 @@ export async function answerCall(desk: Desk, c: Call): Promise<unknown> {
       return { ...v, turns };
     }
     case "start":
-      return desk.start({ repo: c.repo, prompt: c.prompt, harness: c.harness, mode: c.mode, model: c.model });
+      return desk.start({ repo: c.repo, prompt: c.prompt, harness: c.harness, mode: c.mode, model: c.model, sandbox: c.sandbox });
     case "reply":
       return desk.reply(sid, { prompt: c.prompt, mode: c.mode, model: c.model });
     case "answer":
