@@ -184,6 +184,20 @@ export type AutoPass = { rows: AutoRow[]; paused?: string };
 
 const MIN = 60_000;
 
+/** Who the token is, asked once an hour (#253: every pass asked, every 2 minutes). A failed ask isn't kept. */
+const logins = new WeakMap<Forge, { login: string; at: number }>();
+async function myLogin(ghe: Forge, at: number): Promise<string | undefined> {
+  const kept = logins.get(ghe);
+  if (kept && at - kept.at < 60 * MIN) return kept.login;
+  try {
+    const login = (await ghe.rest<{ login: string }>("/user")).login;
+    if (login) logins.set(ghe, { login, at });
+    return login;
+  } catch {
+    return kept?.login;
+  }
+}
+
 /**
  * One pass: follow what's running or waiting, find newly labelled issues, start what fits the
  * limits. Every step re-reads the forge or the machine; a row moves only from the state it was
@@ -197,10 +211,7 @@ export async function autoTick(d: AutoDeps): Promise<AutoPass> {
   // Off, and nothing in flight: no forge calls at all.
   if (!s.on && !rows.some((r) => r.state === "starting" || r.state === "running" || r.state === "waiting")) return { rows };
   await d.desk.refresh?.();
-  let me: string | undefined;
-  try {
-    me = (await d.ghe.rest<{ login: string }>("/user")).login;
-  } catch {}
+  const me = await myLogin(d.ghe, now());
   const owners = ownersOf(d.owners).map((o) => o.toLowerCase());
   const isOwner = (login: string | undefined) => !!login && (login.toLowerCase() === me?.toLowerCase() || owners.includes(login.toLowerCase()));
 

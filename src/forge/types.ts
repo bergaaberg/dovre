@@ -35,6 +35,8 @@ export type Forge = {
   can: readonly ForgeCan[];
   /** Who I am there. */
   viewer(): Promise<{ login: string; name: string | null }>;
+  /** Its API quota is nearly gone: background reads that can wait, wait. Absent: never. */
+  low?(): boolean;
   /** My open PRs, and those asking for my review, in the owners' repos (`owners`: comma-separated). */
   prs(login: string, owners: string): Promise<{ mine: Pr[]; review: Pr[] }>;
   /** What asks for me (notifications, todos), newest first. */

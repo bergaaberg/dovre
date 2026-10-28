@@ -265,6 +265,7 @@ export const AREAS = [
   { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
   { id: "agents", title: "Agents", about: "Which agent CLIs here get the packs' tools", also: ["mcp", "tools", "omp", "agy", "claude"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
+  { id: "calls", title: "GitHub calls", about: "How much of GitHub's API quota is left, and what in Dovre used it", also: ["rate limit", "quota", "api", "usage", "403"] },
   { id: "sent", title: "What Dovre sends", about: "Every call Dovre can make home, and the record of the ones it made", also: ["privacy", "telemetry", "phone home", "security", "trust", "data", "bridge"] },
   { id: "about", title: "About", about: "Version, restart, install, and what this machine has", also: ["setup", "version", "restart", "install"] },
 ] as const;
