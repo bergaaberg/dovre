@@ -29,10 +29,10 @@ import { agentRoutes } from "./routes.ts";
 import { agentBrief, agentFeed, agentGlance, agentLane, agentsCard } from "./today.ts";
 import { agentActivity, turnNote, turnWatch } from "./turns.ts";
 import { askBar } from "./view.ts";
-import { type AutoPass, autoTick } from "../../../actions/auto.ts";
+import { type AutoPass, autoTick, runAgain } from "../../../actions/auto.ts";
 import { type AutoSettings, DEFAULT_AUTO, autoSettingsOf, loadAutoSettings, saveAutoSettings } from "../../../agents/auto.ts";
 import { writeClicksStore } from "../../../writes.ts";
-import { autoNeeds, autoPanel } from "./auto.ts";
+import { alonePanel, autoNeeds, autoPanel } from "./auto.ts";
 
 export type AgentsDeps = {
   /** This machine's desk, or hosted the Mac's over the bridge. */
@@ -127,13 +127,23 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }
     finds: (ctx) => agentFinds(sessions(true), desk.view().runs, ctx.hosted ? [] : (here?.worktrees() ?? [])),
     feed: (ctx) => agentFeed(sessions(true), desk.view().runs, Date.now()),
     routes: (app, ctx) => {
-      agentRoutes(app, ctx, { desk, dismissed, here, github });
+      agentRoutes(app, ctx, { desk, dismissed, here, github, ...(github ? { alone: () => alonePanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", Date.now()) } : {}) });
       // Settings → Packs → Agents: the auto runs' limits.
       if (github)
         app.post("/agents/auto", async (c) => {
           auto = autoSettingsOf(await c.req.parseBody());
           await saveAutoSettings(ctx.db, auto);
           return c.redirect("/settings/packs/agents", 303);
+        });
+      // "Working alone" → Run again (#209): a stuck issue labelled dovre:auto again and queued.
+      if (github)
+        app.post("/agents/auto/again", async (c) => {
+          const key = String((await c.req.parseBody()).key ?? "");
+          const r = await runAgain({ db: ctx.db, ghe: github.ghe, owners: github.owners(), key });
+          // Shown on its row until the next pass; it's in the actions log too.
+          if (pass) pass = { ...pass, rows: pass.rows.map((x) => (x.key !== key ? x : r.ok ? { ...x, state: "queued", why: null } : { ...x, why: `Run again didn't go: ${r.error}` })) };
+          ctx.publish(["agents"]);
+          return c.redirect("/agents", 303);
         });
     },
     // Not on the session's own page: it asks there itself.

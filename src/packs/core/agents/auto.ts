@@ -8,7 +8,7 @@ import type { AutoPass } from "../../../actions/auto.ts";
 import type { AutoRow, AutoSettings } from "../../../agents/auto.ts";
 import { AUTO_LABEL } from "../../../agents/auto.ts";
 import { Ago, safeUrl } from "../../../pages/parts.ts";
-import { Empty, Item, List, Pill, type Tone } from "../../../ui/kit.ts";
+import { Confirm, Empty, Item, List, Panel, Pill, type Tone } from "../../../ui/kit.ts";
 import type { PackNeed } from "../../types.ts";
 
 const DAY = 86_400_000;
@@ -75,4 +75,48 @@ export function autoPanel(s: AutoSettings, pass: AutoPass | undefined, host: str
       )
     : Empty({ title: "No labelled issues picked up yet" });
   return html`${form}${pass?.paused ? html`<p class="t2">${pass.paused}</p>` : ""}${list}`;
+}
+
+const ACTIVE: AutoRow["state"][] = ["queued", "starting", "running", "waiting"];
+
+/** A row's own spend cap: Settings' per-run cap, narrowed by the budget in the issue's options block (stored as JSON). */
+const capOf = (s: AutoSettings, r: AutoRow) => {
+  let b: unknown;
+  try {
+    b = (JSON.parse(r.options ?? "{}") as { budget?: unknown })?.budget;
+  } catch {}
+  return typeof b === "number" && b > 0 ? Math.min(s.runUsd, b) : s.runUsd;
+};
+
+/**
+ * /agents: "Working alone" (#209). What's queued, running, waiting for me, and what ended in the
+ * last four days: its issue, cost against its cap, and its run and PR. A stuck one can run again.
+ * Nothing at all while auto runs are off and none are left to show.
+ */
+export function alonePanel(s: AutoSettings, pass: AutoPass | undefined, host: string, now: number) {
+  const rows = (pass?.rows ?? []).filter((r) => ACTIVE.includes(r.state) || now - r.updated < 4 * DAY).slice(0, 15);
+  if (!rows.length && !s.on) return "";
+  const active = rows.filter((r) => ACTIVE.includes(r.state)).length;
+  const item = (r: AutoRow) => {
+    const st = STATE[r.state];
+    const spent = r.cost > 0 || r.state === "running" ? `$${r.cost.toFixed(2)} of $${capOf(s, r).toFixed(2)} · ` : "";
+    const again =
+      r.state === "stuck"
+        ? Confirm({ kind: "auto.again", action: "/agents/auto/again", fields: { key: r.key }, label: "Run again", question: html`Label ${name(r)} <code>${AUTO_LABEL}</code> again and queue it? It starts within the limits.` })
+        : "";
+    return Item({
+      title: html`<a href="${safeUrl(issueUrl(host, r))}"><strong>${name(r)}</strong></a> ${r.title} ${Pill({ tone: st.tone, children: st.label })}`,
+      line: html`${r.why ?? ""}${r.run && r.state !== "refused" ? html` <a href="/agents/r/${encodeURIComponent(r.run)}">Its run</a>` : ""}${r.pr ? html` <a href="${safeUrl(r.pr)}">Its draft PR</a>` : ""}`,
+      trail: html`${spent}${Ago(r.updated)}${again}`,
+    });
+  };
+  return Panel({
+    title: "Working alone",
+    meta: String(active),
+    actions: html`<a class="btn sm" href="/settings/packs/agents">Limits</a>`,
+    flush: true,
+    children: html`${pass?.paused && rows.some((r) => r.state === "queued") ? html`<p class="t2">${pass.paused}</p>` : ""}${
+      rows.length ? List(rows.map(item)) : Empty({ title: "Nothing picked up", children: html`<p class="t2">Label an issue <code>${AUTO_LABEL}</code> and it's worked on alone, in a sandbox.</p>` })
+    }`,
+  });
 }

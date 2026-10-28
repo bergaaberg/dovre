@@ -116,6 +116,33 @@ export async function closeOut(o: { db: D1; ghe: Forge; owners: string; row: Pic
   await logAction(o.db, { kind, target, ok: !failed.length, ...(failed.length ? { error: failed.join("; ") } : {}) }).catch(() => {});
 }
 
+/**
+ * A stuck auto run, again (#209): what the stuck comment tells me to do by hand. The row is
+ * checked (still stuck, in my repos), the issue too (still open), then it's labelled
+ * `dovre:auto` again (`-stuck` off) and queued; the next pass starts it within the limits.
+ */
+export async function runAgain(o: { db: D1; ghe: Forge; owners: string; key: string; store?: AutoStore }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const store = o.store ?? autoStore(o.db);
+  const row = await store.get(o.key);
+  if (!row || row.state !== "stuck") return { ok: false, error: "That auto run isn't stuck any more." };
+  const target = `${row.repo}#${row.number}`;
+  const fail = async (error: string) => (await logAction(o.db, { kind: "auto.again", target, ok: false, error }).catch(() => {}), { ok: false as const, error });
+  const repo = ownedRepo(o.owners, row.repo);
+  if (!repo) return fail("Not in your repos.");
+  const base = `/repos/${repo}/issues/${row.number}`;
+  try {
+    const issue = await o.ghe.rest<{ state: string }>(base);
+    if (issue.state !== "open") return fail(`${target} is closed.`);
+    await o.ghe.rest(`${base}/labels`, { method: "POST", body: { labels: [AUTO_LABEL] } });
+  } catch (e) {
+    return fail(`Couldn't label it: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+  }
+  await o.ghe.rest(`${base}/labels/${encodeURIComponent(STUCK_LABEL)}`, { method: "DELETE" }).catch(() => {});
+  if (!(await store.move(o.key, "stuck", "queued", { why: null }))) return fail("Another pass moved it first.");
+  await logAction(o.db, { kind: "auto.again", target, ok: true }).catch(() => {});
+  return { ok: true };
+}
+
 /** The agent's last word, for the comment. */
 const lastWord = (run: Run | undefined) => {
   const r = run ? [...run.events].reverse().find((e) => e.t === "result" || e.t === "error") : undefined;

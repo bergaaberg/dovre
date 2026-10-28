@@ -1,15 +1,15 @@
 // Auto runs (#207): issues an owner labelled dovre:auto, picked up, run in a sandbox, closed out.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { autoTick, type IssueCheck, untrusted } from "../src/actions/auto.ts";
+import { autoTick, type IssueCheck, runAgain, untrusted } from "../src/actions/auto.ts";
 import { autoIssueOf, sandboxPrText } from "../src/actions/sandbox.ts";
-import { autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
+import { type AutoRow, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
 import { capsOf, type Desk } from "../src/agents/desk.ts";
 import { argsFor } from "../src/agents/harnesses/claude/harness.ts";
 import type { Run } from "../src/agents/runner.ts";
 import type { SandboxReady } from "../src/agents/sandbox.ts";
 import { openDb } from "../src/db.ts";
-import { autoNeeds, autoPanel } from "../src/packs/core/agents/auto.ts";
+import { alonePanel, autoNeeds, autoPanel } from "../src/packs/core/agents/auto.ts";
 import { assertInert, H } from "./helpers.ts";
 
 test("autoOptionsOf: a fenced dovre block's known keys; junk and unsafe bases left out", () => {
@@ -95,6 +95,7 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
       if (path === "/user") return { login: "me" } as T;
       if (path.startsWith("/search/issues")) return { items: issueOpen ? [{ number: 12, title: "Make it blue", updated_at: "2026-10-28T10:00:00Z", repository_url: "https://api.github.com/repos/acme/app" }] : [] } as T;
       if (path === "/repos/acme/app") return { default_branch: "main" } as T;
+      if (path === "/repos/acme/app/issues/12" && method === "GET") return { state: issueOpen ? "open" : "closed" } as T;
       if (path.includes("/git/ref/heads/")) return { object: { sha: "b".repeat(40) } } as T;
       if (path.includes("/pulls?")) return [] as T;
       if (path.endsWith("/pulls")) return { number: 40, html_url: "https://github.com/acme/app/pull/40" } as T;
@@ -297,4 +298,52 @@ test("autoPanel: hostile titles, reasons and links stay inert", () => {
   const out = String(autoPanel(DEFAULT_AUTO, { rows: [row], paused: H }, "github.com"));
   assertInert("auto panel", out);
   assert.ok(!out.includes("javascript:"));
+});
+
+test("runAgain: a stuck issue is labelled dovre:auto again (-stuck off), queued, logged, and the next pass starts it", async () => {
+  const w = world();
+  await on(w.db);
+  await w.tick();
+  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
+  await w.tick();
+  const key = "acme/app#12";
+  assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "other", key }), { ok: false, error: "Not in your repos." });
+  w.writes.length = 0;
+  assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "acme", key }), { ok: true });
+  assert.deepEqual(w.writes.map((x) => `${x.method} ${x.path}`), ["POST /repos/acme/app/issues/12/labels", "DELETE /repos/acme/app/issues/12/labels/dovre%3Aauto-stuck"]);
+  assert.deepEqual((w.writes[0]!.body as { labels: string[] }).labels, ["dovre:auto"]);
+  assert.equal((await autoStore(w.db.DB).get(key))!.state, "queued");
+  assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "acme", key }), { ok: false, error: "That auto run isn't stuck any more." });
+  const logged = w.db.raw.prepare("SELECT kind, ok, error FROM actions WHERE kind = 'auto.again'").all().map((l) => ({ ...l }));
+  assert.deepEqual(logged, [{ kind: "auto.again", ok: 0, error: "Not in your repos." }, { kind: "auto.again", ok: 1, error: null }]);
+  await w.tick();
+  assert.equal(w.started.length, 2, "started again");
+});
+
+test("runAgain: a closed issue isn't labelled", async () => {
+  const w = world();
+  await on(w.db);
+  await w.tick();
+  Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
+  await w.tick();
+  w.close();
+  w.writes.length = 0;
+  assert.deepEqual(await runAgain({ db: w.db.DB, ghe: w.ghe, owners: "acme", key: "acme/app#12" }), { ok: false, error: "acme/app#12 is closed." });
+  assert.equal(w.writes.length, 0);
+});
+
+test("alonePanel: active rows and the last four days, cost against its cap, Run again on a stuck one; hostile input inert; nothing when off and empty", () => {
+  const now = Date.parse("2026-10-28T12:00:00Z");
+  const row = (o: Partial<AutoRow>): AutoRow => ({ key: "acme/app#1", repo: "acme/app", number: 1, title: "t", state: "running", run: "run-1", cost: 1, why: null, pr: null, seen: null, options: null, at: now, updated: now, ...o });
+  const s = { ...DEFAULT_AUTO, on: true, runUsd: 5 };
+  const out = String(alonePanel(s, { rows: [row({ options: JSON.stringify({ budget: 2 }) }), row({ key: "acme/app#2", number: 2, state: "stuck", why: "No commits." }), row({ key: "acme/app#3", number: 3, state: "done", updated: now - 5 * 86_400_000 })] }, "github.com", now));
+  assert.match(out, /Working alone/);
+  assert.match(out, /\$1\.00 of \$2\.00/);
+  assert.match(out, /action="\/agents\/auto\/again"/);
+  assert.match(out, /value="acme\/app#2"/);
+  assert.ok(!out.includes("app#3"), "older than four days");
+  assert.equal(alonePanel({ ...DEFAULT_AUTO, on: false }, { rows: [] }, "github.com", now), "");
+  const bad = String(alonePanel(s, { rows: [row({ title: H, run: H, why: H, pr: "javascript:alert(1)", state: "stuck", key: H })], paused: H }, "github.com", now));
+  assertInert("working alone", bad);
+  assert.ok(!bad.includes("javascript:"));
 });

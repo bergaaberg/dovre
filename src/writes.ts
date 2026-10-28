@@ -30,6 +30,7 @@ export const WRITES: WriteKind[] = [
   { kind: "issue.close", label: "Close an issue", group: "Issues" },
   { kind: "issue.reopen", label: "Reopen an issue", group: "Issues" },
   { kind: "issue.comment", label: "Post a comment", group: "Issues" },
+  { kind: "auto.again", label: "Run a stuck auto issue again (labels it dovre:auto again)", group: "Issues" },
   { kind: "agents.clear", label: "Clear finished agent sessions", group: "Here" },
   { kind: "sandbox.discard", label: "Discard a sandbox run's commits", group: "Here", floor: "twice" },
   { kind: "agents.tools", label: "Give omp or agy the packs' tools (adds Dovre to its MCP config)", group: "Here" },

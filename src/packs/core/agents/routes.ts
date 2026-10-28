@@ -15,6 +15,7 @@ import { diffHref } from "../../../pages/viewer.ts";
 import type { PackContext } from "../../types.ts";
 import { openSandboxPr } from "../../../actions/sandbox.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
+import type { Html } from "../../../ui/kit.ts";
 import type { Here } from "./here.ts";
 import { sessionsOf } from "./index.ts";
 import { agentPage, newAgentPage } from "./session.view.ts";
@@ -54,7 +55,7 @@ function backTo(c: C, to: string): string {
 
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 
-export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here, github }: { desk: Desk; dismissed: Dismissed; here?: Here; github?: { ghe: Pick<Ghe, "rest">; owners: () => string } }) {
+export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here, github, alone }: { desk: Desk; dismissed: Dismissed; here?: Here; github?: { ghe: Pick<Ghe, "rest">; owners: () => string }; /** Auto runs' panel (#209). */ alone?: () => Html | "" }) {
   /**
    * Hosted: the machines online or when each was last; with `id`, the one that session or run is
    * on (its page's forms go there). Locally nothing to say.
@@ -95,7 +96,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const s = await shown();
     if (!s) return gathering(c);
     const v = desk.view();
-    return ctx.page(c, agentsPage(s, sessionsOf(desk, here, dismissed), v.runs, { workDir: v.workDir, mac: macOf(), panels: ctx.fill("agents.panel", {}), resume: (session) => ctx.fill("session.resume", { session }) }));
+    return ctx.page(c, agentsPage(s, sessionsOf(desk, here, dismissed), v.runs, { workDir: v.workDir, mac: macOf(), alone: alone?.(), panels: ctx.fill("agents.panel", {}), resume: (session) => ctx.fill("session.resume", { session }) }));
   });
   app.get("/agents/new", async (c) => {
     const v = desk.view();
