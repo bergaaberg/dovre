@@ -1,8 +1,13 @@
 /** Agent harnesses, one folder each (#107): the list, each one's agent-host filter, and the on/off switch per CLI in Settings. */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { HARNESS_DEFS, harnessesFor, modelsOf } from "../src/agents/harnesses/index.ts";
+import { codexModelsIn, foundModels, ompModelsIn } from "../src/agents/harnesses/found.ts";
+import { HARNESS_DEFS, harnessDef, harnessesFor, modelsOf, useFoundModels } from "../src/agents/harnesses/index.ts";
+import { modelOf } from "../src/agents/desk.ts";
+import { modelSelect } from "../src/pages/models.ts";
 import { HARNESSES } from "../src/agents/runner.ts";
 import { configFromForm, GENERAL } from "../src/config.ts";
 import { fieldInput } from "../src/pages/settings.ts";
@@ -52,4 +57,42 @@ test("Settings: one box per agent CLI, kept as the list; all ticked is the defau
   assert.match(drawn, /name="AGENT_HARNESSES\.omp" value="on">/);
   assert.match(String(fieldInput(field, undefined, false)), /name="AGENT_HARNESSES\.agy" value="on" checked/, "unset: every one ticked");
   assert.match(String(fieldInput(field, "codex", true)), /name="AGENT_HARNESSES\.codex" value="on" checked disabled/, "set in .dev.vars: fixed");
+});
+
+test("found models: omp's roles (default first, each once, no thinking level) and Codex's model and profiles; broken or hostile configs give none", () => {
+  const omp = "modelRoles:\n  smol: zai/glm-5.3-flash:low\n  task: zai/glm-5.3-flash:xhigh\n  default: google-antigravity/gemini-3.8-flash:high\n  web: --exec\n  bad: '<img src=x>'\ntheme:\n  dark: titanium\n";
+  assert.deepEqual(ompModelsIn(omp), [
+    { value: "google-antigravity/gemini-3.8-flash", label: "gemini-3.8-flash (google-antigravity)" },
+    { value: "zai/glm-5.3-flash", label: "glm-5.3-flash (zai)" },
+  ]);
+  assert.deepEqual(ompModelsIn("modelRoles: [oops\n  : :"), []);
+  assert.deepEqual(ompModelsIn("theme: x\n"), []);
+  const codex = 'model = "gpt-5-codex" # mine\nmodel_provider = "openai"\n[mcp_servers.x]\nmodel = "not-this"\n[profiles.fast]\nmodel = \'gpt-5-mini\'\n[profiles.evil]\nmodel = "a b; rm -rf"\n[profiles.again]\nmodel = "gpt-5-codex"\n';
+  assert.deepEqual(codexModelsIn(codex).map((m) => m.value), ["gpt-5-codex", "gpt-5-mini"]);
+  assert.deepEqual(codexModelsIn("model = [\n"), []);
+});
+
+test("found models: read from this machine's configs when the local server turns them on, re-read once changed; else the fixed list", () => {
+  const home = mkdtempSync(join(tmpdir(), "dovre-models-"));
+  let t = 0;
+  const read = foundModels({ home, env: {}, now: () => t });
+  assert.deepEqual(read("omp"), [], "no config: none");
+  assert.deepEqual(read("claude"), []);
+  mkdirSync(join(home, ".omp", "agent"), { recursive: true });
+  writeFileSync(join(home, ".omp", "agent", "config.yml"), "modelRoles:\n  default: zai/glm-5.3-flash:high\n");
+  assert.deepEqual(read("omp"), [], "cached for a while");
+  t += 31_000;
+  assert.deepEqual(read("omp").map((m) => m.value), ["zai/glm-5.3-flash"]);
+
+  const fixed = modelsOf("omp");
+  try {
+    useFoundModels(read);
+    assert.deepEqual(modelsOf("omp").map((m) => m.value), ["", "zai/glm-5.3-flash"], "the CLI's default, then its config's");
+    assert.deepEqual(modelsOf("codex"), harnessDef("codex").models, "none found: the fixed list");
+    assert.equal(modelOf("zai/glm-5.3-flash", "omp"), "zai/glm-5.3-flash");
+    assert.match(String(modelSelect("", ["omp"])), /glm-5\.3-flash \(zai\)/);
+  } finally {
+    useFoundModels(undefined);
+  }
+  assert.deepEqual(modelsOf("omp"), fixed);
 });
