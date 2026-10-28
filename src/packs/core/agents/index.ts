@@ -29,6 +29,10 @@ import { agentRoutes } from "./routes.ts";
 import { agentBrief, agentFeed, agentGlance, agentLane, agentsCard } from "./today.ts";
 import { agentActivity, turnNote, turnWatch } from "./turns.ts";
 import { askBar } from "./view.ts";
+import { type AutoPass, autoTick } from "../../../actions/auto.ts";
+import { type AutoSettings, DEFAULT_AUTO, autoSettingsOf, loadAutoSettings, saveAutoSettings } from "../../../agents/auto.ts";
+import { writeClicksStore } from "../../../writes.ts";
+import { autoNeeds, autoPanel } from "./auto.ts";
 
 export type AgentsDeps = {
   /** This machine's desk, or hosted the Mac's over the bridge. */
@@ -41,8 +45,8 @@ export type AgentsDeps = {
   onTurn?: (listen: (r: Run) => void) => void;
   /** How long a turn runs before its end rings (Settings → Notifications); default 10 min. */
   longTurnMs?: () => number;
-  /** The forge, for a sandbox run's draft PR (#206): absent, a run's commits stay a branch on its machine. */
-  github?: { ghe: Pick<Ghe, "rest">; owners: () => string };
+  /** The forge, for a sandbox run's draft PR (#206) and auto runs (#207): absent, a run's commits stay a branch on its machine. */
+  github?: { ghe: Pick<Ghe, "rest" | "graphql">; owners: () => string };
 };
 
 const NONE: Sessions = { live: [], recent: [] };
@@ -56,6 +60,9 @@ export function sessionsOf(desk: Desk, here: Here | undefined, dismissed?: Pick<
 export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }: AgentsDeps): Pack {
   const sessions = (cleared?: boolean) => sessionsOf(desk, here, cleared ? dismissed : undefined);
   let stop = () => {};
+  // Auto runs (#207): the limits and the last pass, kept for needs and the Settings panel.
+  let auto: AutoSettings = { ...DEFAULT_AUTO };
+  let pass: AutoPass | undefined;
   return {
     manifest: {
       api: PACK_API,
@@ -68,9 +75,21 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }
       rings: [
         { kind: "agent-ask", label: "An agent needs my OK", hint: "A permission question, or a tool it was refused" },
         { kind: "agent-done", label: "A long agent turn finishes", hint: "Only turns started here, longer than the threshold below" },
+        { kind: "agent-auto", label: "An auto run needs me", hint: "A dovre:auto issue's draft PR waits for my OK, or its run got stuck" },
       ],
+      // Auto runs' pass: following runs, and a search for newly labelled issues.
+      everyMs: 2 * 60_000,
     },
+    async refresh(ctx) {
+      if (!github) return;
+      auto = await loadAutoSettings(ctx.db);
+      const before = JSON.stringify(pass ?? null);
+      pass = await autoTick({ db: ctx.db, ghe: github.ghe, owners: github.owners(), desk, clicks: () => writeClicksStore(ctx.db).get(), tz: ctx.env.TZ_NAME });
+      if (JSON.stringify(pass) !== before) ctx.publish(["agents"]);
+    },
+    settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME) : ""),
     init(ctx) {
+      if (github) void loadAutoSettings(ctx.db).then((s) => (auto = s), () => {});
       // Locally the sessions and worktrees are read here; a read that changed them redraws the pages (and what needs me rings).
       if (here && !ctx.hosted) stop = here.start(() => ctx.publish(["snapshot"]));
       const watch = turnWatch();
@@ -94,7 +113,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }
         ...(ctx.hosted ? [] : [{ href: "/worktrees", title: "Worktrees", icon: "branch" as const, group: "Code", order: 30 }]),
       ];
     },
-    needs: (ctx) => agentNeeds(sessions().live),
+    needs: (ctx) => [...agentNeeds(sessions().live), ...autoNeeds(pass, ctx.env.GHE_HOST ?? "github.com", Date.now())],
     today: async (ctx) => {
       const s = await ctx.gathered();
       return s ? [{ id: "live", column: "left", order: 10, render: agentsCard(s, sessions(true), desk.view().runs, Date.now()) }] : [];
@@ -107,7 +126,16 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github }
     about: (ctx, path) => aboutAgentPage(path, sessions()),
     finds: (ctx) => agentFinds(sessions(true), desk.view().runs, ctx.hosted ? [] : (here?.worktrees() ?? [])),
     feed: (ctx) => agentFeed(sessions(true), desk.view().runs, Date.now()),
-    routes: (app, ctx) => agentRoutes(app, ctx, { desk, dismissed, here, github }),
+    routes: (app, ctx) => {
+      agentRoutes(app, ctx, { desk, dismissed, here, github });
+      // Settings → Packs → Agents: the auto runs' limits.
+      if (github)
+        app.post("/agents/auto", async (c) => {
+          auto = autoSettingsOf(await c.req.parseBody());
+          await saveAutoSettings(ctx.db, auto);
+          return c.redirect("/settings/packs/agents", 303);
+        });
+    },
     // Not on the session's own page: it asks there itself.
     banner: (_ctx, { path }) => {
       const asks = agentAsksOf(desk.view().runs, (sid) => dismissed.has(sid)).filter((a) => path !== `/agents/s/${a.sid}`);

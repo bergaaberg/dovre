@@ -21,6 +21,9 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { join, resolve, sep } from "node:path";
 
 export const MODES = ["default", "acceptEdits", "plan"] as const;
+/** Claude Code's `--effort` levels. */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
 export type Mode = (typeof MODES)[number];
 
 export type AgentEvent =
@@ -83,12 +86,20 @@ export type Run = {
   sandbox?: SandboxBox;
   /** A sandbox run that ended: what it made, brought home as a branch of `cwd` (#206). */
   out?: SandboxOut;
+  /** A sandbox run's own caps (#207): its wall clock (at most the engine's), and the dollars Claude Code may spend. */
+  maxMs?: number;
+  budget?: number;
 };
 
 export type StartOpts = {
   harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[];
   /** Run in a sandbox: a fresh clone of `cwd` inside a container, in yolo mode. A new session only. */
   sandbox?: boolean;
+  /** A sandbox run only (#207): the commit-ish its clone starts from (default the checkout's HEAD), its wall clock, its spend cap in dollars, and how hard it thinks. */
+  base?: string;
+  maxMs?: number;
+  budget?: number;
+  effort?: Effort;
   /** Dovre's MCP server for this turn (src/mcp.ts): its address and the turn's own token. Set by the runner, not the caller. */
   mcp?: { url: string; token: string };
 };
@@ -189,12 +200,13 @@ export function createRunner(opts: {
   /** A sandbox run is stopped when it runs past the cap, also when picked up after a restart. */
   const capped = (r: Run, stop: (id: string) => boolean) => {
     if (!r.sandbox || !opts.sandbox) return;
+    const max = Math.min(opts.sandbox.maxMs, r.maxMs ?? Infinity);
     const t = setTimeout(() => {
       if (r.status !== "running") return;
       stop(r.id);
-      r.events.push({ t: "error", text: `Stopped: the sandbox run went past ${Math.round(opts.sandbox!.maxMs / 60_000)} minutes.` });
+      r.events.push({ t: "error", text: `Stopped: the sandbox run went past ${Math.round(max / 60_000)} minutes.` });
       changed(r);
-    }, Math.max(0, r.startedAt + opts.sandbox.maxMs - now()));
+    }, Math.max(0, r.startedAt + max - now()));
     t.unref?.();
   };
 
@@ -338,13 +350,16 @@ export function createRunner(opts: {
       const prompt = given.prompt;
       // A copy is told it's one, so it leaves the terminal's unfinished work alone (the page shows the note as a line).
       // Yolo is set here and nowhere else: whatever the caller passed, only a sandbox run has it.
-      let o: HarnessOpts = { ...given, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
+      // The caps and base are a sandbox run's alone.
+      const caps = box ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined, effort: given.effort } : { base: undefined, maxMs: undefined, budget: undefined, effort: undefined };
+      let o: HarnessOpts = { ...given, ...caps, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
       const id = randomUUID();
-      const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd }) : undefined;
+      const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd, ...(caps.base ? { base: caps.base } : {}) }) : undefined;
       const run: Run = {
         id, harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
         cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", allowed: o.allowed ?? [],
         status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox } : {}),
+        ...(caps.maxMs ? { maxMs: caps.maxMs } : {}), ...(caps.budget ? { budget: caps.budget } : {}),
       };
       runs.set(run.id, run);
       // A token per turn, good while the turn runs: Claude Code and Codex get it in their arguments

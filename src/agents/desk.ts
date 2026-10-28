@@ -16,7 +16,7 @@ import { allowedPrompt, answersPrompt, type Turn, turnsOf as claudeTurns } from 
 import { joined, type Queue, type Queued } from "./queue.ts";
 import { turnCost as turnCostOf } from "./latest.ts";
 import { modelsOf } from "./harnesses/index.ts";
-import { HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, repoDir } from "./runner.ts";
+import { EFFORTS, type Effort, HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, type StartOpts, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
 import type { SandboxState } from "./sandbox.ts";
 
@@ -75,7 +75,8 @@ export type Desk = {
   session(sid: string): Promise<SessionView | undefined>;
   /** `machine`: hosted, the machine to start on (the one online when there's one). */
   /** `sandbox`: run it in a sandbox (a fresh clone in a container, yolo inside), when the form ticked it. */
-  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; machine?: unknown; sandbox?: unknown }): Promise<{ to: string } | { error: string }>;
+  /** `caps`: a sandbox run's base, wall clock, budget and effort (#207, auto runs); checked here. `run`: the run's id. */
+  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown }): Promise<{ to: string; run?: string } | { error: string }>;
   reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown }): Promise<Done>;
   /** Answers to the agent's newest question (AskUserQuestion): the form as posted. */
   answer(sid: string, form: Record<string, unknown>): Promise<Done>;
@@ -103,6 +104,19 @@ export const modelOf = (v: unknown, h: HarnessId = "claude"): string => {
 };
 /** A ticked checkbox, as a form or the bridge sends it. */
 export const tickedOf = (v: unknown) => v === "on" || v === true;
+/** A sandbox run's caps, as anyone may send them: a plain ref for the base, minutes 1–600 (as ms), dollars 0.01–1000, a known effort. Anything else is left out. */
+export function capsOf(v: unknown): Pick<StartOpts, "base" | "maxMs" | "budget" | "effort"> {
+  if (!v || typeof v !== "object") return {};
+  const c = v as Record<string, unknown>;
+  const out: Pick<StartOpts, "base" | "maxMs" | "budget" | "effort"> = {};
+  if (typeof c.base === "string" && REF.test(c.base) && !c.base.includes("..") && !c.base.endsWith(".lock") && !c.base.endsWith("/")) out.base = c.base;
+  if (typeof c.maxMs === "number" && Number.isFinite(c.maxMs) && c.maxMs >= 60_000 && c.maxMs <= 600 * 60_000) out.maxMs = Math.round(c.maxMs);
+  if (typeof c.budget === "number" && Number.isFinite(c.budget) && c.budget >= 0.01 && c.budget <= 1000) out.budget = Math.round(c.budget * 100) / 100;
+  if ((EFFORTS as readonly string[]).includes(String(c.effort))) out.effort = c.effort as Effort;
+  return out;
+}
+/** A branch or remote-tracking ref: never an option (no leading dash), no revision syntax. */
+const REF = /^[\w][\w./-]{0,120}$/;
 export const promptOf = (v: unknown) => (typeof v === "string" && v.trim() && v.length <= 20_000 ? v.trim() : null);
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 /** The specs of calls to allow: each one line, bounded, at most ten. */
@@ -241,14 +255,14 @@ export function localDesk(o: {
       if (sandbox && f.repo === WORK) return { error: "A sandbox run works in a clone of a checkout: pick one." };
       let run;
       try {
-        run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness), sandbox });
+        run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness), sandbox, ...(sandbox ? capsOf(f.caps) : {}) });
       } catch (e) {
         if (!sandbox) throw e;
         return { error: String((e as Error).message) };
       }
       // Straight to the run: its page turns into the session's once the agent says which (a second or two).
       const sid = await runner.sessionOf(run.id, 300);
-      return { to: sid ? page(sid) : `/agents/r/${run.id}` };
+      return { to: sid ? page(sid) : `/agents/r/${run.id}`, run: run.id };
     },
     async reply(sid, f) {
       if (!SID.test(sid)) return { to: "/agents" };

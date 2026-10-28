@@ -32,6 +32,9 @@ export function argsFor(o: HarnessOpts): string[] {
   const perm = o.yolo ? ["--dangerously-skip-permissions"] : ["--permission-mode", o.mode ?? "default"];
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", ...perm, "--append-system-prompt", o.yolo ? SANDBOX_NOTE : HEADLESS_NOTE];
   if (o.model) args.push("--model", o.model);
+  // A sandbox run's caps (#207): Claude Code stops itself at the budget.
+  if (o.yolo && o.budget) args.push("--max-budget-usd", String(o.budget));
+  if (o.yolo && o.effort) args.push("--effort", o.effort);
   if (o.resume) args.push("--resume", o.resume);
   if (o.resume && o.fork) args.push("--fork-session");
   if (o.mcp) args.push("--mcp-config", mcpConfig(o.mcp));

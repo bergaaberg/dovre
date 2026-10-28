@@ -492,7 +492,8 @@ test("bridge: the Mac's desk through the hub: started, watched, answered; what t
     // From the phone: a new turn, in a checkout on the Mac.
     const started = await hub.call({ op: "start", repo: "shop-api", prompt: "make a plan", harness: "claude", mode: "default" });
     assert.equal(started.ok, true);
-    assert.deepEqual((started as { value: unknown }).value, { to: `/agents/s/${SESSION}` });
+    assert.equal((started as { value: { to: string } }).value.to, `/agents/s/${SESSION}`);
+    assert.match(String((started as { value: { run?: string } }).value.run), /^[\w-]{36}$/);
     // Not a checkout under CODE_DIR: refused by the Mac's desk.
     assert.deepEqual(((await hub.call({ op: "start", repo: "../etc", prompt: "x" })) as { value: unknown }).value, { error: "Pick a checkout in your code folder, or Dovre's own folder." });
     // While it works, its topic reaches the page.

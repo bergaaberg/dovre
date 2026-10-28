@@ -150,7 +150,7 @@ export function remoteDesk(hub: Pick<HubClient, "mac" | "call">, o: { ttlMs?: nu
       const machine = typeof f.machine === "string" && f.machine ? f.machine : on.length === 1 ? on[0]!.id : undefined;
       if (!machine) return Promise.resolve({ error: on.length ? "Pick the machine to run it on." : "No machine is online." });
       if (!machines().some((m) => m.id === machine)) return Promise.resolve({ error: "That machine isn't paired." });
-      return acted(call(machine, { op: "start", repo: f.repo, prompt: f.prompt, harness: f.harness, mode: f.mode, model: f.model, sandbox: f.sandbox === "on" || f.sandbox === true }).then((v) => v as { to: string } | { error: string }, (e) => ({ error: (e as Error).message })));
+      return acted(call(machine, { op: "start", repo: f.repo, prompt: f.prompt, harness: f.harness, mode: f.mode, model: f.model, sandbox: f.sandbox === "on" || f.sandbox === true, ...(f.caps ? { caps: f.caps } : {}) }).then((v) => v as { to: string; run?: string } | { error: string }, (e) => ({ error: (e as Error).message })));
     },
     reply: (sid, f) => acted(call(whose(sid), { op: "reply", sid, prompt: f.prompt, mode: f.mode, model: f.model }).then((v) => v as Done, (e) => ({ to: page(sid), flash: (e as Error).message }))),
     answer: (sid, form) => acted(call(whose(sid), { op: "answer", sid, form }).then((v) => v as Done, (e) => ({ to: page(sid), flash: (e as Error).message }))),
