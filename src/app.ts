@@ -8,6 +8,7 @@ import { packProposals } from "./actions/propose.ts";
 import { appendFileSync, existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
+import { slowLog } from "./slow.ts";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { parsePrQuery, PRS_COOKIE, PRS_KEYS, prQueryString } from "./pages/prlist.ts";
@@ -151,6 +152,15 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
   app.use(contextStorage());
+  /** data/perf.log: slow page loads, as the page and the server measured them (timings only). */
+  const perfLog = (line: string) => {
+    try {
+      const file = resolve(env.U_DB ? dirname(env.U_DB) : "data", "perf.log");
+      if (!existsSync(file) || statSync(file).size < 200_000) appendFileSync(file, `${line}${String.fromCharCode(10)}`);
+    } catch {}
+  };
+  // Local: a request the server took long to answer, and whether it was busy or waiting (src/slow.ts). A question's long poll waits on purpose.
+  if (env.IS_HOSTED !== "1") app.use(slowLog(perfLog, { skip: (path) => path.startsWith("/relay/ask/") }));
   // Local only: the one public address a proxy serves this Dovre at (#74). A bad value throws here.
   const publicOrigin = env.IS_HOSTED === "1" ? undefined : publicOriginOf(env.PUBLIC_ORIGIN);
   if (publicOrigin)
@@ -1391,10 +1401,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     if (!j || !path) return c.body(null, 204);
     const num = (k: string) => (typeof j[k] === "number" && Number.isFinite(j[k]) ? Math.round(j[k] as number) : -1);
     const line = [new Date().toISOString(), path, String(j.type).replace(/[^a-z_]/g, "").slice(0, 12), ...["total", "redirect", "worker", "connect", "wait", "download", "dom", "load"].map((k) => `${k}=${num(k)}`)].join(" ");
-    try {
-      const file = resolve(env.U_DB ? dirname(env.U_DB) : "data", "perf.log");
-      if (!existsSync(file) || statSync(file).size < 200_000) appendFileSync(file, `${line}${String.fromCharCode(10)}`);
-    } catch {}
+    perfLog(line);
     return c.body(null, 204);
   });
   /** One answer for a group of questions from the same server (the bar's "Allow all", "Deny all"): each answered, each logged. */
