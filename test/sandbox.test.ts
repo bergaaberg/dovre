@@ -10,7 +10,7 @@ import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { createRunner, type Run, type StartOpts } from "../src/agents/runner.ts";
 import { claudeHarness, argsFor, SANDBOX_NOTE } from "../src/agents/harnesses/claude/harness.ts";
-import { appleContainer, boxEnv, imageIdOf, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
+import { appleContainer, boxEnv, imageIdOf, siblingsOf, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
 import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { WORK } from "../src/agents/workdir.ts";
@@ -540,4 +540,55 @@ test("Apple container engine: a repo's toolchain is built from the file at the b
   assert.throws(() => engine.prepare({ id: "bbbbbbbb-6666", repo }), /must end on `FROM dovre-sandbox`/);
   await tick();
   assert.equal(builds.length, 2);
+});
+
+test("siblings: plain owner/name only, each name once, at most five; mounted read-only under /siblings", () => {
+  assert.deepEqual(siblingsOf(JSON.stringify({ siblings: [" acme/packs ", "other/packs", "acme/../x", "../x", "a/b/c", "x", 7, "acme/a", "acme/b", "acme/c", "acme/d", "acme/e"] })), ["acme/packs", "acme/a", "acme/b", "acme/c", "acme/d"]);
+  assert.deepEqual(siblingsOf("{"), []);
+  assert.deepEqual(siblingsOf(JSON.stringify({ siblings: "acme/packs" })), []);
+  assert.deepEqual(siblingsOf(undefined), []);
+  const args = containerArgs({ name: "dovre-1", work: "/b/1/work", envFile: "/b/1/env", image: "dovre-sandbox", memory: "4g", cpus: 4, network: "dovre-sandbox", siblings: [{ name: "packs", dir: "/b/1/siblings/packs" }] }, ["claude"]);
+  assert.deepEqual(args.slice(args.indexOf("/b/1/work:/work") - 1, args.indexOf("-w")), ["-v", "/b/1/work:/work", "-v", "/b/1/siblings/packs:/siblings/packs:ro"]);
+});
+
+test("Apple container engine: a sibling is a fresh clone of its checkout here at origin's default branch, origin gone; one with no checkout refuses the run", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dovre-box-"));
+  const g = (cwd: string, ...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd, encoding: "utf8" }).trim();
+  // The sibling's checkout: origin/main has a commit the checked-out branch doesn't.
+  const up = join(root, "up");
+  mkdirSync(up);
+  g(up, "init", "-q", "-b", "main");
+  writeFileSync(join(up, "README"), "main\n");
+  g(up, "add", "-A");
+  g(up, "commit", "-q", "-m", "main");
+  const packs = join(root, "packs");
+  g(root, "clone", "-q", up, packs);
+  g(packs, "checkout", "-q", "-b", "wip");
+  writeFileSync(join(packs, "README"), "wip\n");
+  g(packs, "commit", "-q", "-am", "wip");
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, ".dovre"), { recursive: true });
+  g(repo, "init", "-q");
+  writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ siblings: ["acme/packs"] }));
+  g(repo, "add", "-A");
+  g(repo, "commit", "-q", "-m", "siblings");
+  const tokenFile = join(root, "token");
+  writeFileSync(tokenFile, "sk-ant-oat01-test\n", { mode: 0o600 });
+  const asked: string[] = [];
+  const engine = appleContainer({ root: join(root, "boxes"), checkout: (r) => (asked.push(r), r === "acme/packs" ? packs : undefined), tokenFile, exec: withNet(async () => ({ ok: true, out: "" })), egress: fakeEgress().egress });
+  await tick();
+  const box = engine.prepare({ id: "bbbbbbbb-1111", repo });
+  assert.deepEqual(asked, ["acme/packs"]);
+  assert.deepEqual(box.siblings, ["packs"]);
+  const sib = join(box.dir, "siblings", "packs");
+  assert.equal(readFileSync(join(sib, "README"), "utf8"), "main\n", "origin's default branch, not the checkout's work in progress");
+  assert.equal(g(sib, "remote"), "");
+  const args = engine.command(box, ["claude"]).args;
+  assert.ok(args.includes(`${sib}:/siblings/packs:ro`));
+  engine.remove(box);
+  // Listed but not here: the run doesn't start, and says which.
+  writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ siblings: ["acme/gone"] }));
+  g(repo, "commit", "-q", "-am", "gone");
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-2222", repo }), /acme\/gone \(a sibling in \.dovre\/sandbox\.json\) has no checkout here/);
+  assert.ok(!existsSync(join(root, "boxes", "bbbbbbbb-2222")), "its folder goes");
 });
