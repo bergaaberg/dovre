@@ -67,6 +67,7 @@ import { bridgeEntry, registerTools, toolsState } from "./agents/mcpsetup.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { listRepos } from "./sources/claude.ts";
 import { listTodos } from "./todo/store.ts";
+import { systemOpener } from "./open-link.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
 
 const port = Number(process.env.PORT ?? 4848);
@@ -436,6 +437,7 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
     register: (h) => registerTools(h, { home: homedir(), want: toolsEntry, agy: agy ? [agy.bin, ...agy.pre] : undefined }),
   },
   relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n),
+  openUrl: systemOpener(),
   hub,
   notify,
   info: { version, startedAt: Date.now() },
