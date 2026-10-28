@@ -231,6 +231,28 @@ export function toolchainTag(repo: string, baseId: string, file: string): string
   return `${SANDBOX_IMAGE}-${name}:${createHash("sha256").update(`${baseId}\n${file}`).digest("hex").slice(0, 16)}`;
 }
 
+/** The same repo's other toolchain tags in an image list (`container image list --format json`), but for `keep` and those in use (#232). */
+export function staleToolchains(listJson: string, tag: string, inUse: Iterable<string>): string[] {
+  const repo = tag.slice(0, tag.lastIndexOf(":") + 1);
+  const keep = new Set([tag, ...inUse]);
+  let list: unknown;
+  try {
+    list = JSON.parse(listJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  const out: string[] = [];
+  for (const i of list) {
+    const name = String((i as { configuration?: { name?: unknown } })?.configuration?.name ?? "").replace(/^(?:docker\.io\/)?(?:library\/)?/, "");
+    if (name.startsWith(repo) && /^[0-9a-f]{16}$/.test(name.slice(repo.length)) && !keep.has(name)) out.push(name);
+  }
+  return out;
+}
+
+/** A toolchain image's folder under `<root>/.toolchain`. */
+const toolchainDir = (tag: string) => tag.replace(/[^\w.-]+/g, "_");
+
 /** The token as written by `claude setup-token`: one line, no spaces. */
 export function readToken(file: string): string {
   let t: string;
@@ -263,19 +285,41 @@ export function appleContainer(o: { root: string; checkout?: (repo: string) => s
   let baseId: string | undefined;
   /** Toolchain images by tag: there, being built, or failed (tried again after a while). */
   const images = new Map<string, { state: "ready" } | { state: "building" } | { state: "failed"; why: string; at: number }>();
+  /** The toolchain image each prepared or running box uses, by box name. */
+  const using = new Map<string, string>();
+  /** After a build: removes the same repo's older toolchain images no box uses, and their folders (#232). */
+  const pruneToolchains = async (tag: string) => {
+    const inUse = [...using.values()];
+    const list = await run(bin, ["image", "list", "--format", "json"]);
+    for (const old of list.ok ? staleToolchains(list.out, tag, inUse) : []) {
+      if ((await run(bin, ["image", "delete", old])).ok) images.delete(old);
+    }
+    // Folders go by name, even when their image is already gone.
+    const keep = new Set([tag, ...inUse].map(toolchainDir));
+    const prefix = toolchainDir(tag.slice(0, tag.lastIndexOf(":") + 1));
+    let dirs: string[] = [];
+    try {
+      dirs = readdirSync(join(o.root, ".toolchain"));
+    } catch {
+      return;
+    }
+    for (const d of dirs) if (d.startsWith(prefix) && /^[0-9a-f]{16}$/.test(d.slice(prefix.length)) && !keep.has(d)) rmSync(join(o.root, ".toolchain", d), { recursive: true, force: true });
+  };
   /** Makes sure a toolchain image is there: built from the file alone, with an empty context, so nothing of the host goes in. */
   const toolchain = async (tag: string, file: string) => {
     images.set(tag, { state: "building" });
     try {
       if ((await run(bin, ["image", "inspect", tag])).ok) return void images.set(tag, { state: "ready" });
-      const dir = join(o.root, ".toolchain", tag.replace(/[^\w.-]+/g, "_"));
+      const dir = join(o.root, ".toolchain", toolchainDir(tag));
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(join(dir, "context"), { recursive: true, mode: 0o700 });
       writeFileSync(join(dir, "Containerfile"), file, { mode: 0o600 });
       const r = await run(bin, ["build", "--progress", "plain", "-t", tag, "-f", join(dir, "Containerfile"), join(dir, "context")], 30 * 60_000);
       writeFileSync(join(dir, "build.log"), `${r.out}\n${r.err ?? ""}`, { mode: 0o600 });
-      if (r.ok) images.set(tag, { state: "ready" });
-      else images.set(tag, { state: "failed", why: (r.err || r.out).trim().split("\n").slice(-1)[0]?.slice(0, 200) || "the build failed", at: Date.now() });
+      if (r.ok) {
+        images.set(tag, { state: "ready" });
+        await pruneToolchains(tag).catch(() => undefined);
+      } else images.set(tag, { state: "failed", why: (r.err || r.out).trim().split("\n").slice(-1)[0]?.slice(0, 200) || "the build failed", at: Date.now() });
     } catch (e) {
       images.set(tag, { state: "failed", why: String((e as Error).message).split("\n")[0] ?? "the build failed", at: Date.now() });
     }
@@ -388,6 +432,7 @@ export function appleContainer(o: { root: string; checkout?: (repo: string) => s
         writeFileSync(join(dir, "env"), boxEnv(gateway, way.port, key), { mode: 0o600 });
         way.add(key, { token, allow, ...(onDeny ? { onDeny } : {}) });
         keys.set(name, key);
+        if (img !== image) using.set(name, img);
         return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}), ...(siblings.length ? { siblings } : {}) };
       } catch (e) {
         rmSync(dir, { recursive: true, force: true });
@@ -400,6 +445,7 @@ export function appleContainer(o: { root: string; checkout?: (repo: string) => s
       const key = keys.get(box.name);
       if (key) proxy?.drop(key);
       keys.delete(box.name);
+      using.delete(box.name);
       rmSync(envFile(box), { force: true });
     },
     remove: (box) => rmSync(box.dir, { recursive: true, force: true }),
