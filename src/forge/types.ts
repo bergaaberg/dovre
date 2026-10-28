@@ -3,6 +3,7 @@
  * (src/forge/github.ts); a pack can bring another (`Pack.forge`, picked with FORGE=<id>).
  * One forge per instance. The shapes are GitHub's, which other forges map onto.
  */
+import type { Proposal } from "../actions/propose.ts";
 import type { Changelog } from "../sources/changelog.ts";
 import type { Deploy, Move, Note, Pr, PrRef, RedBranch } from "../sources/ghe.ts";
 import type { Issue, IssueAct, IssueSets } from "../sources/issues.ts";
@@ -71,6 +72,8 @@ export type Forge = {
   repos?(owners: string): Promise<string[]>;
   /** One file's text on a repo's default branch; undefined when there's none. Absent: packs read none. */
   file?(repo: string, path: string): Promise<string | undefined>;
+  /** A PR changing one file (src/actions/propose.ts), checked already: throws why not. Absent: packs propose none. */
+  propose?(p: Proposal): Promise<{ number: number; url: string }>;
 };
 
 /**
