@@ -171,7 +171,19 @@ export const autoKey = (repo: string, number: number) => `${repo.toLowerCase()}#
 export const BUSY: AutoState[] = ["starting", "running"];
 
 export function autoStore(db: D1, now: () => number = Date.now) {
+  /** The row's current run has cost this much so far: shown on the row, and kept per run for the day's cap. */
+  async function setCost(key: string, cost: number): Promise<void> {
+    await db.prepare("UPDATE auto_runs SET cost = ? WHERE key = ?").bind(cost, key).run();
+    await db
+      .prepare(
+        "INSERT INTO auto_spend (key, run, cost, at) SELECT key, run, ?, ? FROM auto_runs WHERE key = ? AND run IS NOT NULL " +
+          "ON CONFLICT (key, run) DO UPDATE SET cost = excluded.cost, at = excluded.at",
+      )
+      .bind(cost, now(), key)
+      .run();
+  }
   return {
+    setCost,
     async all(): Promise<AutoRow[]> {
       const { results } = await db.prepare("SELECT * FROM auto_runs ORDER BY at DESC LIMIT 200").all<AutoRow>();
       return results;
@@ -196,15 +208,14 @@ export function autoStore(db: D1, now: () => number = Date.now) {
         .prepare("UPDATE auto_runs SET state = ?, run = COALESCE(?, run), cost = COALESCE(?, cost), why = ?, pr = COALESCE(?, pr), updated = ? WHERE key = ? AND state = ?")
         .bind(to, set.run ?? null, set.cost ?? null, set.why ?? null, set.pr ?? null, now(), key, from)
         .run();
-      return Number(r.meta?.changes ?? 0) === 1;
+      const moved = Number(r.meta?.changes ?? 0) === 1;
+      if (moved && set.cost !== undefined) await setCost(key, set.cost);
+      return moved;
     },
-    /** What auto runs queued since `since` have cost (the day's cap is over the last 24 hours). */
+    /** What auto runs reported since `since` have cost (the day's cap is over the last 24 hours), every run counted. */
     async spent(since: number): Promise<number> {
-      const row = await db.prepare("SELECT COALESCE(SUM(cost), 0) AS c FROM auto_runs WHERE at >= ?").bind(since).first<{ c: number }>();
+      const row = await db.prepare("SELECT COALESCE(SUM(cost), 0) AS c FROM auto_spend WHERE at >= ?").bind(since).first<{ c: number }>();
       return Number(row?.c ?? 0);
-    },
-    async setCost(key: string, cost: number): Promise<void> {
-      await db.prepare("UPDATE auto_runs SET cost = ? WHERE key = ?").bind(cost, key).run();
     },
   };
 }
