@@ -13,6 +13,8 @@ import type { Snapshot } from "../../../gather.ts";
 import type { MacStatus } from "../../../pages/parts.ts";
 import { diffHref } from "../../../pages/viewer.ts";
 import type { PackContext } from "../../types.ts";
+import { openSandboxPr } from "../../../actions/sandbox.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
 import type { Here } from "./here.ts";
 import { sessionsOf } from "./index.ts";
 import { agentPage, newAgentPage } from "./session.view.ts";
@@ -52,7 +54,7 @@ function backTo(c: C, to: string): string {
 
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 
-export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here }: { desk: Desk; dismissed: Dismissed; here?: Here }) {
+export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismissed, here, github }: { desk: Desk; dismissed: Dismissed; here?: Here; github?: { ghe: Pick<Ghe, "rest">; owners: () => string } }) {
   /**
    * Hosted: the machines online or when each was last; with `id`, the one that session or run is
    * on (its page's forms go there). Locally nothing to say.
@@ -111,7 +113,9 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const run = await desk.run(c.req.param("run"));
     if (!run) return c.notFound();
     if (run.sessionId) return c.redirect(`/agents/s/${run.sessionId}`, 303);
-    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, mac: macOf(run.id), diff: ctx.hosted || run.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, run.cwd) }));
+    const flash = flashes.get(run.id);
+    flashes.delete(run.id);
+    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, flash, mac: macOf(run.id), diff: ctx.hosted || run.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, run.cwd) }));
   });
   app.get("/agents/s/:sid", async (c) => {
     const sid = c.req.param("sid");
@@ -172,6 +176,25 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const r = await desk.discardRun(c.req.param("run"));
     if (r.cleared.length) await cleared(r.cleared);
     return c.redirect(backTo(c, "/agents"), 303);
+  });
+  /**
+   * A sandbox run's commits as a draft PR (#206): the owners checked, the machine pushes its
+   * branch, the forge's branch checked again, then the PR (src/actions/sandbox.ts). Its page says how it went.
+   */
+  app.post("/agents/r/:run/pr", async (c) => {
+    const id = c.req.param("run");
+    const run = await desk.run(id);
+    if (!run?.sandbox) return c.notFound();
+    const at = run.sessionId ?? run.id;
+    const to = run.sessionId ? `/agents/s/${run.sessionId}` : `/agents/r/${run.id}`;
+    if (!github) {
+      flashes.set(at, "Dovre can't reach the forge here, so it can't open a PR.");
+      return c.redirect(to, 303);
+    }
+    const r = await openSandboxPr({ db: ctx.db, ghe: github.ghe, owners: github.owners(), run, push: () => desk.pushSandbox(run.id) });
+    if (r.ok) await desk.landed(run.id, { number: r.number, url: r.url });
+    else flashes.set(at, r.error);
+    return c.redirect(to, 303);
   });
   app.post("/agents/r/:run/stop", async (c) => {
     await desk.stopRun(c.req.param("run"));

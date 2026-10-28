@@ -87,6 +87,10 @@ export type Desk = {
   /** Clears an ended session started here away: the sessions to drop from Dovre's lists, or why not. */
   discard(sid: string): Promise<{ cleared: string[] } | { flash: string }>;
   discardRun(id: string): Promise<{ cleared: string[] }>;
+  /** A sandbox run's branch goes to origin (#206): checked, then pushed with the machine's own git credentials. */
+  pushSandbox(id: string): Promise<{ repo: string; branch: string; head: string } | { error: string }>;
+  /** Its draft PR is open: the run keeps the link, and its clone goes. */
+  landed(id: string, pr: { number?: unknown; url?: unknown }): Promise<void>;
   /** Everything started here that has ended. */
   clear(): Promise<{ cleared: string[] }>;
 };
@@ -297,6 +301,18 @@ export function localDesk(o: {
     async discardRun(id) {
       const run = RUN_ID.test(id) ? runner?.get(id) : undefined;
       return run && run.status !== "running" ? drop([run], []) : { cleared: [] };
+    },
+    async pushSandbox(id) {
+      if (!runner || !RUN_ID.test(id)) return { error: "That isn't a run here." };
+      try {
+        return await runner.pushSandbox(id);
+      } catch (e) {
+        return { error: String((e as Error).message).slice(0, 300) };
+      }
+    },
+    async landed(id, pr) {
+      const url = typeof pr?.url === "string" && /^https:\/\/[\w.-]+\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(pr.url) ? pr.url : undefined;
+      if (RUN_ID.test(id) && Number.isInteger(pr?.number) && url) runner?.landed(id, { number: pr.number as number, url });
     },
     async clear() {
       const runs = (runner?.list() ?? []).filter((r) => r.status !== "running");
