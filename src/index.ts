@@ -41,7 +41,8 @@ import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
 import { createRunner, HARNESSES, type Run } from "./agents/runner.ts";
 import { appleContainer } from "./agents/sandbox.ts";
-import { findHarnessTools, harnessesFor } from "./agents/harnesses/index.ts";
+import { findHarnessTools, harnessesFor, useFoundModels } from "./agents/harnesses/index.ts";
+import { foundModels } from "./agents/harnesses/found.ts";
 import { addLeftOut } from "./actions/relock.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
@@ -179,6 +180,7 @@ const login = env.GHE_LOGIN ?? me.login;
 const name = me.name?.split(/\s+/)[0] || login;
 
 // The agent CLIs this machine has: only those are offered, polled and used (src/tools.ts).
+useFoundModels(foundModels());
 const tools = findHarnessTools(env);
 const { claude, omp, agy, codex } = tools;
 // The agents pack uses only the CLIs switched on (AGENT_HARNESSES, Settings); Bino and summaries pick their own.

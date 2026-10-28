@@ -19,8 +19,16 @@ export const HARNESS_DEFS: readonly HarnessDef[] = [claude, omp, agy, codex];
 
 export const harnessDef = (id: HarnessId): HarnessDef => HARNESS_DEFS.find((d) => d.id === id)!;
 
-/** The models a turn in this harness may pick. */
-export const modelsOf = (id: HarnessId) => harnessDef(id).models;
+let found: ((id: HarnessId) => { value: string; label: string }[]) | undefined;
+/** The local server reads each CLI's own config for its models (#238); hosted, the fixed lists stay. */
+export const useFoundModels = (f: typeof found) => void (found = f);
+
+/** The models a turn in this harness may pick: the CLI's default, then those its config names, else the fixed list. */
+export const modelsOf = (id: HarnessId) => {
+  const fixed = harnessDef(id).models;
+  const mine = found?.(id) ?? [];
+  return mine.length ? [fixed[0]!, ...mine] : fixed;
+};
 
 /** Each harness's program, where this machine has it. */
 export function findHarnessTools(env: Partial<Record<HarnessDef["binVar"], string>>): Partial<Record<HarnessId, Tool>> {
