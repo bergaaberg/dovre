@@ -40,7 +40,7 @@ export const TOOLCHAIN_FILE = ".dovre/sandbox.Containerfile";
 export const sandboxTokenFile = (v: string | undefined = process.env.SANDBOX_TOKEN_FILE, home = homedir()) => v?.trim() || join(home, ".dovre", "sandbox-token");
 
 /** A sandbox run as the runner keeps it: its folder (the clone is `work/` in it), its container, the commit it started from, and the hosts it may reach. */
-export type SandboxBox = { dir: string; name: string; base: string; allow?: string[]; image?: string };
+export type SandboxBox = { dir: string; name: string; base: string; allow?: string[]; image?: string; siblings?: string[] };
 
 /** What a sandbox run needs from where it runs. */
 export type SandboxEngine = {
@@ -141,9 +141,36 @@ const hostGit: HostGit = (args, cwd, ms = 60_000) =>
     ),
   );
 
-/** The `container run` arguments for one run. `-i` so the prompt reaches the agent on stdin. */
-export function containerArgs(o: { name: string; work: string; envFile: string; image: string; memory: string; cpus: number; network: string }, inner: string[]): string[] {
-  return ["run", "--progress", "none", "--rm", "-i", "--name", o.name, "--network", o.network, "-m", o.memory, "-c", String(o.cpus), "--env-file", o.envFile, "-v", `${o.work}:/work`, "-w", "/work", o.image, ...inner];
+/** The `container run` arguments for one run. `-i` so the prompt reaches the agent on stdin. Each sibling's clone goes in read-only at `/siblings/<name>`. */
+export function containerArgs(o: { name: string; work: string; envFile: string; image: string; memory: string; cpus: number; network: string; siblings?: { name: string; dir: string }[] }, inner: string[]): string[] {
+  const sibs = (o.siblings ?? []).flatMap((s) => ["-v", `${s.dir}:/siblings/${s.name}:ro`]);
+  return ["run", "--progress", "none", "--rm", "-i", "--name", o.name, "--network", o.network, "-m", o.memory, "-c", String(o.cpus), "--env-file", o.envFile, "-v", `${o.work}:/work`, ...sibs, "-w", "/work", o.image, ...inner];
+}
+
+const SIBLING = /^([\w.-]{1,100})\/([\w.-]{1,100})$/;
+
+/**
+ * The sibling repos `.dovre/sandbox.json` lists (`"siblings": ["owner/name", …]`): at most five,
+ * each name once (it's the folder under `/siblings`). Anything that isn't a plain `owner/name` is dropped.
+ */
+export function siblingsOf(text: string | undefined): string[] {
+  if (!text) return [];
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const list = v && typeof v === "object" && Array.isArray((v as { siblings?: unknown }).siblings) ? ((v as { siblings: unknown[] }).siblings as unknown[]) : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of list) {
+    const m = typeof raw === "string" ? SIBLING.exec(raw.trim()) : null;
+    if (!m || [m[1], m[2]].some((p) => p === "." || p === "..") || seen.has(m[2]!.toLowerCase())) continue;
+    seen.add(m[2]!.toLowerCase());
+    out.push(`${m[1]}/${m[2]}`);
+  }
+  return out.slice(0, 5);
 }
 
 /** The box's environment: the model API and every other host through the proxy under its run's key, and a placeholder for the token. */
@@ -214,7 +241,7 @@ export function readToken(file: string): string {
   return t;
 }
 
-export function appleContainer(o: { root: string; tokenFile?: string; image?: string; memory?: string; cpus?: number; maxMs?: number; bin?: string; exec?: Exec; git?: (args: string[], cwd: string) => string; hostGit?: HostGit; egress?: typeof openEgress }): SandboxEngine {
+export function appleContainer(o: { root: string; checkout?: (repo: string) => string | undefined; tokenFile?: string; image?: string; memory?: string; cpus?: number; maxMs?: number; bin?: string; exec?: Exec; git?: (args: string[], cwd: string) => string; hostGit?: HostGit; egress?: typeof openEgress }): SandboxEngine {
   const bin = o.bin ?? "container";
   const image = o.image ?? SANDBOX_IMAGE;
   const tokenFile = o.tokenFile ?? sandboxTokenFile();
@@ -325,25 +352,44 @@ export function appleContainer(o: { root: string; tokenFile?: string; image?: st
         git(["checkout", "-q", "-b", "work", sha], work);
         git(["remote", "remove", "origin"], work);
         // Read from the real checkout at the base (cat-file: no filters run), so the agent can't widen it.
-        const allow = allowOf((() => {
+        const config = (() => {
           try {
             return git(["cat-file", "blob", `${sha}:${SANDBOX_CONFIG}`], repo);
           } catch {
             return undefined;
           }
-        })());
+        })();
+        const allow = allowOf(config);
+        // Siblings: a fresh clone of each from its checkout here (one of your repos), at origin's
+        // default branch when the checkout knows it, else its HEAD. Mounted read-only.
+        const siblings: string[] = [];
+        for (const s of siblingsOf(config)) {
+          const from = o.checkout?.(s);
+          if (!from) throw new Error(`${s} (a sibling in ${SANDBOX_CONFIG}) has no checkout here`);
+          const name = s.split("/")[1]!;
+          const to = join(dir, "siblings", name);
+          git(["clone", "-q", "--no-local", "--no-checkout", from, to], dir);
+          try {
+            git(["fetch", "-q", "--no-tags", "origin", "refs/remotes/origin/HEAD"], to);
+            git(["checkout", "-q", "--detach", "FETCH_HEAD"], to);
+          } catch {
+            git(["checkout", "-q", "--detach", "HEAD"], to);
+          }
+          git(["remote", "remove", "origin"], to);
+          siblings.push(name);
+        }
         const name = `dovre-${id.slice(0, 8)}`;
         const key = randomBytes(18).toString("base64url");
         writeFileSync(join(dir, "env"), boxEnv(gateway, way.port, key), { mode: 0o600 });
         way.add(key, { token, allow, ...(onDeny ? { onDeny } : {}) });
         keys.set(name, key);
-        return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}) };
+        return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}), ...(siblings.length ? { siblings } : {}) };
       } catch (e) {
         rmSync(dir, { recursive: true, force: true });
         throw new Error(`Couldn't make the sandbox's clone: ${String((e as Error).message).split("\n")[0]}`);
       }
     },
-    command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET }, inner) }),
+    command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET, siblings: (box.siblings ?? []).map((n) => ({ name: n, dir: join(box.dir, "siblings", n) })) }, inner) }),
     kill: (box) => void run(bin, ["kill", box.name]),
     ended: (box) => {
       const key = keys.get(box.name);

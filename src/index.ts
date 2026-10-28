@@ -267,7 +267,14 @@ const runner = createRunner({
   mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() },
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
   // Sandbox runs (#205): Apple container, so macOS only for now.
-  sandbox: process.platform === "darwin" ? appleContainer({ root: join(dataDir, "sandboxes") }) : undefined,
+  sandbox: process.platform === "darwin" ? appleContainer({
+          root: join(dataDir, "sandboxes"),
+          // A repo's siblings (#208) come from your checkouts under CODE_DIR, of your owners only.
+          checkout: (repo) => {
+            const c = checkoutOf(checkouts(env.CODE_DIR, forge.host, ownersIn(env)), repo);
+            return c ? join(env.CODE_DIR, c.dir) : undefined;
+          },
+        }) : undefined,
   harnesses: harnessesFor(tools, harnessOn, { ompProfileOf }),
   onChange: (r) => {
     // A turn that ends lets the messages written meanwhile go; whether it rings is the agents pack's call.
