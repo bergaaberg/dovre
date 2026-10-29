@@ -28,6 +28,8 @@ import { checkReview, postReview } from "../actions/reviews.ts";
 import { replyToThread, resolveThread } from "../actions/threads.ts";
 import type { D1 } from "../db.ts";
 import { cleanText, MAX_BODY, postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
+import { CHECK_SYSTEM, cardsOf, checkOf, checkPrompt, saveCheck, takeCard } from "../reviews/check.ts";
+import type { Complete } from "../ai/llm.ts";
 import { addComment, anchorOf, asDraft, clearReview, dropComment, editComment, importDraft, moveReview, type MyReview, myReview, saveSummary } from "../reviews/mine.ts";
 import { commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
 
@@ -439,6 +441,8 @@ export type ViewerDeps = {
   login?: () => Promise<string>;
   /** The agent's unposted review draft of this PR, and the commit it read. */
   agentDraft?: (repo: string, n: number) => Promise<{ sha: string; draft: ReviewDraft } | undefined>;
+  /** A model to check my review with before I post it (Bino's route), while it's ready. */
+  checker?: () => { ask: Complete; model: string } | undefined;
   stale?: () => void;
 };
 
@@ -583,6 +587,8 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
         agent: (await agentCount(x.repo, x.n, x.v.headSha))?.draft.comments.length,
         preview: o.preview,
         flash: flashOf(x.flashKey),
+        checker: !!deps.checker?.(),
+        check: review ? await checkOf(db, x.who, x.key) : undefined,
       });
     };
 
@@ -624,6 +630,54 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
         setFlash(x.flashKey, n ? { ok: true, message: `Added the agent's ${n} ${n === 1 ? "comment" : "comments"} to your review.` } : { ok: false, message: "Nothing added: your review is on another commit, or full." });
       }
       return c.redirect(`${x.base}/files`, 303);
+    });
+
+    // The agent's check (dovre#299): one call, its cards kept on the review. It waits for the answer
+    // (up to 3 min, the button says so) rather than a background job: hosted, a Worker can't
+    // finish one after the response.
+    app.post("/prs/:owner/:repo/:n/review/check", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const form = await c.req.parseBody();
+      const back = `${x.base}/review`;
+      const fail = (message: string) => (setFlash(x.flashKey, { ok: false, message }), c.redirect(back, 303));
+      if (x.review && x.review.sha !== x.v.headSha) return fail(`Your review is on ${x.review.sha.slice(0, 7)}: move it to ${x.v.headSha.slice(0, 7)} before an agent checks it.`);
+      await saveSummary(db, x.who, x.key, x.v.headSha, form.summary);
+      const review = (await myReview(db, x.who, x.key))!;
+      const ck = deps.checker?.();
+      if (!ck) return fail("There's no agent to check with: Bino isn't set up here.");
+      if (!review.summary && !review.comments.length) return fail("Nothing to check yet: write a summary or add a comment.");
+      const fs = await files(`files:${x.repo}#${x.n}@${x.v.headSha}`, () => loadPrFiles(deps.ghe, x.repo, x.n)).catch(() => [] as PrFile[]);
+      let reply: { text: string; cost: number };
+      try {
+        reply = await ck.ask({ system: CHECK_SYSTEM, user: checkPrompt(x.v, review, fs as PrFile[]), signal: AbortSignal.timeout(180_000) });
+      } catch (e) {
+        return fail(`The agent didn't answer: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      }
+      const cards = cardsOf(reply.text, review, fs as PrFile[]);
+      if (!cards) return fail("The agent answered, but not with cards Dovre could read. Try again.");
+      await saveCheck(db, x.who, x.key, { sha: review.sha, at: Date.now(), model: ck.model, cost: reply.cost, cards });
+      return c.redirect(`${back}#check`, 303);
+    });
+
+    /** A card kept (its text, as I edited it, goes into my pending review) or dismissed. */
+    app.post("/prs/:owner/:repo/:n/review/check/:card", async (c) => {
+      const x = await ctxOf(c);
+      const id = Number(c.req.param("card"));
+      if (!x || !Number.isSafeInteger(id) || id <= 0) return c.notFound();
+      const form = await c.req.parseBody();
+      const back = `${x.base}/review#check`;
+      const card = (await checkOf(db, x.who, x.key))?.cards.find((k) => k.id === id);
+      if (card && form.do === "keep" && x.review && card.text !== undefined) {
+        const body = typeof form.body === "string" ? form.body : card.text;
+        if (card.at) {
+          const r = await addComment(db, x.who, x.key, x.review.sha, { ...card.at, body });
+          if (!r.ok) return (setFlash(x.flashKey, r), c.redirect(back, 303));
+        } else if (card.on === "summary") await saveSummary(db, x.who, x.key, x.review.sha, body);
+        else if (x.review.comments.some((k) => k.id === card.on)) await editComment(db, x.who, x.key, card.on as number, body);
+      }
+      if (card) await takeCard(db, x.who, x.key, id);
+      return c.redirect(back, 303);
     });
 
     app.post("/prs/:owner/:repo/:n/review/move", async (c) => {
