@@ -85,6 +85,32 @@ test("packs in the app: routes under their own path, nav, styles, search, Today;
   assert.match(await (await get("/search?q=status")).text(), /Every app&#39;s numbers|Every app's numbers/);
 });
 
+test("a pack's WebAssembly: served at a hashed path its ctx names; pages may compile it only while one ships any", async () => {
+  const EMPTY = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
+  const canary = pack(
+    { id: "canary" },
+    {
+      wasm: { diff: EMPTY, Bad_Name: EMPTY, notwasm: new TextEncoder().encode("<script>alert(1)</script>"), big: Object.assign(new Uint8Array(8 * 1024 * 1024 + 1), EMPTY) },
+      routes: (app, ctx) => app.get("/canary", (c) => ctx.page(c, { title: "Canary", body: html`<p id="w">${ctx.wasm("diff") ?? "none"}|${ctx.wasm("Bad_Name") ?? "none"}|${ctx.wasm("notwasm") ?? "none"}|${ctx.wasm("big") ?? "none"}|${ctx.wasm("nope") ?? "none"}</p>` })),
+    },
+  );
+  const { get } = signedIn(snapshot(), {}, { packs: [canary] });
+  const res = await get("/canary");
+  assert.match(res.headers.get("Content-Security-Policy") ?? "", /script-src 'self' 'wasm-unsafe-eval'/);
+  const [path, ...rest] = (await res.text()).match(/<p id="w">([^<]*)<\/p>/)![1]!.split("|");
+  assert.match(path!, /^\/assets\/wasm\/canary\.diff\.[a-z0-9]+\.wasm$/);
+  assert.deepEqual(rest, ["none", "none", "none", "none"], "a bad name, bytes that aren't WebAssembly, an oversized module and an unknown name aren't served");
+  const wasm = await get(path!);
+  assert.equal(wasm.headers.get("Content-Type"), "application/wasm");
+  assert.match(wasm.headers.get("Cache-Control") ?? "", /immutable/);
+  assert.deepEqual(new Uint8Array(await wasm.arrayBuffer()), EMPTY);
+
+  const plain = signedIn(snapshot(), {}, { packs: [pack({ id: "plain" })] });
+  const csp = (await plain.get("/")).headers.get("Content-Security-Policy") ?? "";
+  assert.match(csp, /script-src 'self'/);
+  assert.doesNotMatch(csp, /wasm-unsafe-eval/, "no pack ships WebAssembly: pages can't compile any");
+});
+
 test("packs in the app: a route outside /<id>, or an id that's a core path, keeps the pack off; it can't shadow core", async () => {
   const sneaky = pack({ id: "sneaky" }, { routes: (app) => app.get("/prs", (c) => c.text("mine now")) });
   const prs = pack({ id: "prs" }, { routes: (app) => app.get("/prs", (c) => c.text("mine now")) });
