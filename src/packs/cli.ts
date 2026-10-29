@@ -13,6 +13,9 @@ const camel = (id: string) => id.replace(/-([a-z0-9])/g, (_, c: string) => c.toU
 
 /** Finds the exported Crate/Pack identifier in `index.ts` (e.g. `cfHealthPack` or `cfHealthCrate`). */
 export function detectExportName(indexTs: string, id: string): string {
+  for (const want of [`${camel(id)}Pack`, `${camel(id)}Crate`]) {
+    if (new RegExp(`export\\s+const\\s+${want}\\b`).test(indexTs)) return want;
+  }
   const m = indexTs.match(/export\s+const\s+([A-Za-z0-9_]+)\s*(?::\s*(?:Crate|Pack))?\s*=/);
   return m?.[1] ?? `${camel(id)}Crate`;
 }
