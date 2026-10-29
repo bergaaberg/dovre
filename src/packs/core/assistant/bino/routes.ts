@@ -239,7 +239,7 @@ export function createBinoRoutes(env: Env, deps: {
     const form = await c.req.parseBody();
     const todo = idOf(first(form.todo));
     const item = todo !== undefined ? await getTodo(db, todo) : undefined;
-    const text = first(form.text) || first(form.q) || (item ? `Help me group and break this down: ${item.title}${item.notes ? `\n\n${item.notes}` : ""}` : "");
+    const text = first(form.text) || first(form.q) || first(form.prompt) || (item ? `Help me group and break this down: ${item.title}${item.notes ? `\n\n${item.notes}` : ""}` : "");
     if (!text.trim() || !bino.route.ready) return c.redirect(first(form.dock) === "1" ? "/bino/dock" : "/bino", 303);
     const conv = await bino.start(text, { todo: item ? (item.parent ?? item.id) : undefined, view: await viewIn(form), app: appIn(form), ...(await known()) });
     return c.redirect(convHref(conv.id, first(form.dock) === "1"), 303);

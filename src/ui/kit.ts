@@ -140,6 +140,17 @@ export function Post(opts: { action: string; fields?: Record<string, string>; la
   )}<button type="submit"${opts.danger ? html` class="danger"` : ""}>${opts.label}</button></form>`;
 }
 
+/**
+ * Where Investigate goes (#214): core's /investigate, with the prompt in the link, to hand to Bino
+ * or a new agent session in plan mode. `repo`: the app's repo (owner/name) or checkout. The prompt
+ * follows Bino's rule: names, states and counts, never what a private page shows.
+ */
+export const investigateHref = (o: { prompt: string; repo?: string; from?: string }) =>
+  `/investigate?${new URLSearchParams({ prompt: o.prompt.slice(0, 4000), ...(o.repo ? { repo: o.repo } : {}), ...(o.from ? { from: o.from } : {}) })}`;
+/** The Investigate button for something a pack shows (an open signal's card), beside its own actions. */
+export const Investigate = (o: { prompt: string; repo?: string; from?: string; label?: string }): Html =>
+  html`<a class="btn ghost" href="${investigateHref(o)}">${o.label ?? "Investigate"}</a>`;
+
 export { icon };
 /** The escaping template every view is built with (packs too). `raw` stays out of reach: core only, around constants. */
 export { html };

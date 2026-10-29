@@ -36,7 +36,7 @@ export const turnFields = (h: HarnessId, cur: { mode?: string; model?: string; e
  * The new-session form's options, one set per harness: the one picked shows, the rest are hidden
  * and disabled, so only its fields are sent. The page's script swaps them when the Agent changes.
  */
-export const harnessFields = (harnesses: HarnessId[]) =>
+export const harnessFields = (harnesses: HarnessId[], mode?: string) =>
   harnesses.length === 1
-    ? turnFields(harnesses[0]!)
-    : harnesses.map((h, i) => html`<fieldset class="harness-opts" data-harness="${h}"${i ? html` hidden disabled` : ""}><legend class="sr-only">${HARNESS_LABEL[h]}'s options</legend>${turnFields(h)}</fieldset>`);
+    ? turnFields(harnesses[0]!, { mode })
+    : harnesses.map((h, i) => html`<fieldset class="harness-opts" data-harness="${h}"${i ? html` hidden disabled` : ""}><legend class="sr-only">${HARNESS_LABEL[h]}'s options</legend>${turnFields(h, { mode })}</fieldset>`);

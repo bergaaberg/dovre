@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
 import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } from "./helpers.ts";
+import { investigateHref } from "../src/ui/kit.ts";
 import type { Run } from "../src/agents/runner.ts";
 
 const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
@@ -66,6 +67,23 @@ test("every page renders, and hostile text from every source stays text", async 
     assertInert(path, out);
     assert.ok(!out.includes('href="javascript:'), `${path}: a javascript: link got through`);
   }
+});
+
+test("Investigate (#214): the prompt from the link stays text, a bad repo or page is dropped, and the buttons hand it on", async () => {
+  const { get } = signedIn(snapshot());
+  const res = await get(`/investigate?${new URLSearchParams({ prompt: `Signal ${H} fired 33×`, repo: H, from: "javascript:alert(1)" })}`);
+  assert.equal(res.status, 200);
+  const out = await res.text();
+  assertInert("/investigate", out);
+  assert.ok(!out.includes('href="javascript:'));
+  assert.doesNotMatch(out, /name="repo"/, "a repo that isn't owner/name is dropped");
+  assert.match(out, /<form method="post" action="\/bino\/new">/);
+  assert.match(out, /<input type="hidden" name="mode" value="plan">/);
+  const ok = await (await get(`/investigate?${new URLSearchParams({ prompt: "look", repo: "ACME/shop-api", from: "/signals" })}`)).text();
+  assert.match(ok, /name="repo" value="ACME\/shop-api"/);
+  assert.match(ok, /From <a href="\/signals">/);
+  assert.match(await (await get("/investigate")).text(), /the link carried no prompt/);
+  assert.equal(investigateHref({ prompt: "a b", repo: "o/r", from: "/x" }), "/investigate?prompt=a+b&repo=o%2Fr&from=%2Fx");
 });
 
 test("Compare (#105): hostile text on both sides stays text, as lines and as JSON", async () => {
