@@ -547,6 +547,17 @@ export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, l
 }
 
 /** Which hooks a pack answers, in words, for the Packs page. */
+/**
+ * What a pack gives Bino and agents (#262), as /packs says it: its context (its own lines, what it
+ * shows on Today, or only its name when private), what it says of its pages, its proposals and tools.
+ */
+export function binoOf(c: Pack): string {
+  if (c.manifest.private) return `only its name: private${c.acts ? " · proposes acts" : ""}${c.tools ? " · tools for agents" : ""}`;
+  const context = c.bino ? "its own lines" : c.glance || c.needs || c.pulse || c.avatar || c.feed ? "what it shows on Today" : "nothing";
+  const pages = c.about ? "what its pages are" : c.routes ? "its pages by name only" : "";
+  return [`context: ${context}`, pages, c.acts ? "proposes acts" : "", c.tools ? "tools for agents" : ""].filter(Boolean).join(" · ");
+}
+
 export function hooksOf(c: Pack): string[] {
   const has: [unknown, string][] = [
     [c.routes, "pages"],

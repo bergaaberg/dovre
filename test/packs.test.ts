@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
-import { activePacks, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
+import { activePacks, binoOf, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -1068,4 +1068,12 @@ test("one switch per pack (#271): Turn off on Packs takes it off everywhere, Lay
   await post("/packs/terminal/switch", { on: "1" });
   assert.equal((await get("/terminal")).status, 200);
   assert.equal((await post("/packs/nope/switch", { on: "" })).status, 404, "only a pack that can run here");
+});
+
+test("binoOf: what a pack gives Bino and agents, as /packs says it (#262)", () => {
+  const m = { api: PACK_API, id: "x", name: "X", description: "", domain: "personal" as const };
+  assert.equal(binoOf({ manifest: m }), "context: nothing");
+  assert.equal(binoOf({ manifest: m, bino: () => "", about: () => undefined, routes: () => {}, acts: () => [], tools: () => [] }), "context: its own lines · what its pages are · proposes acts · tools for agents");
+  assert.equal(binoOf({ manifest: m, glance: () => [], routes: () => {} }), "context: what it shows on Today · its pages by name only");
+  assert.equal(binoOf({ manifest: { ...m, private: true }, bino: () => "x", acts: () => [] }), "only its name: private · proposes acts");
 });
