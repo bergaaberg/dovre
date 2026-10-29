@@ -146,6 +146,9 @@ Also:
   A pack without `bino` is heard through what it shows on Today (glance, needs, pulse, the
   last day's feed), unless it's `private`. A page without `about` is named, with the pack's
   needs that point at it.
+- `Investigate({ prompt, repo })` (kit) puts an Investigate button on a pack's card. It opens
+  `/investigate`, which hands the prompt to Bino or to a new agent session in plan mode. The
+  prompt follows the same rule as `bino`.
 - Tests live in `packs/<id>/test/`, with a hostile-input case per page. `testContext()`
   (`dovre/packs/testing.ts`) gives safe defaults.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).

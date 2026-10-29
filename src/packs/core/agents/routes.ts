@@ -19,6 +19,7 @@ import type { Html } from "../../../ui/kit.ts";
 import type { Here } from "./here.ts";
 import { sessionsOf } from "./index.ts";
 import { needsOf } from "../../../home/needs.ts";
+import { MODES } from "../../../agents/runner.ts";
 import { WORK } from "../../../agents/workdir.ts";
 import { type Picks, issuePrompt, needPicks } from "./picks.ts";
 import { type PicksView, agentPage, goneAgentPage, newAgentPage, pairPage } from "./session.view.ts";
@@ -119,10 +120,25 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
       return { dir, repo, issues: [], needs, autoOn: on, error: `Couldn't list ${repo}'s issues: ${String((e as Error)?.message ?? e).slice(0, 120)}` };
     }
   };
+  /**
+   * The checkout a link names: a checkout's own name, or a repo as owner/name (Investigate, #214),
+   * found as a checkout of that name whose remote is that repo; "" when there's none here.
+   */
+  const dirFor = async (asked: string, repos: string[]): Promise<string> => {
+    if (asked === WORK || repos.includes(asked)) return asked;
+    const m = /^[\w.-]+\/([\w.-]+)$/.exec(asked);
+    if (!m) return "";
+    for (const dir of repos.filter((r) => r === m[1] || r.startsWith(`${m[1]}-`))) {
+      const repo = picks ? await picks.repoFor(dir).catch(() => undefined) : undefined;
+      if (repo?.toLowerCase() === asked.toLowerCase() || (!picks && dir === m[1])) return dir;
+    }
+    return "";
+  };
   app.get("/agents/new", async (c) => {
     const v = desk.view();
     const repos = await desk.repos();
-    const dir = c.req.query("repo") ?? "";
+    const dir = await dirFor(c.req.query("repo") ?? "", repos);
+    const mode = (MODES as readonly string[]).includes(c.req.query("mode") ?? "") ? c.req.query("mode") : undefined;
     const p = await picksOf(dir, repos);
     // An issue picked: its text, read again in full, is the prompt (never carried in the link).
     const n = Number(c.req.query("issue"));
@@ -130,7 +146,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     const labelled = Number(c.req.query("labelled"));
     const note = p?.repo && Number.isInteger(labelled) && labelled > 0 ? `${p.repo}#${labelled} is labelled for auto runs: the next pass starts it in a sandbox, within the limits.` : undefined;
     const error = c.req.query("error") ?? (c.req.query("issue") && p && !picked ? `#${c.req.query("issue")} isn't an open issue in ${p.repo}.` : undefined);
-    return ctx.page(c, newAgentPage({ repos, repo: dir, prompt: picked ? issuePrompt(picked) : c.req.query("prompt"), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: c.req.query("machine"), sandbox: v.sandbox, fields: (repo) => ctx.fill("agents.new", { repo }), picks: p, note, error }));
+    return ctx.page(c, newAgentPage({ repos, repo: dir, prompt: picked ? issuePrompt(picked) : c.req.query("prompt"), harnesses: v.harnesses, workDir: v.workDir, mac: macOf(), machines: machinesOf(), machine: c.req.query("machine"), sandbox: v.sandbox, fields: (repo) => ctx.fill("agents.new", { repo }), picks: p, note, error, mode }));
   });
   app.post("/agents/new", async (c) => {
     const form = await c.req.parseBody();

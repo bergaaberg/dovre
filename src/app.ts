@@ -46,6 +46,7 @@ import { createIssueRoutes } from "./pages/issues.ts";
 import { type Asks, askInBar, createAsks } from "./relay/asks.ts";
 import { type Bino, createBino } from "./packs/core/assistant/bino/bino.ts";
 import { appsOf, contextOf, defaultBinoOf } from "./packs/core/assistant/bino/context.ts";
+import { investigateOf, investigatePage } from "./pages/investigate.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
@@ -1066,6 +1067,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
 
   // Its address before WP-M4.
   app.get("/crates", (c) => c.redirect("/packs", 301));
+  /** Investigate (#214): what a pack handed on, to send to Bino or a new agent session. */
+  app.get("/investigate", async (c) => {
+    const { frame } = await page();
+    const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
+    return c.html(investigatePage(frame, v, { bino: binoOn(), agents: shown().some((p) => p.manifest.id === "agents") }));
+  });
   app.get("/packs", async (c) => {
     const { frame } = await page();
     const copies = hosted ? undefined : deps.packs?.copies?.get();

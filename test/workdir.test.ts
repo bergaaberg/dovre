@@ -90,6 +90,11 @@ test("a new session runs in Dovre's folder unless a checkout is picked; the fold
   assert.match(await w.get("/agents/new"), new RegExp(`<option value="${WORK}" selected>`));
   assert.match(await w.get("/agents/new?repo=people"), /<option value="people" selected>people<\/option>/);
   assert.match(await w.get("/agents/new?repo=nope"), new RegExp(`<option value="${WORK}" selected>`), "a repo that isn't here falls back to the folder");
+  // Investigate (#214) links name a repo as owner/name, and start in plan mode.
+  assert.match(await w.get("/agents/new?repo=ACME/people"), /<option value="people" selected>people<\/option>/, "a repo found by its checkout's name");
+  assert.match(await w.get("/agents/new?repo=ACME/nope"), new RegExp(`<option value="${WORK}" selected>`));
+  assert.match(await w.get("/agents/new?mode=plan"), /<option value="plan" selected>/);
+  assert.doesNotMatch(await w.get("/agents/new?mode=yolo"), /value="yolo"|<option value="plan" selected>/, "only the form's own modes");
   assert.ok(!existsSync(w.work));
   assert.equal((await w.post("/agents/new", { repo: WORK, prompt: "draft a ticket" })).status, 303);
   assert.equal(w.runner.list()[0]!.cwd, w.work);
