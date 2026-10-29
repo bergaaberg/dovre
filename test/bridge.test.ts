@@ -223,8 +223,9 @@ test("hub: a replayed or forged frame closes the socket; a second Mac's hello ta
   const b = await mac(hub);
   assert.deepEqual(a.ws.closed, { code: 4000, reason: "replaced" });
   assert.equal(b.ws.closed, undefined);
+  const sent = b.ws.out.length;
   const waiting = hub.call({ op: "session", sid: "s1" });
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => b.ws.out.length > sent);
   t = 9000;
   b.ws.close(1006);
   await hub.webSocketClose(b.ws);
@@ -232,6 +233,16 @@ test("hub: a replayed or forged frame closes the socket; a second Mac's hello ta
   const view = one(hub);
   assert.equal(view.online, false);
   assert.equal(view.seen, 9000);
+});
+
+test("hub: a Mac gone before a call's frame is sealed is offline, not 'too big'", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const m = await mac(hub);
+  const waiting = hub.call({ op: "session", sid: "s1" });
+  m.ws.close(1006);
+  await hub.webSocketClose(m.ws);
+  assert.deepEqual(await waiting, { ok: false, error: "Your Mac went offline.", offline: true });
 });
 
 test("hub: after hibernation (a new object, the same socket) the socket goes on where it was", async () => {

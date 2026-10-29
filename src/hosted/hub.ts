@@ -654,6 +654,8 @@ export class DovreHub {
     if (!(await this.send(ws, { t: "call", id, call: c }))) {
       this.waiting.delete(id);
       clearTimeout(t);
+      // Gone while the frame was being sealed: that's offline, not too big.
+      if (this.live(machine) !== ws) return { ok: false, error: `${label} went offline.`, offline: true };
       return { ok: false, error: `That was too big to send to ${label === "Your Mac" ? "your Mac" : label}.` };
     }
     try {
