@@ -40,6 +40,8 @@ export type Bino = {
   say(id: string, text: string, o?: { view?: string; context?: string }): P<boolean>;
   /** Stops the answer being written (its call is cancelled, a late reply dropped); false when none is. */
   stop(id: string): P<boolean>;
+  /** Asks again for the last answer (or for one that was stopped or failed); false while one is being written, or when the last was acted on. */
+  retry(id: string, o?: { context?: string }): P<boolean>;
   /** Marks a plan as added to the list. */
   added(id: string, index: number, todo: number): P<void>;
   /** An act Bino proposed: how it stands (sending, done, refused). */
@@ -54,6 +56,7 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
   start(text: string, o?: StartOpts): Conv;
   say(id: string, text: string, o?: { view?: string; context?: string }): boolean;
   stop(id: string): boolean;
+  retry(id: string, o?: { context?: string }): boolean;
   added(id: string, index: number, todo: number): void;
   act(id: string, index: number, n: number): Act | undefined;
   setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): void;
@@ -264,6 +267,20 @@ export function createBino(o: {
       c.looking = undefined;
       c.stopped = true;
       changed(c);
+      return true;
+    },
+    retry(id, opts = {}) {
+      const c = convs.get(id);
+      if (!c || c.thinking) return false;
+      const last = c.msgs.at(-1);
+      if (last?.role === "assistant") {
+        // What was already added or sent from it stays: that answer isn't asked for again.
+        if (last.added !== undefined || (last.acts ?? []).some((a) => a.done || a.sending)) return false;
+        c.msgs.pop();
+      }
+      if (c.msgs.at(-1)?.role !== "user") return false;
+      if (opts.context !== undefined) given.set(c.id, opts.context);
+      answer(c);
       return true;
     },
     added(id, index, todo) {

@@ -95,22 +95,46 @@ function actCard(c: Conv, i: number, n: number, a: Act, ax: ActCtx): Html {
   return taskCard(i, n, a, ax);
 }
 
-function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx): Html {
-  if (m.role === "user") return html`<li class="bino-msg you" data-stop="1" data-stop-label="${m.text.slice(0, 120)}"><p class="bino-who">You <span class="t3">${Ago(m.at)}</span></p><div class="bino-text">${markdown(m.text)}</div></li>`;
-  return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}</li>`;
+/** A gap this long between two messages gets a line with the time. */
+const QUIET = 60 * 60_000;
+/** The same speaker within this long: one group, the name said once. */
+const GROUP = 5 * 60_000;
+
+const clockOf = (at: number) => new Date(at).toISOString().slice(0, 16).replace("T", " ");
+
+function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx, prev?: Msg): Html {
+  const grouped = prev?.role === m.role && m.at - prev.at < GROUP;
+  if (m.role === "user") return html`<li class="bino-msg you${grouped ? " cont" : ""}" data-stop="1" data-stop-label="${m.text.slice(0, 120)}">${grouped ? "" : html`<p class="bino-who">You <span class="t3">${Ago(m.at)}</span></p>`}<div class="bino-text">${markdown(m.text)}</div></li>`;
+  const last = i === c.msgs.length - 1;
+  // Asking again for an answer whose plan was added, or whose act went out, would leave those behind.
+  const redo = last && !c.thinking && m.added === undefined && !(m.acts ?? []).some((a) => a.done || a.sending);
+  const tools = html`<div class="bino-msg-f"><button type="button" class="ghost" data-copy-msg title="Copy this answer">Copy</button>${redo ? html`<form method="post" action="/bino/c/${c.id}/retry" data-inplace>${ax?.dock ? html`<input type="hidden" name="dock" value="1">` : ""}<button type="submit" class="ghost" title="Ask for this answer again">Retry</button></form>` : ""}</div>`;
+  return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}${tools}</li>`;
+}
+
+/** The messages: grouped by speaker, a line with the time after a long quiet. */
+function thread(c: Conv, target?: Todo, ax?: ActCtx): Html {
+  return html`<ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => {
+    const prev = c.msgs[i - 1];
+    const gap = prev && m.at - prev.at >= QUIET ? html`<li class="bino-gap" aria-hidden="true"><span data-at="${m.at}" data-ago title="${clockOf(m.at)} UTC">${clockOf(m.at)}</span></li>` : "";
+    return html`${gap}${message(c, m, i, target, ax, prev)}`;
+  })}</ol>`;
 }
 
 /** The box Bino is talked to in: one field, the send button in its own footer. Enter sends, Shift+Enter is a new line, ↑ in an empty box brings back what I last sent (src/ui/app.js.ts). */
 function composer(o: { action: string; label: string; placeholder: string; button: string; busy: string; extra?: Html; dock?: boolean }): Html {
-  return html`<form method="post" action="${o.action}" class="bino-compose${o.dock ? " dock-compose" : ""}" data-ctrl-enter data-chat>${o.dock ? DOCK_FIELD : ""}<textarea name="text" rows="${o.dock ? 3 : 4}" maxlength="${MAX_SAY}" required aria-label="${o.label}" placeholder="${o.placeholder}"></textarea>
+  return html`<form method="post" action="${o.action}" class="bino-compose${o.dock ? " dock-compose" : ""}" data-ctrl-enter data-chat>${o.dock ? DOCK_FIELD : ""}<textarea name="text" rows="${o.dock ? 1 : 3}" maxlength="${MAX_SAY}" required aria-label="${o.label}" placeholder="${o.placeholder}"></textarea>
 <div class="bino-compose-f"><span class="hint">Enter sends · Shift+Enter new line · ↑ last message</span><button type="submit" class="primary" data-busy="${o.busy}">${o.button}</button></div>${o.extra ?? ""}</form>`;
 }
 
-/** While Bino answers: the spinner and Stop (Esc or s, src/ui/app.js.ts); once stopped, a line saying so. */
+/** While Bino answers: dots, what it's doing, and Stop (Esc or s, src/ui/app.js.ts); once stopped or failed, a line saying so and Ask again. */
 function answering(c: Conv, dock: boolean): Html {
-  if (c.stopped && !c.thinking) return html`<p class="notes">You stopped this answer. Ask again, or say something else.</p>`;
-  if (!c.thinking) return html``;
-  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite">${dock ? html`<input type="hidden" name="dock" value="1">` : ""}<span class="spinner" aria-hidden="true"></span> ${c.looking ? `Bino is looking up ${c.looking}…` : "Bino is thinking…"} <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
+  const dockField = dock ? html`<input type="hidden" name="dock" value="1">` : "";
+  const again = html`<form method="post" action="/bino/c/${c.id}/retry" data-inplace>${dockField}<button type="submit" class="ghost">Ask again</button></form>`;
+  const asked = c.msgs.at(-1)?.role === "user";
+  if (c.stopped && !c.thinking) return html`<div class="bino-after"><p class="notes">You stopped this answer. Ask again, or say something else.</p>${asked ? again : ""}</div>`;
+  if (!c.thinking) return c.error && asked ? html`<div class="bino-after">${again}</div>` : html``;
+  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite" data-inplace>${dockField}<span class="typing" aria-hidden="true"><i></i><i></i><i></i></span> <span>${c.looking ? `Bino is looking up ${c.looking}…` : "Bino is thinking…"}</span> <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
 }
 
 const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? "Bino can't answer here." });
@@ -123,9 +147,9 @@ const binoFace = (frame: Frame, thinking = false) => frame.face?.({ place: "mini
 /** One conversation; the messages sit in a live region, the box to answer in outside it. */
 export function convPage(frame: Frame, b: Bino, c: Conv, target?: Todo, ax?: ActCtx): Html {
   const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoFace(frame, c.thinking)}` })}
-<div class="bino-thread"><div data-live id="bino-conv"><ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => message(c, m, i, target, ax))}</ol>
-${answering(c, false)}
-${c.error ? Notice({ tone: "bad", children: c.error }) : ""}</div>
+<div class="bino-thread"><div data-live id="bino-conv">${thread(c, target, ax)}
+${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
+${answering(c, false)}</div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask for a breakdown", button: "Send", busy: "Sending" }) : cantAnswer(b)}</div>`;
   return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino:${c.id}">` });
 }
@@ -163,29 +187,34 @@ export async function binoPage(frame: Frame, b: Bino, todos: Todo[] = []): Promi
 /** In the pane: back to the conversation there, and the page I'm on, filled in as I send (src/ui/app.js.ts). */
 const DOCK_FIELD = html`<input type="hidden" name="dock" value="1"><input type="hidden" name="view" value="" data-view>`;
 
-function dockBar(title: string, o: { back?: boolean; full: string }): Html {
-  return html`<header class="dock-h">${o.back ? html`<a class="dock-i" href="/bino/dock" title="Start over" aria-label="Start over">←</a>` : ""}<h1>${title}</h1><a class="dock-l" href="${o.full}" target="_top" title="Open as a page">Page</a><button type="button" class="dock-i ghost" data-dock-close title="Minimise (Esc)" aria-label="Minimise">–</button></header>`;
+/** The pane's header: the conversation's title, the other recent ones, a new one, out to the full page, and minimise. */
+function dockBar(title: string, o: { full: string; fresh?: boolean; others?: Conv[] }): Html {
+  const others = o.others ?? [];
+  const recent = others.length
+    ? html`<details class="dock-recent"><summary class="dock-i" title="Other chats" aria-label="Other chats">▾</summary><ul class="dock-menu">${others.map((x) => html`<li><a href="/bino/dock/c/${x.id}"><span class="bino-conv-t">${x.title}</span><span class="t3">${Ago(x.at)}${x.thinking ? " · thinking" : ""}</span></a></li>`)}</ul></details>`
+    : "";
+  return html`<header class="dock-h"><h1 title="${title}">${title}</h1>${recent}${o.fresh ? html`<a class="dock-i" href="/bino/dock" title="New chat" aria-label="New chat">+</a>` : ""}<a class="dock-l" href="${o.full}" target="_top" title="Open as a page">Page ↗</a><button type="button" class="dock-i ghost" data-dock-close title="Minimise (Esc)" aria-label="Minimise">–</button></header>`;
 }
 
-/** The pane's first view: a box to ask in (about the page I'm on, or anything), and the last few conversations. */
+/** The pane's first view: the last few conversations, and the box to ask in (about the page I'm on, or anything) at the bottom. */
 export async function binoDockPage(b: Bino): Promise<Html> {
   const convs = (await b.list()).slice(0, 8);
   const body = html`${dockBar("Bino", { full: "/bino" })}
-<div class="dock-b">${
-    b.route.ready
-      ? composer({ action: "/bino/new", label: "Ask Bino", placeholder: "Ask about this page, or anything", button: "Ask", busy: "Asking", dock: true })
-      : cantAnswer(b)
-  }
-<div data-live id="bino-list">${convs.length ? html`<ul class="bino-convs">${convs.map((c) => html`<li><a href="/bino/dock/c/${c.id}"><span class="bino-conv-t">${c.title}</span><span class="t3">${Ago(c.at)}${c.thinking ? " · thinking" : ""}</span></a></li>`)}</ul>` : ""}</div></div>`;
+<div class="dock-b" id="dock-scroll"><div data-live id="bino-list">${
+    convs.length
+      ? html`<p class="bino-starts-h">Recent</p><ul class="bino-convs">${convs.map((c) => html`<li><a href="/bino/dock/c/${c.id}"><span class="bino-conv-t">${c.title}</span><span class="t3">${Ago(c.at)}${c.thinking ? " · thinking" : ""}</span></a></li>`)}</ul>`
+      : html`<p class="notes">Ask about the page you're on, or anything. Bino sees names and states, and changes nothing by itself.</p>`
+  }</div></div>
+${b.route.ready ? composer({ action: "/bino/new", label: "Ask Bino", placeholder: "Ask about this page, or anything", button: "Ask", busy: "Asking", dock: true }) : html`<div class="dock-b">${cantAnswer(b)}</div>`}`;
   return dockShell({ title: "Bino", body, head: html`<meta name="u-topics" content="bino">` });
 }
 
 /** One conversation in the pane: the thread scrolls, the box stays at the bottom. */
-export function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo): Html {
-  const body = html`${dockBar(c.title, { back: true, full: `/bino/c/${c.id}` })}
-<div class="dock-b"><div data-live id="bino-conv"><ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => message(c, m, i, target, ax))}</ol>
-${answering(c, true)}
-${c.error ? Notice({ tone: "bad", children: c.error }) : ""}</div></div>
+export function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = []): Html {
+  const body = html`${dockBar(c.title, { fresh: true, full: `/bino/c/${c.id}`, others })}
+<div class="dock-b" id="dock-scroll"><div data-live id="bino-conv">${thread(c, target, ax)}
+${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
+${answering(c, true)}</div></div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask about this page", button: "Send", busy: "Sending", dock: true }) : cantAnswer(b)}`;
   return dockShell({ title: `${c.title} · Bino`, body, head: html`<meta name="u-topics" content="bino:${c.id}">` });
 }
@@ -265,12 +294,21 @@ export function createBinoRoutes(env: Env, deps: {
     await bino.stop(id);
     return c.redirect(convHref(id, first(form.dock) === "1"), 303);
   });
+  /** Retry: the last answer asked for again (or one that was stopped or failed). */
+  app.post("/bino/c/:id/retry", async (c) => {
+    const id = c.req.param("id");
+    if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
+    const form = await c.req.parseBody();
+    await bino.retry(id, await known());
+    return c.redirect(convHref(id, first(form.dock) === "1"), 303);
+  });
   app.get("/bino/dock", async (c) => c.html(await binoDockPage(bino)));
   app.get("/bino/dock/c/:id", async (c) => {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.redirect("/bino/dock", 303);
     const target = conv.todo !== undefined ? await getTodo(db, conv.todo) : undefined;
-    return c.html(binoDockConvPage(bino, conv, ax(true), target));
+    const others = (await bino.list()).filter((x) => x.id !== conv.id).slice(0, 8);
+    return c.html(binoDockConvPage(bino, conv, ax(true), target, others));
   });
   /** The card's "Add these to my list": exactly what its form says, once. */
   app.post("/bino/c/:id/plan/:i", async (c) => {

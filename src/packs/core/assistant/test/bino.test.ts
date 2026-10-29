@@ -254,3 +254,33 @@ test("the assistant pack is Bino's switch: PACK_ASSISTANT=off and there's no Bin
   assert.equal((await get(off, "/bino")).status, 404);
   assert.doesNotMatch(await (await get(off, "/")).text(), /href="\/bino"/);
 });
+
+test("Retry: the last answer is asked for again; after Stop it answers what was asked; never while one is written, or once its plan was added", async () => {
+  const h = heldRoute();
+  const bino = createBino({ route: h.route, memory: noMemory("no"), context: async () => "" });
+  const c = bino.start("Plan my week");
+  await until(() => h.held.length > 0);
+  assert.equal(bino.retry(c.id), false, "not while Bino is answering");
+  h.late("First go.");
+  await bino.idle();
+  assert.equal(bino.retry(c.id), true);
+  await until(() => h.held.length > 1);
+  h.late("Second go.");
+  await bino.idle();
+  assert.deepEqual(bino.get(c.id)!.msgs.map((m) => m.text), ["Plan my week", "Second go."]);
+  // Stopped: Retry answers what I asked.
+  assert.equal(bino.say(c.id, "Shorter"), true);
+  await until(() => h.held.length > 2);
+  bino.stop(c.id);
+  assert.equal(bino.retry(c.id), true);
+  await until(() => h.held.length > 3);
+  h.held[2]!.reply("Too late.");
+  h.late("Short.");
+  await bino.idle();
+  assert.deepEqual(bino.get(c.id)!.msgs.map((m) => m.text), ["Plan my week", "Second go.", "Shorter", "Short."]);
+  // An answer whose plan went on my list stays.
+  bino.get(c.id)!.msgs.at(-1)!.plan = { title: "Week", notes: "", steps: [] };
+  bino.added(c.id, 3, 7);
+  assert.equal(bino.retry(c.id), false);
+  assert.equal(bino.retry("nope"), false);
+});

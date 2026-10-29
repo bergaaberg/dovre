@@ -381,6 +381,7 @@ document.addEventListener("submit", (e) => {
   if (e.defaultPrevented || form.target) return;
   if (form.id === "refresh") return refresh(e);
   if (form.matches("form[data-send]")) return sendQuiet(e, form);
+  if (form.matches("form[data-chat], form[data-inplace]")) return postInPlace(e, form);
   going();
   const b = e.submitter;
   if (!b || b.tagName !== "BUTTON") return;
@@ -983,6 +984,7 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       box.value = last;
       box.setSelectionRange(last.length, last.length);
+      grow(box);
     }
     return;
   }
@@ -1438,7 +1440,7 @@ function followAfter(was) {
   const f = followEl();
   if (!f || !was) return railUpdate();
   if (was.at) toLatest(f, {});
-  else if (f.getBoundingClientRect().height > was.height + 4) railNew(true);
+  else if (f.getBoundingClientRect().height > was.height + 4) { railNew(true); pillShow(f, true); }
   railUpdate();
 }
 
@@ -1534,11 +1536,182 @@ function showOutline() {
   current?.scrollIntoView({ block: "nearest" });
 }
 
-// Opening: a conversation at its latest (unless the address points somewhere), then the rail.
+// ── A chat (Bino's, form[data-chat]) and its small buttons (form[data-inplace]: Stop, Retry) post without
+// leaving the page: what I wrote shows at once, dimmed, with Bino's dots, and the page the server answers
+// with takes the place of this one (a new conversation's address too). The answer then fills in over
+// the hub. If the post can't be made, the text comes back to the box. ──
+async function postInPlace(e, form) {
+  e.preventDefault();
+  if (form.dataset.posting) return;
+  const box = form.matches("[data-chat]") ? form.querySelector("textarea") : null;
+  const text = box ? box.value : "";
+  // A starter (a button with a name and value: a question, an item to break down) sends without the box.
+  const by = e.submitter?.name ? e.submitter : null;
+  if (box && !text.trim() && !by) return;
+  const body = new URLSearchParams(new FormData(form));
+  if (by) body.append(by.name, by.value);
+  form.dataset.posting = "1";
+  const b = e.submitter;
+  if (b) { b.disabled = true; b.classList.add("busy"); }
+  let shown = [];
+  if (box) {
+    box.value = "";
+    grow(box);
+    draftDrop();
+    shown = chatPending(form, text.trim() ? text : by.textContent.replace(/\s+/g, " ").trim());
+  }
+  try {
+    const res = await fetch(form.action, { method: "POST", body, credentials: "same-origin" });
+    if (!(res.headers.get("content-type") || "").startsWith("text/html")) throw new Error(String(res.status));
+    // Refused (the demo's read-only page, a conversation that's gone): what the server says, here.
+    takePage(new DOMParser().parseFromString(await res.text(), "text/html"), res);
+    const f = followEl();
+    if (f) toLatest(f, {});
+    if (box && !matchMedia("(pointer: coarse)").matches) document.querySelector("form[data-chat] textarea")?.focus({ preventScroll: true });
+  } catch {
+    for (const el of shown) el.remove();
+    if (box && !box.value) { box.value = text; grow(box); }
+    delete form.dataset.posting;
+    if (b) { b.disabled = false; b.classList.remove("busy"); }
+    flash(box ? "Couldn't send: your message is back in the box" : "That didn't go through: try again");
+  }
+}
+/** The page the server answered with, in place of this one: as a moved page swaps (above). */
+function takePage(next, res) {
+  const to = new URL(res.url);
+  if (res.redirected && to.origin === location.origin && to.pathname !== location.pathname) {
+    history.replaceState(null, "", to.pathname + to.search);
+    const d = framed && DOCKS.find((x) => location.pathname.startsWith(x.home));
+    if (d && d.ok.test(location.pathname)) dockSave(d, { src: location.pathname });
+  }
+  const live = $("live-dot")?.classList.contains("on");
+  document.body.replaceWith(document.importNode(next.body, true));
+  if (live) $("live-dot")?.classList.add("on");
+  enhance(document);
+  bellState(false);
+  dockRestore();
+  railBuild();
+  draftRestore();
+  wanted = topicsOf(next);
+  const t = next.querySelector("title");
+  if (t) document.title = t.textContent;
+}
+/** What I just sent, dimmed at the end of the conversation (a new one: where it will be), and Bino's dots under it. */
+function chatPending(form, text) {
+  let list = followEl();
+  if (!list) {
+    list = document.createElement("ol");
+    list.className = "bino-msgs";
+    const area = document.querySelector(".dock-b");
+    if (area) area.replaceChildren(list);
+    else form.before(list);
+  }
+  for (const el of document.querySelectorAll(".bino-after, .bino-thinking")) el.remove();
+  const li = document.createElement("li");
+  li.className = "bino-msg you pending";
+  const said = document.createElement("div");
+  said.className = "bino-text";
+  said.textContent = text;
+  li.append(said);
+  list.append(li);
+  const dots = document.createElement("div");
+  dots.className = "bino-thinking";
+  const typingDots = document.createElement("span");
+  typingDots.className = "typing";
+  typingDots.setAttribute("aria-hidden", "true");
+  typingDots.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+  const label = document.createElement("span");
+  label.textContent = "Bino is thinking…";
+  dots.append(typingDots, label);
+  list.after(dots);
+  dots.scrollIntoView({ block: "end" });
+  return [li, dots];
+}
+
+// Copy on one of Bino's answers: its text as it reads.
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest?.("[data-copy-msg]");
+  if (!b) return;
+  const text = (b.closest(".bino-msg")?.querySelector(".bino-text")?.innerText || "").trim();
+  try {
+    await navigator.clipboard.writeText(text);
+    b.textContent = "Copied";
+  } catch {
+    b.textContent = "Couldn't copy";
+  }
+  setTimeout(() => (b.textContent = "Copy"), 1500);
+});
+// The other recent chats (the pane's header): a click elsewhere closes the list.
+document.addEventListener("click", (e) => {
+  for (const d of document.querySelectorAll("details.dock-recent[open]")) if (!d.contains(e.target)) d.open = false;
+});
+
+// A chat's box grows with what's in it (CSS field-sizing where the browser has it), and keeps what I
+// was writing, by conversation, for as long as this window (closing the pane, moving between pages).
+const growByHand = !(window.CSS && CSS.supports && CSS.supports("field-sizing", "content"));
+function grow(box) {
+  if (!growByHand || !box) return;
+  box.style.height = "auto";
+  box.style.height = Math.min(box.scrollHeight + 2, Math.round(innerHeight * 0.5)) + "px";
+}
+const draftKey = () => "u-draft:" + location.pathname;
+const draftDrop = () => { try { sessionStorage.removeItem(draftKey()); } catch {} };
+function draftRestore() {
+  const box = document.querySelector("form[data-chat] textarea");
+  if (!box || box.value) return;
+  try {
+    const kept = sessionStorage.getItem(draftKey());
+    if (kept) { box.value = kept; grow(box); }
+  } catch {}
+}
+document.addEventListener("input", (e) => {
+  const box = e.target.closest?.("form[data-chat] textarea");
+  if (!box) return;
+  grow(box);
+  try { box.value ? sessionStorage.setItem(draftKey(), box.value.slice(0, 8000)) : sessionStorage.removeItem(draftKey()); } catch {}
+});
+
+// Something new below while I'm reading further up, where there's no rail (the pane): a pill to the latest.
+let pill = null;
+function pillShow(f, on) {
+  if (rail) return;
+  if (on && !pill) {
+    pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "new-pill";
+    pill.textContent = "New messages ↓";
+    pill.addEventListener("click", () => { toEnd(); pillShow(null, false); });
+  }
+  if (!pill) return;
+  if (on) (scrollerOf(f) || f.parentElement).append(pill);
+  pill.hidden = !on;
+}
+// The pane's place in a conversation, for when it opens again on it.
+const scrollKey = () => "u-scroll:" + location.pathname;
+let keptFrame = 0;
+document.addEventListener("scroll", (e) => {
+  if (keptFrame) return;
+  keptFrame = requestAnimationFrame(() => {
+    keptFrame = 0;
+    const f = followEl();
+    const end = f ? atLatest(f) : true;
+    if (end && pill && !pill.hidden) pill.hidden = true;
+    const sc = $("dock-scroll");
+    if (framed && sc && e.target === sc) try { sessionStorage.setItem(scrollKey(), JSON.stringify({ top: Math.round(sc.scrollTop), end })); } catch {}
+  });
+}, { capture: true, passive: true });
+
+// Opening: a conversation at its latest (unless the address points somewhere, or the pane was left
+// further up it), then the rail, and what I was writing.
 {
   const f = followEl();
-  if (f && !location.hash) toLatest(f, { opening: true });
+  let kept = null;
+  try { kept = framed ? JSON.parse(sessionStorage.getItem(scrollKey()) || "null") : null; } catch {}
+  const sc = $("dock-scroll");
+  if (kept && !kept.end && sc && Number.isFinite(kept.top)) sc.scrollTop = kept.top;
+  else if (f && !location.hash) toLatest(f, { opening: true });
   railBuild();
+  draftRestore();
 }
 
 // ── SQL completion in a query box (textarea[data-schema], a pack's: Data): tables and columns from the

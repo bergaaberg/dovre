@@ -1064,13 +1064,33 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 
 /* ── Bino, the assistant: a conversation, a plan card, what it remembers ── */
 .bino-msgs { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
-.bino-msg { padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); max-width: 52rem; }
-.bino-msg.you { background: var(--surface-2); margin-left: auto; }
-.bino-msg.bino { border-color: var(--accent-line); }
+.bino-msg { padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); max-width: min(52rem, 88%); justify-self: start; }
+.bino-msg.you { background: var(--surface-2); justify-self: end; border-bottom-right-radius: 4px; }
+.bino-msg.bino { border-color: var(--accent-line); border-bottom-left-radius: 4px; }
+/* The same speaker again: closer, and the name said once. */
+.bino-msg.cont { margin-top: -10px; }
+.bino-msg.pending { opacity: .6; }
 .bino-who { margin: 0 0 4px; font: 600 var(--fs-s)/1.4 var(--sans); color: var(--ink-2); }
+.bino-who .t3 { font-weight: 400; font-size: var(--fs-xs); }
+.bino-gap { justify-self: center; font-size: var(--fs-xs); color: var(--ink-3); }
 .bino-text > :first-child { margin-top: 0; } .bino-text > :last-child { margin-bottom: 0; }
+.bino-msg-f { display: flex; gap: 4px; margin: 6px -8px -6px; opacity: 0; transition: opacity .12s; }
+.bino-msg:hover .bino-msg-f, .bino-msg:focus-within .bino-msg-f, .bino-msgs > .bino-msg:last-child .bino-msg-f { opacity: 1; }
+.bino-msg-f form { display: contents; }
+.bino-msg-f button { padding: 2px 8px; font-size: var(--fs-xs); color: var(--ink-3); }
+.bino-msg-f button:hover { color: var(--ink); }
+@media (hover: none) { .bino-msg-f { opacity: 1; } }
 .bino-thinking { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--ink-3); }
-.bino-thinking .spinner { width: 16px; height: 16px; }
+.bino-after { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
+.bino-after .notes { margin: 0; }
+/* Bino writing: three dots in a bubble. */
+.typing { display: inline-flex; gap: 4px; padding: 9px 12px; border: 1px solid var(--accent-line); border-radius: var(--r); border-bottom-left-radius: 4px; background: var(--surface); }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); animation: typing 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes typing { 0%, 60%, 100% { transform: none; opacity: .45; } 30% { transform: translateY(-3px); opacity: 1; } }
+/* Something new below while I read further up (src/ui/app.js.ts): a pill to the latest. */
+.new-pill { position: sticky; bottom: 8px; display: block; margin: 8px auto 0; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent-line); background: var(--surface); color: var(--accent); font: 600 var(--fs-xs)/1.3 var(--sans); box-shadow: var(--shadow); z-index: 1; }
+.new-pill[hidden] { display: none; }
 .mylist { display: flex; margin: 0 0 .8rem; }
 #end { display: block; scroll-margin-bottom: 140px; }
 /* Docks: Bino's and the packs' buttons at the bottom right of every page; open, a panel above one (a frame of its /…/dock page). */
@@ -1129,13 +1149,23 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .bino-compose { margin: 18px 0 0; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: var(--shadow); }
 .bino-main .bino-compose { margin: 0; }
 .bino-compose:focus-within { border-color: var(--accent); }
-.bino-compose textarea { display: block; border: 0; background: transparent; padding: 16px 18px 6px; font-size: var(--fs-m); line-height: 1.55; min-height: 7.5em; }
+.bino-compose textarea { display: block; border: 0; background: transparent; padding: 16px 18px 6px; font-size: var(--fs-m); line-height: 1.55; min-height: 4.8em; max-height: 50vh; resize: none; field-sizing: content; }
 .bino-compose textarea:focus { outline: 0; }
 .bino-compose-f { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 8px 10px 10px 18px; }
 .bino-compose-f .hint { color: var(--ink-3); font-size: var(--fs-xs); margin-right: auto; }
 .bino-compose.dock-compose { display: block; padding: 0; border-width: 1px 0 0; border-radius: 0; box-shadow: none; }
 .dock-b > .bino-compose.dock-compose { margin: 10px 0 0; border-width: 1px; border-radius: var(--r); }
-.bino-compose.dock-compose textarea { min-height: 4.5em; padding: 10px 12px 4px; font-size: var(--fs-s); }
+.bino-compose.dock-compose textarea { min-height: 2.4em; max-height: 40vh; padding: 10px 12px 4px; font-size: var(--fs-s); }
+.dock-recent { position: relative; }
+.dock-recent > summary { list-style: none; cursor: pointer; }
+.dock-recent > summary::-webkit-details-marker { display: none; }
+.dock-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; width: min(300px, 80vw); max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px 10px; list-style: none; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); box-shadow: var(--shadow); }
+.dock-menu li + li { border-top: 1px solid var(--line); }
+.dock-menu a { display: grid; gap: 2px; padding: 7px 0; text-decoration: none; }
+.dock-menu a:hover .bino-conv-t { color: var(--accent); }
+.dock-menu .t3 { font-size: var(--fs-xs); }
+.dock-b .bino-starts-h { margin: 10px 0 4px; }
+.bino-msg.pending .bino-text { white-space: pre-wrap; }
 .dock-b .bino-msgs { margin-top: 8px; }
 .bino-starts { border-top: 1px solid var(--line); padding: 12px 18px 16px; }
 .bino-starts-h { margin: 0 0 8px; font: 600 11px/1.2 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
@@ -1297,7 +1327,7 @@ button.busy::after { content: ""; display: inline-block; width: .75em; height: .
 @media (forced-colors: active) { .vb, .vd { fill: CanvasText; } .vl { stroke: CanvasText; } .vkey { background: CanvasText; } }
 /* Less motion when the system asks, unless Settings → Look says Always (data-motion="always"). */
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="always"]) .fresh, :root:not([data-motion="always"]) .leaving, :root:not([data-motion="always"]) .bump, :root:not([data-motion="always"]) .settled > .bubble, :root:not([data-motion="always"]) .breathe, :root:not([data-motion="always"]) .turn-row.live .bubble::after, :root:not([data-motion="always"]) .live-dot.sync, :root:not([data-motion="always"]) .spinner, :root:not([data-motion="always"]) button.busy::after { animation: none; } :root:not([data-motion="always"]) .chev { transition: none; }
+  :root:not([data-motion="always"]) .fresh, :root:not([data-motion="always"]) .leaving, :root:not([data-motion="always"]) .bump, :root:not([data-motion="always"]) .settled > .bubble, :root:not([data-motion="always"]) .breathe, :root:not([data-motion="always"]) .turn-row.live .bubble::after, :root:not([data-motion="always"]) .live-dot.sync, :root:not([data-motion="always"]) .spinner, :root:not([data-motion="always"]) .typing i, :root:not([data-motion="always"]) button.busy::after { animation: none; } :root:not([data-motion="always"]) .chev { transition: none; }
   :root:not([data-motion="always"]).going::before { animation: none; background: var(--accent); }
   /* The page swap happens at once (the pseudo-elements hang off <html>, so this can follow the setting). */
   :root:not([data-motion="always"])::view-transition-group(*), :root:not([data-motion="always"])::view-transition-old(*), :root:not([data-motion="always"])::view-transition-new(*) { animation: none; }
