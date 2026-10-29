@@ -156,6 +156,7 @@ function viewedBoxes(root) {
       const s = viewedSet();
       if (box.checked) s.add(box.dataset.key); else s.delete(box.dataset.key);
       try { localStorage.setItem(VIEWED, JSON.stringify([...s].slice(-2000))); } catch {}
+      treeSeen(document);
       if (!box.checked) return;
       const file = box.closest("details");
       file?.removeAttribute("open");
@@ -165,6 +166,33 @@ function viewedBoxes(root) {
       if (next) landOn(next);
     });
   }
+}
+
+// The folder tree beside the files (dovre#299): a viewed file ticked, the one I'm in marked.
+function treeLink(file) {
+  return file?.id ? document.querySelector('.dfile-tree a[href="#' + CSS.escape(file.id) + '"]') : null;
+}
+function treeSeen(root) {
+  for (const box of root.querySelectorAll("input.viewed[data-key]")) treeLink(box.closest("details"))?.classList.toggle("seen", box.checked);
+}
+let treeWatch = null;
+function treeCurrent(root) {
+  if (!("IntersectionObserver" in window) || !root.querySelector?.(".dfile-tree")) return;
+  treeWatch?.disconnect();
+  const showing = new Set();
+  treeWatch = new IntersectionObserver((entries) => {
+    for (const e of entries) e.isIntersecting ? showing.add(e.target) : showing.delete(e.target);
+    const files = [...document.querySelectorAll(".dfile-list details.dfile")];
+    const at = files.find((f) => showing.has(f));
+    for (const a of document.querySelectorAll(".dfile-tree a[aria-current]")) a.removeAttribute("aria-current");
+    const a = treeLink(at);
+    if (!a) return;
+    a.setAttribute("aria-current", "location");
+    // Keep it in sight in the tree, without scrolling the page.
+    const tree = a.closest(".dfile-tree"), r = a.getBoundingClientRect(), t = tree.getBoundingClientRect();
+    if (r.top < t.top || r.bottom > t.bottom) tree.scrollTop += r.top - t.top - t.height / 3;
+  }, { rootMargin: "0px 0px -60% 0px" });
+  for (const f of document.querySelectorAll(".dfile-list details.dfile")) treeWatch.observe(f);
 }
 
 // ── My review on a PR's files (dovre#106): a line's + opens the comment form under it; shift-click
@@ -254,6 +282,8 @@ function enhance(root) {
   tick(root);
   copyButtons(root);
   viewedBoxes(root);
+  treeSeen(root);
+  treeCurrent(root);
   fitFeed();
 }
 

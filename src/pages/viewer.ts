@@ -21,6 +21,7 @@ import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
 import { type DiffLine, type FileView, fileViews, type Mark, parsePatch, placeMine } from "../viewer/diff.ts";
 import { type Compared, canonicalJson, comparePatch, MAX_TEXT } from "../viewer/compare.ts";
+import { fileTree, type TreeNode } from "../viewer/tree.ts";
 import { type DiffAsk, type LocalDiff, localDiff, MAX_FILES, MAX_UNTRACKED } from "../viewer/localdiff.ts";
 import { Ago, Link } from "./parts.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -217,6 +218,22 @@ function diffTable(lines: DiffLine[], o: { split?: boolean; extra?: LineExtra; a
 
 export const fileId = (path: string) => `f-${path.replace(/[^\w-]/g, "-")}`;
 
+/** The folder tree beside a diff's files (dovre#299): sticky while they scroll, each file's link marked viewed by the page's script. */
+function treeOf(views: FileView[], nodes: TreeNode[]): Html {
+  return html`<ul>${nodes.map((n) => {
+    if (n.dir) return html`<li class="dt-dir"><span class="dt-folder">${n.name}/</span>${treeOf(views, n.kids)}</li>`;
+    const f = views[n.i]!.file;
+    const mark = views[n.i]!.mine || views[n.i]!.drafts ? html` <span class="spark" title="Comments in your review">●</span>` : "";
+    return html`<li><a href="#${fileId(f.path)}" title="${f.path}"><span class="dt-name">${n.name}${mark}</span><span class="dt-n"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span></span></a></li>`;
+  })}</ul>`;
+}
+
+/** A diff's files with their tree beside them; one file needs none. */
+function withTree(views: FileView[], list: Html): Html {
+  if (views.length < 2) return list;
+  return html`<div class="dfiles"><nav class="dfile-tree" aria-label="Files">${treeOf(views, fileTree(views.map((fv) => fv.file.path)))}</nav><div class="dfile-list">${list}</div></div>`;
+}
+
 /** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
 export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt; acts?: ThreadActs; /** Side by side: no comments or threads on lines (the local diff has none). */ split?: boolean }): Html {
   const f = fv.file;
@@ -258,11 +275,12 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
     const fetch = o.dir && !o.present ? html`<p class="t3">${v.headSha.slice(0, 7)} isn't in your checkout yet: <code data-copy>git -C ${o.dir} fetch origin ${v.head}</code></p>` : "";
     const bar = m ? reviewBar({ base, review: m.review, head: v.headSha, agent: m.agent, flash: m.flash }) : "";
     const template = comment ? commentForm({ base, sha: v.headSha, template: true }) : "";
-    inner = html`${bar}<nav class="dfile-index" aria-label="Files"><ul>${views.map(
-      (fv) => html`<li><a href="#${fileId(fv.file.path)}"><code>${fv.file.path}</code></a> <span class="add">+${fv.file.additions}</span> <span class="del">−${fv.file.deletions}</span></li>`,
-    )}</ul></nav>${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment, acts: m && v.state === "OPEN" ? { base, back: "files" } : undefined }))}${
-      m ? offDiff(off.map((i) => pending[i]!), base, moved ? "Your review is on an older commit." : "These go at the end of the summary when you post.") : ""
-    }${template}`;
+    inner = html`${bar}${withTree(
+      views,
+      html`${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment, acts: m && v.state === "OPEN" ? { base, back: "files" } : undefined }))}${
+        m ? offDiff(off.map((i) => pending[i]!), base, moved ? "Your review is on an older commit." : "These go at the end of the summary when you post.") : ""
+      }`,
+    )}${template}`;
   }
   return shell({
     title: `Files · #${v.number} ${v.title} · Dovre`,
@@ -370,11 +388,12 @@ export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: Diff
     // "View file" opens the head commit; the working tree has none.
     const head = a.kind === "worktree" ? undefined : d.head;
     const key = head ?? `worktree:${o.dir}`;
-    inner = html`<p class="t3">${d.files.length} ${d.files.length === 1 ? "file" : "files"} · <span class="add">+${adds}</span> <span class="del">−${dels}</span></p><nav class="dfile-index" aria-label="Files"><ul>${views.map(
-      (fv) => html`<li><a href="#${fileId(fv.file.path)}"><code>${fv.file.path}</code></a> <span class="add">+${fv.file.additions}</span> <span class="del">−${fv.file.deletions}</span></li>`,
-    )}</ul></nav>${d.capped ? Notice({ tone: "warn", children: `Showing the first ${MAX_FILES} files.` }) : ""}${
-      d.moreUntracked ? Notice({ tone: "warn", children: `${d.moreUntracked} more untracked ${d.moreUntracked === 1 ? "file" : "files"} past the first ${MAX_UNTRACKED}, not shown.` }) : ""
-    }${views.map((fv) => fileView(fv, { sha: key, dir: head ? o.dir : undefined, present: !!head, split: o.split }))}`;
+    inner = html`<p class="t3">${d.files.length} ${d.files.length === 1 ? "file" : "files"} · <span class="add">+${adds}</span> <span class="del">−${dels}</span></p>${withTree(
+      views,
+      html`${d.capped ? Notice({ tone: "warn", children: `Showing the first ${MAX_FILES} files.` }) : ""}${
+        d.moreUntracked ? Notice({ tone: "warn", children: `${d.moreUntracked} more untracked ${d.moreUntracked === 1 ? "file" : "files"} past the first ${MAX_UNTRACKED}, not shown.` }) : ""
+      }${views.map((fv) => fileView(fv, { sha: key, dir: head ? o.dir : undefined, present: !!head, split: o.split }))}`,
+    )}`;
   }
   return shell({
     title: `Changes · ${o.dir} · Dovre`,

@@ -1234,8 +1234,24 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .pr-thread > summary { cursor: pointer; padding: 6px 10px; font-size: var(--fs-s); color: var(--ink-2); }
 .pr-thread > .pr-comments { padding: 4px 12px 10px; }
 .pr-folded > summary { cursor: pointer; color: var(--ink-3); font-size: var(--fs-s); margin: 6px 0; }
-.dfile-index ul { list-style: none; margin: 0 0 14px; padding: 0; columns: 2 20rem; font-size: var(--fs-s); }
-.dfile-index li { break-inside: avoid; padding: 1px 0; }
+.dfiles { display: grid; grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr); gap: 16px; align-items: start; }
+.dfile-list { min-width: 0; }
+.dfile-tree { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; font-size: var(--fs-s); padding: 6px 4px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surface); }
+.dfile-tree ul { list-style: none; margin: 0; padding: 0 0 0 10px; }
+.dfile-tree > ul { padding-left: 0; }
+.dt-dir { margin-top: 2px; }
+.dt-folder { display: block; padding: 2px 4px; color: var(--ink-3); overflow-wrap: anywhere; }
+.dfile-tree a { display: flex; justify-content: space-between; gap: 6px; padding: 1px 4px; border-radius: var(--r-s); color: var(--ink); text-decoration: none; }
+.dfile-tree a:hover { background: var(--hover); }
+.dfile-tree a[aria-current] { background: var(--accent-soft); }
+.dt-name { min-width: 0; overflow-wrap: anywhere; }
+.dt-n { flex: none; white-space: nowrap; }
+.dfile-tree a.seen .dt-name { color: var(--ink-3); }
+.dfile-tree a.seen .dt-name::before { content: "✓ "; }
+@media (max-width: 60rem) {
+  .dfiles { grid-template-columns: minmax(0, 1fr); }
+  .dfile-tree { position: static; max-height: 16rem; }
+}
 .dfile { border: 1px solid var(--line); border-radius: var(--r-s); margin: 0 0 12px; background: var(--surface); }
 .dfile > summary { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; padding: 8px 12px; cursor: pointer; position: sticky; top: 0; z-index: 1; background: var(--surface-2); border-radius: var(--r-s); }
 .dfile-name { display: inline-flex; gap: 6px; align-items: center; min-width: 0; overflow-wrap: anywhere; }
