@@ -49,7 +49,8 @@ import { addLeftOut } from "./actions/relock.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
 import { createHub, startRefresher, throttle } from "./live.ts";
-import { createDocker, findEngineSocket, readPipe } from "./packs/core/docker/docker.ts";
+import { BERTH_PIPE, DEFAULT_PIPE, berthControl, findBerth } from "./packs/core/docker/berth.ts";
+import { createDocker, findEngineSocket } from "./packs/core/docker/docker.ts";
 import { createEngine } from "./packs/core/docker/engine.ts";
 import { dockerPack } from "./packs/core/docker/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
@@ -215,7 +216,11 @@ found.copilot = copilot ? (copilot.why() ?? "ready") : undefined;
 const copilotAsk = copilotTool ? copilotCli(copilotTool, { model: env.COPILOT_CLI_MODEL, log: (l) => console.log(l) }) : undefined;
 const isWin = process.platform === "win32";
 const dockerSocket = isWin ? undefined : findEngineSocket(env, homedir());
-const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, terminals: existsSync(hostExe), windows: isWin, dockerSocket });
+// Windows: berth's engine (it serves its own pipe while on), else whatever serves Docker's default pipe; DOCKER_PIPE overrides both.
+const berthExe = isWin && !env.DOCKER_PIPE ? findBerth(process.env) : undefined;
+const winPipe = isWin ? env.DOCKER_PIPE || (berthExe ? BERTH_PIPE : DEFAULT_PIPE) : undefined;
+const dockerPipe = isWin ? !!env.DOCKER_PIPE || !!berthExe || existsSync(DEFAULT_PIPE) : undefined;
+const panes = panesOf(env, { claude: !!claude, omp: !!omp, copilot: !!copilot && !copilot.why(), copilotCli: !!copilotTool, agy: !!agy, codex: !!codex, terminals: existsSync(hostExe), windows: isWin, dockerSocket, dockerPipe });
 const on = runningOf(panes);
 console.log(`agents: ${found.harnesses.join(", ") || "none found"}; panes off: ${Object.entries(on).filter(([, v]) => !v).map(([k]) => k).join(", ") || "none"}`);
 // Bino, the assistant: talks through BINO_VIA / ASSISTANT_VIA (Claude Code's CLI by default), remembers with memlet when it's installed.
@@ -355,8 +360,8 @@ const keptAnswers = keptFile(join(dataDir, "catalog.json"));
 const terminals = on.terminal ? createTerminals({ hostExe, codeDir: env.CODE_DIR, programs: findPrograms({ copilotBin: env.COPILOT_BIN, agyBin: env.AGY_BIN, codexBin: env.CODEX_BIN, on: harnessOn }), onChange: () => hub.publish(["snapshot"]), mcp: { url: `http://127.0.0.1:${port}/mcp`, on: () => mcpOn() } }) : undefined;
 if (terminals) console.log(`terminals: ${terminals.programs().map((p) => p.id).join(", ")}`);
 
-// Dovre's own packs (PLAN WP-H9), before the instance's. Assistant: Bino's switch. Terminal: the pty host above. Docker: Engine in its own WSL distro, served by the
-// launcher on a pipe (launcher/docker.go).
+// Dovre's own packs (PLAN WP-H9), before the instance's. Assistant: Bino's switch. Terminal: the pty host above. Docker: the machine's engine (on Windows berth's, which
+// the page switches on and off, or Docker Desktop's).
 // Agents: this machine's sessions and worktrees (read by the pack, every 15 s and when Claude Code's
 // session files change), the desk over the runner and them, and the sessions cleared away. Without
 // claude nothing asks it (the registry files in ~/.claude still count); without omp, no process scan.
@@ -410,11 +415,10 @@ const corePacks = [
     ? [
         dockerPack((ctx) =>
           createDocker({
-            engine: createEngine(() => (isWin ? env.DOCKER_PIPE || readPipe(join(dataDir, "docker-pipe")) : findEngineSocket(env, homedir()))),
-            pipeFile: join(dataDir, "docker-pipe"),
-            offFile: join(dataDir, "docker-off"),
-            pipe: isWin ? env.DOCKER_PIPE : () => findEngineSocket(env, homedir()),
-            ours: isWin && !env.DOCKER_PIPE,
+            engine: createEngine(() => winPipe ?? findEngineSocket(env, homedir())),
+            pipe: () => winPipe ?? findEngineSocket(env, homedir()),
+            control: berthExe ? berthControl(berthExe) : undefined,
+            windows: isWin,
             onChange: throttle(() => ctx.publish(["docker"]), 500),
             log: (kind, target, ok, error) => logAction(ctx.db, { kind, target, ok, error }),
           }),

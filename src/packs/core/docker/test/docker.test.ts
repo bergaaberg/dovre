@@ -1,12 +1,13 @@
 /** The docker pack (src/packs/core/docker/): the model reads strictly, the service only does what's on its list, the pages keep hostile names inert. */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Hono } from "hono";
-import { createDocker, type Docker, findEngineSocket, readPipe } from "../docker.ts";
+import { createDocker, type Docker, findEngineSocket } from "../docker.ts";
+import { BERTH_PIPE, type EngineControl, berthControl, berthOn, findBerth } from "../berth.ts";
 import { createEngine, demuxer } from "../engine.ts";
 import { allowed, groupsOf, parseContainers } from "../model.ts";
 import { dockerPage } from "../view.ts";
@@ -59,14 +60,22 @@ test("logs without a TTY come apart into their frames, across chunks", () => {
   assert.deepEqual(out, ["hello\n", "oops\n"]);
 });
 
-test("only a local pipe's name is taken from the launcher's file", () => {
-  const dir = mkdtempSync(join(tmpdir(), "u-docker-"));
-  const f = join(dir, "p");
-  writeFileSync(f, "\\\\.\\pipe\\dovre_docker\n");
-  assert.equal(readPipe(f), "\\\\.\\pipe\\dovre_docker");
-  writeFileSync(f, "\\\\evil-host\\pipe\\x");
-  assert.equal(readPipe(f), undefined);
-  assert.equal(readPipe(join(dir, "none")), undefined);
+test("berth: found where its setup puts it or on the PATH, and only its status's on is read", async () => {
+  const at = new Set(["C:\\Users\\me\\AppData\\Local\\berth\\bin\\berth.exe", "D:\\tools\\berth.exe"]);
+  const exists = (p: string) => at.has(p);
+  assert.equal(findBerth({ LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local", PATH: "D:\\tools" }, exists), "C:\\Users\\me\\AppData\\Local\\berth\\bin\\berth.exe");
+  assert.equal(findBerth({ Path: "C:\\x;D:\\tools" }, exists), "D:\\tools\\berth.exe");
+  assert.equal(findBerth({}, exists), undefined);
+  assert.equal(berthOn('{"on":false,"pipes":[]}'), false);
+  assert.equal(berthOn('{"on":"yes"}'), undefined);
+  assert.equal(berthOn("not json"), undefined);
+  // Only its three commands, with fixed arguments; its error comes back without the prefix.
+  const ran: string[] = [];
+  const c = berthControl("berth.exe", async (args) => (ran.push(args.join(" ")), args[0] === "stop" ? { ok: false, out: "", err: "berth: the distro is busy\n" } : { ok: true, out: '{"on":true}', err: "" }));
+  assert.equal(await c.on(), true);
+  assert.deepEqual(await c.start(), { ok: true });
+  assert.deepEqual(await c.stop(), { ok: false, error: "the distro is busy" });
+  assert.deepEqual(ran, ["status --json", "start", "stop"]);
 });
 
 /** A Docker Engine on a real pipe (or socket), answering from `state`, recording what it's asked. */
@@ -93,20 +102,31 @@ async function fakeEngine(list: Record<string, unknown>[]) {
     json(404, { message: "no such thing" });
   });
   await new Promise<void>((r) => server.listen(at, r));
-  const pipeFile = join(dir, "docker-pipe");
-  writeFileSync(pipeFile, at);
-  return { at, calls, dir, pipeFile, close: () => server.close() };
+  return { at, calls, dir, close: () => server.close() };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 120));
 
-test("the service lists, acts after re-reading, logs by name, and switches the engine off", async (t) => {
+/** berth, faked: on or off, and what it was asked. */
+function fakeBerth(on = true) {
+  const asked: string[] = [];
+  const state = { on };
+  const control: EngineControl = {
+    name: "berth",
+    on: async () => (asked.push("status"), state.on),
+    start: async () => (asked.push("start"), (state.on = true), { ok: true }),
+    stop: async () => (asked.push("stop"), (state.on = false), { ok: true }),
+  };
+  return { control, asked, state };
+}
+
+test("the service lists, acts after re-reading, logs by name, and switches the engine off with berth", async (t) => {
   const list = [raw(), raw({ Id: ID2, Names: ["/web"], State: "exited", Labels: {} })];
   const e = await fakeEngine(list);
   t.after(e.close);
   const logged: string[] = [];
-  let terminated = 0;
-  const docker = createDocker({ engine: createEngine(() => readPipe(e.pipeFile)), pipeFile: e.pipeFile, offFile: join(e.dir, "off"), ours: true, log: async (k, target, ok) => void logged.push(`${k} ${target} ${ok}`), terminate: async () => void terminated++ });
+  const b = fakeBerth();
+  const docker = createDocker({ engine: createEngine(() => e.at), pipe: e.at, control: b.control, windows: true, log: async (k, target, ok) => void logged.push(`${k} ${target} ${ok}`) });
   t.after(docker.stop);
   await docker.refresh();
   assert.equal(docker.view().state, "ok");
@@ -126,18 +146,36 @@ test("the service lists, acts after re-reading, logs by name, and switches the e
   assert.equal(docker.view().busy[ID2], undefined);
 
   assert.equal(docker.act("../../x", "start").ok, false);
+  assert.equal(docker.view().ours, true);
   docker.engine(false);
-  assert.ok(existsSync(join(e.dir, "off")));
-  assert.equal(docker.view().state, "off");
+  assert.equal(docker.view().state, "off", "off at once, before berth has finished");
   await settle();
-  assert.equal(terminated, 1);
+  assert.deepEqual(b.asked, ["stop"]);
+  assert.ok(logged.includes("docker.engine.off berth true"));
+});
+
+test("berth stopped: no pipe answers, berth says it's off, and Start asks berth to start", async () => {
+  const b = fakeBerth(false);
+  const dead = process.platform === "win32" ? `\\\\.\\pipe\\dovre-test-none-${process.pid}` : join(mkdtempSync(join(tmpdir(), "u-docker-")), "none.sock");
+  const docker = createDocker({ engine: createEngine(() => dead), pipe: dead, control: b.control, windows: true });
+  await docker.refresh();
+  assert.equal(docker.view().state, "off");
+  assert.match(String(dockerPage(docker.view()).body), /action="\/docker\/engine\/on"/);
+  docker.engine(true);
+  assert.equal(docker.view().state, "starting");
+  await settle();
+  assert.ok(b.asked.includes("start"));
+  // Still not answering, though berth is on: starting, within its start-up time.
+  await docker.refresh();
+  assert.equal(docker.view().state, "starting");
+  docker.stop();
 });
 
 test("the routes: strict origin on writes, ids checked, hostile names inert", async (t) => {
   const list = [raw({ Names: [`/${H}`], Image: H, Status: H, Labels: { "com.docker.compose.service": H } })];
   const e = await fakeEngine(list);
   t.after(e.close);
-  const docker = createDocker({ engine: createEngine(() => readPipe(e.pipeFile)), pipeFile: e.pipeFile, offFile: join(e.dir, "off") });
+  const docker = createDocker({ engine: createEngine(() => e.at), pipe: e.at });
   t.after(docker.stop);
   await docker.refresh();
   const app = routesOf(docker, H);
@@ -161,23 +199,22 @@ test("the routes: strict origin on writes, ids checked, hostile names inert", as
   assert.match(logs, /event: out\ndata: "line one\\nline two\\n"/);
 });
 
-test("no engine set up: the page says how, and nothing is asked", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "u-docker-"));
-  const docker = createDocker({ engine: createEngine(() => undefined), pipeFile: join(dir, "none"), offFile: join(dir, "off"), ours: true });
+test("no engine set up on Windows: the page points at berth, and nothing is asked", async () => {
+  const docker = createDocker({ engine: createEngine(() => undefined), windows: true });
   await docker.refresh();
   assert.equal(docker.view().state, "none");
   const app = routesOf(docker, "me");
-  assert.match(await (await app.request("http://localhost/docker")).text(), /scripts\/docker\.ps1/);
+  const page = await (await app.request("http://localhost/docker")).text();
+  assert.match(page, /berth setup/);
+  assert.match(page, /href="https:\/\/github\.com\/bergaaberg\/berth"/);
   docker.stop();
 });
 
 test("in the app: the Docker pages keep the engine's names inert", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "u-docker-app-"));
-  writeFileSync(join(dir, "pipe"), "\\\\.\\pipe\\none");
   const id = "e".repeat(64);
   const list = [{ Id: id, Names: [`/${H}`], Image: H, State: "running", Status: H, Ports: [], Labels: { "com.docker.compose.project": "p1", "com.docker.compose.service": H } }];
   const engine = { json: async (_m: string, path: string) => ({ status: 200, body: path.startsWith("/containers/json") ? list : { Version: H } }), stream: async () => 200 };
-  const docker = createDocker({ engine, pipeFile: join(dir, "pipe"), offFile: join(dir, "off") });
+  const docker = createDocker({ engine, pipe: "\\\\.\\pipe\\none" });
   t.after(docker.stop);
   await docker.refresh();
   const pack = dockerPack(() => docker);
@@ -238,19 +275,15 @@ test("findEngineSocket: finds engine socket in order, ignoring remote tcp hosts 
   assert.equal(findEngineSocket({ DOCKER_PIPE: "/missing/pipe.sock", DOCKER_HOST: "unix:///custom/daemon.sock" }, home, exists), "/custom/daemon.sock");
 });
 
-test("off Windows: ours is false, no engine controls or wsl calls, containers still act", async (t) => {
+test("an engine Dovre can't switch (Docker Desktop's, a Mac's): no engine controls, containers still act", async (t) => {
   const list = [raw({ Id: ID, State: "running" }), raw({ Id: ID2, State: "exited", Names: ["/web"] })];
   const e = await fakeEngine(list);
   t.after(e.close);
-  let terminated = 0;
   const logged: string[] = [];
   const docker = createDocker({
-    engine: createEngine(() => readPipe(e.pipeFile)),
-    pipeFile: e.pipeFile,
-    offFile: join(e.dir, "off"),
-    ours: false,
+    engine: createEngine(() => e.at),
+    pipe: e.at,
     log: async (k, target, ok) => void logged.push(`${k} ${target} ${ok}`),
-    terminate: async () => void terminated++,
   });
   t.after(docker.stop);
   await docker.refresh();
@@ -258,11 +291,10 @@ test("off Windows: ours is false, no engine controls or wsl calls, containers st
   assert.equal(docker.view().ours, false);
   assert.equal(docker.view().state, "ok");
 
-  // Engine on/off is refused: does not touch offFile and never calls terminate
+  // Engine on/off is refused
   assert.deepEqual(docker.engine(false), { ok: false, message: "This engine isn't Dovre's to switch." });
   assert.deepEqual(docker.engine(true), { ok: false, message: "This engine isn't Dovre's to switch." });
-  assert.equal(existsSync(join(e.dir, "off")), false);
-  assert.equal(terminated, 0);
+  assert.equal(docker.view().state, "ok");
 
   // The page has no Stop Docker button
   const app = routesOf(docker, "tester");
@@ -277,14 +309,20 @@ test("off Windows: ours is false, no engine controls or wsl calls, containers st
   assert.deepEqual(logged, ["docker.start web true"]);
 });
 
-test("no engine found: a Mac is pointed at scripts/docker.sh (Colima, #101); Dovre's own engine at docker.ps1", () => {
+test("no engine found: a Mac is pointed at scripts/docker.sh (Colima, #101); Windows at berth", () => {
   const none = { state: "none" as const, containers: [], busy: {} };
   const mac = String(dockerPage({ ...none, ours: false }).body);
   assert.match(mac, /No Docker engine found/);
   assert.match(mac, /<pre class="code">sh scripts\/docker\.sh<\/pre>/);
-  const win = String(dockerPage({ ...none, ours: true }).body);
-  assert.match(win, /pwsh scripts\/docker\.ps1/);
+  const win = String(dockerPage({ ...none, ours: false, windows: true }).body);
+  assert.match(win, /<pre class="code">berth setup<\/pre>/);
   assert.doesNotMatch(win, /docker\.sh/);
+  // Docker Desktop's pipe not answering, no berth: start Desktop, or use berth.
+  const down = String(dockerPage({ ...none, state: "down", pipe: "\\\\.\\pipe\\docker_engine", ours: false, windows: true }).body);
+  assert.match(down, /Start Docker Desktop, or use berth instead/);
+  assert.doesNotMatch(down, /engine\/on/);
+  // berth's, not answering: Start.
+  assert.match(String(dockerPage({ ...none, state: "down", pipe: BERTH_PIPE, ours: true, windows: true }).body), /action="\/docker\/engine\/on"/);
 });
 
 test("self-host compose: the host's Docker socket stays opt-in, and the container finds it once mounted (#102)", () => {

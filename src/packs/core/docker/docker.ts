@@ -1,6 +1,6 @@
 /**
- * Docker in Dovre: the containers on the engine the launcher serves (launcher/docker.go,
- * scripts/docker.ps1), kept fresh by the engine's own event stream (a fallback read every 30 s),
+ * Docker in Dovre: the containers on the machine's Docker Engine (on Windows berth's, see berth.ts, or
+ * Docker Desktop's; a Unix socket elsewhere), kept fresh by the engine's own event stream (a fallback read every 30 s),
  * never read per page. A change publishes "docker" on the hub.
  *
  * What it may do is a short list: start, stop, restart and remove a container (never its volumes),
@@ -11,18 +11,20 @@
  * Logs are streamed to the page that asked and dropped: never kept, logged, put in the snapshot or
  * given to a model. A container's output can hold connection strings and data.
  */
-import { execFile } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { posix } from "node:path";
+import type { EngineControl } from "./berth.ts";
 import { type Engine, demuxer } from "./engine.ts";
 import { type Container, ID_RE, type Verb, allowed, parseContainers, shapeOf } from "./model.ts";
 
 export type DockerView = {
-  /** none: no engine set up; off: switched off here; starting; down: set up but not answering; ok. */
+  /** none: no engine found; off: switched off (berth stop); starting; down: not answering; ok. */
   state: "none" | "off" | "starting" | "down" | "ok";
   pipe?: string;
-  /** Whether Dovre runs this engine (its own distro), so it can switch it on and off. */
+  /** Whether Dovre can switch this engine on and off (berth's). */
   ours: boolean;
+  /** Windows: an engine is set up with berth (or Docker Desktop), not a socket. */
+  windows?: boolean;
   containers: Container[];
   version?: string;
   at?: number;
@@ -46,18 +48,6 @@ export type Docker = {
   find(id: string): Container | undefined;
   stop(): void;
 };
-
-export const DISTRO = "dovre-docker";
-
-/** The pipe the launcher wrote it serves; only a local pipe's name is taken from the file. */
-export function readPipe(file: string): string | undefined {
-  try {
-    const p = readFileSync(file, "utf8").trim();
-    return /^\\\\\.\\pipe\\[\w.-]{1,80}$/.test(p) || /^\/[\w./-]{1,200}\.sock$/.test(p) ? p : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * On macOS and Linux, finds the Docker Engine socket using the first one that exists:
@@ -95,29 +85,24 @@ export function findEngineSocket(
 
 export function createDocker(opts: {
   engine: Engine;
-  /** Written by the launcher: the pipe it serves. */
-  pipeFile: string;
-  /** Its presence switches the engine off (the launcher lets the distro go). */
-  offFile: string;
-  /** A pipe or socket to use instead (DOCKER_PIPE: Docker Desktop's, say); Dovre then can't switch it. */
+  /** The pipe or socket the engine is on (shown on the page; the engine opens it itself). */
   pipe?: string | (() => string | undefined);
-  /** Whether Dovre owns this engine (can switch it on and off: the launcher's WSL distro). Off Windows, src/index.ts passes false. */
-  ours?: boolean;
+  /** Switches the engine on and off (berth); without it the page only acts on containers. */
+  control?: EngineControl;
+  windows?: boolean;
   onChange?: () => void;
   log?: (kind: string, target: string, ok: boolean, error?: string) => Promise<void>;
-  /** Stops the distro at once (wsl --terminate); for tests, a fake. */
-  terminate?: () => Promise<void>;
   everyMs?: number;
   now?: () => number;
 }): Docker {
   const { engine } = opts;
   const now = opts.now ?? Date.now;
-  const terminate = opts.terminate ?? (() => new Promise<void>((res) => execFile("wsl.exe", ["--terminate", DISTRO], { windowsHide: true }, () => res())));
-  const pipeOf = () => (typeof opts.pipe === "function" ? opts.pipe() : opts.pipe) || readPipe(opts.pipeFile);
-  // The caller says whose engine it is (src/index.ts: Windows without DOCKER_PIPE); unsaid, as before: ours unless a pipe was given.
-  const ours = opts.ours ?? !opts.pipe;
-  const isOff = () => ours && existsSync(opts.offFile);
-  let view: DockerView = { state: pipeOf() ? "down" : "none", pipe: pipeOf(), ours, containers: [], busy: {} };
+  const pipeOf = () => (typeof opts.pipe === "function" ? opts.pipe() : opts.pipe);
+  const control = opts.control;
+  const ours = !!control;
+  // Switched off from here: shown as off until berth has stopped it (or is asked to start).
+  let stopping = false;
+  let view: DockerView = { state: pipeOf() ? "down" : "none", pipe: pipeOf(), ours, windows: opts.windows, containers: [], busy: {} };
   let shape = "";
   let starting = 0;
   const set = (next: Partial<DockerView>) => {
@@ -133,7 +118,7 @@ export function createDocker(opts: {
     (reading ??= (async () => {
       const pipe = pipeOf();
       if (!pipe) return set({ state: "none", pipe, containers: [], error: undefined });
-      if (isOff()) return set({ state: "off", pipe, containers: [], error: undefined });
+      if (stopping) return set({ state: "off", pipe, containers: [], error: undefined });
       try {
         const [list, ver] = await Promise.all([engine.json("GET", "/containers/json?all=1"), view.version ? undefined : engine.json("GET", "/version")]);
         if (list.status !== 200) throw new Error(`Docker answered ${list.status}`);
@@ -143,8 +128,11 @@ export function createDocker(opts: {
         follow();
       } catch (e) {
         // Just switched on: the distro and dockerd take a few seconds.
-        const waiting = starting && now() - starting < 60_000;
-        set({ state: waiting ? "starting" : "down", pipe, error: waiting ? undefined : (e as Error).message, version: undefined });
+        const waiting = starting && now() - starting < 90_000;
+        if (waiting) return set({ state: "starting", pipe, error: undefined, version: undefined });
+        // Not answering: berth stopped serves no pipe at all, so ask it whether that's why.
+        if (control && (await control.on().catch(() => undefined)) === false) return set({ state: "off", pipe, containers: [], error: undefined, version: undefined });
+        set({ state: "down", pipe, error: (e as Error).message, version: undefined });
       }
     })().finally(() => (reading = undefined)));
 
@@ -244,26 +232,33 @@ export function createDocker(opts: {
       return { ok: true, message: "" };
     },
     engine(on) {
-      if (!ours || !pipeOf()) return { ok: false, message: "This engine isn't Dovre's to switch." };
+      if (!control) return { ok: false, message: "This engine isn't Dovre's to switch." };
       if (on) {
-        rmSync(opts.offFile, { force: true });
+        stopping = false;
         starting = now();
         set({ state: "starting", error: undefined });
-        // The launcher attaches within two seconds; dockerd then takes a few more.
         void (async () => {
-          for (let i = 0; i < 30 && view.state !== "ok" && !isOff(); i++) {
-            await new Promise((r) => setTimeout(r, 2000));
-            await refresh();
+          const r = await control.start();
+          void opts.log?.("docker.engine.on", control.name, r.ok, r.error).catch(() => {});
+          if (!r.ok) {
+            starting = 0;
+            set({ flash: { ok: false, message: `Couldn't start Docker: ${r.error}` } });
           }
+          await refresh();
         })();
       } else {
-        writeFileSync(opts.offFile, "");
+        stopping = true;
         events?.abort();
         events = undefined;
         set({ state: "off", containers: [], busy: {} });
-        void terminate();
+        void (async () => {
+          const r = await control.stop();
+          void opts.log?.("docker.engine.off", control.name, r.ok, r.error).catch(() => {});
+          stopping = false;
+          if (!r.ok) set({ flash: { ok: false, message: `Couldn't stop Docker: ${r.error}` } });
+          await refresh();
+        })();
       }
-      void opts.log?.(on ? "docker.engine.on" : "docker.engine.off", DISTRO, true).catch(() => {});
       return { ok: true, message: on ? "Starting Docker…" : "Docker is off." };
     },
     async logs(id, out, signal) {

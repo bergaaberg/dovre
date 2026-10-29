@@ -45,7 +45,7 @@ Each app Dovre works with is a pack. Six ship with core, each switched off with 
 | `agents` | Agent sessions, live turns, worktrees, tool approvals |
 | `assistant` | Bino and its [memlet](https://github.com/bergaaberg/memlet) memory |
 | `terminal` | Web terminals in your checkouts (local) |
-| `docker` | Containers, compose projects, logs (local; `sh scripts/docker.sh` sets up Colima on a Mac) |
+| `docker` | Containers, compose projects, logs (local; on Windows [berth](https://github.com/bergaaberg/berth) runs Docker Engine without Docker Desktop, `sh scripts/docker.sh` sets up Colima on a Mac) |
 | `tracker` | Your open issues on `/tracker` |
 | `storybook` | A PR's stories before and after (local) |
 

@@ -1,6 +1,6 @@
 /**
- * Docker, a core pack (PLAN WP-H9): the containers on the engine the launcher serves
- * (launcher/docker.go, scripts/docker.ps1 on Windows; Unix socket engines on macOS and Linux, scripts/docker.sh sets up Colima on a Mac).
+ * Docker, a core pack (PLAN WP-H9): the containers on the machine's Docker Engine (berth on Windows,
+ * berth.ts, or Docker Desktop; Unix socket engines on macOS and Linux, scripts/docker.sh sets up Colima on a Mac).
  * Settings' Docker pane decides whether the machine adds it, and PACK_DOCKER=off or Layout turns it off like any pack.
  * What it may do, and that logs are never kept, is docker.ts's header.
  */

@@ -41,6 +41,11 @@ test("a pane that can't run here says why; one switched off doesn't", () => {
   const macWithDocker = panesOf({}, { ...none, windows: false, dockerSocket: "/var/run/docker.sock" });
   assert.equal(macWithDocker.docker.on, true);
   assert.equal(macWithDocker.docker.why, undefined);
+  // Windows: on when berth is installed or something serves docker_engine, else pointed at berth.
+  const winNone = panesOf({}, { ...none, windows: true, dockerPipe: false });
+  assert.equal(winNone.docker.on, false);
+  assert.match(winNone.docker.why ?? "", /berth/);
+  assert.equal(panesOf({}, { ...none, windows: true, dockerPipe: true }).docker.on, true);
   assert.equal(p.bino.wanted, false, "no model at all: off");
   const on = runningOf(p);
   assert.equal(on.lab, false);
