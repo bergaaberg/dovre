@@ -8,6 +8,8 @@ import { createViewerRoutes } from "../src/pages/viewer.ts";
 import type { ReviewDraft } from "../src/reviews/draft.ts";
 import { addComment, anchorOf, importDraft, myReview } from "../src/reviews/mine.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
+import type { Complete } from "../src/ai/llm.ts";
+import { checkOf } from "../src/reviews/check.ts";
 import { assertInert, H } from "./helpers.ts";
 
 const SHA = "a".repeat(40);
@@ -25,7 +27,7 @@ const view = (o: { author?: string; sha?: string } = {}) => ({
 });
 const FILES = [{ filename: PATH, status: "modified", additions: 2, deletions: 1, sha: "1", patch: "@@ -10,3 +10,4 @@ class A\n ctx\n-old\n+new\n+added\n" }];
 
-function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean } } = {}) {
+function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean }; checker?: { ask: Complete; model: string } } = {}) {
   const calls: { method: string; path: string; body?: any }[] = [];
   const state = { sha: o.sha ?? SHA };
   const ghe: Ghe = {
@@ -60,6 +62,7 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
     db: db.DB,
     login: async () => o.me ?? "me",
     agentDraft: async () => o.agent,
+    checker: o.checker ? () => o.checker : undefined,
   });
   const post = (path: string, form: Record<string, string>) => app.request(path, { method: "POST", body: new URLSearchParams(form) });
   const text = async (path: string) => (await app.request(path)).text();
@@ -250,4 +253,52 @@ test("threads: one on another PR, an odd id, or an empty reply changes nothing; 
   assert.equal(done.calls.filter((c) => c.method === "MUTATION").length, 0);
   await done.post(`${B}/threads/resolve`, { thread: "PRRT_one", resolve: "0" });
   assert.match(done.calls.find((c) => c.method === "MUTATION")!.path, /unresolveReviewThread/);
+});
+
+test("the agent's check: one call with my review and the diff; its cards kept, used or dismissed; hostile text inert; nothing posted", async () => {
+  const asked: { system: string; user: string }[] = [];
+  const cards = (id: number) => [
+    { kind: "rewrite", on: `c${id}`, why: `Clearer ${H}`, text: `Could this be ${H}?` },
+    { kind: "missed", path: PATH, line: 12, side: "RIGHT", why: `Unchecked ${H}`, text: "This needs a test." },
+    { kind: "nit", on: "summary", why: "Say what to change." },
+    { kind: "missed", path: PATH, line: 99, side: "RIGHT", why: "Off the diff", text: "x" },
+  ];
+  let reply = "";
+  const { db, calls, post, text } = setup({ checker: { model: "sonnet", ask: async (p) => (asked.push(p), { text: reply, cost: 0.01 }) } });
+  assert.match(await text(`${B}/review`), /formaction="\/prs\/ACME\/shop-api\/840\/review\/check"/, "the button, in the summary's form");
+  assert.match(await (await post(`${B}/review/check`, { summary: "" })).headers.get("location")!, /\/review$/);
+  assert.match(await text(`${B}/review`), /Nothing to check yet/);
+  await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "11", body: `Why ${H}?` });
+  const id = (await myReview(db.DB, "", "ACME/shop-api#840"))!.comments[0]!.id;
+  reply = "```review-check\n" + JSON.stringify({ cards: cards(id) }) + "\n```";
+  const res = await post(`${B}/review/check`, { summary: `Looks ${H}` });
+  assert.equal(res.headers.get("location"), `${B}/review#check`);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0]!.user, new RegExp(`### c${id} on src/.*:11`), "each comment with its id and place");
+  assert.match(asked[0]!.user, /11 \+ new/, "and the lines it sits on, numbered");
+  assert.match(asked[0]!.user, /Looks /, "the summary as I typed it, saved first");
+  assert.equal((await checkOf(db.DB, "", "ACME/shop-api#840"))!.cards.length, 3, "the card off the diff is left out");
+  const page = await text(`${B}/review`);
+  assertInert("review with the agent's check", page);
+  assert.match(page, /The agent&#39;s check/);
+  assert.match(page, /Use this text/);
+  assert.match(page, /Add this comment/);
+  await post(`${B}/review/check/1`, { do: "keep", body: "Edited by me" });
+  assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))!.comments[0]!.body, "Edited by me", "kept as I edited it");
+  await post(`${B}/review/check/2`, { do: "keep", body: "This needs a test." });
+  assert.deepEqual((await myReview(db.DB, "", "ACME/shop-api#840"))!.comments.map((c) => c.line), [11, 12], "the missed issue becomes a pending comment");
+  await post(`${B}/review/check/3`, { do: "drop" });
+  assert.deepEqual((await checkOf(db.DB, "", "ACME/shop-api#840"))!.cards, []);
+  assert.match(await text(`${B}/review`), /nothing to add/);
+  reply = "no block";
+  await post(`${B}/review/check`, { summary: "x" });
+  assert.match(await text(`${B}/review`), /not with cards Dovre could read/);
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing goes to GHE");
+});
+
+test("no agent to check with: no button, and the route says so", async () => {
+  const { post, text } = setup();
+  assert.doesNotMatch(await text(`${B}/review`), /Check with an agent/);
+  await post(`${B}/review/check`, { summary: "x" });
+  assert.match(await text(`${B}/review`), /no agent to check with/);
 });

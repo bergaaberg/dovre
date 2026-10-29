@@ -7,6 +7,7 @@
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type LineComment, MAX_BODY, MAX_SUMMARY, type ReviewDraft, type Side, type Verdict, VERDICT_LABEL, VERDICTS } from "../reviews/draft.ts";
+import { CARD_LABEL, type Card, type Check, targetLabel } from "../reviews/check.ts";
 import type { MyReview, Pending } from "../reviews/mine.ts";
 import { Confirm, type Html, Notice, Panel, Pill, Post } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
@@ -77,7 +78,38 @@ export type ReviewPageView = {
   agent?: number;
   preview?: { draft: ReviewDraft; notes: string[]; nonce: string; print: string } | { problem: string };
   flash?: Flash;
+  /** An agent can check the review before I post it (Bino's route is ready). */
+  checker?: boolean;
+  /** Its last check's cards, still to keep or dismiss. */
+  check?: Check;
 };
+
+/** One of the agent's cards: what it's about, why, and its text to keep (as I edit it) or dismiss. */
+function checkCard(card: Card, comments: Pending[], base: string): Html {
+  const about = card.at
+    ? html`<code class="draft-where">${whereOf({ ...card.at, body: "" })}</code>`
+    : html`<code class="draft-where">${targetLabel(card.on!, comments)}</code>${card.also !== undefined ? html` and <code class="draft-where">${targetLabel(card.also, comments)}</code>` : ""}`;
+  const gone = card.on !== undefined && card.on !== "summary" && !comments.some((c) => c.id === card.on);
+  const keep = card.text !== undefined && !gone;
+  const label = card.kind === "missed" ? "Add this comment" : card.on === "summary" ? "Use as your summary" : "Use this text";
+  return html`<form method="post" action="${base}/review/check/${card.id}" class="draft-card" id="k-${card.id}">
+<div class="draft-card-h">${Pill({ children: CARD_LABEL[card.kind] })}${about}</div>
+${card.why ? html`<div class="draft-text">${markdown(card.why)}</div>` : ""}
+${keep ? html`<textarea name="body" rows="${rows(card.text!)}" maxlength="${card.on === "summary" ? MAX_SUMMARY : MAX_BODY}" aria-label="The agent's text">\n${card.text}</textarea>` : ""}
+<div class="buttons">${keep ? html`<button type="submit" name="do" value="keep" class="sm">${label}</button>` : ""}<button type="submit" name="do" value="drop" class="ghost sm">Dismiss</button></div>
+</form>`;
+}
+
+/** The agent's last check, while it has cards left. */
+function checkPanel(v: ReviewPageView, comments: Pending[]): Html | "" {
+  const k = v.check;
+  if (!k) return "";
+  const stale = !!v.review && k.sha !== v.review.sha;
+  const body = k.cards.length
+    ? html`${stale ? Notice({ tone: "warn", children: "This check was of your review on an earlier commit." }) : ""}${k.cards.map((c) => checkCard(c, comments, v.base))}`
+    : html`<p class="t3">The agent has nothing to add. Your review is as it was.</p>`;
+  return Panel({ id: "check", title: "The agent's check", meta: html`<span class="t3">${k.model}${k.cost ? ` · $${k.cost.toFixed(3)}` : ""}</span>`, children: html`${body}<p class="hint">Keeping a card changes only your pending review. The agent never posts.</p>` });
+}
 
 /** The Review tab: my comments, the summary and verdict, then the preview with its Post. */
 export function reviewPage(frame: Frame, v: ReviewPageView): Html {
@@ -92,7 +124,7 @@ export function reviewPage(frame: Frame, v: ReviewPageView): Html {
 <div class="field"><fieldset><legend class="label">Verdict</legend>${verdicts.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset>${v.own ? html`<span class="hint">Your own PR: a Comment only.</span>` : ""}</div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(v.summary, 5)}" maxlength="${MAX_SUMMARY}" placeholder="Markdown">\n${v.summary}</textarea></label>
 ${list}
-<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button><span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="The agent is reading">Check with an agent</button>` : ""}<span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
 </form>`;
   const p = v.preview;
   const preview = !p
@@ -120,6 +152,6 @@ ${list}
   const discard = r
     ? html`<div class="buttons">${Confirm({ kind: "review.discard", action: `${v.base}/review/discard`, label: "Discard your review", question: `Throw away your summary and ${comments.length} pending ${comments.length === 1 ? "comment" : "comments"}? Nothing was posted.`, danger: true })}</div>`
     : "";
-  const body = html`${v.header}${flash}${movedNote}${agent}${Panel({ title: "Your review", meta: comments.length ? `${comments.length} pending` : undefined, children: form })}${preview}${discard}`;
+  const body = html`${v.header}${flash}${movedNote}${agent}${Panel({ title: "Your review", meta: comments.length ? `${comments.length} pending` : undefined, children: form })}${checkPanel(v, comments)}${preview}${discard}`;
   return shell({ title: `Your review · ${v.title} · Dovre`, frame, current: "/prs", body });
 }

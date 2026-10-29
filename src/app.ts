@@ -832,6 +832,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       db: env.DB,
       login: async () => (await page()).s.login,
       stale: () => gatherer.stale(),
+      checker: () => {
+        const r = bino?.route;
+        return binoOn() && r?.ready && r.ask ? { ask: r.ask, model: r.model } : undefined;
+      },
       agentDraft: async (repo, n) => {
         if (off("reviews")) return undefined;
         const r = (await latestReviews(env.DB)).get(`review:${repo}#${n}`);
