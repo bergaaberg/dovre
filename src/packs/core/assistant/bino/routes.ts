@@ -14,11 +14,12 @@
  */
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { type Act, type PackAct as PackActOf, isPackAct } from "./acts.ts";
+import { ACT_FENCE, type Act, type PackAct as PackActOf, isPackAct } from "./acts.ts";
+import { LOOKUP_FENCE } from "./lookups.ts";
 import type { PackAct } from "../../../registry.ts";
 import type { Bino, Conv, Msg } from "./bino.ts";
 import { MAX_SAY, MAX_TITLE } from "./bino.ts";
-import { MAX_STEPS, type Plan, planOf } from "./context.ts";
+import { MAX_STEPS, PLAN_FENCE, type Plan, planOf } from "./context.ts";
 import { type ViewApp, viewOf } from "./view.ts";
 import type { AppEnv, Env } from "../../../../env.ts";
 import type { Snapshot } from "../../../../gather.ts";
@@ -113,13 +114,35 @@ function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx, prev?: 
   return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}${tools}</li>`;
 }
 
-/** The messages: grouped by speaker, a line with the time after a long quiet. */
+const OPENS = [PLAN_FENCE, ACT_FENCE, LOOKUP_FENCE].map((f) => "```" + f);
+
+/** The answer so far as it's shown: without Bino's own blocks (a plan, an act, a lookup), which come once it's done, nor the start of one. */
+export function draftShown(t: string): string {
+  let out = "";
+  let rest = t;
+  for (;;) {
+    const at = OPENS.map((f) => rest.indexOf(f)).filter((i) => i >= 0);
+    if (!at.length) break;
+    const i = Math.min(...at);
+    out += rest.slice(0, i);
+    const close = rest.indexOf("\n```", i + 3);
+    if (close < 0) return out.trimEnd();
+    rest = rest.slice(close + 4);
+  }
+  // A last line that may be one beginning ("`", "```bino-p").
+  const tail = rest.slice(rest.lastIndexOf("\n") + 1);
+  if (tail && OPENS.some((f) => f.startsWith(tail.trimStart()))) rest = rest.slice(0, rest.length - tail.length);
+  return (out + rest).trimEnd();
+}
+
+/** The messages: grouped by speaker, a line with the time after a long quiet; while Bino writes, its answer so far. */
 function thread(c: Conv, target?: Todo, ax?: ActCtx): Html {
+  const draft = c.thinking && c.draft ? draftShown(c.draft) : "";
   return html`<ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => {
     const prev = c.msgs[i - 1];
     const gap = prev && m.at - prev.at >= QUIET ? html`<li class="bino-gap" aria-hidden="true"><span data-at="${m.at}" data-ago title="${clockOf(m.at)} UTC">${clockOf(m.at)}</span></li>` : "";
     return html`${gap}${message(c, m, i, target, ax, prev)}`;
-  })}</ol>`;
+  })}${draft ? html`<li class="bino-msg bino writing" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…</span></p><div class="bino-text">${markdown(draft)}</div></li>` : ""}</ol>`;
 }
 
 /** The box Bino is talked to in: one field, the send button in its own footer. Enter sends, Shift+Enter is a new line, ↑ in an empty box brings back what I last sent (src/ui/app.js.ts). */
@@ -135,7 +158,7 @@ function answering(c: Conv, dock: boolean): Html {
   const asked = c.msgs.at(-1)?.role === "user";
   if (c.stopped && !c.thinking) return html`<div class="bino-after"><p class="notes">You stopped this answer. Ask again, or say something else.</p>${asked ? again : ""}</div>`;
   if (!c.thinking) return c.error && asked ? html`<div class="bino-after">${again}</div>` : html``;
-  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite" data-inplace>${dockField}<span class="typing" aria-hidden="true"><i></i><i></i><i></i></span> <span>${c.looking ? `Bino is looking up ${c.looking}…` : "Bino is thinking…"}</span> <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
+  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite" data-inplace>${dockField}<span class="typing" aria-hidden="true"><i></i><i></i><i></i></span> <span>${c.looking ? `Bino is looking up ${c.looking}…` : c.draft ? "Bino is writing…" : "Bino is thinking…"}</span> <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
 }
 
 const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? "Bino can't answer here." });

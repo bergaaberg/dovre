@@ -5,7 +5,8 @@
 import { type ChildProcess, execFile } from "node:child_process";
 import { parentPort } from "node:worker_threads";
 
-export type Job = { id: number; bin: string; args: string[]; cwd?: string; timeoutMs?: number; input?: string; maxBuffer?: number; env?: Record<string, string | null> };
+/** `stream`: stdout is also sent as it comes (a `Chunk` per read), before the job is `Done`. */
+export type Job = { id: number; bin: string; args: string[]; cwd?: string; timeoutMs?: number; input?: string; maxBuffer?: number; env?: Record<string, string | null>; stream?: boolean };
 
 /** This process's environment with a job's changes (null removes a variable, whatever its case on Windows). */
 export function envFor(changes: Record<string, string | null> | undefined, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv | undefined {
@@ -19,6 +20,7 @@ export function envFor(changes: Record<string, string | null> | undefined, base:
 /** Kill the job with this id (its caller stopped waiting for it). */
 export type Kill = { kill: number };
 export type Done = { id: number; code: number | null; stdout: string; stderr: string; error?: string };
+export type Chunk = { id: number; chunk: string };
 
 const running = new Map<number, ChildProcess>();
 
@@ -35,6 +37,7 @@ parentPort?.on("message", (msg: Job | Kill) => {
     parentPort!.postMessage(done);
   });
   running.set(job.id, child);
+  if (job.stream) child.stdout?.on("data", (d: string | Buffer) => parentPort!.postMessage({ id: job.id, chunk: String(d) } satisfies Chunk));
   if (job.input !== undefined) child.stdin?.end(job.input);
   else child.stdin?.end();
 });

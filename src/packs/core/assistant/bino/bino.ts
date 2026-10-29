@@ -14,7 +14,7 @@ import { type Found, foundPart, labelOf, type Lookups, lookupsPrompt, MAX_ROUNDS
 import type { Route } from "./route.ts";
 
 export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number; /** What Bino looked up for it ("Linear: issue ENG-12"), never what came back. */ looked?: string[] };
-export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string };
+export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string; /** The answer so far, while it's being written (not kept). */ draft?: string };
 
 /** Where the last few conversations are kept between restarts. */
 export type ConvStore = { load(): Conv[]; save(keep: Conv[]): void };
@@ -101,6 +101,9 @@ export function createBino(o: {
   /** What Bino knows right now; `given` is what the caller gathered, when it did. */
   context: (c: Conv, given?: string) => Promise<string>;
   onChange?: (c: Conv) => void;
+  /** The answer being written grew: at most once per `draftMs` (default 250), its list place kept. */
+  onDraft?: (c: Conv) => void;
+  draftMs?: number;
   /** data/bino.json locally (a shorthand for fileStore). */
   file?: string;
   store?: ConvStore;
@@ -152,7 +155,7 @@ export function createBino(o: {
   trim();
   const save = () => {
     if (!store) return;
-    store.save(kept(ON_DISK).map(({ thinking: _t, looking: _l, ...c }) => c as Conv));
+    store.save(kept(ON_DISK).map(({ thinking: _t, looking: _l, draft: _d, ...c }) => c as Conv));
   };
   const changed = (c: Conv) => {
     c.at = now();
@@ -182,6 +185,29 @@ export function createBino(o: {
     const ctl = new AbortController();
     writing.set(c.id, ctl);
     const { signal } = ctl;
+    // The answer so far, shown at most every draftMs: the last growth always goes out.
+    let tick: ReturnType<typeof setTimeout> | undefined;
+    let shownAt = 0;
+    const show = () => {
+      tick = undefined;
+      shownAt = now();
+      if (!signal.aborted && c.thinking) o.onDraft?.(c);
+    };
+    const onText = o.onDraft
+      ? (soFar: string) => {
+          if (signal.aborted) return;
+          c.draft = soFar;
+          if (tick) return;
+          const wait = (o.draftMs ?? 250) - (now() - shownAt);
+          if (wait <= 0) show();
+          else tick = setTimeout(show, wait);
+        }
+      : undefined;
+    const settle = () => {
+      if (tick) clearTimeout(tick);
+      tick = undefined;
+      c.draft = undefined;
+    };
     const job = (async () => {
       try {
         const context = await o.context(c, given.get(c.id));
@@ -198,14 +224,16 @@ export function createBino(o: {
           const spent = round >= MAX_ROUNDS;
           const system = systemOf(context, memories, { acts: o.acts ?? true, kinds, lookups: lookupsPrompt(specs, spent) });
           signal.throwIfAborted();
-          const got = await ask({ system, user: transcriptOf(turns, undefined, foundPart(found.get(c.id) ?? [])), signal });
+          const got = await ask({ system, user: transcriptOf(turns, undefined, foundPart(found.get(c.id) ?? [])), signal, onText });
           // Stopped while it was being written: what came anyway isn't shown.
-          if (signal.aborted) return;
+          if (signal.aborted) return settle();
           cost += got.cost;
           const split = splitLookups(got.text, specs);
           text = split.text;
           if (spent || !split.lookups.length || !o.lookups) break;
           const labels = split.lookups.map((l) => labelOf(l, specs));
+          // The next round writes the answer afresh.
+          settle();
           c.looking = labels.join("; ");
           changed(c);
           const results = await Promise.all(
@@ -218,7 +246,7 @@ export function createBino(o: {
               }
             }),
           );
-          if (signal.aborted) return;
+          if (signal.aborted) return settle();
           found.set(c.id, [...(found.get(c.id) ?? []), ...results].slice(-12));
           looked.push(...labels);
           c.looking = undefined;
@@ -228,9 +256,10 @@ export function createBino(o: {
         const { text: shown, acts } = splitActs(noPlan, kinds);
         c.msgs.push({ role: "assistant", text: shown || (plan ? "Here's a breakdown:" : acts.length ? "Here it is:" : "…"), at: now(), cost, ...(plan ? { plan } : {}), ...(acts.length ? { acts } : {}), ...(looked.length ? { looked: [...new Set(looked)].slice(0, 9) } : {}) });
       } catch (e) {
-        if (signal.aborted) return;
+        if (signal.aborted) return settle();
         c.error = `Bino didn't answer: ${String((e as Error).message ?? e).slice(0, 300)}`;
       }
+      settle();
       writing.delete(c.id);
       c.thinking = false;
       c.looking = undefined;
@@ -288,6 +317,7 @@ export function createBino(o: {
       ctl.abort();
       c.thinking = false;
       c.looking = undefined;
+      c.draft = undefined;
       c.stopped = true;
       changed(c);
       return true;

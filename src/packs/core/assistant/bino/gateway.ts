@@ -27,6 +27,88 @@ export const gatewayModelOf = (m: string | undefined) => GATEWAY_MODELS[(m ?? ""
 /** A hung provider must never stall a Bino turn (the CLI routes time out at 180 s); Stop ends it sooner. */
 const within = (stop?: AbortSignal) => (stop ? AbortSignal.any([AbortSignal.timeout(180_000), stop]) : AbortSignal.timeout(180_000));
 
+/** Each `data:` of a Server-Sent Events body, parsed; `[DONE]` and what isn't JSON are skipped. */
+export async function eachEvent(res: Response, fn: (e: unknown) => void): Promise<void> {
+  if (!res.body) return;
+  const read = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  const line = (l: string) => {
+    if (!l.startsWith("data:")) return;
+    const d = l.slice(5).trim();
+    if (!d || d === "[DONE]") return;
+    let e: unknown;
+    try {
+      e = JSON.parse(d);
+    } catch {
+      return;
+    }
+    fn(e);
+  };
+  for (;;) {
+    const { value, done } = await read.read();
+    if (done) break;
+    buf += value;
+    const lines = buf.split(/\r?\n/);
+    buf = lines.pop() ?? "";
+    for (const l of lines) line(l);
+  }
+  line(buf);
+}
+
+type Reply = { model?: string; stop_reason?: string; text: string; usage?: { input_tokens?: number; output_tokens?: number } };
+
+/** A Messages API reply: read whole, or streamed (`onText` given, the request sent with `stream: true`). */
+async function messagesReply(res: Response, onText?: (soFar: string) => void): Promise<Reply> {
+  if (!onText) {
+    const j = (await res.json()) as { model?: string; stop_reason?: string; content?: { type?: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
+    // The reply is the text block; thinking blocks come first and carry no text by default.
+    const text = (j.content ?? []).filter((b) => b.type === "text" || (b.type === undefined && typeof b.text === "string")).map((b) => b.text ?? "").join("");
+    return { model: j.model, stop_reason: j.stop_reason, text, usage: j.usage };
+  }
+  const r: Reply = { text: "", usage: {} };
+  let failed: string | undefined;
+  await eachEvent(res, (raw) => {
+    const e = raw as { type?: string; message?: { model?: string; usage?: { input_tokens?: number } }; delta?: { type?: string; text?: string; stop_reason?: string }; usage?: { output_tokens?: number }; error?: { message?: string } };
+    if (e.type === "message_start") {
+      r.model = e.message?.model;
+      r.usage!.input_tokens = e.message?.usage?.input_tokens;
+    } else if (e.type === "content_block_delta" && e.delta?.type === "text_delta" && e.delta.text) {
+      r.text += e.delta.text;
+      onText(r.text);
+    } else if (e.type === "message_delta") {
+      r.stop_reason = e.delta?.stop_reason ?? r.stop_reason;
+      r.usage!.output_tokens = e.usage?.output_tokens ?? r.usage!.output_tokens;
+    } else if (e.type === "error") failed = e.error?.message ?? "the stream failed";
+  });
+  if (failed) throw new Error(failed.slice(0, 200));
+  return r;
+}
+
+type ChatUsage = { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+
+/** A chat-completions reply (OpenAI, Gemini, OpenRouter): read whole, or streamed with `onText`. */
+async function chatReply(res: Response, onText?: (soFar: string) => void): Promise<{ text: string; usage?: ChatUsage }> {
+  if (!onText) {
+    const j = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: ChatUsage };
+    return { text: (j.choices?.[0]?.message?.content ?? "").trim(), usage: j.usage };
+  }
+  let text = "";
+  let usage: ChatUsage | undefined;
+  let failed: string | undefined;
+  await eachEvent(res, (raw) => {
+    const e = raw as { choices?: { delta?: { content?: string | null } }[]; usage?: ChatUsage | null; error?: { message?: string } };
+    if (e.error) failed = e.error.message ?? "the stream failed";
+    const d = e.choices?.[0]?.delta?.content;
+    if (d) {
+      text += d;
+      onText(text);
+    }
+    if (e.usage) usage = e.usage;
+  });
+  if (failed) throw new Error(failed.slice(0, 200));
+  return { text: text.trim(), usage };
+}
+
 const fromEnv = (k: string): string | undefined => (typeof process !== "undefined" ? process.env?.[k] : undefined) || undefined;
 
 /** Ask implementation using Cloudflare AI Gateway. */
@@ -40,7 +122,7 @@ export function createCfGatewayAsk(opts: CfGatewayOpts = {}): Ask {
   const defaultModel = gatewayModelOf(opts.model);
   const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gateway}/anthropic/v1/messages`;
 
-  return async ({ system, user, model: callModel, signal }) => {
+  return async ({ system, user, model: callModel, signal, onText }) => {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       "anthropic-version": "2023-06-01",
@@ -58,13 +140,13 @@ export function createCfGatewayAsk(opts: CfGatewayOpts = {}): Ask {
         max_tokens: 16000,
         system,
         messages: [{ role: "user", content: user }],
+        ...(onText ? { stream: true } : {}),
       }),
     });
     if (!res.ok) throw new Error(`AI Gateway HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const j = (await res.json()) as { model?: string; stop_reason?: string; content?: { type?: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
+    const j = await messagesReply(res, onText);
     if (j.stop_reason === "refusal") throw new Error("The model declined to answer that.");
-    // The reply is the text block; thinking blocks come first and carry no text by default.
-    const text = (j.content ?? []).filter((b) => b.type === "text" || (b.type === undefined && typeof b.text === "string")).map((b) => b.text ?? "").join("");
+    const text = j.text;
     const [pin, pout] = PRICES[j.model ?? callModel ?? defaultModel] ?? PRICES[gatewayModelOf(callModel ?? defaultModel)] ?? [2, 10];
     const cost = Number((((j.usage?.input_tokens ?? 0) * pin + (j.usage?.output_tokens ?? 0) * pout) / 1_000_000).toFixed(4));
     return { text, cost };
@@ -136,7 +218,7 @@ export function createApiKeyAsk(opts: ApiKeyOpts = {}): Ask {
     "";
   const defaultModel = directModelOf(opts.model, apiKey);
 
-  return async ({ system, user, model: callModel, signal }) => {
+  return async ({ system, user, model: callModel, signal, onText }) => {
     const model = callModel ? directModelOf(callModel, apiKey) : defaultModel;
     const isGemini = /^gemini-/i.test(model) || apiKey.startsWith("AIza");
     const isOpenAi = !isGemini && (/^(gpt-|o1|o3|o4)/i.test(model) || /^sk-(?!ant-)/.test(apiKey));
@@ -158,14 +240,12 @@ export function createApiKeyAsk(opts: ApiKeyOpts = {}): Ask {
             { role: "system", content: system },
             { role: "user", content: user },
           ],
+          ...(onText ? { stream: true, ...(isOpenAi ? { stream_options: { include_usage: true } } : {}) } : {}),
         }),
       });
       if (!res.ok) throw new Error(`Provider API HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      const j = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const text = (j.choices?.[0]?.message?.content ?? "").trim();
+      const j = await chatReply(res, onText);
+      const text = j.text;
       const [pin, pout] = DIRECT_PRICES[model] ?? [0.15, 0.6];
       const cost = Number((((j.usage?.prompt_tokens ?? 0) * pin + (j.usage?.completion_tokens ?? 0) * pout) / 1_000_000).toFixed(4));
       return { text, cost };
@@ -184,20 +264,13 @@ export function createApiKeyAsk(opts: ApiKeyOpts = {}): Ask {
         max_tokens: 8192,
         system,
         messages: [{ role: "user", content: user }],
+        ...(onText ? { stream: true } : {}),
       }),
     });
     if (!res.ok) throw new Error(`Anthropic API HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const j = (await res.json()) as {
-      model?: string;
-      stop_reason?: string;
-      content?: { type?: string; text?: string }[];
-      usage?: { input_tokens?: number; output_tokens?: number };
-    };
+    const j = await messagesReply(res, onText);
     if (j.stop_reason === "refusal") throw new Error("The model declined to answer that.");
-    const text = (j.content ?? [])
-      .filter((b) => b.type === "text" || (b.type === undefined && typeof b.text === "string"))
-      .map((b) => b.text ?? "")
-      .join("");
+    const text = j.text;
     const [pin, pout] = DIRECT_PRICES[j.model ?? model] ?? DIRECT_PRICES[model] ?? [0.1, 0.5];
     const cost = Number((((j.usage?.input_tokens ?? 0) * pin + (j.usage?.output_tokens ?? 0) * pout) / 1_000_000).toFixed(4));
     return { text, cost };
@@ -249,7 +322,7 @@ export function createOpenRouterAsk(opts: OpenRouterOpts = {}): Ask {
   const apiKey = opts.apiKey ?? fromEnv("OPENROUTER_API_KEY") ?? fromEnv("ASSISTANT_API_KEY") ?? "";
   const defaultModel = openRouterModelOf(opts.model);
 
-  return async ({ system, user, model: callModel, signal }) => {
+  return async ({ system, user, model: callModel, signal, onText }) => {
     const model = callModel ? openRouterModelOf(callModel) : defaultModel;
     const res = await f("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -266,14 +339,12 @@ export function createOpenRouterAsk(opts: OpenRouterOpts = {}): Ask {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
+        ...(onText ? { stream: true } : {}),
       }),
     });
     if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const j = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
-    };
-    const text = (j.choices?.[0]?.message?.content ?? "").trim();
+    const j = await chatReply(res, onText);
+    const text = j.text;
     const [pin, pout] = DIRECT_PRICES[model] ?? [0.8, 4];
     const cost =
       typeof j.usage?.cost === "number"

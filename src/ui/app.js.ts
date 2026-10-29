@@ -635,7 +635,7 @@ function onChange(c) {
   dockChange(topics);
   // For the packs' scripts (Pack.script): what the hub said changed.
   document.dispatchEvent(new CustomEvent("dovre:change", { detail: c }));
-  if (topics.some((t) => wanted.includes(t)) || document.querySelector("[data-pending]")) later(topics.some((t) => t.startsWith("run:")) ? 120 : 300);
+  if (topics.some((t) => wanted.includes(t)) || document.querySelector("[data-pending]")) later(topics.some((t) => t.startsWith("run:") || t.startsWith("bino:")) ? 120 : 300);
 }
 // Hosted (H5): the hub's socket, which lets the hub sleep while the tab is idle. Its keep-alive
 // "ping" is answered "pong" without waking it. A socket that never opens three times running: /events.
