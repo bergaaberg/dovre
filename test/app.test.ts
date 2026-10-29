@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
 import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } from "./helpers.ts";
+import type { Run } from "../src/agents/runner.ts";
 
 const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
 
@@ -435,4 +436,18 @@ test("What Dovre sends (#145): the catalog, what machines sent and this machine'
   assert.match(out, /No record here/);
   // Found in Settings' search.
   assert.match(await (await local.get("/settings?q=telemetry")).text(), /What Dovre sends/);
+});
+
+test("Side by side (#242): hostile runs and what they said stay text; an unknown pair is gone, a malformed one 404s", async () => {
+  const run = (o: Partial<Run>): Run => ({ id: "r1", harness: "claude", forked: false, cwd: `/code/${H}`, repo: H, prompt: H, mode: "default", model: H, allowed: [], status: "done", startedAt: 1000, endedAt: 9000, events: [{ t: "text", text: `${H} [x](javascript:alert(1))` }], partial: "", cost: 0.1, pair: "0a1b2c3d", diff: { files: 1, add: 1, del: 0 }, ...o });
+  const runs = [run({}), run({ id: "r2", harness: "codex", status: "running", events: [] })];
+  const desk = { view: () => ({ here: true, online: true, harnesses: ["claude", "codex"], runs, workDir: "/w" }), repos: async () => [], run: async (id: string) => runs.find((r) => r.id === id) } as never;
+  const { get } = signedIn(snapshot(), {}, { desk });
+  const res = await get("/agents/pair/0a1b2c3d");
+  assert.equal(res.status, 200);
+  const out = await res.text();
+  assertInert("/agents/pair", out);
+  assert.ok(!out.includes('href="javascript:'), "a javascript: link got through");
+  assert.equal((await get("/agents/pair/ffffffff")).status, 404);
+  assert.equal((await get(`/agents/pair/${encodeURIComponent(H)}`)).status, 404);
 });

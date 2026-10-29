@@ -788,6 +788,10 @@ button svg, .btn svg { width: 15px; height: 15px; }
 .pane-why { color: var(--warn); font-size: var(--fs-s); }
 /* The new-session form's options for one harness (#236): its fields sit in the row as if loose. */
 .harness-opts { border: 0; padding: 0; margin: 0; min-width: 0; }
+/* Two agents on one prompt, side by side (#242). */
+.pair-prompt { margin: 0 0 14px; }
+.pair-stats { margin: 0 0 4px; }
+.pair-said { max-height: 60vh; overflow: auto; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
 .harness-opts:not([hidden]) { display: contents; }
 label.check { display: inline-flex; gap: .4rem; align-items: center; margin: .15rem 1.1rem .15rem 0; font-size: var(--fs-s); }
 .fields { display: flex; flex-wrap: wrap; gap: 0 1rem; align-items: flex-end; }

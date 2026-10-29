@@ -97,6 +97,8 @@ export type Run = {
   /** The checkout's tree when the turn started (#241), and what the turn changed in it once it ended. */
   base?: string;
   diff?: TurnDiff;
+  /** Started with another harness on the same prompt (#242): the pair's id, the same on both. */
+  pair?: string;
   /** Discarded (or cleared away) at: off the lists, its sandbox and branch gone; its record stays for its page until the week's sweep. */
   discarded?: number;
 };
@@ -111,6 +113,8 @@ export type StartOpts = {
   budget?: number;
   /** How hard it thinks (#236): a level from the harness's own list (`options.efforts`); each harness checks it again. */
   effort?: string;
+  /** One side of a pair (#242): the pair's id. */
+  pair?: string;
   /** Dovre's MCP server for this turn (src/mcp.ts): its address and the turn's own token. Set by the runner, not the caller. */
   mcp?: { url: string; token: string };
 };
@@ -411,7 +415,7 @@ export function createRunner(opts: {
       const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd, onDeny, ...(caps.base ? { base: caps.base } : {}) }) : undefined;
       const run: Run = {
         id, harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
-        cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", ...(o.effort ? { effort: o.effort } : {}), allowed: o.allowed ?? [],
+        cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", ...(o.effort ? { effort: o.effort } : {}), ...(o.pair ? { pair: o.pair } : {}), allowed: o.allowed ?? [],
         status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox, blocked } : {}),
         ...(caps.maxMs ? { maxMs: caps.maxMs } : {}), ...(caps.budget ? { budget: caps.budget } : {}),
       };
