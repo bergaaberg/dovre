@@ -110,8 +110,44 @@ test("asking from the pane: the page goes with it, as Bino may hear it; a conver
 
 test("the pane keeps hostile text inert", async () => {
   const s = setup(H);
-  const at = (await s.req("/bino/new", { text: H, dock: "1", view: `/prs/ACME/shop-api/7?${encodeURIComponent(H)}` })).headers.get("location")!;
+  await s.req("/bino/new", { text: H, dock: "1" });
   await s.until(() => s.asked.length > 0);
+  const at = (await s.req("/bino/new", { text: H, dock: "1", view: `/prs/ACME/shop-api/7?${encodeURIComponent(H)}` })).headers.get("location")!;
+  await s.until(() => s.asked.length > 1);
   await new Promise((r) => setTimeout(r, 30));
   for (const path of ["/bino/dock", at]) assertInert(path, await (await s.req(path)).text());
+});
+
+test("the pane is a chat: its header names the conversation and lists the others; the last answer can be copied or asked for again", async () => {
+  const s = setup("Here you go.");
+  const first = (await s.req("/bino/new", { text: "Første spørsmål", dock: "1" })).headers.get("location")!;
+  await s.until(() => s.asked.length > 0);
+  const at = (await s.req("/bino/new", { text: "Andre spørsmål", dock: "1" })).headers.get("location")!;
+  await s.until(() => s.asked.length > 1);
+  await new Promise((r) => setTimeout(r, 30));
+  const id = at.split("/").pop()!;
+  const page = await (await s.req(at)).text();
+  assert.match(page, /<h1 title="Andre spørsmål">Andre spørsmål<\/h1>/);
+  assert.match(page, /<details class="dock-recent">[\s\S]*href="\/bino\/dock\/c\/[0-9a-f-]{36}"><span class="bino-conv-t">Første spørsmål</);
+  assert.ok(page.includes(`href="${first}"`), "the other conversation is one click away");
+  assert.doesNotMatch(page.slice(page.indexOf("dock-recent"), page.indexOf("</details>")), /Andre spørsmål/, "not itself");
+  assert.match(page, /href="\/bino\/dock" title="New chat"/);
+  assert.match(page, new RegExp(`href="/bino/c/${id}" target="_top" title="Open as a page"`));
+  assert.match(page, /data-copy-msg/);
+  assert.match(page, new RegExp(`<form method="post" action="/bino/c/${id}/retry" data-inplace><input type="hidden" name="dock" value="1">`));
+  assert.match(page, /<form method="post" action="\/bino\/c\/[0-9a-f-]{36}\/say" class="bino-compose dock-compose" data-ctrl-enter data-chat>/);
+
+  // Retry: the last answer goes, and Bino is asked the same again.
+  const n = s.asked.length;
+  const res = await s.req(`/bino/c/${id}/retry`, { dock: "1" });
+  assert.equal(res.headers.get("location"), at);
+  await s.until(() => s.asked.length > n);
+  assert.equal(s.asked.at(-1)!.user, s.asked[1]!.user);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal((await (await s.req(at)).text()).match(/class="bino-msg bino"/g)?.length, 1, "one answer, not two");
+  assert.equal((await s.req(`/bino/c/00000000-0000-0000-0000-000000000000/retry`, {})).status, 404);
+
+  // The pane's first view: the recent ones, and the box under them.
+  const home = await (await s.req("/bino/dock")).text();
+  assert.ok(home.indexOf('id="bino-list"') < home.indexOf("data-chat"), "the box at the bottom");
 });

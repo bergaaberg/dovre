@@ -140,6 +140,7 @@ export function demoBino(o: { route: Route; memory: BinoMemory; engine: () => En
     start: (text, opts) => o.engine().start(cut(text), opts),
     say: (id, text, opts) => o.engine().say(id, cut(text), opts),
     stop: (id) => o.engine().stop(id),
+    retry: (id, opts) => o.engine().retry(id, opts),
     added: (id, index, todo) => o.engine().added(id, index, todo),
     act: (id, index, n) => o.engine().act(id, index, n),
     setAct: (id, index, n, patch) => o.engine().setAct(id, index, n, patch),
