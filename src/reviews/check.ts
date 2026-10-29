@@ -6,6 +6,7 @@
  * The cards are kept on the review (migrations/0022_review_checks.sql). Pure but for the store at
  * the end; tested in test/review-check.test.ts.
  */
+import type { Complete } from "../ai/llm.ts";
 import type { D1 } from "../db.ts";
 import type { PrFile } from "../sources/prview.ts";
 import { parsePatch } from "../viewer/diff.ts";
@@ -37,7 +38,15 @@ export type Card = {
   /** Where a missed issue's comment goes. */
   at?: Omit<LineComment, "body">;
 };
-export type Check = { sha: string; at: number; model: string; cost: number; cards: Card[] };
+/** A check: running (no cards yet), failed (`error`), or done with its cards. `at` is when it started, and names the run. */
+export type Check = { sha: string; at: number; model: string; cost: number; cards: Card[]; running?: boolean; error?: string };
+
+/** What a check needs, all of it, so it can run apart from the request that started it (hosted, in the Durable Object). */
+export type CheckJob = { who: string; pr: string; at: number; model: string; user: string; review: MyReview; files: PrFile[] };
+/** How long the agent may take. */
+export const CHECK_MS = 180_000;
+/** A check still running after this was cut off (its process went away): shown as failed. */
+export const CHECK_LOST_MS = CHECK_MS + 60_000;
 
 const sign = { ctx: " ", add: "+", del: "-" } as const;
 
@@ -201,6 +210,38 @@ export async function checkOf(db: D1, who: string, pr: string): Promise<Check | 
 export async function saveCheck(db: D1, who: string, pr: string, check: Check | undefined) {
   await db.prepare("UPDATE my_reviews SET check_cards = ? WHERE who = ? AND pr = ?").bind(check ? JSON.stringify(check) : null, who, pr).run();
 }
+
+/**
+ * Runs a check started by `startCheck`: the model's answer, its cards, kept on the review. Only
+ * while that run is still the review's (not discarded, posted or started again). Never throws.
+ */
+export async function runCheck(db: D1, ask: Complete, job: CheckJob): Promise<void> {
+  const base = { sha: job.review.sha, at: job.at, model: job.model, cost: 0, cards: [] as Card[] };
+  let done: Check;
+  try {
+    const reply = await ask({ system: CHECK_SYSTEM, user: job.user, signal: AbortSignal.timeout(CHECK_MS) });
+    const cards = cardsOf(reply.text, job.review, job.files);
+    done = cards ? { ...base, cost: reply.cost, cards } : { ...base, cost: reply.cost, error: "The agent answered, but not with cards Dovre could read. Try again." };
+  } catch (e) {
+    done = { ...base, error: `The agent didn't answer: ${String((e as Error)?.message ?? e).slice(0, 200)}` };
+  }
+  try {
+    const now = await checkOf(db, job.who, job.pr);
+    if (now?.running && now.at === job.at) await saveCheck(db, job.who, job.pr, done);
+  } catch (e) {
+    console.error(`review check: ${(e as Error)?.message ?? e}`);
+  }
+}
+
+/** The job for my review as it is now, kept as running; the caller runs it (or hands it on). */
+export async function startCheck(db: D1, o: { who: string; pr: string; model: string; review: MyReview; files: PrFile[]; prView: Parameters<typeof checkPrompt>[0]; now?: number }): Promise<CheckJob> {
+  const at = o.now ?? Date.now();
+  await saveCheck(db, o.who, o.pr, { sha: o.review.sha, at, model: o.model, cost: 0, cards: [], running: true });
+  return { who: o.who, pr: o.pr, at, model: o.model, user: checkPrompt(o.prView, o.review, o.files), review: o.review, files: o.files };
+}
+
+/** A check still running long past its time: its process went away. */
+export const lost = (c: Check, now = Date.now()) => !!c.running && now - c.at > CHECK_LOST_MS;
 
 /** Takes one card off the check (kept or dismissed); returns it, or undefined when it's gone already. */
 export async function takeCard(db: D1, who: string, pr: string, id: number): Promise<Card | undefined> {

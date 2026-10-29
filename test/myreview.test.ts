@@ -9,7 +9,7 @@ import type { ReviewDraft } from "../src/reviews/draft.ts";
 import { addComment, anchorOf, importDraft, myReview } from "../src/reviews/mine.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import type { Complete } from "../src/ai/llm.ts";
-import { checkOf } from "../src/reviews/check.ts";
+import { checkOf, runCheck } from "../src/reviews/check.ts";
 import { assertInert, H } from "./helpers.ts";
 
 const SHA = "a".repeat(40);
@@ -55,6 +55,7 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
     },
   };
   const db = openDb();
+  const runs: { done: Promise<void>; topic: string }[] = [];
   const app = createViewerRoutes({ GHE_ORG: "ACME", CODE_DIR: "C:/code" } as unknown as Env, {
     ghe,
     frame: async () => ({ operator: "me", nav: [] }),
@@ -62,11 +63,11 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
     db: db.DB,
     login: async () => o.me ?? "me",
     agentDraft: async () => o.agent,
-    checker: o.checker ? () => o.checker : undefined,
+    checker: o.checker ? () => ({ model: o.checker!.model, start: async (job, topic) => void runs.push({ done: runCheck(db.DB, o.checker!.ask, job), topic }) }) : undefined,
   });
   const post = (path: string, form: Record<string, string>) => app.request(path, { method: "POST", body: new URLSearchParams(form) });
   const text = async (path: string) => (await app.request(path)).text();
-  return { app, db, calls, state, post, text };
+  return { app, db, calls, state, post, text, runs };
 }
 
 const B = "/prs/ACME/shop-api/840";
@@ -264,15 +265,26 @@ test("the agent's check: one call with my review and the diff; its cards kept, u
     { kind: "missed", path: PATH, line: 99, side: "RIGHT", why: "Off the diff", text: "x" },
   ];
   let reply = "";
-  const { db, calls, post, text } = setup({ checker: { model: "sonnet", ask: async (p) => (asked.push(p), { text: reply, cost: 0.01 }) } });
+  let open = () => {};
+  let gate = Promise.resolve();
+  const { db, calls, post, text, runs } = setup({ checker: { model: "sonnet", ask: async (p) => (asked.push(p), await gate, { text: reply, cost: 0.01 }) } });
   assert.match(await text(`${B}/review`), /formaction="\/prs\/ACME\/shop-api\/840\/review\/check"/, "the button, in the summary's form");
   assert.match(await (await post(`${B}/review/check`, { summary: "" })).headers.get("location")!, /\/review$/);
   assert.match(await text(`${B}/review`), /Nothing to check yet/);
   await post(`${B}/review/comments`, { sha: SHA, path: PATH, side: "RIGHT", line: "11", body: `Why ${H}?` });
   const id = (await myReview(db.DB, "", "ACME/shop-api#840"))!.comments[0]!.id;
   reply = "```review-check\n" + JSON.stringify({ cards: cards(id) }) + "\n```";
+  gate = new Promise((r) => (open = r));
   const res = await post(`${B}/review/check`, { summary: `Looks ${H}` });
-  assert.equal(res.headers.get("location"), `${B}/review#check`);
+  assert.equal(res.headers.get("location"), `${B}/review#check`, "back at once, before the agent answers");
+  const waiting = await text(`${B}/review`);
+  assert.match(waiting, /The agent is reading your review/);
+  assert.match(waiting, /<meta name="u-topics" content="pr:ACME\/shop-api#840">/, "the page listens for the answer");
+  await post(`${B}/review/check`, { summary: `Looks ${H}` });
+  assert.equal(runs.length, 1, "pressed again while it runs: no second call");
+  assert.equal(runs[0]!.topic, "pr:ACME/shop-api#840");
+  open();
+  await runs[0]!.done;
   assert.equal(asked.length, 1);
   assert.match(asked[0]!.user, new RegExp(`### c${id} on src/.*:11`), "each comment with its id and place");
   assert.match(asked[0]!.user, /11 \+ new/, "and the lines it sits on, numbered");
@@ -292,6 +304,7 @@ test("the agent's check: one call with my review and the diff; its cards kept, u
   assert.match(await text(`${B}/review`), /nothing to add/);
   reply = "no block";
   await post(`${B}/review/check`, { summary: "x" });
+  await runs.at(-1)!.done;
   assert.match(await text(`${B}/review`), /not with cards Dovre could read/);
   assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing goes to GHE");
 });

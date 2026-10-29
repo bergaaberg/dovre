@@ -28,8 +28,7 @@ import { checkReview, postReview } from "../actions/reviews.ts";
 import { replyToThread, resolveThread } from "../actions/threads.ts";
 import type { D1 } from "../db.ts";
 import { cleanText, MAX_BODY, postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
-import { CHECK_SYSTEM, cardsOf, checkOf, checkPrompt, saveCheck, takeCard } from "../reviews/check.ts";
-import type { Complete } from "../ai/llm.ts";
+import { type CheckJob, checkOf, lost, saveCheck, startCheck, takeCard } from "../reviews/check.ts";
 import { addComment, anchorOf, asDraft, clearReview, dropComment, editComment, importDraft, moveReview, type MyReview, myReview, saveSummary } from "../reviews/mine.ts";
 import { commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
 
@@ -442,7 +441,7 @@ export type ViewerDeps = {
   /** The agent's unposted review draft of this PR, and the commit it read. */
   agentDraft?: (repo: string, n: number) => Promise<{ sha: string; draft: ReviewDraft } | undefined>;
   /** A model to check my review with before I post it (Bino's route), while it's ready. */
-  checker?: () => { ask: Complete; model: string } | undefined;
+  checker?: () => { model: string; /** Runs the job apart from this request; publishes `topic` when its cards are in. Rejects only when it couldn't start. */ start(job: CheckJob, topic: string): Promise<void> } | undefined;
   stale?: () => void;
 };
 
@@ -589,6 +588,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
         flash: flashOf(x.flashKey),
         checker: !!deps.checker?.(),
         check: review ? await checkOf(db, x.who, x.key) : undefined,
+        topic: topicOf(x.repo, x.n),
       });
     };
 
@@ -632,9 +632,9 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       return c.redirect(`${x.base}/files`, 303);
     });
 
-    // The agent's check (dovre#299): one call, its cards kept on the review. It waits for the answer
-    // (up to 3 min, the button says so) rather than a background job: hosted, a Worker can't
-    // finish one after the response.
+    // The agent's check (dovre#299): one model call, its cards kept on the review. It's kept as
+    // running and the page comes back at once; the answer fills it in over the hub. Hosted, it runs
+    // in the Durable Object, where an answer may take as long as the model does.
     app.post("/prs/:owner/:repo/:n/review/check", async (c) => {
       const x = await ctxOf(c);
       if (!x) return c.notFound();
@@ -647,16 +647,16 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       const ck = deps.checker?.();
       if (!ck) return fail("There's no agent to check with: Bino isn't set up here.");
       if (!review.summary && !review.comments.length) return fail("Nothing to check yet: write a summary or add a comment.");
-      const fs = await files(`files:${x.repo}#${x.n}@${x.v.headSha}`, () => loadPrFiles(deps.ghe, x.repo, x.n)).catch(() => [] as PrFile[]);
-      let reply: { text: string; cost: number };
-      try {
-        reply = await ck.ask({ system: CHECK_SYSTEM, user: checkPrompt(x.v, review, fs as PrFile[]), signal: AbortSignal.timeout(180_000) });
-      } catch (e) {
-        return fail(`The agent didn't answer: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
-      }
-      const cards = cardsOf(reply.text, review, fs as PrFile[]);
-      if (!cards) return fail("The agent answered, but not with cards Dovre could read. Try again.");
-      await saveCheck(db, x.who, x.key, { sha: review.sha, at: Date.now(), model: ck.model, cost: reply.cost, cards });
+      const was = await checkOf(db, x.who, x.key);
+      if (was?.running && !lost(was)) return c.redirect(`${back}#check`, 303);
+      const fs = (await files(`files:${x.repo}#${x.n}@${x.v.headSha}`, () => loadPrFiles(deps.ghe, x.repo, x.n)).catch(() => [])) as PrFile[];
+      const job = await startCheck(db, { who: x.who, pr: x.key, model: ck.model, review, files: fs, prView: x.v });
+      const topic = topicOf(x.repo, x.n);
+      ck.start(job, topic).catch(async (e) => {
+        // It never started (the hub didn't take it): the page says so rather than waiting.
+        await saveCheck(db, x.who, x.key, { sha: review.sha, at: job.at, model: ck.model, cost: 0, cards: [], error: `The agent couldn't start: ${String((e as Error)?.message ?? e).slice(0, 200)}` }).catch(() => undefined);
+        deps.hub?.publish([topic]);
+      });
       return c.redirect(`${back}#check`, 303);
     });
 
