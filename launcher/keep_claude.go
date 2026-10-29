@@ -6,7 +6,8 @@ package main
 var claudeTypes = map[string]bool{"system": true, "stream_event": true, "assistant": true, "result": true}
 
 // keepClaude keeps the session id, text as it streams, tool calls with their slim input (and
-// AskUserQuestion's choices), and the result with its cost and denials. Never a tool's result.
+// AskUserQuestion's choices, TodoWrite's items, a subagent call's type), and the result with its
+// cost and denials. Never a tool's result, so never what a subagent found.
 func keepClaude(j map[string]any) []byte {
 	out := map[string]any{"type": j["type"]}
 	switch j["type"] {
@@ -36,6 +37,16 @@ func keepClaude(j map[string]any) []byte {
 				// A question the agent puts to the user is shown with its choices: keep those (they're the agent's words).
 				if bb["name"] == "AskUserQuestion" {
 					input["questions"] = slimQuestions(obj(bb["input"])["questions"])
+				}
+				// Its to-do list: each item's words and status (the agent's own plan).
+				if bb["name"] == "TodoWrite" {
+					input["todos"] = slimTodos(obj(bb["input"])["todos"])
+				}
+				// A subagent call: which kind of agent; its description and prompt are slim keys already.
+				if bb["name"] == "Task" || bb["name"] == "Agent" {
+					if s := str(obj(bb["input"])["subagent_type"], 100); s != nil {
+						input["subagent_type"] = s
+					}
 				}
 				blocks = append(blocks, map[string]any{"type": "tool_use", "name": str(bb["name"], 100), "input": input})
 			}

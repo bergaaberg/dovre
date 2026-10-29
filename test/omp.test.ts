@@ -174,10 +174,11 @@ test("transcripts are found by id across folders and profiles", () => {
   assert.equal(ompSessionById(agent, "01a162a4-0000-0000-0000-000000000000"), undefined);
 });
 
-test("the conversation: typed text, replies, one line per tool call; never tool results, injected text or thinking", () => {
+test("the conversation: typed text, replies, one line per tool call, thinking (#240); never tool results or injected text", () => {
   const turns = ompTurnsOf(doneSession);
-  assert.deepEqual(turns.map((t) => (t.role === "tools" ? ["tools", t.calls] : t.role === "ask" ? ["ask", t.questions] : [t.role, t.text])), [
+  assert.deepEqual(turns.map((t) => (t.role === "tools" ? ["tools", t.calls] : t.role === "ask" ? ["ask", t.questions] : t.role === "todos" ? ["todos", t.items] : [t.role, t.text])), [
     ["user", "fix the login bug"],
+    ["thinking", "private chain of thought"],
     ["tools", [{ name: "bash", detail: "dotnet test" }]],
     ["assistant", "Fixed it and opened https://acme.ghe.com/ACME/shop-api/pull/812."],
     ["user", "/skill review"],
@@ -185,7 +186,7 @@ test("the conversation: typed text, replies, one line per tool call; never tool 
   ]);
   assert.equal(turns[0].at, "2026-10-22T07:01:00Z");
   const out = JSON.stringify(turns);
-  for (const bad of ["hunter2", "job output", "injected", "chain of thought", "leak"]) assert.ok(!out.includes(bad), bad);
+  for (const bad of ["hunter2", "job output", "injected", "leak"]) assert.ok(!out.includes(bad), bad);
   assert.equal(ompTurnsOf(doneSession, 2).length, 2);
 });
 

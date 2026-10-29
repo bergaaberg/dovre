@@ -5,12 +5,20 @@ package main
 // keepCodex keeps what src/agents/harnesses/codex/ reads from `codex exec --json` (types are dotted):
 // the thread id, finished items by kind with only what a page shows (the agent's message, a
 // command line and its status, the paths a change touched, an MCP tool's name, a search query, an
-// error), and a turn's token counts or failure. Never a command's output, reasoning, or a change's diff.
+// error), its plan as it changes (a todo list's steps), and a turn's token counts or failure. Never
+// a command's output, reasoning, or a change's diff.
 func keepCodex(j map[string]any) []byte {
 	out := map[string]any{"type": j["type"]}
 	switch j["type"] {
 	case "thread.started":
 		out["thread_id"] = str(j["thread_id"], 100)
+	case "item.started", "item.updated":
+		// Only the plan, as it changes; every other item is read when it's done.
+		it := obj(j["item"])
+		if it["type"] != "todo_list" {
+			return nil
+		}
+		out["item"] = map[string]any{"id": str(it["id"], 100), "type": "todo_list", "items": slimSteps(it["items"])}
 	case "item.completed":
 		it := obj(j["item"])
 		kind, _ := it["type"].(string)
@@ -40,6 +48,8 @@ func keepCodex(j map[string]any) []byte {
 			kept["query"] = str(it["query"], 300)
 		case "error":
 			kept["message"] = str(it["message"], 600)
+		case "todo_list":
+			kept["items"] = slimSteps(it["items"])
 		default:
 			return nil
 		}
@@ -53,4 +63,18 @@ func keepCodex(j map[string]any) []byte {
 		return nil
 	}
 	return marshal(out)
+}
+
+// slimSteps keeps a todo list's steps: each one's words and whether it's done.
+func slimSteps(v any) []any {
+	list, _ := v.([]any)
+	var out []any
+	for i, t := range list {
+		if i == 30 {
+			break
+		}
+		tt := obj(t)
+		out = append(out, map[string]any{"text": str(tt["text"], 300), "completed": tt["completed"] == true})
+	}
+	return out
 }

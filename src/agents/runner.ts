@@ -13,6 +13,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { COPY_NOTE, type Question } from "./conversation.ts";
+import type { Todo } from "./todos.ts";
 import { CLAUDE_EFFORTS, claudeHarness } from "./harnesses/claude/harness.ts";
 import { mcpConfig, mcpEnv } from "./harnesses/shared.ts";
 import type { TurnDiff, TurnDiffer } from "./turndiff.ts";
@@ -29,7 +30,11 @@ export type Mode = (typeof MODES)[number];
 
 export type AgentEvent =
   | { t: "text"; text: string }
-  | { t: "tool"; name: string; detail: string }
+  | { t: "tool"; name: string; detail: string; /** A subagent call (#240): its kind. */ sub?: string }
+  /** The agent's plan as it stands (#240): Claude's to-do list, Codex's steps. The newest one counts. */
+  | { t: "todos"; items: Todo[] }
+  /** The model's thinking, cut short (#240; omp). */
+  | { t: "thinking"; text: string }
   | { t: "denied"; tool: string; spec: string; detail: string }
   | { t: "result"; text: string; cost: number; error: boolean }
   | { t: "error"; text: string }

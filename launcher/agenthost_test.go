@@ -107,3 +107,38 @@ func TestKeepKeepsAQuestionWithItsChoices(t *testing.T) {
 		t.Fatal("other input keys stay out")
 	}
 }
+
+// #240: to-do lists, subagent calls, plan steps and thinking are kept as the agent's own words, cut
+// short; a subagent's findings (a tool result), a todo's extra fields and a thinking signature never are.
+func TestKeepKeepsPlansSubagentsAndThinking(t *testing.T) {
+	secret := "PROD-ROW-4242 secret=hunter2"
+	kept := map[string]string{
+		`{"type":"assistant","session_id":"s1","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Read the code","status":"completed","activeForm":"Reading","x":"` + secret + `"},{"content":"Fix it","status":"in_progress"}]}}]}}`: `{"message":{"content":[{"input":{"todos":[{"content":"Read the code","status":"completed"},{"content":"Fix it","status":"in_progress"}]},"name":"TodoWrite","type":"tool_use"}]},"session_id":"s1","type":"assistant"}`,
+		`{"type":"assistant","session_id":"s1","message":{"content":[{"type":"tool_use","name":"Task","input":{"description":"Find callers","subagent_type":"Explore","prompt":"Look for x","extra":"` + secret + `"}}]}}`:                                             `{"message":{"content":[{"input":{"description":"Find callers","prompt":"Look for x","subagent_type":"Explore"},"name":"Task","type":"tool_use"}]},"session_id":"s1","type":"assistant"}`,
+		`{"type":"item.updated","item":{"id":"i1","type":"todo_list","items":[{"text":"Plan","completed":true,"x":"` + secret + `"},{"text":"Build","completed":false}]}}`:                                                                                                  `{"item":{"id":"i1","items":[{"completed":true,"text":"Plan"},{"completed":false,"text":"Build"}],"type":"todo_list"},"type":"item.updated"}`,
+		`{"type":"item.completed","item":{"id":"i1","type":"todo_list","items":[{"text":"Plan","completed":true}]}}`:                                                                                                                                                     `{"item":{"id":"i1","items":[{"completed":true,"text":"Plan"}],"type":"todo_list"},"type":"item.completed"}`,
+		`{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Check the tests first.","thinkingSignature":"` + secret + `"},{"type":"thinking","thinking":"  "},{"type":"text","text":"Done."}],"stopReason":"stop"}}`:            `{"message":{"content":[{"thinking":"Check the tests first.","type":"thinking"},{"text":"Done.","type":"text"}],"errorMessage":null,"role":"assistant","stopReason":"stop","usage":{"cost":{"total":null}}},"type":"message_end"}`,
+	}
+	for in, want := range kept {
+		got := string(Keep([]byte(in)))
+		if got != want {
+			t.Errorf("\n in  %s\n got %s\nwant %s", in[:60], got, want)
+		}
+		if strings.Contains(got, "hunter2") {
+			t.Errorf("a secret got through: %s", in[:60])
+		}
+	}
+	// Other started or updated items wait until they're done (a command's output streams in them).
+	if got := Keep([]byte(`{"type":"item.updated","item":{"id":"c1","type":"command_execution","command":"ls","aggregated_output":"` + secret + `"}}`)); got != nil {
+		t.Errorf("kept an updated command: %s", got)
+	}
+	// Long thinking and long lists are cut.
+	long := strings.Repeat("a", 5000)
+	if got := string(Keep([]byte(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"` + long + `"}]}}`))); strings.Count(got, "a") > 4100 {
+		t.Errorf("thinking not cut: %d", len(got))
+	}
+	many := strings.TrimSuffix(strings.Repeat(`{"content":"x","status":"pending"},`, 40), ",")
+	if got := string(Keep([]byte(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[` + many + `]}}]}}`))); strings.Count(got, `"content":"x"`) != 30 {
+		t.Errorf("todos not capped at 30: %d", strings.Count(got, `"content":"x"`))
+	}
+}

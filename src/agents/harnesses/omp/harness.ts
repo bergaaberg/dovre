@@ -183,6 +183,7 @@ export function ompApply(run: Run, line: string) {
           run.events.push({ t: "text", text: b.text });
           s.lastText = b.text;
         }
+        if (b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) run.events.push({ t: "thinking", text: b.thinking.trim().slice(0, 4000) });
         if (b?.type === "toolCall" && typeof b.name === "string") {
           run.events.push({ t: "tool", name: b.name, detail: ompToolDetail(b.name, b.arguments) });
           if (typeof b.id === "string") s.calls.set(b.id, { name: b.name, args: b.arguments });

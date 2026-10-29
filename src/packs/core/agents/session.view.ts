@@ -18,6 +18,28 @@ import { Ago, HARNESS_NAME, harnessTag, type MacStatus, macNotice, resumeCommand
 import { sandboxKind } from "../../../actions/sandbox.ts";
 import type { TurnStat } from "../../../agents/latest.ts";
 import { duration } from "../../../format.ts";
+import type { Todo } from "../../../agents/todos.ts";
+
+/** One tool call as a line; a subagent call (#240) reads as which agent it sent, and what for. */
+function callLine(c: { name: string; detail: string; sub?: string }) {
+  return c.sub ? html`<li class="call-sub"><code>subagent · ${c.sub}</code> <span class="t2">${c.detail}</span></li>` : html`<li><code>${c.name}</code> <span class="t2">${c.detail}</span></li>`;
+}
+
+const STATUS_WORD: Record<Todo["status"], string> = { done: "done", active: "under way", pending: "to do" };
+const STATUS_CLASS: Record<Todo["status"], string> = { done: "plan-done", active: "plan-active", pending: "plan-pending" };
+
+/** The agent's plan (#240): its to-do list or steps. The current one open, older ones folded to their count. */
+function todosView(items: Todo[], current: boolean) {
+  const done = items.filter((t) => t.status === "done").length;
+  const head = html`Plan · ${done} of ${items.length} done`;
+  const list = html`<ul class="todos">${items.map((t) => html`<li class="${STATUS_CLASS[t.status]}"><span class="sr-only">${STATUS_WORD[t.status]}: </span>${t.text}</li>`)}</ul>`;
+  return current ? html`<div class="todos-card"><div class="who">${head}</div>${list}</div>` : html`<details><summary>${head}</summary>${list}</details>`;
+}
+
+/** The model's thinking (#240), folded: its own words, as plain text. */
+function thinkingView(text: string, open = false) {
+  return html`<details class="thinking"${open ? " open" : ""}><summary>Thought</summary><p class="thinking-text">${trunc(text, 4000)}</p></details>`;
+}
 
 
 /**
@@ -47,7 +69,7 @@ function askView(questions: Question[], o: { sid: string; answerable: boolean; m
  * One turn of the conversation. Messages read as a chat: mine in a bubble at the right, the agent's
  * as text with its tool calls as one quiet line; "Agent" and the time only where its run starts.
  */
-function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: string; model?: string; effort?: string; inTerminal?: boolean }, prev?: Turn) {
+function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: string; model?: string; effort?: string; inTerminal?: boolean; /** This is the newest plan in the conversation. */ currentPlan?: boolean }, prev?: Turn) {
   if (t.role === "ask") return askView(t.questions, ask);
   if (t.role === "user") {
     // What Dovre wrote for me (started a copy, allowed calls) reads as a line; what I wrote, as a bubble.
@@ -60,10 +82,11 @@ function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: strin
   }
   const starts = !prev || prev.role === "user" || prev.role === "ask";
   const who = starts ? html`<div class="who">Agent${t.role === "assistant" && t.at ? html` · ${Ago(t.at)}` : ""}</div>` : "";
+  if (t.role === "todos") return html`<li class="turn-row tools${starts ? " first" : ""}">${who}${todosView(t.items, !!ask.currentPlan)}</li>`;
+  if (t.role === "thinking") return html`<li class="turn-row tools${starts ? " first" : ""}">${who}${thinkingView(t.text)}</li>`;
   if (t.role === "assistant") return html`<li class="turn-row agent${starts ? " first" : ""}" data-stop="2">${who}<div class="bubble">${markdown(t.text, { headingOffset: 3 })}</div></li>`;
-  return html`<li class="turn-row tools${starts ? " first" : ""}">${who}<details><summary>${t.calls.length === 1 ? html`<code>${t.calls[0]!.name}</code> <span>${trunc(t.calls[0]!.detail, 90)}</span>` : html`${t.calls.length} tool calls: ${[...new Set(t.calls.map((c) => c.name))].join(", ")}`}</summary><ul class="calls">${t.calls.map(
-    (c) => html`<li><code>${c.name}</code> <span class="t2">${c.detail}</span></li>`,
-  )}</ul></details></li>`;
+  const one = t.calls[0]!;
+  return html`<li class="turn-row tools${starts ? " first" : ""}">${who}<details><summary>${t.calls.length === 1 ? html`<code>${one.sub ? `subagent · ${one.sub}` : one.name}</code> <span>${trunc(one.detail, 90)}</span>` : html`${t.calls.length} tool calls: ${[...new Set(t.calls.map((c) => (c.sub ? "subagent" : c.name)))].join(", ")}`}</summary><ul class="calls">${t.calls.map(callLine)}</ul></details></li>`;
 }
 
 /**
@@ -125,16 +148,21 @@ function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?
   // A run's question shows from the transcript when there is one; otherwise from the run itself.
   const asks = o.askShown ? [] : run.events.filter((e): e is Extract<Run["events"][number], { t: "ask" }> => e.t === "ask");
   const tools = o.written ? [] : run.events.filter((e) => e.t === "tool").slice(-6);
+  // Its plan and its latest thought (#240), when no transcript shows them already.
+  const plan = o.written ? undefined : (run.events.findLast((e) => e.t === "todos") as Extract<Run["events"][number], { t: "todos" }> | undefined);
+  const thought = o.written || run.status !== "running" ? undefined : (run.events.findLast((e) => e.t === "thinking") as Extract<Run["events"][number], { t: "thinking" }> | undefined);
   // The same call refused twice is one ask.
   const denied = [...new Map(run.events.filter((e): e is Extract<Run["events"][number], { t: "denied" }> => e.t === "denied").map((d) => [d.spec, d])).values()];
   const errors = run.events.filter((e) => e.t === "error");
   const result = [...run.events].reverse().find((e) => e.t === "result") as Extract<Run["events"][number], { t: "result" }> | undefined;
   return html`${
     run.status === "running"
-      ? html`<li class="turn-row agent live" data-stop="2"><div class="who"><span class="dot ok" aria-hidden="true"></span>Agent is working · ${run.sandbox ? "in a sandbox, without asking" : modeShort(run.mode, run.harness)}</div><div class="bubble">${run.partial ? markdown(run.partial, { headingOffset: 3 }) : !tools.length && !o.written ? html`<p class="t3">Thinking…</p>` : ""}${
-          tools.length ? html`<ul class="calls" data-grow>${tools.map((e) => (e.t === "tool" ? html`<li><code>${e.name}</code> <span class="t2">${e.detail}</span></li>` : ""))}</ul>` : ""
-        }</div></li>`
-      : ""
+      ? html`<li class="turn-row agent live" data-stop="2"><div class="who"><span class="dot ok" aria-hidden="true"></span>Agent is working · ${run.sandbox ? "in a sandbox, without asking" : modeShort(run.mode, run.harness)}</div><div class="bubble">${thought ? thinkingView(thought.text) : ""}${run.partial ? markdown(run.partial, { headingOffset: 3 }) : !tools.length && !o.written && !thought ? html`<p class="t3">Thinking…</p>` : ""}${
+          tools.length ? html`<ul class="calls" data-grow>${tools.map((e) => (e.t === "tool" ? callLine(e) : ""))}</ul>` : ""
+        }${plan ? todosView(plan.items, true) : ""}</div></li>`
+      : plan
+        ? html`<li class="turn-row tools">${todosView(plan.items, true)}</li>`
+        : ""
   }${errors.map((e) => (e.t === "error" ? html`<li class="turn-row">${Notice({ tone: "bad", children: html`<pre class="output">${e.text}</pre>` })}</li>` : ""))}${
     result?.error ? html`<li class="turn-row">${Notice({ tone: "bad", children: result.text || "The run ended with an error." })}</li>` : ""
   }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model, effort: run.effort }))}${run.status !== "running" ? statLine({ startedAt: run.startedAt, endedAt: run.endedAt, cost: turnCostOf, diff: run.diff }, o.diff) : ""}`;
@@ -185,6 +213,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
   const inTerminal = !!opts.replyCopies;
   // The transcript already has this run's turns (it's written as the agent works).
   const written = !!run && turns.some((t) => t.at && Date.parse(t.at) >= run.startedAt);
+  const lastPlan = turns.findLastIndex((t) => t.role === "todos");
   const title = s?.title ?? s?.name ?? `Session ${sessionId.slice(0, 8)}`;
   const status = running
     ? Pill({ tone: "ok", children: "working here" })
@@ -238,7 +267,7 @@ ${s?.summary ? html`<p class="ai"><span class="spark">Recap</span>${s.summary}</
 <div data-live id="chat">
 ${Panel({
   flush: true,
-  children: turns.length || run ? html`<ol class="chat" data-follow>${turns.map((t, i) => html`${linesAt(i)}${turnView(t, { sid: sessionId, answerable: i === turns.length - 1 && !running, mode: run?.mode, model: run?.model, effort: run?.effort, inTerminal: !!inTerminal }, turns[i - 1])}`)}${linesAt(turns.length)}${run ? liveRun(run, sessionId, { askShown: turns.some((t) => t.role === "ask"), turnCost: opts.turnCost, written, diff: opts.diff }) : ""}${waiting}</ol>` : Empty({ title: "Nothing said yet" }),
+  children: turns.length || run ? html`<ol class="chat" data-follow>${turns.map((t, i) => html`${linesAt(i)}${turnView(t, { sid: sessionId, answerable: i === turns.length - 1 && !running, mode: run?.mode, model: run?.model, effort: run?.effort, inTerminal: !!inTerminal, currentPlan: i === lastPlan }, turns[i - 1])}`)}${linesAt(turns.length)}${run ? liveRun(run, sessionId, { askShown: turns.some((t) => t.role === "ask"), turnCost: opts.turnCost, written, diff: opts.diff }) : ""}${waiting}</ol>` : Empty({ title: "Nothing said yet" }),
 })}
 </div>
 <div data-live id="reply">${reply}</div>`;

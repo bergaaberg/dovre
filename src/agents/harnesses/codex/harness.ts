@@ -13,6 +13,7 @@
  * status), file_change (changes: path, kind), mcp_tool_call (server, tool), web_search (query),
  * error (message). Reasoning and command output are never read (the agent host drops them too).
  */
+import { stepsOf } from "../../todos.ts";
 import type { Harness, Run, StartOpts } from "../../runner.ts";
 import { effortIn, effortList, type HarnessDef, type HarnessOptions } from "../shared.ts";
 
@@ -56,6 +57,16 @@ export function codexApply(run: Run, line: string): void {
     return;
   }
   if (j.type === "thread.started" && typeof j.thread_id === "string") run.sessionId = j.thread_id;
+  // Its plan, as it changes (#240): one list, replaced in place while it's the newest event.
+  if ((j.type === "item.started" || j.type === "item.updated" || j.type === "item.completed") && kindOf(j.item) === "todo_list") {
+    const items = stepsOf(j.item.items);
+    if (items) {
+      const last = run.events[run.events.length - 1];
+      if (last?.t === "todos") last.items = items;
+      else run.events.push({ t: "todos", items });
+    }
+    return;
+  }
   if (j.type === "item.completed" && j.item) {
     const item = j.item;
     const kind = kindOf(item);

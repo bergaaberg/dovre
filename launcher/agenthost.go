@@ -77,6 +77,20 @@ func slimQuestions(v any) []any {
 	return out
 }
 
+// slimTodos keeps a to-do list's words and statuses (Claude's TodoWrite), as src/agents/todos.ts reads them.
+func slimTodos(v any) []any {
+	list, _ := v.([]any)
+	var out []any
+	for i, t := range list {
+		if i == 30 {
+			break
+		}
+		tt := obj(t)
+		out = append(out, map[string]any{"content": str(tt["content"], 300), "status": str(tt["status"], 20)})
+	}
+	return out
+}
+
 // Keep returns the line as it may be stored, or nil when nothing of it may be. Each harness's
 // filter is in its own file (keep_<id>.go), next to its adapter in src/agents/harnesses/<id>/.
 func Keep(line []byte) []byte {

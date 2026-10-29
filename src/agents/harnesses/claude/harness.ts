@@ -6,6 +6,7 @@
  */
 import type { Harness, HarnessOpts, Run } from "../../runner.ts";
 import { askOf } from "../../conversation.ts";
+import { subagentOf, todosOf } from "../../todos.ts";
 import { effortIn, effortList, type HarnessDef, type HarnessOptions, mcpConfig, toolDetail, toolSpec } from "../shared.ts";
 
 /** The models offered for a Claude Code turn; empty is its own default. */
@@ -73,8 +74,11 @@ export function apply(run: Run, line: string) {
     for (const b of j.message.content) {
       if (b.type === "text" && b.text?.trim()) run.events.push({ t: "text", text: b.text });
       const questions = b.type === "tool_use" && b.name === "AskUserQuestion" ? askOf(b.input) : null;
+      const todos = b.type === "tool_use" && b.name === "TodoWrite" ? todosOf(b.input) : null;
+      const sub = b.type === "tool_use" ? subagentOf(b.name, b.input) : undefined;
       if (questions) run.events.push({ t: "ask", questions });
-      else if (b.type === "tool_use") run.events.push({ t: "tool", name: b.name, detail: toolDetail(b.name, b.input) });
+      else if (todos) run.events.push({ t: "todos", items: todos });
+      else if (b.type === "tool_use") run.events.push({ t: "tool", name: b.name, detail: toolDetail(b.name, b.input), ...(sub ? { sub } : {}) });
     }
     run.partial = "";
   }
