@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createApp } from "../../../../app.ts";
-import { createBino } from "../bino/bino.ts";
+import { type Conv, createBino, MAX_PINNED } from "../bino/bino.ts";
+import { groupsOf } from "../bino/routes.ts";
 import { contextOf, MAX_STEPS, planOf, splitReply, transcriptOf } from "../bino/context.ts";
 import { loadMemory, noMemory } from "../bino/memory.ts";
 import { createCfGatewayAsk } from "../bino/gateway.ts";
@@ -156,7 +157,7 @@ test("the Bino page offers openings and my open items to break down, each a one-
   const page = await (await app.request("http://localhost/bino", { headers: { cookie: "u_tk=test-token" } })).text();
   assert.match(page, /<form method="post" action="\/bino\/new" class="bino-compose" data-ctrl-enter data-chat>/);
   assert.match(page, /name="q" value="What should I do first today\?" formnovalidate/);
-  assert.match(page, new RegExp(`name="todo" value="${open.id}" formnovalidate`));
+  assert.match(page, new RegExp(`<form method="post" action="/bino/new" class="bino-todos">.*name="todo" value="${open.id}"`, "s"), "open items sit in the side panel");
   assert.doesNotMatch(page, new RegExp(`name="todo" value="${done.id}"`), "done items aren't offered");
   const res = await app.request("http://localhost/bino/new", { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: `text=&todo=${open.id}` });
   assert.equal(res.status, 303);
@@ -283,4 +284,61 @@ test("Retry: the last answer is asked for again; after Stop it answers what was 
   bino.added(c.id, 3, 7);
   assert.equal(bino.retry(c.id), false);
   assert.equal(bino.retry("nope"), false);
+});
+
+test("the sidebar's ops: rename keeps its place, pins are kept past the last few (on disk too), delete stops an answer and drops it", async () => {
+  let t = 1_000;
+  const saved: Conv[][] = [];
+  const quick: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async () => ({ text: "Ok.", cost: 0 }) };
+  const bino = createBino({ route: quick, memory: noMemory("no"), context: async () => "", now: () => ++t, maxConvs: 3, store: { load: () => [], save: (k) => saved.push(k) } });
+  const a = bino.start("First");
+  await bino.idle();
+  const b = bino.start("Second");
+  await bino.idle();
+  const at = bino.get(a.id)!.at;
+  assert.equal(bino.rename(a.id, "  A   new\nname  "), true);
+  assert.deepEqual([bino.get(a.id)!.title, bino.get(a.id)!.at], ["A new name", at], "a rename isn't news: the list keeps its order");
+  assert.equal(bino.rename(a.id, "   "), false);
+  assert.equal(bino.rename("nope", "x"), false);
+  assert.equal(bino.get(a.id)!.title, "A new name");
+  assert.equal(bino.pin(a.id, true), true);
+  for (const q of ["3", "4", "5", "6"]) {
+    bino.start(q);
+    await bino.idle();
+  }
+  assert.ok(bino.get(a.id), "pinned: kept though it's the oldest");
+  assert.equal(bino.get(b.id), undefined, "unpinned: the oldest goes");
+  assert.equal(bino.list().length, 4, "the pinned one beside the last three");
+  assert.ok(saved.at(-1)!.some((c) => c.id === a.id && c.pinned), "kept on disk too");
+  assert.equal(bino.pin(a.id, false), true);
+  assert.equal(bino.get(a.id)!.pinned, undefined);
+  // At most MAX_PINNED.
+  const many = createBino({ route: quick, memory: noMemory("no"), context: async () => "" });
+  const ids = [];
+  for (let i = 0; i <= MAX_PINNED; i++) ids.push(many.start(`q${i}`).id);
+  await many.idle();
+  for (const id of ids.slice(0, MAX_PINNED)) assert.equal(many.pin(id, true), true);
+  assert.equal(many.pin(ids.at(-1)!, true), false, "one too many");
+
+  // Delete while Bino answers: the call is told to stop, and its late reply goes nowhere.
+  const h = heldRoute();
+  const held = createBino({ route: h.route, memory: noMemory("no"), context: async () => "" });
+  const c = held.start("Going away");
+  await until(() => h.held.length > 0);
+  assert.equal(held.remove(c.id), true);
+  assert.equal(h.held[0]!.signal?.aborted, true);
+  h.late("Too late.");
+  await held.idle();
+  assert.equal(held.get(c.id), undefined);
+  assert.deepEqual(held.list(), []);
+  assert.equal(held.remove(c.id), false);
+});
+
+test("the sidebar's groups: pinned first, then by day in my timezone", () => {
+  const now = Date.parse("2026-10-29T10:00:00Z");
+  const conv = (id: string, at: string, pinned = false): Conv => ({ id, title: id, at: Date.parse(at), msgs: [], thinking: false, ...(pinned ? { pinned } : {}) });
+  const convs = [conv("today", "2026-10-29T08:00:00Z"), conv("pin", "2026-09-01T00:00:00Z", true), conv("late-yesterday-utc", "2026-10-28T23:30:00Z"), conv("week", "2026-10-25T12:00:00Z"), conv("month", "2026-10-10T12:00:00Z"), conv("old", "2026-06-01T12:00:00Z")];
+  const shape = (tz: string) => groupsOf(convs, now, tz).map((g) => `${g.label}: ${g.convs.map((c) => c.id).join(",")}`);
+  assert.deepEqual(shape("UTC"), ["Pinned: pin", "Today: today", "Yesterday: late-yesterday-utc", "This week: week", "This month: month", "Earlier: old"]);
+  assert.equal(shape("Europe/Oslo")[1], "Today: today,late-yesterday-utc", "23:30 UTC is past midnight in Oslo");
 });

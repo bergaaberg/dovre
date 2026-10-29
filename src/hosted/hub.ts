@@ -135,7 +135,7 @@ export function hostedBinoRoute(env: HubEnv, fetchFn?: typeof fetch, log?: (l: s
   return route;
 }
 
-/** Bino's conversations in the object's SQLite: one row each, rewritten whole on a change (there are a dozen at most). */
+/** Bino's conversations in the object's SQLite: one row each, rewritten whole on a change (a dozen, and the pinned ones). */
 export function sqlConvStore(sql: HubState["storage"]["sql"]): ConvStore {
   sql.exec("CREATE TABLE IF NOT EXISTS bino_convs (id TEXT PRIMARY KEY, at INTEGER NOT NULL, conv TEXT NOT NULL)");
   return {
@@ -165,6 +165,9 @@ export type BinoOp =
   | { op: "say"; id: string; text: string; view?: string; context: string }
   | { op: "stop"; id: string }
   | { op: "retry"; id: string; context: string }
+  | { op: "rename"; id: string; title: string }
+  | { op: "pin"; id: string; on: boolean }
+  | { op: "remove"; id: string }
   | { op: "added"; id: string; index: number; todo: number }
   | { op: "setAct"; id: string; index: number; n: number; patch: { error?: string } };
 
@@ -368,6 +371,12 @@ export class DovreHub {
         await this.awake(b);
         return ok;
       }
+      case "rename":
+        return b.rename(String(o.id ?? ""), String(o.title ?? ""));
+      case "pin":
+        return b.pin(String(o.id ?? ""), o.on === true);
+      case "remove":
+        return b.remove(String(o.id ?? ""));
       case "added":
         return b.added(o.id, o.index, o.todo);
       case "setAct":

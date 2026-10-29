@@ -755,7 +755,7 @@ const KEYS = [
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],
   ["Going to", [["Ctrl K", "Search everything: pages, PRs, agents, worktrees, My list and what your apps add"], ["g h", "Today"], ["g d", "Deploys"], ["g a", "Agents"], ["g p", "Pull requests"], ["g m", "Moved"], ["g w", "Worktrees"], ["g n", "New agent session"], ["g c", "New work"], ["g t", "My list"], ["g b", "Bino"], ["H / L", "Back / forward"]]],
   ["This page", [["r", "Refresh the data"], ["B", "Bino: open its panel, told which page you are on; into it when it's open"], ["y y", "Copy the page's address"], ["a", "Add to My list, with details"], ["c", "A PR's files: comment on the line under the pointer (Ctrl Enter adds it)"], ["v", "A PR's files: mark the file you're in viewed, on to the next"], [".", "An agent session: stop its turn"], ["A", "An agent asks: allow it (the top one on Agents)"], ["g i", "The first text field"], ["/", "Search this page, or everything"], ["?", "These keys"], ["Esc", "Leave a field, close a dialog"]]],
-  ["Bino", [["Enter", "Send"], ["Shift Enter", "A new line"], ["↑", "In an empty box: what you last sent"], ["Esc / s", "While Bino answers: stop it"], ["Esc", "Out of the box; again closes the panel"], ["B", "In the panel: close it"]]],
+  ["Bino", [["Enter", "Send"], ["Shift Enter", "A new line"], ["↑", "In an empty box: what you last sent"], ["Esc / s", "While Bino answers: stop it"], ["n", "On Bino's page: a new chat"], ["i", "On Bino's page: the box to write in"], ["Alt ↑ / ↓", "On Bino's page: the chat above or below"], ["/", "On Bino's page: search the chats"], ["Esc", "Out of the box; again closes the panel"], ["B", "In the panel: close it"]]],
 ];
 let help = null;
 function showHelp() {
@@ -954,6 +954,48 @@ document.addEventListener("submit", (e) => {
   const box = e.target.matches?.("form[data-chat]") && e.target.querySelector("textarea");
   if (box && box.value.trim()) try { sessionStorage.setItem("u-chat-last", box.value.slice(0, 4000)); } catch {}
 }, true);
+
+// ── The /bino workspace (.bino-ws): typing in its search narrows the chats by title at once (Enter
+// searches what was said too, on the server); n is a new chat, i the box to write in, Alt ↑ / ↓ the
+// chat above or below. ──
+document.addEventListener("input", (e) => {
+  const box = e.target.closest?.("input[data-conv-filter]");
+  if (!box) return;
+  const v = box.value.trim().toLowerCase();
+  for (const li of document.querySelectorAll("#bino-nav li[data-title]")) li.hidden = !!v && !li.dataset.title.includes(v);
+  for (const g of document.querySelectorAll("#bino-nav .bino-group")) g.hidden = !g.querySelector("li[data-title]:not([hidden])");
+});
+const binoBox = () => document.querySelector(".bino-ws .bino-main form[data-chat] textarea");
+try {
+  if (sessionStorage.getItem("u-bino-focus")) { sessionStorage.removeItem("u-bino-focus"); binoBox()?.focus(); }
+} catch {}
+document.addEventListener("keydown", (e) => {
+  if (hints || e.defaultPrevented || !document.querySelector(".bino-ws") || e.target.closest?.("dialog")) return;
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    // In a box with text in it, Alt ↑ / ↓ is the box's own.
+    if (typing(e.target) && e.target.value) return;
+    const links = [...document.querySelectorAll("#bino-nav li[data-conv]:not([hidden]) > a")];
+    if (!links.length) return;
+    const at = links.findIndex((a) => a.closest("li").classList.contains("on"));
+    const next = links[at < 0 ? (e.key === "ArrowDown" ? 0 : links.length - 1) : at + (e.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    e.preventDefault();
+    going();
+    location.href = next.href;
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || keysOff("page")) return;
+  if (e.key === "n") {
+    e.preventDefault();
+    if (location.pathname === "/bino" && !location.search) { binoBox()?.focus(); return; }
+    try { sessionStorage.setItem("u-bino-focus", "1"); } catch {}
+    going();
+    location.href = "/bino";
+  } else if (e.key === "i" && binoBox()) {
+    e.preventDefault();
+    binoBox().focus();
+  }
+});
 
 let prefix = "";
 let prefixTimer = 0;
@@ -1641,9 +1683,9 @@ document.addEventListener("click", async (e) => {
   }
   setTimeout(() => (b.textContent = "Copy"), 1500);
 });
-// The other recent chats (the pane's header): a click elsewhere closes the list.
+// The other recent chats (the pane's header) and a chat's menu on /bino: a click elsewhere closes them.
 document.addEventListener("click", (e) => {
-  for (const d of document.querySelectorAll("details.dock-recent[open]")) if (!d.contains(e.target)) d.open = false;
+  for (const d of document.querySelectorAll("details.dock-recent[open], details.bino-ci-m[open]")) if (!d.contains(e.target)) d.open = false;
 });
 
 // A chat's box grows with what's in it (CSS field-sizing where the browser has it), and keeps what I

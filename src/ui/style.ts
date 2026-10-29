@@ -1143,8 +1143,38 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .dock-compose { flex: none; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--line); }
 .todo-item.proposal { align-items: center; }
 .todo-item.proposal .notes { margin: 2px 0 0; }
-.bino-hub { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 22px; align-items: start; }
+/* The /bino workspace: conversations, the chat, what Bino sees. The two sides stay in view as the chat scrolls. */
+.bino-ws { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(240px, 300px); gap: 22px; align-items: start; }
+.bino-nav, .bino-side { position: sticky; top: 12px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; min-height: 0; }
+.bino-side { overflow-y: auto; }
 .bino-side .panel { margin-bottom: 16px; }
+.bino-nav-h { display: flex; margin: 0 0 8px; }
+.bino-nav-h .btn { flex: 1; }
+.bino-find { margin: 0 0 8px; }
+.bino-find input { width: 100%; }
+#bino-nav { min-height: 0; display: flex; flex-direction: column; }
+.bino-nav-s { overflow-y: auto; min-height: 0; padding-right: 2px; }
+.bino-found { margin: 0 0 8px; font-size: var(--fs-xs); }
+.bino-group + .bino-group { margin-top: 12px; }
+.bino-group .bino-starts-h { margin: 0 0 2px; }
+.bino-group .bino-convs li + li { border-top: 0; }
+.bino-ci { position: relative; display: flex; align-items: flex-start; border-radius: var(--r-s); }
+.bino-convs .bino-ci > a { flex: 1; min-width: 0; padding: 6px 8px; }
+.bino-ci > a .bino-conv-t { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bino-ci:hover, .bino-ci:focus-within { background: var(--hover); }
+.bino-ci.on { background: var(--accent-soft); }
+.bino-ci.on .bino-conv-t { color: var(--accent); font-weight: 600; }
+.bino-ci-m > summary { list-style: none; cursor: pointer; margin: 4px 2px 0 0; opacity: .55; }
+.bino-ci-m > summary::-webkit-details-marker { display: none; }
+.bino-ci:hover .bino-ci-m > summary, .bino-ci-m[open] > summary, .bino-ci-m > summary:focus-visible { opacity: 1; }
+.bino-ci-menu { position: absolute; right: 0; top: calc(100% + 2px); z-index: 5; width: min(260px, 80vw); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); box-shadow: var(--shadow); }
+.bino-rename { display: flex; gap: 6px; }
+.bino-rename input { flex: 1; min-width: 0; }
+.bino-sees { margin: 0 0 10px; font-size: var(--fs-s); color: var(--ink-2); }
+.bino-todos { margin: 0; }
+.bino-todo { display: grid; gap: 2px; justify-items: start; width: 100%; padding: 7px 0; border: 0; text-align: left; font-weight: 400; background: transparent; }
+.bino-todo:hover .bino-conv-t { color: var(--accent); }
+.bino-todo .t3 { font-size: var(--fs-xs); }
 .bino-thread { max-width: 52rem; }
 .bino-compose { margin: 18px 0 0; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: var(--shadow); }
 .bino-main .bino-compose { margin: 0; }
@@ -1187,7 +1217,9 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .bino-convs, .bino-mems { list-style: none; margin: 0; padding: 0; display: grid; }
 .bino-mems { gap: 8px; font-size: var(--fs-s); }
 .bino-mems li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
-@media (max-width: 900px) { .bino-hub { grid-template-columns: 1fr; } }
+@media (max-width: 1200px) { .bino-ws { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); } .bino-side { grid-column: 2; position: static; max-height: none; } }
+/* On a narrow screen: the chat first, then the conversations, then the rest. */
+@media (max-width: 900px) { .bino-ws { grid-template-columns: 1fr; } .bino-main { order: -1; } .bino-nav, .bino-side { grid-column: auto; position: static; max-height: none; } }
 @media (max-width: 640px) { .bino-step { grid-template-columns: 1fr; } }
 
 /* ── PR viewer, diff viewer, code explorer (src/pages/viewer.ts) ── */

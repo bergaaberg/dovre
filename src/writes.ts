@@ -39,6 +39,7 @@ export const WRITES: WriteKind[] = [
   { kind: "terminal.close", label: "Close a terminal", group: "Here" },
   { kind: "todo.delete", label: "Delete from My list", group: "Here" },
   { kind: "bino.forget", label: "Forget something Bino remembers", group: "Here" },
+  { kind: "bino.delete", label: "Delete a conversation with Bino", group: "Here" },
   { kind: "relay.answer", label: "Answer an MCP server's question", group: "Here" },
   { kind: "ingest.revoke", label: "Revoke an ingest token", group: "Here" },
   { kind: "packs.update", label: "Update a pack from dovre-packs", group: "Here" },
