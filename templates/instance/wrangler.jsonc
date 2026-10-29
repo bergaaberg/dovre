@@ -33,5 +33,7 @@
     { "binding": "DB", "database_name": "{{db}}", "database_id": "", "migrations_dir": "../dovre/migrations" }
   ],
   "triggers": { "crons": ["*/5 * * * *"] },
-  "assets": { "directory": "../dovre/assets", "binding": "ASSETS", "run_worker_first": true }
+  // Dovre's icons and fonts, and packs' WebAssembly files, written before every deploy and dev run.
+  "build": { "command": "node ../dovre/src/packs/assets.ts --out .assets" },
+  "assets": { "directory": ".assets", "binding": "ASSETS", "run_worker_first": true }
 }

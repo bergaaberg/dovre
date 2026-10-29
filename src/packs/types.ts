@@ -420,6 +420,20 @@ export type PackWrite = {
   floor?: "twice";
 };
 
+/**
+ * A pack's WebAssembly kept out of the Worker bundle (Pack.wasm), for large modules (25 MB at most).
+ * Locally, core calls `load` on the first request and serves the bytes if their SHA-256 starts with
+ * `sha256`. Hosted, `node ../dovre/src/packs/assets.ts` (the wrangler `build` step) calls it under
+ * Node, checks it the same way, and writes the module into the Worker's static assets; the Worker
+ * never calls it. A pack's build script writes `sha256` beside the file.
+ */
+export type WasmFile = {
+  /** The first 16 hex digits of the module's SHA-256. */
+  sha256: string;
+  /** The module's bytes, under Node only: e.g. `readFileSync(new URL("./x.wasm", import.meta.url))`. */
+  load(): Uint8Array | Promise<Uint8Array>;
+};
+
 export type Pack = {
   manifest: PackManifest;
   /**
@@ -452,13 +466,14 @@ export type Pack = {
    */
   script?: string;
   /**
-   * WebAssembly for its script to run in the browser: name → the module's bytes (`\0asm…`), each
-   * served at a hashed path that `ctx.wasm(name)` gives. Names are lowercase, 32 characters at most;
-   * a module is 8 MB at most. One that breaks a rule isn't served (logged). While a pack with any is
-   * on, pages' CSP adds `'wasm-unsafe-eval'` to `script-src`: compiling WebAssembly, still only from
-   * scripts this app serves.
+   * WebAssembly for its script to run in the browser, each served at a hashed path that
+   * `ctx.wasm(name)` gives. Name → either the module's bytes (`\0asm…`, 8 MB at most; they go in
+   * the Worker bundle, so keep these small) or a `WasmFile`: a `.wasm` file beside the pack, kept
+   * out of the bundle. Names are lowercase, 32 characters at most. One that breaks a rule isn't
+   * served (logged). While a pack with any is on, pages' CSP adds `'wasm-unsafe-eval'` to
+   * `script-src`: compiling WebAssembly, still only from scripts this app serves.
    */
-  wasm?: Record<string, Uint8Array>;
+  wasm?: Record<string, Uint8Array | WasmFile>;
   nav?(ctx: PackContext): NavItem[];
   /** Mounted after the core's guard (login or Access) and core routes: it can't shadow a core path. */
   routes?(app: Hono<AppEnv>, ctx: PackContext): void;

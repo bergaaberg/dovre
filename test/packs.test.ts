@@ -3,13 +3,15 @@
  * their own path, isolated, time-boxed, escaped — locally and in the Worker.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
+import { buildAssets } from "../src/packs/assets.ts";
+import { sha16 } from "../src/packs/wasm.ts";
 import { activePacks, binoOf, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
@@ -109,6 +111,78 @@ test("a pack's WebAssembly: served at a hashed path its ctx names; pages may com
   const csp = (await plain.get("/")).headers.get("Content-Security-Policy") ?? "";
   assert.match(csp, /script-src 'self'/);
   assert.doesNotMatch(csp, /wasm-unsafe-eval/, "no pack ships WebAssembly: pages can't compile any");
+});
+
+test("a pack's WebAssembly file: locally loaded on first use and checked; hosted served from the static assets the build wrote", async () => {
+  const MOD = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 7]);
+  const sha = await sha16(MOD);
+  let loads = 0;
+  const files = pack(
+    { id: "big", execution: "any" },
+    {
+      wasm: {
+        tree: { sha256: sha, load: () => (loads++, MOD) },
+        stale: { sha256: "0123456789abcdef", load: () => MOD },
+        broken: { sha256: sha, load: () => { throw new Error("no file"); } },
+        noSha: { sha256: "<script>", load: () => MOD } as never,
+      },
+      routes: (app, ctx) => app.get("/big", (c) => c.text(["tree", "stale", "broken", "noSha"].map((n) => ctx.wasm(n) ?? "none").join("|"))),
+    },
+  );
+  const { get } = signedIn(snapshot(), {}, { packs: [files] });
+  const res = await get("/big");
+  assert.match(res.headers.get("Content-Security-Policy") ?? "", /'wasm-unsafe-eval'/);
+  const [tree, stale, broken, noSha] = (await res.text()).split("|");
+  assert.equal(tree, `/assets/wasm/big.tree.${sha}.wasm`, "the path names the hash the pack declares, known before anything is read");
+  assert.equal(noSha, "none", "a sha256 that isn't 16 hex digits isn't served");
+  assert.equal(loads, 0, "nothing is read until asked for");
+  const got = await get(tree!);
+  assert.equal(got.headers.get("Content-Type"), "application/wasm");
+  assert.match(got.headers.get("Cache-Control") ?? "", /immutable/);
+  assert.deepEqual(new Uint8Array(await got.arrayBuffer()), MOD);
+  await get(tree!);
+  assert.equal(loads, 1, "read once");
+  assert.equal((await get(stale!)).status, 404, "bytes that don't match the declared hash aren't served");
+  assert.equal((await get(broken!)).status, 404, "a load that throws is a 404");
+
+  // Hosted: never calls load; asks the static assets for the same path.
+  const asked: string[] = [];
+  const db = openDb();
+  const hosted = createApp({ GHE_HOST: "github.com", GITHUB_USER: "me", IS_HOSTED: "1", ALLOWED_EMAILS: "me@example.com", PUBLIC_ORIGIN: "https://dovre.example", DB: db.DB } as never, {
+    gatherer: fixedGatherer(snapshot()),
+    ghe: fakeGhe({}).ghe,
+    access: async () => ({ email: "me@example.com" }),
+    packs: {
+      ...activePacks([files], { env: {}, bindings: {}, hosted: true }),
+      env: {},
+      bindings: { ASSETS: { fetch: async (r: Request) => (asked.push(new URL(r.url).pathname), new URL(r.url).pathname.endsWith(`${sha}.wasm`) ? new Response(MOD) : new Response("", { status: 404 })) } },
+    },
+  });
+  const h = await hosted.request(`https://dovre.example${tree}`);
+  assert.equal(h.status, 200);
+  assert.equal(h.headers.get("Content-Type"), "application/wasm");
+  assert.deepEqual(new Uint8Array(await h.arrayBuffer()), MOD);
+  assert.deepEqual(asked, [`/wasm/big.tree.${sha}.wasm`]);
+  assert.equal(loads, 1, "hosted never calls load");
+});
+
+test("the hosted assets build: Dovre's own files plus each pack's WebAssembly files, checked; one that fails stops it, naming it", async () => {
+  const MOD = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 9]);
+  const sha = await sha16(MOD);
+  const root = mkdtempSync(join(tmpdir(), "assets-"));
+  const core = join(root, "core");
+  mkdirSync(join(core, "fonts"), { recursive: true });
+  writeFileSync(join(core, "icon.svg"), "<svg/>");
+  writeFileSync(join(core, "fonts", "f.woff2"), "f");
+  const out = join(root, "out");
+  mkdirSync(out);
+  writeFileSync(join(out, "old.txt"), "gone");
+  const good = pack({ id: "big" }, { wasm: { tree: { sha256: sha, load: async () => MOD }, inline: MOD } });
+  assert.deepEqual(await buildAssets({ packs: [good], out, core }), [`wasm/big.tree.${sha}.wasm`]);
+  assert.deepEqual(readdirSync(out).sort(), ["fonts", "icon.svg", "wasm"], "written afresh: the old file is gone; inline bytes stay in the bundle");
+  assert.deepEqual(new Uint8Array(readFileSync(join(out, "wasm", `big.tree.${sha}.wasm`))), MOD);
+  const stale = pack({ id: "old" }, { wasm: { tree: { sha256: "0123456789abcdef", load: () => MOD } } });
+  await assert.rejects(buildAssets({ packs: [good, stale], out, core }), /pack old: wasm tree has SHA-256 [0-9a-f]{16}, not the 0123456789abcdef it declares \(rebuild the pack\)/);
 });
 
 test("packs in the app: a route outside /<id>, or an id that's a core path, keeps the pack off; it can't shadow core", async () => {

@@ -53,8 +53,14 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
    another pack owns, or a `routes` that throws. Pack `styles` and `script`s are served as one
-   hashed file each, and each `wasm` module (lowercase name, 8 MB at most, real WebAssembly) at a
-   hashed path; while any pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
+   hashed file each, and each `wasm` module (lowercase name, real WebAssembly) at a hashed path;
+   while any pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. A module is either
+   bytes (8 MB at most, carried in the Worker bundle: keep them small) or a `WasmFile`
+   (`{ sha256, load }`, 25 MB at most) kept out of the bundle: locally core calls `load` on the
+   first request and serves the bytes only if their SHA-256 matches; hosted, the wrangler `build`
+   step (`src/packs/assets.ts`) loads and checks each one under Node and writes it into the
+   Worker's static assets, and the Worker serves it from `ASSETS` without calling `load`. A stale
+   `sha256` fails the build, naming the pack. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
    A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
    `data-motion="always"` (Settings → Look → Motion): scope those rules under
    `:root:not([data-motion="always"])`, and check the attribute in scripts too.
