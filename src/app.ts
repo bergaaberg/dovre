@@ -5,10 +5,11 @@
 import { ownersIn } from "./owners.ts";
 import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
-import { appendFileSync, existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { slowLog } from "./slow.ts";
+import { createSpeed, routeOk, type Speed, speedLog, WAITED } from "./speed.ts";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { parsePrQuery, PRS_COOKIE, PRS_KEYS, prQueryString } from "./pages/prlist.ts";
@@ -55,6 +56,7 @@ import { agentViews, createReviewRoutes, type ReviewDeps } from "./pages/reviews
 import type { Kept } from "./issues/templates.ts";
 import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
+import { speedPanels } from "./pages/speed.ts";
 import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
@@ -152,20 +154,25 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
   app.use(contextStorage());
-  /** data/perf.log: slow page loads, as the page and the server measured them (timings only). */
-  const perfLog = (line: string) => {
-    try {
-      const file = resolve(env.U_DB ? dirname(env.U_DB) : "data", "perf.log");
-      if (!existsSync(file) || statSync(file).size < 200_000) appendFileSync(file, `${line}${String.fromCharCode(10)}`);
-    } catch {}
-  };
+  /** Local: data/perf.log, slow page loads as the page and the server measured them (timings only). */
+  const perfLog = deps.perfLog ?? (() => {});
   // Local: a request the server took long to answer, and whether it was busy or waiting (src/slow.ts). A question's long poll waits on purpose.
-  if (env.IS_HOSTED !== "1") app.use(slowLog(perfLog, { skip: (path) => path.startsWith("/relay/ask/") }));
+  if (deps.perfLog) app.use(slowLog(perfLog, { skip: (path) => path.startsWith("/relay/ask/") }));
+  // Every page's time, counted by route (#294), and said in Server-Timing; the counts reach D1 at most every 30 s.
+  const speed = deps.speed ?? createSpeed();
+  app.use(speedLog(speed));
+  app.use(async (c, next) => {
+    await next();
+    const p = speed.flush(env.DB);
+    try {
+      c.executionCtx.waitUntil(p);
+    } catch {}
+  });
   // Local only: the one public address a proxy serves this Dovre at (#74). A bad value throws here.
   const publicOrigin = env.IS_HOSTED === "1" ? undefined : publicOriginOf(env.PUBLIC_ORIGIN);
   if (publicOrigin)
@@ -587,7 +594,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: binoOn(), stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
+    const t0 = performance.now();
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
+    const waited = performance.now() - t0;
+    if (waited >= 1) tryGetContext<AppEnv>()?.set(WAITED, (tryGetContext<AppEnv>()?.get(WAITED) ?? 0) + waited);
     if (!got) throw new Pending();
     const keys = await keyPrefs.get(currentViewer()).catch(() => undefined);
     return { s: got, frame: { ...frameOf(got, o.path ?? tryGetContext()?.req.path), keys } };
@@ -1236,6 +1246,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         return packsList(packSettings());
       case "calls":
         return callsPanels((await ghe.calls?.view(env.DB)) ?? { quota: [], counts: [], now: Date.now() }, forge.name);
+      case "speed":
+        return speedPanels(await speed.view(env.DB));
       case "sent":
         return sentPanels(await sentNow());
       case "about":
@@ -1488,12 +1500,15 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   });
   app.get("/relay/ask/:id", async (c) => c.json(await asks.wait(c.req.param("id"), 25_000)));
 
-  // ── Slow page loads, as the page measured them (src/ui/app.js.ts): numbers and a path, nothing else ──
+  // ── Page loads, as the page measured them (src/ui/app.js.ts): numbers, a path and its route, nothing else ──
   app.post("/perf", async (c) => {
     const j = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const path = typeof j?.path === "string" && /^\/[\w\-\/.]{0,200}$/.test(j.path) ? j.path : null;
     if (!j || !path) return c.body(null, 204);
     const num = (k: string) => (typeof j[k] === "number" && Number.isFinite(j[k]) ? Math.round(j[k] as number) : -1);
+    // A page reloaded from the back/forward cache or a prerender says nothing of the server.
+    if (routeOk(j.route) && j.type !== "back_forward" && num("total") >= 0 && num("total") < 120_000) speed.record("page", j.route, num("total"));
+    if (num("total") < 800) return c.body(null, 204);
     const line = [new Date().toISOString(), path, String(j.type).replace(/[^a-z_]/g, "").slice(0, 12), ...["total", "redirect", "worker", "connect", "wait", "download", "dom", "load"].map((k) => `${k}=${num(k)}`)].join(" ");
     perfLog(line);
     return c.body(null, 204);

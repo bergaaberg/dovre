@@ -281,6 +281,7 @@ export const AREAS = [
   { id: "agents", title: "Agents", about: "Which agent CLIs get the packs' tools, when a long turn rings, and auto runs' limits", also: ["mcp", "tools", "omp", "agy", "claude", "auto", "sandbox", "budget", "long turn"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
   { id: "calls", title: "GitHub calls", about: "How much of GitHub's API quota is left, and what in Dovre used it", also: ["rate limit", "quota", "api", "usage", "403"] },
+  { id: "speed", title: "Page speed", about: "How long pages take to load, the whole and each page, and how much is the server", also: ["performance", "perf", "slow", "latency", "load time", "fast"] },
   { id: "sent", title: "What Dovre sends", about: "Every call Dovre can make home, and the record of the ones it made", also: ["privacy", "telemetry", "phone home", "security", "trust", "data", "bridge"] },
   { id: "about", title: "About", about: "Version, restart, install, and what this machine has", also: ["setup", "version", "restart", "install"] },
 ] as const;

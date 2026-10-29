@@ -355,13 +355,15 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("side")?.classList.contains("open")) sideOpen(false);
 });
 
-// ── A page that took long to arrive says where the time went (POST /perf → data/perf.log; timings only) ──
+// ── Every page says how long it took to arrive, and where the time went (POST /perf → Settings → Page speed;
+// a slow one also to data/perf.log; timings only). The route is the server's, from Server-Timing. ──
 addEventListener("load", () => setTimeout(() => {
   const n = performance.getEntriesByType("navigation")[0];
-  if (!n || n.duration < 800) return;
+  if (!n || !n.duration) return;
+  const route = (n.serverTiming || []).find((t) => t.name === "route")?.description;
   const ms = (a, b) => Math.max(0, Math.round(n[b] - n[a]));
   const body = JSON.stringify({
-    path: location.pathname, type: n.type, total: Math.round(n.duration),
+    path: location.pathname, route, type: n.type, total: Math.round(n.duration),
     redirect: ms("redirectStart", "redirectEnd"), worker: n.workerStart ? ms("workerStart", "fetchStart") : 0,
     connect: ms("fetchStart", "requestStart"), wait: ms("requestStart", "responseStart"), download: ms("responseStart", "responseEnd"),
     dom: ms("responseEnd", "domContentLoadedEventEnd"), load: ms("domContentLoadedEventEnd", "loadEventEnd"),
