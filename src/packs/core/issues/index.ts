@@ -15,12 +15,13 @@ import { safeUrl } from "../../../pages/parts.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
 import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
 import { actOf, doneText, refusal } from "./act.ts";
+import { forgeLookups } from "./lookups.ts";
 import { ACT, BULK, BULK_DO, BULK_MAX, type BulkDo, bulkOf, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
 
 export const ISSUES_PACK_ID = "tracker";
 
 export type IssuesDeps = {
-  forge: Pick<Forge, "host" | "can" | "issues" | "viewer" | "issue" | "issueAct">;
+  forge: Pick<Forge, "host" | "can" | "issues" | "viewer" | "issue" | "issueAct"> & Partial<Pick<Forge, "name" | "thread" | "searchThreads">>;
   /** The owners' list (OWNERS), as the gather uses it. */
   owners: () => string;
   /** Who I am, once the gather knows; else the forge is asked. */
@@ -122,6 +123,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         }),
       );
     },
+    lookups: () => forgeLookups({ name: o.forge.name ?? "GitHub", thread: o.forge.thread, searchThreads: o.forge.searchThreads }, o.owners),
     bino: (ctx) => binoLine(kept?.sets, fresh(), triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS).length > 0),
     about: (_ctx, path) => (path.startsWith(HREF) && kept?.sets ? `My open issues page: ${kept.sets.assigned.length} assigned, ${kept.sets.mentioned.length} mentioning me` : undefined),
     routes(app, ctx) {

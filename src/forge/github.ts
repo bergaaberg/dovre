@@ -3,6 +3,7 @@ import { loadChangelog } from "../sources/changelog.ts";
 import { type Ghe, loadDeploys, loadMoves, loadNotes, loadPrRefs, loadPrs, loadRedBranches, prKeyOfUrl, viewer } from "../sources/ghe.ts";
 import { actOnIssue, loadIssue, loadIssues } from "../sources/issues.ts";
 import { loadFile, loadRepos } from "../sources/files.ts";
+import { loadThread, searchThreads } from "../sources/threads.ts";
 import { proposeFile } from "../actions/propose.ts";
 import { loadMerged, loadWork } from "../sources/work.ts";
 import { FORGE_CAN, type Forge } from "./types.ts";
@@ -28,6 +29,8 @@ export function githubForge(ghe: Ghe): Forge {
     issues: (login, owners, opts) => loadIssues(ghe, login, owners, opts),
     issue: (repo, n) => loadIssue(ghe, repo, n),
     issueAct: (a) => actOnIssue(ghe, a),
+    thread: (repo, n) => loadThread(ghe, repo, n),
+    searchThreads: (owners, words) => searchThreads(ghe, owners, words),
     work: (login, owners, since) => loadWork(ghe, login, owners, since),
     merged: (login, owners, since) => loadMerged(ghe, login, owners, since),
     repos: (owners) => loadRepos(ghe, owners),
