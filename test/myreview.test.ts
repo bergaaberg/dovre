@@ -27,7 +27,7 @@ const view = (o: { author?: string; sha?: string } = {}) => ({
 });
 const FILES = [{ filename: PATH, status: "modified", additions: 2, deletions: 1, sha: "1", patch: "@@ -10,3 +10,4 @@ class A\n ctx\n-old\n+new\n+added\n" }];
 
-function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean }; checker?: { ask: Complete; model: string } } = {}) {
+function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean }; checker?: { ask: Complete; model: string }; files?: typeof FILES } = {}) {
   const calls: { method: string; path: string; body?: any }[] = [];
   const state = { sha: o.sha ?? SHA };
   const ghe: Ghe = {
@@ -35,7 +35,7 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
     async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
       const method = init.method ?? "GET";
       calls.push({ method, path, body: init.body });
-      if (path.startsWith("/repos/ACME/shop-api/pulls/840/files")) return (path.includes("page=1") ? FILES : []) as T;
+      if (path.startsWith("/repos/ACME/shop-api/pulls/840/files")) return (path.includes("page=1") ? (o.files ?? FILES) : []) as T;
       if (method === "GET" && path === "/repos/ACME/shop-api/pulls/840") return { state: "open", head: { sha: state.sha }, user: { login: o.author ?? "per" } } as T;
       if (method === "POST" && path === "/repos/ACME/shop-api/pulls/840/comments/77/replies") return { id: 78 } as T;
       if (method === "POST" && path === "/repos/ACME/shop-api/pulls/840/reviews") return { html_url: "https://acme.ghe.com/ACME/shop-api/pull/840#pullrequestreview-1" } as T;
@@ -76,6 +76,15 @@ test("a form's anchor: a path, a side and a line; a start only before the line; 
   assert.deepEqual(anchorOf({ path: "src/a.ts", side: "LEFT", line: "11", start: "9" }), { path: "src/a.ts", side: "LEFT", line: 11, startLine: 9 });
   assert.deepEqual(anchorOf({ path: "src/a.ts", line: "11", start: "12" }), { path: "src/a.ts", side: "RIGHT", line: 11 });
   for (const bad of [{ path: "../x", line: "1" }, { path: "/etc/x", line: "1" }, { path: "a", line: "0" }, { path: "a", line: "x" }, { path: "", line: "1" }]) assert.equal(anchorOf(bad), null, JSON.stringify(bad));
+});
+
+test("the Files tab: a folder tree beside the files, hostile names inert; one file has none", async () => {
+  assert.doesNotMatch(await setup().text(`${B}/files`), /class="dfile-tree"/);
+  const two = [...FILES, { filename: `docs/${H}/b.md`, status: "added", additions: 1, deletions: 0, sha: "2", patch: "@@ -0,0 +1,1 @@\n+x\n" }];
+  const page = await setup({ files: two }).text(`${B}/files`);
+  assertInert("files with the tree", page);
+  assert.match(page, /<nav class="dfile-tree" aria-label="Files"><ul><li class="dt-dir"><span class="dt-folder">docs\/.*<\/span><ul><li><a href="#f-docs-/s);
+  assert.match(page, /<div class="dfile-list">.*<details class="dfile"/s, "the files beside it");
 });
 
 test("the Files tab: a + on each line, the form at a line without script, hostile paths and text inert", async () => {
