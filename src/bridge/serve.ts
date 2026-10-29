@@ -59,13 +59,13 @@ export async function answerCall(desk: Desk, c: Call): Promise<unknown> {
       return { ...v, turns };
     }
     case "start":
-      return desk.start({ repo: c.repo, prompt: c.prompt, harness: c.harness, mode: c.mode, model: c.model, sandbox: c.sandbox, caps: c.caps });
+      return desk.start({ repo: c.repo, prompt: c.prompt, harness: c.harness, mode: c.mode, model: c.model, effort: c.effort, sandbox: c.sandbox, caps: c.caps });
     case "reply":
-      return desk.reply(sid, { prompt: c.prompt, mode: c.mode, model: c.model });
+      return desk.reply(sid, { prompt: c.prompt, mode: c.mode, model: c.model, effort: c.effort, copy: c.copy });
     case "answer":
       return desk.answer(sid, c.form && typeof c.form === "object" ? (c.form as Record<string, unknown>) : {});
     case "allow":
-      return desk.allow(sid, { specs: c.specs, mode: c.mode, model: c.model });
+      return desk.allow(sid, { specs: c.specs, mode: c.mode, model: c.model, effort: c.effort });
     case "dequeue":
       return desk.dequeue(sid, id);
     case "stop":

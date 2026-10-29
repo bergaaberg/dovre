@@ -1305,6 +1305,49 @@ document.addEventListener("change", (e) => {
   location.assign(location.pathname + "?" + q);
 });
 
+// ── A new session (form[data-new-agent]): the Agent picked shows only its own options (#236),
+// and what was last started in a checkout (agent, mode, model, effort) comes back for it. Kept in
+// this browser only, as a convenience. ──
+const PICKS = "u-agent-picks";
+function savedPicks() {
+  try { return JSON.parse(localStorage.getItem(PICKS) || "{}") || {}; } catch { return {}; }
+}
+function showHarness(form, h) {
+  for (const fs of form.querySelectorAll("fieldset.harness-opts")) {
+    const on = fs.dataset.harness === h;
+    fs.hidden = !on;
+    fs.disabled = !on;
+  }
+}
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest && e.target.closest("select[data-harness-pick]");
+  if (sel && sel.form) showHarness(sel.form, sel.value);
+});
+for (const form of document.querySelectorAll("form[data-new-agent]")) {
+  const repo = form.elements.repo && form.elements.repo.value;
+  const p = repo && savedPicks()[repo];
+  const pick = form.elements.harness;
+  if (!p || !pick || ![...(pick.options || [])].some((o) => o.value === p.harness)) continue;
+  pick.value = p.harness;
+  showHarness(form, p.harness);
+  const scope = [...form.querySelectorAll("fieldset.harness-opts")].find((fs) => fs.dataset.harness === p.harness) || form;
+  for (const k of ["mode", "model", "effort"]) {
+    const el = scope.querySelector("select[name=" + k + "]");
+    if (el && [...el.options].some((o) => o.value === p[k])) el.value = p[k];
+  }
+}
+document.addEventListener("submit", (e) => {
+  const form = e.target;
+  if (!form.matches || !form.matches("form[data-new-agent]")) return;
+  const d = new FormData(form);
+  const repo = d.get("repo");
+  if (!repo) return;
+  const all = savedPicks();
+  delete all[repo];
+  all[repo] = { harness: d.get("harness"), mode: d.get("mode"), model: d.get("model"), effort: d.get("effort") || "" };
+  try { localStorage.setItem(PICKS, JSON.stringify(Object.fromEntries(Object.entries(all).slice(-50)))); } catch {}
+});
+
 // ── A link to /page#id opens that row in place (a <details> closed by default) ──
 function openTarget() {
   const el = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));

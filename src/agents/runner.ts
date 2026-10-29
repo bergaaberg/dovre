@@ -13,7 +13,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { COPY_NOTE, type Question } from "./conversation.ts";
-import { claudeHarness } from "./harnesses/claude/harness.ts";
+import { CLAUDE_EFFORTS, claudeHarness } from "./harnesses/claude/harness.ts";
 import { mcpConfig, mcpEnv } from "./harnesses/shared.ts";
 import type { TurnDiff, TurnDiffer } from "./turndiff.ts";
 import { type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxReady, type SandboxState, sandboxBranch } from "./sandbox.ts";
@@ -22,8 +22,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { join, resolve, sep } from "node:path";
 
 export const MODES = ["default", "acceptEdits", "plan"] as const;
-/** Claude Code's `--effort` levels. */
-export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+/** Claude Code's `--effort` levels: a sandbox run's and an auto run's (#207). */
+export const EFFORTS = CLAUDE_EFFORTS;
 export type Effort = (typeof EFFORTS)[number];
 export type Mode = (typeof MODES)[number];
 
@@ -73,6 +73,8 @@ export type Run = {
   prompt: string;
   mode: Mode;
   model: string;
+  /** The effort it was asked for, when one was (#236). */
+  effort?: string;
   allowed: string[];
   status: "running" | "done" | "failed" | "stopped";
   startedAt: number;
@@ -103,11 +105,12 @@ export type StartOpts = {
   harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[];
   /** Run in a sandbox: a fresh clone of `cwd` inside a container, in yolo mode. A new session only. */
   sandbox?: boolean;
-  /** A sandbox run only (#207): the commit-ish its clone starts from (default the checkout's HEAD), its wall clock, its spend cap in dollars, and how hard it thinks. */
+  /** A sandbox run only (#207): the commit-ish its clone starts from (default the checkout's HEAD), its wall clock, and its spend cap in dollars. */
   base?: string;
   maxMs?: number;
   budget?: number;
-  effort?: Effort;
+  /** How hard it thinks (#236): a level from the harness's own list (`options.efforts`); each harness checks it again. */
+  effort?: string;
   /** Dovre's MCP server for this turn (src/mcp.ts): its address and the turn's own token. Set by the runner, not the caller. */
   mcp?: { url: string; token: string };
 };
@@ -394,7 +397,7 @@ export function createRunner(opts: {
       // A copy is told it's one, so it leaves the terminal's unfinished work alone (the page shows the note as a line).
       // Yolo is set here and nowhere else: whatever the caller passed, only a sandbox run has it.
       // The caps and base are a sandbox run's alone.
-      const caps = box ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined, effort: given.effort } : { base: undefined, maxMs: undefined, budget: undefined, effort: undefined };
+      const caps = box ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined } : { base: undefined, maxMs: undefined, budget: undefined };
       let o: HarnessOpts = { ...given, ...caps, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
       const id = randomUUID();
       // Hosts the box was refused: on the run, so its page can say what to allow.
@@ -408,7 +411,7 @@ export function createRunner(opts: {
       const sandbox = box ? opts.sandbox!.prepare({ id, repo: o.cwd, onDeny, ...(caps.base ? { base: caps.base } : {}) }) : undefined;
       const run: Run = {
         id, harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
-        cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", allowed: o.allowed ?? [],
+        cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", ...(o.effort ? { effort: o.effort } : {}), allowed: o.allowed ?? [],
         status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox, blocked } : {}),
         ...(caps.maxMs ? { maxMs: caps.maxMs } : {}), ...(caps.budget ? { budget: caps.budget } : {}),
       };

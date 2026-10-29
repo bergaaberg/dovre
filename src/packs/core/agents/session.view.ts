@@ -6,7 +6,8 @@ import type { Queued } from "../../../agents/queue.ts";
 import { HARNESSES, type HarnessId, type Run } from "../../../agents/runner.ts";
 import { WORK, WORK_LABEL } from "../../../agents/workdir.ts";
 import type { PageOpts } from "../../types.ts";
-import { HARNESS_LABEL, MODE_SHORT, modelSelect, modeSelect } from "../../../pages/models.ts";
+import { HARNESS_LABEL, harnessFields, modeShort, turnFields } from "../../../pages/models.ts";
+import { optionsOf } from "../../../agents/harnesses/index.ts";
 import type { Session } from "../../../sources/claude.ts";
 import { type Child, Confirm, Empty, Item, List, Notice, PageHeader, Panel, Pill, icon } from "../../../ui/kit.ts";
 import { AUTO_LABEL } from "../../../agents/auto.ts";
@@ -24,7 +25,7 @@ import { duration } from "../../../format.ts";
  * nothing has happened since, can be answered here: the answer goes to the agent as the next
  * message (in a copy of the session when a terminal still has it open).
  */
-function askView(questions: Question[], o: { sid: string; answerable: boolean; mode?: string; model?: string; inTerminal?: boolean }) {
+function askView(questions: Question[], o: { sid: string; answerable: boolean; mode?: string; model?: string; effort?: string; inTerminal?: boolean }) {
   const qs = questions.map((q, i) => {
     const kind = q.multiSelect ? "checkbox" : "radio";
     const choices = q.options.map((op, j) =>
@@ -37,7 +38,7 @@ function askView(questions: Question[], o: { sid: string; answerable: boolean; m
     }</fieldset>`;
   });
   if (!o.answerable) return html`<li class="turn-row ask" data-stop="2"><div class="ask-card"><div class="who">The agent asked</div>${qs}</div></li>`;
-  return html`<li class="turn-row ask" data-stop="2"><form method="post" action="/agents/s/${o.sid}/answer" class="ask-card"><div class="who">The agent asks you</div>${qs}<input type="hidden" name="mode" value="${o.mode ?? "default"}"><input type="hidden" name="model" value="${o.model ?? ""}"><div class="buttons"><button type="submit" class="primary" data-busy="Sending">Answer</button>${
+  return html`<li class="turn-row ask" data-stop="2"><form method="post" action="/agents/s/${o.sid}/answer" class="ask-card"><div class="who">The agent asks you</div>${qs}<input type="hidden" name="mode" value="${o.mode ?? "default"}"><input type="hidden" name="model" value="${o.model ?? ""}">${o.effort ? html`<input type="hidden" name="effort" value="${o.effort}">` : ""}<div class="buttons"><button type="submit" class="primary" data-busy="Sending">Answer</button>${
     o.inTerminal ? html`<span class="t3">Answering here continues a copy of the session; the terminal still shows the question.</span>` : ""
   }</div></form></li>`;
 }
@@ -46,7 +47,7 @@ function askView(questions: Question[], o: { sid: string; answerable: boolean; m
  * One turn of the conversation. Messages read as a chat: mine in a bubble at the right, the agent's
  * as text with its tool calls as one quiet line; "Agent" and the time only where its run starts.
  */
-function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: string; model?: string; inTerminal?: boolean }, prev?: Turn) {
+function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: string; model?: string; effort?: string; inTerminal?: boolean }, prev?: Turn) {
   if (t.role === "ask") return askView(t.questions, ask);
   if (t.role === "user") {
     // What Dovre wrote for me (started a copy, allowed calls) reads as a line; what I wrote, as a bubble.
@@ -83,8 +84,12 @@ function permissionCard(all: Extract<Run["events"][number], { t: "denied" }>[], 
   const what = denied.length === 1 ? `Wants to run ${denied[0]!.tool}` : `Wants to run ${denied.length} calls`;
   return html`${stuck}<li class="turn-row ask" data-stop="2"><form method="post" action="/agents/s/${sessionId}/allow" class="ask-card perm"><div class="who">${what}</div>${denied.map(
     (d) => html`<label class="ask-o"><input type="checkbox" name="spec" value="${d.spec}" checked><span><strong>${d.tool}</strong><pre class="output">${d.detail}</pre></span></label>`,
-  )}<input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"><div class="buttons"><button type="submit" class="primary" data-busy="Allowing" data-hotkey="A" title="Each exactly as it was refused, for the next turn only (A)">${denied.length === 1 ? "Allow and go on" : "Allow ticked and go on"}</button><button type="submit" form="deny-${sessionId}" class="ghost">No</button></div></form><form method="post" action="/agents/s/${sessionId}/reply" id="deny-${sessionId}" hidden><input type="hidden" name="prompt" value="${NO}"><input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}"></form></li>`;
+  )}${turnHidden(run)}<div class="buttons"><button type="submit" class="primary" data-busy="Allowing" data-hotkey="A" title="Each exactly as it was refused, for the next turn only (A)">${denied.length === 1 ? "Allow and go on" : "Allow ticked and go on"}</button><button type="submit" form="deny-${sessionId}" class="ghost">No</button></div></form><form method="post" action="/agents/s/${sessionId}/reply" id="deny-${sessionId}" hidden><input type="hidden" name="prompt" value="${NO}">${turnHidden(run)}</form></li>`;
 }
+
+/** What the last turn picked, so the next goes the same way. */
+const turnHidden = (run: Pick<Run, "mode" | "model" | "effort">) =>
+  html`<input type="hidden" name="mode" value="${run.mode}"><input type="hidden" name="model" value="${run.model}">${run.effort ? html`<input type="hidden" name="effort" value="${run.effort}">` : ""}`;
 
 /** A turn's line once it ended (#241): what it cost, how long it took, what it changed in the checkout (linked to the diff). */
 function statLine(t: Pick<TurnStat, "startedAt" | "endedAt" | "cost" | "diff">, diff?: string) {
@@ -126,13 +131,13 @@ function liveRun(run: Run, sessionId: string, o: { askShown?: boolean; turnCost?
   const result = [...run.events].reverse().find((e) => e.t === "result") as Extract<Run["events"][number], { t: "result" }> | undefined;
   return html`${
     run.status === "running"
-      ? html`<li class="turn-row agent live" data-stop="2"><div class="who"><span class="dot ok" aria-hidden="true"></span>Agent is working · ${run.sandbox ? "in a sandbox, without asking" : (MODE_SHORT[run.mode] ?? run.mode)}</div><div class="bubble">${run.partial ? markdown(run.partial, { headingOffset: 3 }) : !tools.length && !o.written ? html`<p class="t3">Thinking…</p>` : ""}${
+      ? html`<li class="turn-row agent live" data-stop="2"><div class="who"><span class="dot ok" aria-hidden="true"></span>Agent is working · ${run.sandbox ? "in a sandbox, without asking" : modeShort(run.mode, run.harness)}</div><div class="bubble">${run.partial ? markdown(run.partial, { headingOffset: 3 }) : !tools.length && !o.written ? html`<p class="t3">Thinking…</p>` : ""}${
           tools.length ? html`<ul class="calls" data-grow>${tools.map((e) => (e.t === "tool" ? html`<li><code>${e.name}</code> <span class="t2">${e.detail}</span></li>` : ""))}</ul>` : ""
         }</div></li>`
       : ""
   }${errors.map((e) => (e.t === "error" ? html`<li class="turn-row">${Notice({ tone: "bad", children: html`<pre class="output">${e.text}</pre>` })}</li>` : ""))}${
     result?.error ? html`<li class="turn-row">${Notice({ tone: "bad", children: result.text || "The run ended with an error." })}</li>` : ""
-  }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model }))}${run.status !== "running" ? statLine({ startedAt: run.startedAt, endedAt: run.endedAt, cost: turnCostOf, diff: run.diff }, o.diff) : ""}`;
+  }${denied.length ? permissionCard(denied, run, sessionId) : ""}${asks.map((a, i) => askView(a.questions, { sid: sessionId, answerable: run.status !== "running" && i === asks.length - 1, mode: run.mode, model: run.model, effort: run.effort }))}${run.status !== "running" ? statLine({ startedAt: run.startedAt, endedAt: run.endedAt, cost: turnCostOf, diff: run.diff }, o.diff) : ""}`;
 }
 
 /**
@@ -187,6 +192,9 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
       ? Pill({ tone: s.status === "busy" ? "ok" : "warn", children: s.status === "busy" ? "working in terminal" : s.status === "waiting" ? `waiting${s.waitingFor ? `: ${s.waitingFor}` : ""}` : "idle in terminal" })
       : Pill({ children: "ended" });
   const mode = run?.mode ?? "default";
+  // The session's own harness decides what the chatbox offers (#237).
+  const h: HarnessId = run?.harness ?? ((HARNESSES as readonly string[]).includes(s?.harness ?? "") ? (s!.harness as HarnessId) : "claude");
+  const copyTick = optionsOf(h).fork && !inTerminal ? html`<div class="field"><label class="check" title="A new session with this one's history; this one stays as it is"><input type="checkbox" name="copy" value="on"> Reply in a copy</label></div>` : "";
   // One box: while the agent works, what I write waits for the turn to end (as in the terminal).
   const denied = !!run?.events.some((e) => e.t === "denied");
   // Copilot CLI's sessions are read here; turns in it don't start from Dovre yet.
@@ -206,7 +214,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
 <div class="chatbox-in"><textarea name="prompt" rows="1" required aria-label="${running ? "Message for after this turn" : "Reply"}" placeholder="${running ? "Working… write now, it goes when this turn ends" : inTerminal ? "Reply in a copy…" : "Reply…"}" data-enter-send spellcheck="false"></textarea>${
     running ? html`<button type="submit" form="stop-form" class="danger sm" title="Stop this turn (.)" data-hotkey=".">Stop</button>` : ""
   }<button type="submit" class="primary send" data-busy="…" title="${running ? "Queue (Enter)" : "Send (Enter)"}" aria-label="${running ? "Queue" : inTerminal ? "Send to a copy" : "Send"}">${icon("arrow")}</button></div>
-<div class="chatbox-opts"><details class="chat-opts"><summary>${MODE_SHORT[mode] ?? mode} · ${run?.model || "default model"}</summary><div class="fields">${modeSelect(run?.mode)}${modelSelect(run?.model, [run?.harness ?? (s?.harness === "omp" ? "omp" : "claude")])}</div></details><span>Enter ${running ? "queues" : "sends"} · Shift+Enter new line · \`\`\` for code</span></div>
+<div class="chatbox-opts"><details class="chat-opts"><summary>${modeShort(mode, h)} · ${run?.model || "default model"}${run?.effort ? ` · ${run.effort} effort` : ""}</summary><div class="fields">${turnFields(h, { mode: run?.mode, model: run?.model, effort: run?.effort })}${copyTick}</div></details><span>Enter ${running ? "queues" : "sends"} · Shift+Enter new line · \`\`\` for code</span></div>
 </form>`;
   const waiting = (opts.queued ?? []).map(
     (q) =>
@@ -229,7 +237,7 @@ ${s?.summary ? html`<p class="ai"><span class="spark">Recap</span>${s.summary}</
 <div data-live id="chat">
 ${Panel({
   flush: true,
-  children: turns.length || run ? html`<ol class="chat" data-follow>${turns.map((t, i) => html`${linesAt(i)}${turnView(t, { sid: sessionId, answerable: i === turns.length - 1 && !running, mode: run?.mode, model: run?.model, inTerminal: !!inTerminal }, turns[i - 1])}`)}${linesAt(turns.length)}${run ? liveRun(run, sessionId, { askShown: turns.some((t) => t.role === "ask"), turnCost: opts.turnCost, written, diff: opts.diff }) : ""}${waiting}</ol>` : Empty({ title: "Nothing said yet" }),
+  children: turns.length || run ? html`<ol class="chat" data-follow>${turns.map((t, i) => html`${linesAt(i)}${turnView(t, { sid: sessionId, answerable: i === turns.length - 1 && !running, mode: run?.mode, model: run?.model, effort: run?.effort, inTerminal: !!inTerminal }, turns[i - 1])}`)}${linesAt(turns.length)}${run ? liveRun(run, sessionId, { askShown: turns.some((t) => t.role === "ask"), turnCost: opts.turnCost, written, diff: opts.diff }) : ""}${waiting}</ol>` : Empty({ title: "Nothing said yet" }),
 })}
 </div>
 <div data-live id="reply">${reply}</div>`;
@@ -299,13 +307,13 @@ export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: st
   const body = html`${PageHeader({ title: "New agent session", crumbs: [{ href: "/agents", label: "Agents" }], sub: html`Starts ${harnesses.map((h) => HARNESS_LABEL[h]).join(" or ")} headless, in a repo or in Dovre's own folder. You talk to it here; it asks before it acts, as you choose below.` })}
 ${opts.error ? Notice({ tone: "bad", children: opts.error }) : ""}${opts.note ? Notice({ tone: "ok", children: opts.note }) : ""}
 ${Panel({
-  children: html`<form method="post" action="/agents/new">
+  children: html`<form method="post" action="/agents/new" data-new-agent>
 ${opts.machines && opts.machines.length > 1 ? html`<label class="field"><span class="label">On</span><select name="machine" required>${opts.machines.map((m) => html`<option value="${m.id}"${m.id === opts.machine ? html` selected` : ""}>${m.name}</option>`)}</select><span class="hint">The machine it runs on: the checkout must be there.</span></label>` : ""}
 <label class="field"><span class="label">Runs in</span><select name="repo" required data-requery><option value="${WORK}"${repo === WORK ? html` selected` : ""}>${WORK_LABEL}</option><optgroup label="Checkouts">${opts.repos.map((r) => html`<option value="${r}"${r === repo ? html` selected` : ""}>${r}</option>`)}</optgroup></select><span class="hint">Dovre's own folder${opts.workDir ? html` (<code>${opts.workDir}</code>)` : ""} is for work that isn't in one repo, and keeps it out of your checkouts. Or a git checkout in your code folder, worktrees included.</span></label>
 ${componentChips}
 <label class="field"><span class="label">What should it do?</span><textarea name="prompt" rows="8" required placeholder="Skills work as usual: /some-skill …, or say what to do">${opts.prompt ?? ""}</textarea></label>
 ${opts.sandbox ? sandboxField(opts.sandbox, !!opts.sandboxed) : ""}
-<div class="fields"><label class="field"><span class="label">Agent</span><select name="harness">${harnesses.map((h) => html`<option value="${h}">${HARNESS_LABEL[h]}</option>`)}</select></label>${modeSelect()}${modelSelect("", harnesses)}<div class="field"><button type="submit" class="primary" data-busy="Starting">Start</button></div></div>
+<div class="fields"><label class="field"><span class="label">Agent</span><select name="harness"${harnesses.length > 1 ? html` data-harness-pick` : ""}>${harnesses.map((h) => html`<option value="${h}">${HARNESS_LABEL[h]}</option>`)}</select></label>${harnessFields(harnesses)}<div class="field"><button type="submit" class="primary" data-busy="Starting">Start</button></div></div>
 ${harnesses.includes("omp") ? html`<p class="hint t3">omp's own setting may approve everything; sessions started here always ask first, in the mode you pick.</p>` : ""}
 </form>`,
 })}

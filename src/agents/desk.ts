@@ -16,7 +16,8 @@ import { COPILOT_DIR, copilotEventsOf, copilotSessionById, copilotTurnsOf } from
 import { allowedPrompt, answersPrompt, type Turn, turnsOf as claudeTurns } from "./conversation.ts";
 import { joined, type Queue, type Queued } from "./queue.ts";
 import { type TurnStat, turnCost as turnCostOf, turnStats } from "./latest.ts";
-import { modelsOf } from "./harnesses/index.ts";
+import { modelsOf, optionsOf } from "./harnesses/index.ts";
+import { effortIn } from "./harnesses/shared.ts";
 import { EFFORTS, type Effort, HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, type StartOpts, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
 import type { SandboxState } from "./sandbox.ts";
@@ -77,12 +78,14 @@ export type Desk = {
   /** `machine`: hosted, the machine to start on (the one online when there's one). */
   /** `sandbox`: run it in a sandbox (a fresh clone in a container, yolo inside), when the form ticked it. */
   /** `caps`: a sandbox run's base, wall clock, budget and effort (#207, auto runs); checked here. `run`: the run's id. */
-  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown }): Promise<{ to: string; run?: string } | { error: string }>;
-  reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown }): Promise<Done>;
+  /** `effort`: a level from the harness's own list (#236). */
+  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; effort?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown }): Promise<{ to: string; run?: string } | { error: string }>;
+  /** `copy`: ticked, the reply goes to a copy of the session (a harness that can fork), as it does on its own when a terminal has it open. */
+  reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown; effort?: unknown; copy?: unknown }): Promise<Done>;
   /** Answers to the agent's newest question (AskUserQuestion): the form as posted. */
   answer(sid: string, form: Record<string, unknown>): Promise<Done>;
   /** Allows the exact calls that were refused, and the agent goes on. */
-  allow(sid: string, o: { specs?: unknown; mode?: unknown; model?: unknown }): Promise<Done>;
+  allow(sid: string, o: { specs?: unknown; mode?: unknown; model?: unknown; effort?: unknown }): Promise<Done>;
   dequeue(sid: string, id: string): Promise<void>;
   stop(sid: string): Promise<void>;
   stopRun(id: string): Promise<void>;
@@ -103,6 +106,8 @@ export const modelOf = (v: unknown, h: HarnessId = "claude"): string => {
   const known = modelsOf(h).map((m) => m.value);
   return known.includes(String(v)) ? String(v) : "";
 };
+/** An effort the harness takes, else none (its own default). */
+export const effortOf = (v: unknown, h: HarnessId = "claude"): string | undefined => effortIn(optionsOf(h).efforts, v);
 /** A ticked checkbox, as a form or the bridge sends it. */
 export const tickedOf = (v: unknown) => v === "on" || v === true;
 /** A sandbox run's caps, as anyone may send them: a plain ref for the base, minutes 1–600 (as ms), dollars 0.01–1000, a known effort. Anything else is left out. */
@@ -202,7 +207,7 @@ export function localDesk(o: {
   const live = async () => (await o.sessions()).live;
 
   /** Starts the next turn of a session: resumed in place, or forked when a terminal still has it open. Where to go next. */
-  async function next(sid: string, prompt: string, mode: Mode, model: unknown, allowed: string[] = [], q: { queuedFirst?: boolean } = {}): Promise<string> {
+  async function next(sid: string, prompt: string, t: { mode: Mode; model: unknown; effort?: unknown; copy?: boolean }, allowed: string[] = [], q: { queuedFirst?: boolean } = {}): Promise<string> {
     if (!runner) throw new Error("Agents can't run here.");
     const current = runner.ofSession(sid);
     if (current?.status === "running") throw new Error("The agent is still working on the last turn.");
@@ -214,14 +219,14 @@ export function localDesk(o: {
     if (session?.harness === "copilot") throw new Error("Copilot CLI sessions are read here; reply to them in a terminal.");
     const harness: HarnessId = session?.harness ?? current?.harness ?? "claude";
     if (!runner.harnesses().includes(harness)) throw new Error(`${harness} can't run here.`);
-    const fork = replyCopies(session, current);
+    const fork = replyCopies(session, current) || (!!t.copy && optionsOf(harness).fork);
     if (fork && runner.copiesOf(sid).some((r) => r.status === "running")) throw new Error("A copy made from here is still working: reply in it, or wait for it to end.");
     // What I wrote while it worked goes along: before a reply of mine, after an answer to a permission or question.
     const waiting = queue.take(sid);
     const text = !waiting.length ? prompt : joined(q.queuedFirst ? [...waiting, { text: prompt }] : [{ text: prompt }, ...waiting]);
     let run;
     try {
-      run = runner.start({ harness, cwd, prompt: text, resume: sid, fork, mode, model: modelOf(model, harness), allowed });
+      run = runner.start({ harness, cwd, prompt: text, resume: sid, fork, mode: t.mode, model: modelOf(t.model, harness), effort: effortOf(t.effort, harness), allowed });
     } catch (e) {
       for (const w of waiting) queue.add(sid, w);
       throw e;
@@ -242,7 +247,7 @@ export function localDesk(o: {
   // A turn that ended well takes what waits as the next turn (src/agents/queue.ts calls this).
   queue.onDrain(async (sid, items) => {
     const last = items[items.length - 1]!;
-    await next(sid, joined(items), modeOf(last.mode), last.model);
+    await next(sid, joined(items), { mode: modeOf(last.mode), model: last.model, effort: last.effort });
   });
   const startedHere = (sid: string, cwd?: string) => !!runner?.ofSession(sid) || inWorkDir(workDir, cwd);
   const drop = (runs: Run[], sessions: string[]) => {
@@ -282,7 +287,7 @@ export function localDesk(o: {
       if (sandbox && f.repo === WORK) return { error: "A sandbox run works in a clone of a checkout: pick one." };
       let run;
       try {
-        run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness), sandbox, ...(sandbox ? capsOf(f.caps) : {}) });
+        run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness), effort: effortOf(f.effort, harness), sandbox, ...(sandbox ? capsOf(f.caps) : {}) });
       } catch (e) {
         if (!sandbox) throw e;
         return { error: String((e as Error).message) };
@@ -297,10 +302,10 @@ export function localDesk(o: {
       if (!prompt) return { to: page(sid) };
       // Still working: it waits for the turn to end, as in the terminal.
       if (runner?.ofSession(sid)?.status === "running") {
-        const added = queue.add(sid, { text: prompt, mode: typeof f.mode === "string" ? f.mode : undefined, model: typeof f.model === "string" ? f.model : undefined });
+        const added = queue.add(sid, { text: prompt, mode: typeof f.mode === "string" ? f.mode : undefined, model: typeof f.model === "string" ? f.model : undefined, effort: typeof f.effort === "string" && f.effort.length <= 20 ? f.effort : undefined });
         return { to: page(sid), flash: added ? undefined : "Ten messages wait already: remove one, or wait for the turn to end." };
       }
-      return started(sid, () => next(sid, prompt, modeOf(f.mode), f.model, [], { queuedFirst: true }));
+      return started(sid, () => next(sid, prompt, { mode: modeOf(f.mode), model: f.model, effort: f.effort, copy: tickedOf(f.copy) }, [], { queuedFirst: true }));
     },
     async answer(sid, form) {
       if (!SID.test(sid)) return { to: "/agents" };
@@ -311,13 +316,13 @@ export function localDesk(o: {
       if (!questions) return { to: page(sid) };
       const prompt = answersPrompt(questions, form as Parameters<typeof answersPrompt>[1]);
       if (!prompt) return { to: page(sid), flash: "Pick an answer first." };
-      return started(sid, () => next(sid, prompt, modeOf(form.mode), one(form.model)));
+      return started(sid, () => next(sid, prompt, { mode: modeOf(form.mode), model: one(form.model), effort: one(form.effort) }));
     },
     async allow(sid, f) {
       if (!SID.test(sid)) return { to: "/agents" };
       const specs = specsOf(f.specs);
       if (!specs.length) return { to: page(sid) };
-      return started(sid, () => next(sid, allowedPrompt(specs), modeOf(one(f.mode)), one(f.model), specs));
+      return started(sid, () => next(sid, allowedPrompt(specs), { mode: modeOf(one(f.mode)), model: one(f.model), effort: one(f.effort) }, specs));
     },
     async dequeue(sid, id) {
       if (SID.test(sid) && typeof id === "string") queue.remove(sid, id);

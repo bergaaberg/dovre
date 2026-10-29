@@ -65,14 +65,15 @@ test("the prompt names the issue; its PR takes the issue's title and closes it",
   assert.equal(autoIssueOf("Fix the thing"), undefined);
 });
 
-test("capsOf and the harness: caps checked at the desk, and only a sandbox turn gets them", () => {
+test("capsOf and the harness: caps checked at the desk, and only a sandbox turn gets them (effort goes on any turn, #236)", () => {
   assert.deepEqual(capsOf({ base: "origin/main", maxMs: 30 * 60_000, budget: 2.555, effort: "high" }), { base: "origin/main", maxMs: 30 * 60_000, budget: 2.56, effort: "high" });
   assert.deepEqual(capsOf({ base: "-x", maxMs: 1, budget: 1e9, effort: "turbo" }), {});
   assert.deepEqual(capsOf("nope"), {});
   const yolo = argsFor({ cwd: "/x", prompt: "p", yolo: true, budget: 2, effort: "low" });
   assert.deepEqual(yolo.slice(yolo.indexOf("--max-budget-usd"), yolo.indexOf("--max-budget-usd") + 4), ["--max-budget-usd", "2", "--effort", "low"]);
   const plain = argsFor({ cwd: "/x", prompt: "p", budget: 2, effort: "low" });
-  assert.ok(!plain.includes("--max-budget-usd") && !plain.includes("--effort"));
+  assert.ok(!plain.includes("--max-budget-usd"));
+  assert.deepEqual(plain.slice(plain.indexOf("--effort"), plain.indexOf("--effort") + 2), ["--effort", "low"]);
 });
 
 // ── The loop, against a fake forge and desk ──

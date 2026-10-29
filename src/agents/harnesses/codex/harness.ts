@@ -14,11 +14,24 @@
  * error (message). Reasoning and command output are never read (the agent host drops them too).
  */
 import type { Harness, Run, StartOpts } from "../../runner.ts";
-import { type HarnessDef } from "../shared.ts";
+import { effortIn, effortList, type HarnessDef, type HarnessOptions } from "../shared.ts";
+
+/** Codex's sandbox names for the modes (plan and default are both read-only), and `model_reasoning_effort`. No fork in exec. */
+export const CODEX_OPTIONS: HarnessOptions = {
+  modes: {
+    default: { label: "Read-only: look, don't change anything", short: "read-only" },
+    acceptEdits: { label: "Workspace-write: edit and run in the checkout", short: "workspace-write" },
+    plan: { label: "Plan only (read-only)", short: "plan only" },
+  },
+  efforts: effortList(["minimal", "low", "medium", "high"]),
+  fork: false,
+};
 
 export function codexArgs(o: StartOpts): string[] {
   const args = ["exec", "--json", "--sandbox", o.mode === "acceptEdits" ? "workspace-write" : "read-only"];
   if (o.model) args.push("--model", o.model);
+  const effort = effortIn(CODEX_OPTIONS.efforts, o.effort);
+  if (effort) args.push("-c", `model_reasoning_effort=${JSON.stringify(effort)}`);
   // Dovre's MCP server for this turn (#172): the address here, the token from the environment (mcpEnv), so it isn't in the arguments.
   if (o.mcp) args.push("-c", `mcp_servers.dovre.url=${JSON.stringify(o.mcp.url)}`, "-c", 'mcp_servers.dovre.bearer_token_env_var="DOVRE_MCP_TOKEN"');
   // The prompt comes on stdin: `-` says so.
@@ -86,4 +99,4 @@ export const codexHarness = (bin = "codex"): Harness => ({
   mcpEnv: true,
 });
 
-export const codex: HarnessDef = { id: "codex", bin: "codex", binVar: "CODEX_BIN", models: CODEX_MODELS, keep: "launcher/keep_codex.go", make: (t) => ({ ...codexHarness(t.bin), pre: t.pre }) };
+export const codex: HarnessDef = { id: "codex", bin: "codex", binVar: "CODEX_BIN", models: CODEX_MODELS, options: CODEX_OPTIONS, keep: "launcher/keep_codex.go", make: (t) => ({ ...codexHarness(t.bin), pre: t.pre }) };

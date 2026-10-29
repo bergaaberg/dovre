@@ -9,14 +9,14 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { Run } from "./runner.ts";
 
-export type Queued = { id: string; text: string; at: number; mode?: string; model?: string };
+export type Queued = { id: string; text: string; at: number; mode?: string; model?: string; effort?: string };
 
 /** At most this many waiting per session. */
 export const MAX_QUEUED = 10;
 
 export type Queue = {
   list(sid: string): Queued[];
-  add(sid: string, q: { text: string; mode?: string; model?: string }): Queued | undefined;
+  add(sid: string, q: { text: string; mode?: string; model?: string; effort?: string }): Queued | undefined;
   remove(sid: string, id: string): boolean;
   /** Everything waiting for the session, taken off the queue. */
   take(sid: string): Queued[];
@@ -56,7 +56,7 @@ export function createQueue(o: { file?: string; now?: () => number; onChange?: (
     add(sid, x) {
       const list = (all[sid] ??= []);
       if (list.length >= MAX_QUEUED || !x.text.trim()) return undefined;
-      const item: Queued = { id: randomUUID(), text: x.text, at: now(), mode: x.mode, model: x.model };
+      const item: Queued = { id: randomUUID(), text: x.text, at: now(), mode: x.mode, model: x.model, ...(x.effort ? { effort: x.effort } : {}) };
       list.push(item);
       save(sid);
       return item;

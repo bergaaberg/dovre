@@ -30,6 +30,9 @@ export const modelsOf = (id: HarnessId) => {
   return mine.length ? [fixed[0]!, ...mine] : fixed;
 };
 
+/** The options a turn in this harness may pick besides the model (#236). */
+export const optionsOf = (id: HarnessId) => harnessDef(id).options;
+
 /** Each harness's program, where this machine has it. */
 export function findHarnessTools(env: Partial<Record<HarnessDef["binVar"], string>>): Partial<Record<HarnessId, Tool>> {
   const out: Partial<Record<HarnessId, Tool>> = {};

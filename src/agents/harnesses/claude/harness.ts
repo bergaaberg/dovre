@@ -6,7 +6,7 @@
  */
 import type { Harness, HarnessOpts, Run } from "../../runner.ts";
 import { askOf } from "../../conversation.ts";
-import { type HarnessDef, mcpConfig, toolDetail, toolSpec } from "../shared.ts";
+import { effortIn, effortList, type HarnessDef, type HarnessOptions, mcpConfig, toolDetail, toolSpec } from "../shared.ts";
 
 /** The models offered for a Claude Code turn; empty is its own default. */
 export const CLAUDE_MODELS: { value: string; label: string }[] = [
@@ -28,13 +28,28 @@ export const HEADLESS_NOTE =
 export const SANDBOX_NOTE =
   "You are running unattended from Dovre, in a sandbox: a fresh clone of this repo inside a container, with nothing of the user's machine. Nobody can answer questions, so don't ask any: decide, and say what you decided. Install, build and test as you need. When you are done, commit your work with git on the current branch. You cannot push; Dovre brings your commits back.";
 
+/** Claude Code's `--effort` levels. */
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** Claude Code's own words for the modes, its `--effort` levels, and `--fork-session` on a reply. */
+export const CLAUDE_OPTIONS: HarnessOptions = {
+  modes: {
+    default: { label: "Ask before edits and commands", short: "asks first" },
+    acceptEdits: { label: "Edit files freely, ask before commands", short: "edits freely" },
+    plan: { label: "Plan only: read, don't change anything", short: "plan only" },
+  },
+  efforts: effortList(CLAUDE_EFFORTS),
+  fork: true,
+};
+
 export function argsFor(o: HarnessOpts): string[] {
   const perm = o.yolo ? ["--dangerously-skip-permissions"] : ["--permission-mode", o.mode ?? "default"];
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", ...perm, "--append-system-prompt", o.yolo ? SANDBOX_NOTE : HEADLESS_NOTE];
   if (o.model) args.push("--model", o.model);
   // A sandbox run's caps (#207): Claude Code stops itself at the budget.
   if (o.yolo && o.budget) args.push("--max-budget-usd", String(o.budget));
-  if (o.yolo && o.effort) args.push("--effort", o.effort);
+  const effort = effortIn(CLAUDE_OPTIONS.efforts, o.effort);
+  if (effort) args.push("--effort", effort);
   if (o.resume) args.push("--resume", o.resume);
   if (o.resume && o.fork) args.push("--fork-session");
   if (o.mcp) args.push("--mcp-config", mcpConfig(o.mcp));
@@ -74,4 +89,4 @@ export function apply(run: Run, line: string) {
 
 export const claudeHarness = (bin = "claude"): Harness => ({ id: "claude", bin, args: argsFor, apply, stdinPrompt: true, canFork: true, sandbox: { bin: "claude" } });
 
-export const claude: HarnessDef = { id: "claude", bin: "claude", binVar: "CLAUDE_BIN", models: CLAUDE_MODELS, keep: "launcher/keep_claude.go", make: (t) => ({ ...claudeHarness(t.bin), pre: t.pre }) };
+export const claude: HarnessDef = { id: "claude", bin: "claude", binVar: "CLAUDE_BIN", models: CLAUDE_MODELS, options: CLAUDE_OPTIONS, keep: "launcher/keep_claude.go", make: (t) => ({ ...claudeHarness(t.bin), pre: t.pre }) };

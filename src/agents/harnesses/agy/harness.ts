@@ -3,11 +3,22 @@
  * with prompt on stdin (PLAN D12, WP-G4).
  */
 import type { Harness, Run, StartOpts } from "../../runner.ts";
-import { type HarnessDef, toolDetail, toolSpec } from "../shared.ts";
+import { effortIn, effortList, type HarnessDef, type HarnessOptions, toolDetail, toolSpec } from "../shared.ts";
 
 export type AgyHarnessOpts = {
   bin?: string;
   defaultModel?: string;
+};
+
+/** agy's `--mode` names and `--effort` levels. It can't fork. */
+export const AGY_OPTIONS: HarnessOptions = {
+  modes: {
+    default: { label: "Ask before acting (agy's default)", short: "asks first" },
+    acceptEdits: { label: "Accept edits, ask before commands", short: "accept edits" },
+    plan: { label: "Plan: read, don't change anything", short: "plan" },
+  },
+  efforts: effortList(["low", "medium", "high", "xhigh", "max"]),
+  fork: false,
 };
 
 export function agyArgs(o: StartOpts, opts: AgyHarnessOpts = {}): string[] {
@@ -23,6 +34,9 @@ export function agyArgs(o: StartOpts, opts: AgyHarnessOpts = {}): string[] {
   if (model) {
     args.push("--model", model);
   }
+
+  const effort = effortIn(AGY_OPTIONS.efforts, o.effort);
+  if (effort) args.push("--effort", effort);
 
   if (o.resume) {
     args.push("--conversation", o.resume);
@@ -114,4 +128,4 @@ export const agyHarness = (bin = "agy", opts: AgyHarnessOpts = {}): Harness => (
   mcpEnv: true,
 });
 
-export const agy: HarnessDef = { id: "agy", bin: "agy", binVar: "AGY_BIN", models: AGY_MODELS, keep: "launcher/keep_agy.go", make: (t) => ({ ...agyHarness(t.bin), pre: t.pre }) };
+export const agy: HarnessDef = { id: "agy", bin: "agy", binVar: "AGY_BIN", models: AGY_MODELS, options: AGY_OPTIONS, keep: "launcher/keep_agy.go", make: (t) => ({ ...agyHarness(t.bin), pre: t.pre }) };

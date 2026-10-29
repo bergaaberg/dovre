@@ -44,7 +44,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Harness, Run, StartOpts } from "../../runner.ts";
-import { type HarnessDef } from "../shared.ts";
+import { effortIn, effortList, type HarnessDef, type HarnessOptions } from "../shared.ts";
 
 /**
  * Models for the "Model" select. "" is omp's configured default (modelRoles.default, for this
@@ -58,6 +58,17 @@ export const OMP_MODELS: { value: string; label: string }[] = [
   { value: "github-copilot/gpt-5.6-luna", label: "GPT-5.6 Luna (fast)" },
   { value: "github-copilot/claude-opus-5.5", label: "Claude Opus 5.5 (Copilot)" },
 ];
+
+/** omp's approval modes for Dovre's three, its `--thinking` levels, and `--fork` on a reply. */
+export const OMP_OPTIONS: HarnessOptions = {
+  modes: {
+    default: { label: "Always ask: only reads run, the rest asks", short: "always ask" },
+    acceptEdits: { label: "Write: edits run, commands ask", short: "write" },
+    plan: { label: "Plan only: reads, then a plan", short: "plan only" },
+  },
+  efforts: effortList(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).map((c) => (c.value === "" ? { value: "", label: "Default thinking" } : c)),
+  fork: true,
+};
 
 export const OMP_PLAN_PROMPT =
   "Plan mode: read and search as much as you need, but do not edit or write files and do not run commands. " +
@@ -120,6 +131,8 @@ export function ompArgs(o: StartOpts, opts: OmpHarnessOpts = {}): string[] {
   if (o.mode === "plan") args.push("--append-system-prompt", OMP_PLAN_PROMPT);
   const model = safeArg(o.model, MODEL);
   if (model) args.push("--model", model);
+  const effort = effortIn(OMP_OPTIONS.efforts, o.effort);
+  if (effort) args.push(`--thinking=${effort}`);
   const resume = safeArg(o.resume, ID);
   if (resume) {
     const profile = safeArg(opts.profileOf?.(resume), ID);
@@ -219,4 +232,4 @@ export const ompHarness = (bin = "omp", opts: OmpHarnessOpts = {}): Harness => (
 });
 
 // Every turn says how to ask before acting: the user's own omp config approves everything.
-export const omp: HarnessDef = { id: "omp", bin: "omp", binVar: "OMP_BIN", models: OMP_MODELS, keep: "launcher/keep_omp.go", make: (t, ctx) => ({ ...ompHarness(t.bin, { profileOf: (id) => ctx.ompProfileOf?.(id) }), pre: t.pre }) };
+export const omp: HarnessDef = { id: "omp", bin: "omp", binVar: "OMP_BIN", models: OMP_MODELS, options: OMP_OPTIONS, keep: "launcher/keep_omp.go", make: (t, ctx) => ({ ...ompHarness(t.bin, { profileOf: (id) => ctx.ompProfileOf?.(id) }), pre: t.pre }) };
