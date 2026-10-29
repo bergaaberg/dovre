@@ -49,6 +49,16 @@ function fakeGateway(reply: string, calls: Call[] = [], hold?: Promise<void>) {
     calls.push({ url, headers: init.headers as Record<string, string>, body });
     if (hold) await hold;
     const text = body.model === "claude-haiku-5-5" ? '{"ops":[{"op":"add","text":"Quill is for small schools.","kind":"fact"}]}' : reply;
+    if (body.stream) {
+      // As the Messages API streams: the reply in two deltas.
+      const ev = [
+        { type: "message_start", message: { model: body.model, usage: { input_tokens: 100 } } },
+        { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(0, 5) } },
+        { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(5) } },
+        { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 10 } },
+      ];
+      return new Response(ev.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+    }
     return new Response(JSON.stringify({ model: body.model, content: [{ type: "text", text }], usage: { input_tokens: 100, output_tokens: 10 } }), { headers: { "content-type": "application/json" } });
   }) as typeof fetch;
 }

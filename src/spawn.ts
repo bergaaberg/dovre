@@ -6,20 +6,26 @@
  * waits for the answer, like any other I/O.
  */
 import { Worker } from "node:worker_threads";
-import type { Done, Job, Kill } from "./spawn-worker.ts";
+import type { Chunk, Done, Job, Kill } from "./spawn-worker.ts";
 
 export type Ran = { code: number | null; stdout: string; stderr: string };
 
 let worker: Worker | undefined;
 let next = 1;
-const waiting = new Map<number, { resolve: (r: Ran) => void; reject: (e: Error) => void }>();
+const waiting = new Map<number, { resolve: (r: Ran) => void; reject: (e: Error) => void; onStdout?: (chunk: string) => void }>();
 
 function start(): Worker {
   // Bundled (dist/bridge, `pnpm build:bridge`), the worker is the bundle's spawn-worker.mjs.
   const w = new Worker(new URL(import.meta.url.endsWith(".mjs") ? "./spawn-worker.mjs" : "./spawn-worker.ts", import.meta.url));
-  w.on("message", (d: Done) => {
+  w.on("message", (d: Done | Chunk) => {
     const p = waiting.get(d.id);
     if (!p) return;
+    if ("chunk" in d) {
+      try {
+        p.onStdout?.(d.chunk);
+      } catch {}
+      return;
+    }
     waiting.delete(d.id);
     if (!waiting.size) w.unref();
     if (d.error) p.reject(new Error(d.error));
@@ -40,14 +46,15 @@ function start(): Worker {
  * Runs `bin args` to the end on the worker thread. A non-zero exit is a result, not an error; failing to start, or a timeout, is.
  * `env`: changes to this process's environment for the program (null removes a variable).
  * `signal`: aborting it kills the program and fails the call with "stopped".
+ * `onStdout`: what the program writes, as it writes it (the whole of it still comes in `stdout`).
  */
-export function runOff(bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; maxBuffer?: number; env?: Record<string, string | null>; signal?: AbortSignal } = {}): Promise<Ran> {
-  const { signal, ...rest } = opts;
+export function runOff(bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; maxBuffer?: number; env?: Record<string, string | null>; signal?: AbortSignal; onStdout?: (chunk: string) => void } = {}): Promise<Ran> {
+  const { signal, onStdout, ...rest } = opts;
   if (signal?.aborted) return Promise.reject(new Error("stopped"));
   worker ??= start();
   const w = worker;
   const id = next++;
-  const job: Job = { id, bin, args, ...rest };
+  const job: Job = { id, bin, args, ...rest, ...(onStdout ? { stream: true } : {}) };
   return new Promise((resolve, reject) => {
     const stop = () => {
       if (!waiting.delete(id)) return;
@@ -57,7 +64,7 @@ export function runOff(bin: string, args: string[], opts: { cwd?: string; timeou
     };
     signal?.addEventListener("abort", stop, { once: true });
     const off = () => signal?.removeEventListener("abort", stop);
-    waiting.set(id, { resolve: (r) => (off(), resolve(r)), reject: (e) => (off(), reject(e)) });
+    waiting.set(id, { resolve: (r) => (off(), resolve(r)), reject: (e) => (off(), reject(e)), onStdout });
     // Held open while something runs; idle, it doesn't keep a finished script alive.
     worker!.ref();
     worker!.postMessage(job);

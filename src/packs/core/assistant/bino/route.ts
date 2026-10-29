@@ -23,7 +23,8 @@ export type BinoVia = (typeof VIAS)[number];
 
 /** One call: a system prompt and the conversation so far as one message in, the reply out. */
 /** `signal`: aborting it stops the call (Bino's Stop): a request is cancelled, a program killed. */
-export type Ask = (p: { system: string; user: string; model?: string; signal?: AbortSignal }) => Promise<{ text: string; cost: number }>;
+/** `onText`: the reply so far, each time it grows, on the routes that stream (the rest answer once). */
+export type Ask = (p: { system: string; user: string; model?: string; signal?: AbortSignal; onText?: (soFar: string) => void }) => Promise<{ text: string; cost: number }>;
 
 export type Route = {
   via: BinoVia;
@@ -59,12 +60,12 @@ export {
   openRouterRouteOf,
 } from "./gateway.ts";
 
-/** The CLI's arguments: talk only (no tools, no MCP, no settings, no session kept). */
-export function binoArgs(system: string, model: string): string[] {
+/** The CLI's arguments: talk only (no tools, no MCP, no settings, no session kept). `stream`: one JSON event a line, the reply's text as it's written. */
+export function binoArgs(system: string, model: string, stream = false): string[] {
   return [
     "-p",
     "--model", model,
-    "--output-format", "json",
+    ...(stream ? ["--output-format", "stream-json", "--verbose", "--include-partial-messages"] : ["--output-format", "json"]),
     "--tools", "",
     "--strict-mcp-config",
     "--mcp-config", '{"mcpServers":{}}',
@@ -75,19 +76,56 @@ export function binoArgs(system: string, model: string): string[] {
   ];
 }
 
-/** What the CLI answered: the reply and its cost, or why it didn't. */
+type Result = { type?: string; is_error?: boolean; result?: unknown; total_cost_usd?: unknown };
+
+/** stream-json's last `result` line, when there is one. */
+const resultLine = (out: string): Result | undefined => {
+  for (const l of out.split(/\r?\n/).reverse()) {
+    if (!l.includes('"result"')) continue;
+    try {
+      const j = JSON.parse(l) as Result;
+      if (j.type === "result") return j;
+    } catch {}
+  }
+  return undefined;
+};
+
+/** What the CLI answered (one JSON object, or stream-json's lines): the reply and its cost, or why it didn't. */
 export function parseReply(r: Ran): { text: string; cost: number } {
-  let j: { is_error?: boolean; result?: unknown; total_cost_usd?: unknown };
+  let j: Result | undefined;
   try {
     j = JSON.parse(r.stdout);
   } catch {
-    throw new Error((r.stderr || r.stdout || `exit ${r.code}`).slice(0, 300));
+    j = resultLine(r.stdout);
   }
+  if (!j) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).slice(0, 300));
   if (j.is_error || r.code !== 0) throw new Error(String(j.result ?? r.stderr ?? `exit ${r.code}`).slice(0, 300));
   return { text: String(j.result ?? "").trim(), cost: Number(j.total_cost_usd ?? 0) };
 }
 
-type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal }) => Promise<Ran>;
+type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal; onStdout?: (chunk: string) => void }) => Promise<Ran>;
+
+/** Reads stream-json as it comes: each text delta grows the reply, which goes to `onText`. */
+export function streamText(onText: (soFar: string) => void): (chunk: string) => void {
+  let buf = "";
+  let text = "";
+  return (chunk) => {
+    buf += chunk;
+    const lines = buf.split(/\r?\n/);
+    buf = lines.pop() ?? "";
+    for (const l of lines) {
+      if (!l.includes("text_delta")) continue;
+      try {
+        const j = JSON.parse(l) as { type?: string; event?: { type?: string; delta?: { type?: string; text?: string } } };
+        const d = j.event?.delta;
+        if (j.type === "stream_event" && j.event?.type === "content_block_delta" && d?.type === "text_delta" && d.text) {
+          text += d.text;
+          onText(text);
+        }
+      } catch {}
+    }
+  };
+}
 
 /**
  * `copilot`: the omp route, a Copilot model with no tools, no MCP and no session (src/ai/omp.ts);
@@ -162,8 +200,8 @@ export function routeOf(o: { via: BinoVia; claude?: Tool; copilot?: OmpAsker; co
   // An empty folder of its own: no CLAUDE.md or project settings to pick up.
   const cwd = join(tmpdir(), "dovre-bino");
   mkdirSync(cwd, { recursive: true });
-  const ask: Ask = async ({ system, user, model: m, signal }) => {
-    const r = await run(claude.bin, [...claude.pre, ...binoArgs(system, m || model)], { cwd, input: user, timeoutMs: 180_000, signal });
+  const ask: Ask = async ({ system, user, model: m, signal, onText }) => {
+    const r = await run(claude.bin, [...claude.pre, ...binoArgs(system, m || model, !!onText)], { cwd, input: user, timeoutMs: 180_000, signal, ...(onText ? { onStdout: streamText(onText) } : {}) });
     const got = parseReply(r);
     o.log?.(`bino: ${m || model}, $${got.cost.toFixed(4)}`);
     return got;

@@ -1070,6 +1070,7 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 /* The same speaker again: closer, and the name said once. */
 .bino-msg.cont { margin-top: -10px; }
 .bino-msg.pending { opacity: .6; }
+.bino-msg.writing .bino-text > :last-child::after { content: ""; display: inline-block; width: .45em; height: 1em; background: var(--accent); margin-left: 2px; vertical-align: -.14em; animation: blink 1.05s steps(1) infinite; }
 .bino-who { margin: 0 0 4px; font: 600 var(--fs-s)/1.4 var(--sans); color: var(--ink-2); }
 .bino-who .t3 { font-weight: 400; font-size: var(--fs-xs); }
 .bino-gap { justify-self: center; font-size: var(--fs-xs); color: var(--ink-3); }
