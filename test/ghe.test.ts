@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { apiEndpointsOf, apiToHtml, createGhe, byPerson, describeEvent, isBot, loadDeploys, newestWaiting, normalizePr, prKeyOfUrl, type Run } from "../src/sources/ghe.ts";
+import { apiEndpointsOf, apiToHtml, createGhe, byPerson, describeEvent, inFiles, isBot, loadDeploys, newestWaiting, normalizePr, prKeyOfUrl, type Run } from "../src/sources/ghe.ts";
 import { fakeGhe, move } from "./helpers.ts";
 
 test("apiEndpointsOf: github.com and GHE.com on api., GitHub Enterprise Server under /api/v3", () => {
@@ -50,6 +50,17 @@ test("a PR node becomes a Pr: checks from the last commit, unresolved threads co
   assert.equal(p.openThreads, 1);
   assert.equal(p.author, "ghost");
   assert.equal(p.branch, "feat/y");
+});
+
+test("a PR's file count comes from changedFiles, not the capped list, and is left out when unknown (#269)", () => {
+  const f = { path: "a.ts", additions: 1, deletions: 0 };
+  const node = { number: 7, title: "t", url: "u", isDraft: false, updatedAt: "x", headRefName: "b", author: null,
+    repository: { nameWithOwner: "ACME/a" }, reviewDecision: null, reviewThreads: { nodes: [] }, commits: { nodes: [] } };
+  const big = normalizePr({ ...node, changedFiles: 200, files: { nodes: Array(80).fill(f) } });
+  assert.equal(big.changedFiles, 200);
+  assert.equal(inFiles(big), " in 200 files");
+  assert.equal(inFiles(normalizePr({ ...node, files: null })), "");
+  assert.equal(inFiles({ files: [f] }), " in 1 file");
 });
 
 test("API urls become pages; a run without a url links to the repo's actions", () => {

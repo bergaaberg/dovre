@@ -13,7 +13,7 @@ const LANES = ["lane-0", "lane-1", "lane-2", "lane-3"] as const;
 function pills(p: StackPr): Html {
   const review =
     p.review === "APPROVED" ? Pill({ tone: "ok", children: "approved" }) : p.review === "CHANGES_REQUESTED" ? Pill({ tone: "bad", children: "changes requested" }) : Pill({ children: "awaiting review" });
-  const checks = p.checks === "ok" ? Pill({ tone: "ok", children: "checks ✓" }) : p.checks === "bad" ? Pill({ tone: "bad", children: "checks ✗" }) : p.checks === "pending" ? Pill({ tone: "warn", children: "checks …" }) : "";
+  const checks = p.checks === "ok" ? Pill({ tone: "ok", children: "checks ✓" }) : p.checks === "bad" ? Pill({ tone: "bad", children: "checks ✗" }) : p.checks === "pending" ? Pill({ tone: "warn", children: "checks running" }) : "";
   const merge = p.mergeState === "DIRTY" ? Pill({ tone: "bad", children: "conflicts" }) : p.mergeState === "BEHIND" ? Pill({ tone: "warn", children: "behind its base" }) : "";
   return html`${p.draft ? Pill({ children: "draft" }) : ""}${review}${checks}${merge}`;
 }

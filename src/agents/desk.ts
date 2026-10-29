@@ -8,6 +8,7 @@
  * spec, prompts bounded. The app keeps what's about the page: flashes, sessions cleared away
  * (the instance's database), redirects back.
  */
+import { statSync } from "node:fs";
 import type { Env } from "../env.ts";
 import { type Session, listRepos, sessionById, tail, transcriptOf } from "../sources/claude.ts";
 import { ompAgentDirs, ompSessionById, ompTranscriptOf, ompTurnsOf } from "../sources/omp.ts";
@@ -126,23 +127,48 @@ export const specsOf = (v: unknown): string[] =>
     .filter((s): s is string => typeof s === "string" && s.length > 0 && s.length < 2000 && !/[\r\n]/.test(s))
     .slice(0, 10);
 
+/** The last few transcripts parsed, kept until the file changes: a streaming session redraws up to 4×/s (#267). */
+const parsed = new Map<string, { size: number; mtimeMs: number; parse: (text: string) => Turn[]; turns: Turn[] }>();
+const PARSED_MAX = 8;
+/** A transcript's turns (its last 3 MB), parsed again only when the file's size or mtime moved. Don't mutate the result. */
+export function cachedTurns(file: string, parse: (text: string) => Turn[]): Turn[] {
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    parsed.delete(file);
+    return [];
+  }
+  const hit = parsed.get(file);
+  if (hit && hit.parse === parse && hit.size === st.size && hit.mtimeMs === st.mtimeMs) {
+    parsed.delete(file);
+    parsed.set(file, hit); // newest last
+    return hit.turns;
+  }
+  const turns = parse(tail(file, 3 * 1024 * 1024));
+  parsed.delete(file);
+  parsed.set(file, { size: st.size, mtimeMs: st.mtimeMs, parse, turns });
+  if (parsed.size > PARSED_MAX) parsed.delete(parsed.keys().next().value!);
+  return turns;
+}
+
 /** A session by id, Claude Code's, omp's or Copilot CLI's, with its conversation. */
 export function findSession(claudeDir: string, sid: string, live: Session[]): { session?: Session; turns: Turn[] } {
   const claude = sessionById(claudeDir, sid, live);
   if (claude && claude.harness !== "omp" && claude.harness !== "copilot") {
     const file = transcriptOf(claudeDir, sid);
-    return { session: claude, turns: file ? claudeTurns(tail(file, 3 * 1024 * 1024)) : [] };
+    return { session: claude, turns: file ? cachedTurns(file, claudeTurns) : [] };
   }
   for (const { dir } of ompAgentDirs()) {
     const session = ompSessionById(dir, sid, live);
     if (!session) continue;
     const file = ompTranscriptOf(dir, sid);
-    return { session, turns: file ? ompTurnsOf(tail(file, 3 * 1024 * 1024)) : [] };
+    return { session, turns: file ? cachedTurns(file, ompTurnsOf) : [] };
   }
   const copilot = copilotSessionById(COPILOT_DIR, sid, live);
   if (copilot) {
     const file = copilotEventsOf(COPILOT_DIR, sid);
-    return { session: copilot, turns: file ? copilotTurnsOf(tail(file, 3 * 1024 * 1024)) : [] };
+    return { session: copilot, turns: file ? cachedTurns(file, copilotTurnsOf) : [] };
   }
   return { session: claude, turns: [] };
 }

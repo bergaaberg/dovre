@@ -666,6 +666,9 @@ code.secret { user-select: all; overflow-wrap: anywhere; }
 .page-head h1 { font: 400 40px/1.05 var(--serif); letter-spacing: -.01em; }
 .page-head .sub { font: 400 17px/1.5 var(--serif-text); color: var(--ink-2); margin: 8px 0 0; max-width: 70ch; }
 .page-head .actions { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.page-head.crumbed { display: block; }
+.head-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem 1rem; flex-wrap: wrap; margin: 0 0 12px; min-height: 32px; }
+.head-top .crumbs { margin: 0; }
 .crumbs { font: 600 var(--fs-xs)/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px; display: flex; gap: .4rem; }
 .crumbs a { text-decoration: none; } .crumbs .sep { color: var(--line-2); }
 .toolbar { margin: -6px 0 16px; }
@@ -678,7 +681,7 @@ code.secret { user-select: all; overflow-wrap: anywhere; }
 .tabs .n { color: var(--ink-3); font-weight: 600; margin-left: 4px; }
 .tabs .sep { flex: none; width: 1px; background: var(--line); }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 18px 22px 10px; margin: 0 0 22px; min-width: 0; }
-.panel-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 10px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding-bottom: 10px; }
 .panel-head h2 { font: 400 var(--fs-xl)/1.1 var(--serif); }
 .panel-head .meta { font-size: var(--fs-s); color: var(--ink-3); }
 .panel-head .actions { margin-left: auto; display: flex; gap: .5rem; font-size: var(--fs-s); }
@@ -942,7 +945,7 @@ ol.chat { list-style: none; margin: 0; padding: 4px 0 8px; display: flex; flex-d
 ul.calls { list-style: none; margin: 6px 0 0; padding: 0 0 0 14px; display: grid; gap: 4px; font-size: var(--fs-xs); color: var(--ink-3); border-left: 1px solid var(--line-2); }
 ul.calls > li { overflow-wrap: anywhere; }
 /* The reply box: one field that grows, a send button; mode and model folded into a line */
-form.chatbox { margin: 14px 0 0; max-width: 78ch; display: grid; gap: 6px; }
+form.chatbox { margin: 14px 0 0; display: grid; gap: 6px; }
 .chatbox-in { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); }
 .chatbox-in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 form.chatbox textarea { flex: 1; min-width: 0; border: 0; background: none; box-shadow: none; outline: none; resize: none; padding: 7px 0; margin: 0; max-height: 50vh; font: var(--fs-m)/1.5 var(--mono); color: var(--ink); field-sizing: content; min-height: 2.3em; }
@@ -1055,6 +1058,14 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .tdock-btn { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: 600 var(--fs-s)/1.2 var(--sans); text-decoration: none; box-shadow: var(--shadow); }
 .bino-btn { gap: 8px; }
 .bino-btn svg { width: 18px; height: 18px; color: var(--accent); }
+/* Without a margin beside the content, the pill would sit over its right edge: a round icon there instead,
+   the label on hover (#266). The phone's tab bar holds it in its own gap. */
+@media (max-width: 1759px) {
+  .bino-btn { position: relative; width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .bino-btn span { display: none; }
+  .bino-btn svg { width: 22px; height: 22px; }
+  .bino-btn:hover span, .bino-btn:focus-visible span { display: block; position: absolute; right: calc(100% + 8px); padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); white-space: nowrap; box-shadow: var(--shadow); }
+}
 /* Bino's button when a pack draws its face (bino.face): the face is the button. */
 .tdock-btn.face-btn { position: relative; width: 64px; height: 64px; padding: 0; justify-content: center; border-radius: 18px; overflow: visible; }
 .tdock-btn:hover, .tdock.open .tdock-btn { border-color: var(--accent); color: var(--accent); }

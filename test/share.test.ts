@@ -152,6 +152,16 @@ test("omp sessions resume with omp, in their profile; a profile that isn't a pla
 test("only the harnesses found are offered and run; with none, the pages say so instead of offering", () => {
   assert.match(bodyOf(newAgentPage({ repos: ["a"], harnesses: [] })), /No agent CLI found/);
   assert.doesNotMatch(bodyOf(newAgentPage({ repos: ["a"], harnesses: [] })), /action="\/agents\/new"/);
+  // Locally every CLI is named with its *_BIN; hosted, it's the Mac's bridge that found none (#268).
+  const local = bodyOf(newAgentPage({ repos: ["a"], harnesses: [] }));
+  for (const bin of ["CLAUDE_BIN", "OMP_BIN", "AGY_BIN", "CODEX_BIN"]) assert.match(local, new RegExp(bin));
+  assert.match(local, /Codex/);
+  const hosted = bodyOf(newAgentPage({ repos: ["a"], harnesses: [], mac: { online: true, name: "Studio" } }));
+  assert.match(hosted, /Studio is online, but its bridge found no agent CLI/);
+  assert.doesNotMatch(hosted, /\.dev\.vars/);
+  // With several CLIs, the first one's default model is the one picked.
+  const both = bodyOf(newAgentPage({ repos: ["a"], harnesses: ["claude", "codex"] }));
+  assert.equal(both.match(/<option value=""[^>]* selected>/g)?.length, 1);
   const ompOnly = bodyOf(newAgentPage({ repos: ["a"], harnesses: ["omp"] }));
   assert.match(ompOnly, /Starts Copilot · omp headless/);
   assert.doesNotMatch(ompOnly, /value="claude"/);

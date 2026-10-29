@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDemoWorker } from "../src/demo/worker.ts";
-import { DEMO_HOST, demoHistory, demoSnapshot } from "../src/demo/fixtures.ts";
+import { DEMO_HOST, demoHistory, demoPrs, demoSnapshot } from "../src/demo/fixtures.ts";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
 import { html } from "hono/html";
 import { weekOf, weeksOf } from "../src/stats/history.ts";
@@ -26,6 +26,30 @@ test("demo: every hosted page draws over the made-up data, with the bar saying s
   assert.match(today, /<h1 id="greet">Good (morning|afternoon|evening|night),/);
   assert.doesNotMatch(today, /<h1 id="greet">God (morgen|dag|kveld|natt),/);
   assert.match(today, /<a class="brand" href="\/"/);
+});
+
+test("demo: every PR the lists show opens, with its files and patches (#265)", async () => {
+  const w = createDemoWorker();
+  const { mine, review } = demoPrs(Date.now());
+  for (const p of [...mine, ...review]) {
+    const page = await (await w.fetch(at(`/prs/${p.repo}/${p.number}`))).text();
+    assert.match(page, new RegExp(`#${p.number} `), `${p.repo}#${p.number}`);
+    assert.doesNotMatch(page, /didn't load/, `${p.repo}#${p.number}`);
+  }
+  const files = await (await w.fetch(at("/prs/northwind/catalog/88/files"))).text();
+  assert.match(files, /src\/images\/serve\.ts/);
+  assert.match(files, /caches\.default/);
+  const conv = await (await w.fetch(at("/prs/northwind/catalog/88"))).text();
+  assert.match(conv, /This caches the 404 as well/);
+  assert.equal((await w.fetch(at("/prs/northwind/catalog/9999"))).status, 502);
+});
+
+test("demo: a new session shows the form, with the demo's checkouts and no folder of the machine's (#268)", async () => {
+  const page = await (await createDemoWorker().fetch(at("/agents/new"))).text();
+  assert.match(page, /action="\/agents\/new"/);
+  assert.match(page, /<option value="checkout"/);
+  assert.doesNotMatch(page, /No agent CLI/);
+  assert.doesNotMatch(page, /\/Users\/|\/home\//);
 });
 
 test("demo: every write is refused before the app, and the bridge isn't there", async () => {

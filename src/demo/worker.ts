@@ -21,12 +21,13 @@ import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { FORGE_CAN } from "../forge/types.ts";
 import { createDismissed } from "../agents/dismissed.ts";
 import { localDesk } from "../agents/desk.ts";
+import { HARNESSES } from "../agents/runner.ts";
 import { createQueue } from "../agents/queue.ts";
 import type { Context } from "hono";
 import { html } from "hono/html";
 import { PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "../pages/parts.ts";
-import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
+import { DEMO_HOST, DEMO_LOGIN, DEMO_ORG, demoPrFiles, demoPrNode, demoSessions, demoSnapshot, demoStats, demoTurns } from "./fixtures.ts";
 import { type DemoAnswer, demoBino, demoEngine, demoScriptRoute, demoSeedConvs } from "./bino.ts";
 export type { DemoAnswer };
 import type { Engine } from "../packs/core/assistant/bino/bino.ts";
@@ -47,11 +48,21 @@ export function emptyD1(): D1 {
 }
 
 /** GitHub that isn't there: pages that ask it directly say it failed, as they do when GitHub is down. */
+/** The demo's forge: it answers a demo PR's page and files from the fixtures (#265), and nothing else. */
 export function makeNoGhe(host: string = DEMO_HOST): Ghe {
+  const no = () => Promise.reject(new Error("Not in the demo: it shows made-up data."));
   return {
     host,
-    rest: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
-    graphql: () => Promise.reject(new Error("Not in the demo: it shows made-up data.")),
+    rest: <T>(path: string) => {
+      const m = path.match(/^\/repos\/([\w.-]+\/[\w.-]+)\/pulls\/(\d+)\/files\?(?:.*&)?page=(\d+)/);
+      if (!m) return no();
+      return Promise.resolve((m[3] === "1" ? demoPrFiles(m[1]!, Number(m[2])) : []) as T);
+    },
+    graphql: <T>(query: string) => {
+      const m = query.match(/repository\(owner:"([\w.-]+)",name:"([\w.-]+)"\)\{pullRequest\(number:(\d+)\)/);
+      const node = m ? demoPrNode(Date.now(), `${m[1]}/${m[2]}`, Number(m[3])) : undefined;
+      return node ? Promise.resolve(node as T) : no();
+    },
   };
 }
 
@@ -231,6 +242,10 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     // A session's page reads its transcript from disk; the demo's come from the fixtures.
     const desk: Desk = {
       ...local,
+      // The new-session form as it looks with agents installed; starting one is refused like every write (#268).
+      // No folder of this machine's on show.
+      view: () => ({ ...local.view(), harnesses: [...HARNESSES], workDir: "~/.dovre/agents" }),
+      repos: async () => ["accounts", "catalog", "checkout", "web"],
       async session(sid) {
         const session = [...sessions.live, ...sessions.recent].find((x) => x.sessionId === sid);
         return session ? { session, turns: turnsFn(sid), run: undefined, queued: [], discardable: false, turnCost: undefined, replyCopies: false, copies: [], copyOf: undefined } : undefined;

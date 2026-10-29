@@ -29,9 +29,16 @@ export function PageHeader(opts: { title: Child; sub?: Child; crumbs?: Crumb[]; 
   const crumbs = opts.crumbs?.length
     ? html`<nav class="crumbs" aria-label="Where this is">${opts.crumbs.map((c, i) => html`${i ? html`<span class="sep">/</span>` : ""}${c.href ? html`<a href="${c.href}">${c.label}</a>` : html`<span>${c.label}</span>`}`)}</nav>`
     : "";
+  const actions = opts.actions ? html`<div class="actions">${opts.actions}</div>` : "";
+  // Under crumbs, the actions sit on their line, at the right: beside a long title they'd wrap onto a line of their own.
+  if (crumbs)
+    return html`<header class="page-head crumbed">
+<div class="head-top">${crumbs}${actions}</div>
+<div class="titles"><h1>${opts.title}</h1>${opts.sub ? html`<p class="sub">${opts.sub}</p>` : ""}</div>
+</header>${opts.tabs ? html`<div class="toolbar">${opts.tabs}</div>` : ""}`;
   return html`<header class="page-head">
-<div class="titles">${crumbs}<h1>${opts.title}</h1>${opts.sub ? html`<p class="sub">${opts.sub}</p>` : ""}</div>
-${opts.actions ? html`<div class="actions">${opts.actions}</div>` : ""}
+<div class="titles"><h1>${opts.title}</h1>${opts.sub ? html`<p class="sub">${opts.sub}</p>` : ""}</div>
+${actions}
 </header>${opts.tabs ? html`<div class="toolbar">${opts.tabs}</div>` : ""}`;
 }
 

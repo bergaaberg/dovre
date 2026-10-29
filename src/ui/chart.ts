@@ -17,17 +17,19 @@ type Frame = { labels: string[]; tips: string[]; fmt: (n: number) => string; /**
 
 const f1 = (n: number) => (Math.round(n * 10) / 10).toString();
 
-/** A round top for the axis, and its ticks (0 and three more). */
-export function niceTicks(max: number): number[] {
+/** A round top for the axis, and its ticks (0 and three more). `whole`: counts, so no step under 1 (no "0.5 releases"). */
+export function niceTicks(max: number, whole = false): number[] {
   if (!(max > 0)) return [0, 1];
-  const raw = max / 3;
+  const raw = whole ? Math.max(1, max / 3) : max / 3;
   const pow = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw)!;
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw && (!whole || Number.isInteger(s)))!;
   const top = Math.ceil(max / step) * step;
   const out: number[] = [];
   for (let v = 0; v <= top + step / 2; v += step) out.push(Math.round(v * 1e6) / 1e6);
   return out;
 }
+
+const wholeOnly = (series: Series[]) => series.every((s) => s.values.every((v) => v === undefined || Number.isInteger(v)));
 
 /** 1,234 → 1.2K; whole numbers stay whole. */
 export const compact = (n: number) => (Math.abs(n) >= 1000 ? `${f1(n / 1000)}K` : Number.isInteger(n) ? String(n) : f1(n));
@@ -66,7 +68,7 @@ export function columns(o: Frame & { series: Series[]; stacked?: boolean }): Htm
   const left = 40, right = W - 6, top = 14, base = H - 24;
   const n = o.labels.length;
   const totals = o.labels.map((_, i) => (o.stacked ? o.series.reduce((a, s) => a + (s.values[i] ?? 0), 0) : Math.max(0, ...o.series.map((s) => s.values[i] ?? 0))));
-  const ticks = o.ticks ?? niceTicks(Math.max(...totals, 0));
+  const ticks = o.ticks ?? niceTicks(Math.max(...totals, 0), wholeOnly(o.series));
   const yMax = ticks[ticks.length - 1]!;
   const y = (v: number) => base - (v / yMax) * (base - top);
   const slot = (right - left) / n;
@@ -107,7 +109,7 @@ export function lines(o: Frame & { series: Series[]; yMax?: number }): Html {
   const left = 40, right = W - 40, top = 14, base = H - 24;
   const n = o.labels.length;
   const all = o.series.flatMap((s) => s.values.filter((v): v is number => v !== undefined));
-  const ticks = o.ticks ?? niceTicks(o.yMax ?? Math.max(...all, 0));
+  const ticks = o.ticks ?? niceTicks(o.yMax ?? Math.max(...all, 0), wholeOnly(o.series));
   const yMax = ticks[ticks.length - 1]!;
   const y = (v: number) => base - (Math.min(v, yMax) / yMax) * (base - top);
   const slot = (right - left) / Math.max(1, n - 1);

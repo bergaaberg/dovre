@@ -57,12 +57,12 @@ test("every agent says which harness it runs in", async () => {
   }
 });
 
-test("the side menu: Today, then Code, Agents and Plan in groups (a pack adds Ops); Settings at the foot; the page you're on marked", async () => {
+test("the side menu: Today, then Code, Agents and Plan in groups (Agents without a heading) (a pack adds Ops); Settings at the foot; the page you're on marked", async () => {
   const { get } = signedIn(snapshot());
   const out = await (await get("/")).text();
   const side = out.slice(out.indexOf('<nav class="side"'), out.indexOf("</nav>"));
   const groups = [...side.matchAll(/<p class="side-h">([^<]+)<\/p>/g)].map((m) => m[1]);
-  assert.deepEqual(groups, ["Code", "Agents", "Plan"]);
+  assert.deepEqual(groups, ["Code", "Plan"], "the Agents group shows no heading over its own Agents item");
   const hrefs = [...side.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
   for (const href of ["/", "/prs", "/deploys", "/worktrees", "/code", "/movement", "/agents", "/todo", "/issues/new", "/settings"]) assert.ok(hrefs.includes(href), href);
   assert.ok(hrefs.indexOf("/settings") > hrefs.indexOf("/issues/new"), "Settings at the foot");
