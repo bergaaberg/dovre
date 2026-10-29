@@ -13,6 +13,7 @@ import type { PackProposal, Proposed } from "../actions/propose.ts";
 import type { NavItem } from "../html.ts";
 import type { Page } from "../search/search.ts";
 import type { Session } from "../sources/claude.ts";
+import type { EveryRepo } from "../sources/files.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Answer } from "../relay/asks.ts";
 
@@ -300,6 +301,13 @@ export type PackForge = {
    * Absent: this forge doesn't say.
    */
   file?(repo: string, path: string): Promise<string | undefined>;
+  /**
+   * Every one of the owners' repos (not archived, 100 per owner) with its files at `paths` (1 to 6
+   * plain relative paths) on the default branch, in one call per owner, where `file` is one per
+   * repo and path (#294). Kept for every isolate up to `maxAgeMs` (default a few minutes, 24 h at
+   * most; 0 reads it now). `at` says when it was read. Absent: this forge doesn't say.
+   */
+  everyRepo?(paths: string[], o?: { maxAgeMs?: number }): Promise<EveryRepo>;
   /**
    * Opens a PR changing one file in one of the owners' repos: a branch off the default branch, one
    * commit, the PR (dovre#203). `kind` is one of the pack's `writes`, so it shows on Settings → Writes
