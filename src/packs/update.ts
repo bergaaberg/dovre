@@ -48,9 +48,19 @@ function gitShow(repo: string, commit: string, path: string): Buffer | undefined
   return r.status === 0 ? r.stdout : undefined;
 }
 
-/** Every file under `dir`, as paths relative to it; `.pack.json` and node_modules left out. */
+/**
+ * Every file under `dir`, as paths relative to it; `.pack.json` and node_modules left out. In a git
+ * checkout, only files git would keep (tracked, or new and not ignored), so build output such as a
+ * Rust `target/` isn't copied.
+ */
 export function filesOf(dir: string): string[] {
   if (!existsSync(dir)) return [];
+  const listed = git(dir, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."]);
+  if (listed !== undefined) {
+    return [...new Set(listed.split("\0").filter(Boolean))]
+      .filter((f) => f !== META && !f.split("/").includes("node_modules") && existsSync(join(dir, f)))
+      .sort();
+  }
   const out: string[] = [];
   const walk = (d: string) => {
     for (const f of readdirSync(d).sort()) {

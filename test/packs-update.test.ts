@@ -58,6 +58,26 @@ test("add writes .pack.json: source, commit, version, api, a hash per file", () 
   }
 });
 
+test("add skips what git ignores (a Rust target/) and wires the pack, not the first export", () => {
+  const s = setup();
+  try {
+    writeFileSync(join(s.up, "index.ts"), `export const fooWasm = () => new Uint8Array();\n${INDEX}`);
+    writeFileSync(join(s.repo, ".gitignore"), "target/\n");
+    mkdirSync(join(s.up, "rust", "target", "release"), { recursive: true });
+    writeFileSync(join(s.up, "rust", "Cargo.toml"), "[package]\n");
+    writeFileSync(join(s.up, "rust", "target", "release", "foo.wasm"), "built");
+    s.commit("rust");
+    const r = addPack({ id: "foo", into: s.into, from: s.repo, allowClone: false });
+    assert.equal(r.exportName, "fooPack");
+    assert.match(readFileSync(join(s.into, "packs.ts"), "utf8"), /import \{ fooPack \}/);
+    assert.ok(existsSync(join(s.pack, "rust", "Cargo.toml")));
+    assert.ok(!existsSync(join(s.pack, "rust", "target")));
+    assert.ok(!r.wrote.some((f) => f.includes("target")));
+  } finally {
+    s.done();
+  }
+});
+
 test("outdated tells newer upstream from edited here; update takes upstream and merges both sides' edits", () => {
   const s = setup();
   try {
