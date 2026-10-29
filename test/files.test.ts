@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Ghe } from "../src/sources/ghe.ts";
-import { loadFile, loadRepos, MAX_FILE, ownedRepo, packReads, repoPath } from "../src/sources/files.ts";
+import { loadEveryRepo, loadFile, loadRepos, MAX_FILE, ownedRepo, packReads, repoPath } from "../src/sources/files.ts";
 import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
 import { signedIn, snapshot } from "./helpers.ts";
 
@@ -98,4 +98,90 @@ test("files: a pack reads them through ctx.forge(), in the instance's owners onl
   );
   const { get } = signedIn(snapshot(), {}, { packs: [reader], forge: { id: "github", name: "GitHub", can: [], host: "github.com", repos: async (o) => [`${o}/site`], file: async (r, p) => `${r}:${p}` } });
   assert.deepEqual(await (await get("/reader")).json(), { repos: ["ACME/site"], peak: "ACME/site:peak.yaml", refused: "Not a file in your repos: other/x/peak.yaml" });
+});
+
+test("files: every repo's files in one GraphQL call per owner (#294): missing, binary or too-big files left out, other owners dropped", async () => {
+  const asked: string[] = [];
+  const g = ghe(() => assert.fail("no REST"), (q) => {
+    asked.push(q);
+    return {
+      repositoryOwner: {
+        repositories: {
+          nodes: [
+            { nameWithOwner: "acme/site", pushedAt: "2026-10-29T10:00:00Z", f0: { text: "name: site\n", byteSize: 11, isBinary: false }, f1: null },
+            { nameWithOwner: "acme/bare", pushedAt: "2026-10-28T10:00:00Z", f0: null, f1: null },
+            { nameWithOwner: "acme/bin", f0: { text: null, byteSize: 9, isBinary: true }, f1: { text: "x", byteSize: MAX_FILE + 1, isBinary: false } },
+            { nameWithOwner: "evil/x", f0: { text: "no", byteSize: 2 } },
+          ],
+        },
+      },
+    };
+  });
+  const got = await loadEveryRepo(g, "acme", ["peak.yaml", "peak.yml", "../etc/passwd"]);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0]!, /f0: object\(expression: "HEAD:peak\.yaml"\)/);
+  assert.match(asked[0]!, /f1: object\(expression: "HEAD:peak\.yml"\)/);
+  assert.doesNotMatch(asked[0]!, /passwd/, "a path that isn't plain isn't asked");
+  assert.deepEqual(got, [
+    { repo: "acme/site", pushedAt: "2026-10-29T10:00:00Z", files: { "peak.yaml": "name: site\n" } },
+    { repo: "acme/bare", pushedAt: "2026-10-28T10:00:00Z", files: {} },
+    { repo: "acme/bin", files: {} },
+  ]);
+});
+
+/** forge_reads as a map, standing in for D1. */
+const sharedMap = () => {
+  const m = new Map<string, { at: number; value: string }>();
+  return { m, get: async (k: string) => m.get(k), put: async (k: string, at: number, value: string) => void m.set(k, { at, value }) };
+};
+
+test("files: an every-repo read is kept for every isolate up to the age the pack takes (#294); 0 reads it now", async () => {
+  let t = 1000;
+  const shared = sharedMap();
+  let n = 0;
+  const src = { everyRepo: async (o: string, ps: string[]) => (n++, [{ repo: `${o}/site`, files: { [ps[0]!]: `read ${n}` } }]) };
+  const a = packReads(src, () => "acme", { now: () => t, shared });
+  const b = packReads(src, () => "acme", { now: () => t, shared });
+  const day = 24 * 3600_000;
+  const first = await a.everyRepo!(["peak.yml", "peak.yaml"], { maxAgeMs: day });
+  assert.deepEqual(first, { at: 1000, repos: [{ repo: "acme/site", files: { "peak.yaml": "read 1" } }] }, "paths sorted: one key whatever the order");
+  t += 3 * 3600_000;
+  assert.deepEqual(await b.everyRepo!(["peak.yaml", "peak.yml"], { maxAgeMs: day }), first, "another isolate gets the same read, with when it was read");
+  assert.equal(n, 1);
+  assert.equal((await b.everyRepo!(["peak.yaml", "peak.yml"], { maxAgeMs: 3600_000 })).repos[0]!.files["peak.yaml"], "read 2", "too old for this asker: read again");
+  assert.equal((await a.everyRepo!(["peak.yaml", "peak.yml"], { maxAgeMs: 0 })).repos[0]!.files["peak.yaml"], "read 3", "0: now");
+  assert.equal((await a.everyRepo!(["peak.yaml", "peak.yml"], { maxAgeMs: 10 * day })).at, t, "older than 24 h is never asked for");
+  assert.equal(n, 3);
+  await assert.rejects(a.everyRepo!(["../x"]), /Not paths to read/);
+  await assert.rejects(a.everyRepo!([]), /Not paths to read/);
+  await assert.rejects(a.everyRepo!(["a", "b", "c", "d", "e", "f", "g"]), /Not paths to read/);
+});
+
+test("files: a file read is shared through D1 too, and one D1 can't answer is read from the forge", async () => {
+  let t = 0;
+  const shared = sharedMap();
+  let n = 0;
+  const src = { file: async () => (n++, undefined) };
+  await packReads(src, () => "acme", { now: () => t, shared }).file!("acme/site", "peak.yaml");
+  assert.equal(await packReads(src, () => "acme", { now: () => t, shared }).file!("acme/site", "peak.yaml"), undefined, "none is kept as none");
+  assert.equal(n, 1);
+  const broken = { get: async () => Promise.reject(new Error("D1 down")), put: async () => Promise.reject(new Error("D1 down")) };
+  assert.equal(await packReads({ file: async () => "x" }, () => "acme", { shared: broken }).file!("acme/site", "a"), "x");
+});
+
+test("files: a pack reads every repo through ctx.forge(), kept in the instance's D1", async () => {
+  let n = 0;
+  const reader = pack(
+    { id: "reader" },
+    {
+      routes: (app, ctx) => {
+        app.get("/reader", async (c) => c.json((await ctx.forge()?.everyRepo?.(["peak.yaml"], { maxAgeMs: 3600_000 }))?.repos));
+      },
+    },
+  );
+  const { get, db } = signedIn(snapshot(), {}, { packs: [reader], forge: { id: "github", name: "GitHub", can: [], host: "github.com", everyRepo: async (o, ps) => (n++, [{ repo: `${o}/site`, files: { [ps[0]!]: "x" } }]) } });
+  assert.deepEqual(await (await get("/reader")).json(), [{ repo: "ACME/site", files: { "peak.yaml": "x" } }]);
+  const row = await db.DB.prepare("SELECT key FROM forge_reads").first<{ key: string }>();
+  assert.equal(row?.key, "every:ACME:peak.yaml");
+  assert.equal(n, 1);
 });

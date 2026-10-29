@@ -3,7 +3,7 @@
  * cookie on a localhost Host; anything else is a 404, as if nothing were here.
  */
 import { ownersIn } from "./owners.ts";
-import { packReads } from "./sources/files.ts";
+import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
 import { appendFileSync, existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -220,7 +220,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   /** What this instance's forge can do beyond the gather (GitHub: everything). */
   const forge = deps.forge ?? githubForge(ghe);
   // What packs may read from the owners' repos (#139): checked and kept a few minutes, shared by every pack.
-  const reads = packReads(forge, () => ownersIn(env));
+  const reads = packReads(forge, () => ownersIn(env), { shared: d1Reads(env.DB) });
   // A pack's PR changing one file (dovre#203): its declared kinds only, in the owners' repos, logged.
   const proposals = (c: Pack) => packProposals({ pack: { id: c.manifest.id, name: c.manifest.name }, kinds: (c.writes ?? []).map((w) => w.kind), owners: () => ownersIn(env), db: env.DB, propose: (p) => forge.propose!(p) });
   const can = (what: ForgeCan) => forgeCan(forge, what);
