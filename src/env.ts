@@ -13,7 +13,7 @@ import type { D1 } from "./db.ts";
 import type { Frame } from "./html.ts";
 
 /** `who`: hosted, the email Cloudflare Access verified for this request (what a write is done as). */
-export type AppEnv = { Bindings: Env; Variables: { frame: Frame; who?: string; /** Which writes take one click (src/writes.ts), for the page being drawn. */ clicks?: Map<string, import("./writes.ts").Clicks>; /** Local, PUBLIC_ORIGIN when set (src/access.ts). */ publicOrigin?: string } };
+export type AppEnv = { Bindings: Env; Variables: { frame: Frame; who?: string; /** Which writes take one click (src/writes.ts), for the page being drawn. */ clicks?: Map<string, import("./writes.ts").Clicks>; /** Local, PUBLIC_ORIGIN when set (src/access.ts). */ publicOrigin?: string; /** How long this page waited on the gather (ms), for Server-Timing (src/speed.ts). */ speedWaited?: number } };
 export type App = Hono<AppEnv>;
 
 export type Env = {

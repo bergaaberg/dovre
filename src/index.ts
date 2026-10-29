@@ -1,6 +1,6 @@
 /** Runs Dovre: open the database, find out who I am on GHE, keep the view fresh, bind to localhost. */
 import { ownersIn } from "./owners.ts";
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -447,7 +447,15 @@ packSet.off.push(...loaded.failed);
 mcpOn = () => packSet.on.some((p) => p.tools || p.lookups);
 for (const o of packSet.off) console.log(`pack ${o.id}: off, ${o.why}`);
 
+/** data/perf.log: slow requests and page loads, timings only, 200 kB at most. */
+const perfFile = resolve(dirname(dbPath), "perf.log");
+const perfLog = (line: string) => {
+  try {
+    if (!existsSync(perfFile) || statSync(perfFile).size < 200_000) appendFileSync(perfFile, `${line}\n`);
+  } catch {}
+};
 const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
+  perfLog,
   packs: packSet,
   stats,
   gatherer,
