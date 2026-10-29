@@ -1,9 +1,10 @@
 // Auto runs (#207): issues an owner labelled dovre:auto, picked up, run in a sandbox, closed out.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { DEFAULT_POLICY, savePolicy as saveNotifyPolicy } from "../src/notify.ts";
 import { autoTick, type IssueCheck, runAgain, untrusted } from "../src/actions/auto.ts";
 import { autoIssueOf, sandboxPrText } from "../src/actions/sandbox.ts";
-import { type AutoRow, autoKey, MAX_TRIES, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, isQuiet, localHour, saveAutoSettings } from "../src/agents/auto.ts";
+import { type AutoRow, autoKey, MAX_TRIES, autoOptionsOf, autoPrompt, autoSettingsOf, autoStore, capsFor, DEFAULT_AUTO, saveAutoSettings } from "../src/agents/auto.ts";
 import { capsOf, type Desk } from "../src/agents/desk.ts";
 import { argsFor } from "../src/agents/harnesses/claude/harness.ts";
 import type { Run } from "../src/agents/runner.ts";
@@ -29,21 +30,15 @@ test("capsFor: an issue's options only narrow Settings", () => {
 
 test("autoSettingsOf: bounded, repos lowercased, quiet hours only when both are given", () => {
   const s = autoSettingsOf({ on: "on", off: "ACME/Shop, not a repo, acme/shop", atOnce: "99", runUsd: "0", dayUsd: "abc", minutes: "30", quietFrom: "22", quietTo: "7" });
-  assert.deepEqual(s, { on: true, off: ["acme/shop"], atOnce: 5, runUsd: 0.5, dayUsd: DEFAULT_AUTO.dayUsd, minutes: 30, quiet: { from: 22, to: 7 } });
+  assert.deepEqual(s, { on: true, off: ["acme/shop"], atOnce: 5, runUsd: 0.5, dayUsd: DEFAULT_AUTO.dayUsd, minutes: 30, quietOwn: true, quiet: { from: 22, to: 7 } });
+  // Before #272, its own hours were its own; now a form says which (#272).
+  assert.equal(autoSettingsOf({ quiet: null }).quietOwn, false, "none kept: Notifications' hours");
+  assert.equal(autoSettingsOf({ quietAs: "notify", quietFrom: "22", quietTo: "7" }).quietOwn, false);
+  assert.deepEqual(autoSettingsOf({ quietAs: "own", quietWeekends: "on" }).quiet, { from: 0, to: 0, weekends: true });
   assert.equal(autoSettingsOf({ quietFrom: "22" }).quiet, null);
   assert.equal(autoSettingsOf({}).on, false, "off until switched on");
 });
 
-test("isQuiet: across midnight and within a day; localHour reads the zone", () => {
-  assert.equal(isQuiet({ quiet: { from: 22, to: 7 } }, 23), true);
-  assert.equal(isQuiet({ quiet: { from: 22, to: 7 } }, 3), true);
-  assert.equal(isQuiet({ quiet: { from: 22, to: 7 } }, 7), false);
-  assert.equal(isQuiet({ quiet: { from: 9, to: 17 } }, 12), true);
-  assert.equal(isQuiet({ quiet: null }, 12), false);
-  assert.equal(localHour(Date.parse("2026-10-28T12:30:00Z"), "UTC"), 12);
-  assert.equal(localHour(Date.parse("2026-10-28T12:30:00Z"), "Asia/Tokyo"), 21);
-  assert.equal(typeof localHour(0, "Not/AZone"), "number", "an invalid zone falls back");
-});
 
 const check = (o: Partial<IssueCheck> = {}): IssueCheck => ({ open: true, labelled: true, title: "Fix it", body: "please", updated: "2026-10-28T10:00:00Z", author: "stranger", label: { by: "me", at: "2026-10-28T09:00:00Z" }, renames: [], ...o });
 const owner = (l: string | undefined) => l === "me" || l === "acme";
@@ -224,7 +219,7 @@ test("autoTick: a stuck run goes back in the queue on its own, label kept and no
   await on(w.db);
   await w.tick();
   Object.assign(w.runs.get("run-1")!, { status: "done", out: { state: "none" }, events: [] });
-  await on(w.db, { quiet: { from: 11, to: 13 } });
+  await on(w.db, { quietOwn: true, quiet: { from: 11, to: 13 } });
   let p = await w.tick();
   assert.equal(p.rows[0]!.state, "queued");
   assert.equal(p.rows[0]!.tries, 1);
@@ -288,11 +283,18 @@ test("autoTick: a machine too busy to answer (pushing for a PR) isn't a run clea
 
 test("autoTick: limits hold: at once, the day's cost, quiet hours, a repo left out, no checkout", async () => {
   const quiet = world();
-  await on(quiet.db, { quiet: { from: 11, to: 13 } });
+  await on(quiet.db, { quietOwn: true, quiet: { from: 11, to: 13 } });
   const p = await quiet.tick();
   assert.equal(quiet.started.length, 0);
   assert.match(p.paused!, /Quiet hours/);
   assert.equal(autoNeeds(p, "github.com", Date.now()).at(-1)!.title, "Auto runs are paused");
+
+  // As Notifications' quiet hours (#272): those count, not the auto runs' own.
+  const shared = world();
+  await on(shared.db, { quiet: { from: 1, to: 2 } });
+  await saveNotifyPolicy(shared.db.DB, { ...DEFAULT_POLICY, quiet: { from: 11, to: 13 } });
+  assert.match((await shared.tick()).paused ?? "", /Quiet hours/);
+  assert.equal(shared.started.length, 0);
 
   const spent = world();
   await on(spent.db, { dayUsd: 1 });
@@ -325,7 +327,7 @@ test("autoTick: two passes at once start an issue only once", async () => {
 
 test("autoTick: an issue closed before its turn doesn't start", async () => {
   const w = world();
-  await on(w.db, { quiet: { from: 11, to: 13 } });
+  await on(w.db, { quietOwn: true, quiet: { from: 11, to: 13 } });
   await w.tick();
   w.close();
   await on(w.db);

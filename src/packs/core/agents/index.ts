@@ -19,7 +19,9 @@ import type { Desk } from "../../../agents/desk.ts";
 import type { Dismissed } from "../../../agents/dismissed.ts";
 import type { Run } from "../../../agents/runner.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
-import { type Pack, PACK_API } from "../../types.ts";
+import { type Pack, PACK_API, type PackContext } from "../../types.ts";
+import { loadPolicy } from "../../../notify.ts";
+import type { Quiet } from "../../../quiet.ts";
 import { agentAsksOf } from "./asks.ts";
 import { aboutAgentPage, agentsForBino } from "./bino.ts";
 import { agentFinds, agentPages } from "./finds.ts";
@@ -65,6 +67,12 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
   let stop = () => {};
   // Auto runs (#207): the limits and the last pass, kept for needs and the Settings panel.
   let auto: AutoSettings = { ...DEFAULT_AUTO };
+  /** Notifications' quiet hours, shown beside auto runs' choice (#272). */
+  let notifyQuiet: Quiet | null = null;
+  const readSettings = async (db: PackContext["db"]) => {
+    auto = await loadAutoSettings(db);
+    notifyQuiet = (await loadPolicy(db).catch(() => undefined))?.quiet ?? null;
+  };
   let pass: AutoPass | undefined;
   const picks = github ? issuePicks({ ghe: github.ghe, owners: github.owners, repoOf }) : undefined;
   return {
@@ -78,7 +86,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       paths: ["worktrees"],
       rings: [
         { kind: "agent-ask", label: "An agent needs my OK", hint: "A permission question, or a tool it was refused" },
-        { kind: "agent-done", label: "A long agent turn finishes", hint: "Only turns started here, longer than the threshold below" },
+        { kind: "agent-done", label: "A long agent turn finishes", hint: "Only turns started here, longer than Settings → Agents says" },
         { kind: "agent-auto", label: "An auto run needs me", hint: "A dovre:auto issue's draft PR waits for my OK, or its run got stuck" },
       ],
       // Auto runs' pass: following runs, and a search for newly labelled issues.
@@ -86,14 +94,14 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
     },
     async refresh(ctx) {
       if (!github) return;
-      auto = await loadAutoSettings(ctx.db);
+      await readSettings(ctx.db);
       const before = JSON.stringify(pass ?? null);
       pass = await autoTick({ db: ctx.db, ghe: github.ghe, owners: github.owners(), desk, clicks: () => writeClicksStore(ctx.db).get(), tz: ctx.env.TZ_NAME });
       if (JSON.stringify(pass) !== before) ctx.publish(["agents"]);
     },
-    settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME) : ""),
+    settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME, notifyQuiet) : ""),
     init(ctx) {
-      if (github) void loadAutoSettings(ctx.db).then((s) => (auto = s), () => {});
+      if (github) void readSettings(ctx.db).catch(() => {});
       // Locally the sessions and worktrees are read here; a read that changed them redraws the pages (and what needs me rings).
       if (here && !ctx.hosted) stop = here.start(() => ctx.publish(["snapshot"]));
       const watch = turnWatch();
@@ -141,12 +149,12 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
           const q = new URLSearchParams({ repo: dir, ...(r.ok ? { labelled: String(Number(form.number)) } : { error: r.error }) });
           return c.redirect(`/agents/new?${q}`, 303);
         });
-      // Settings → Packs → Agents: the auto runs' limits.
+      // Settings → Agents: the auto runs' limits.
       if (github)
         app.post("/agents/auto", async (c) => {
           auto = autoSettingsOf(await c.req.parseBody());
           await saveAutoSettings(ctx.db, auto);
-          return c.redirect("/settings/packs/agents", 303);
+          return c.redirect("/settings/agents#auto", 303);
         });
       // "Working alone" → Run again (#209): a stuck issue labelled dovre:auto again and queued.
       if (github)
