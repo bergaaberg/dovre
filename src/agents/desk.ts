@@ -21,6 +21,7 @@ import { effortIn } from "./harnesses/shared.ts";
 import { EFFORTS, type Effort, HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, type StartOpts, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
 import type { SandboxState } from "./sandbox.ts";
+import { pairId, pairWorktree } from "./pair.ts";
 
 export const SID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const RUN_ID = /^[\w-]{1,64}$/;
@@ -79,7 +80,8 @@ export type Desk = {
   /** `sandbox`: run it in a sandbox (a fresh clone in a container, yolo inside), when the form ticked it. */
   /** `caps`: a sandbox run's base, wall clock, budget and effort (#207, auto runs); checked here. `run`: the run's id. */
   /** `effort`: a level from the harness's own list (#236). */
-  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; effort?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown }): Promise<{ to: string; run?: string } | { error: string }>;
+  /** `also`: a second harness to give the same prompt (#242); each side then runs in a worktree of its own, and `to` is the pair's page. */
+  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; effort?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown; also?: unknown }): Promise<{ to: string; run?: string } | { error: string }>;
   /** `copy`: ticked, the reply goes to a copy of the session (a harness that can fork), as it does on its own when a terminal has it open. */
   reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown; effort?: unknown; copy?: unknown }): Promise<Done>;
   /** Answers to the agent's newest question (AskUserQuestion): the form as posted. */
@@ -189,6 +191,8 @@ export function localDesk(o: {
   queue: Queue;
   sessions: () => Promise<{ live: Session[]; recent: Session[] }>;
   onStarted?: (sid: string) => void | Promise<void>;
+  /** Makes one side's worktree of a pair (#242); src/agents/pair.ts, swapped in tests. */
+  worktree?: (checkout: string, harness: HarnessId, id: string) => Promise<string>;
 }): Desk {
   const { env, runner, queue } = o;
   const workDir = workDirOf(env);
@@ -255,6 +259,30 @@ export function localDesk(o: {
     return { cleared: [...new Set([...runs.map((r) => r.sessionId).filter((x): x is string => !!x), ...sessions])] };
   };
 
+  /**
+   * The same prompt on two harnesses (#242): a worktree each, beside the checkout, then a turn each.
+   * The first takes the form's model and effort; the second its own defaults. Both share the mode.
+   */
+  async function startPair(cwd: string, prompt: string, harness: HarnessId, f: Parameters<Desk["start"]>[0]): Promise<{ to: string; run?: string } | { error: string }> {
+    const also = String(f.also);
+    if (!runner) return { error: "Agents can't run here." };
+    if (f.repo === WORK) return { error: "Two agents side by side work in worktrees of a checkout: pick one." };
+    if (tickedOf(f.sandbox)) return { error: "Two agents side by side don't run in a sandbox (yet): untick one." };
+    if (!(HARNESSES as readonly string[]).includes(also) || !runner.harnesses().includes(also as HarnessId)) return { error: `No ${also} here to compare with.` };
+    if (also === harness) return { error: "Pick a different agent to compare with." };
+    const id = pairId();
+    const make = o.worktree ?? pairWorktree;
+    const sides: [HarnessId, { model: unknown; effort: unknown }][] = [[harness, { model: f.model, effort: f.effort }], [also as HarnessId, { model: "", effort: "" }]];
+    const dirs: string[] = [];
+    try {
+      for (const [h] of sides) dirs.push(await make(cwd, h, id));
+    } catch (e) {
+      return { error: String((e as Error).message) };
+    }
+    const runs = sides.map(([h, t], i) => runner.start({ harness: h, cwd: dirs[i]!, prompt, mode: modeOf(f.mode), model: modelOf(t.model, h), effort: effortOf(t.effort, h), pair: id }));
+    return { to: `/agents/pair/${id}`, run: runs[0]!.id };
+  }
+
   return {
     view: () => {
       const sandbox = runner?.sandbox();
@@ -284,6 +312,7 @@ export function localDesk(o: {
       if (!prompt) return { error: "Say what the agent should do." };
       const harness = harnessOf(f.harness);
       const sandbox = tickedOf(f.sandbox);
+      if (f.also !== undefined && f.also !== "") return startPair(cwd, prompt, harness, f);
       if (sandbox && f.repo === WORK) return { error: "A sandbox run works in a clone of a checkout: pick one." };
       let run;
       try {

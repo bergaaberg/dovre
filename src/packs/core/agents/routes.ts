@@ -21,8 +21,9 @@ import { sessionsOf } from "./index.ts";
 import { needsOf } from "../../../home/needs.ts";
 import { WORK } from "../../../agents/workdir.ts";
 import { type Picks, issuePrompt, needPicks } from "./picks.ts";
-import { type PicksView, agentPage, goneAgentPage, newAgentPage } from "./session.view.ts";
-import { agentsPage, worktreesPage } from "./view.ts";
+import { type PicksView, agentPage, goneAgentPage, newAgentPage, pairPage } from "./session.view.ts";
+import { PAIR_ID, lastSaid } from "../../../agents/pair.ts";
+import { agentsPage, pairOf, worktreesPage } from "./view.ts";
 
 type C = Context<AppEnv>;
 
@@ -133,7 +134,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
   });
   app.post("/agents/new", async (c) => {
     const form = await c.req.parseBody();
-    const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model, effort: form.effort, machine: form.machine, sandbox: form.sandbox });
+    const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model, effort: form.effort, machine: form.machine, sandbox: form.sandbox, also: form.also });
     if ("to" in r) return c.redirect(r.to, 303);
     const v = desk.view();
     const repos = await desk.repos();
@@ -150,7 +151,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     if (run.sessionId) return c.redirect(`/agents/s/${run.sessionId}`, 303);
     const flash = flashes.get(run.id);
     flashes.delete(run.id);
-    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, flash, mac: macOf(run.id), diff: ctx.hosted || run.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, run.cwd) }));
+    return ctx.page(c, agentPage({ sessionId: run.id, turns: [{ role: "user", text: run.prompt }], run, pair: run.pair, flash, mac: macOf(run.id), diff: ctx.hosted || run.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, run.cwd) }));
   });
   app.get("/agents/s/:sid", async (c) => {
     const sid = c.req.param("sid");
@@ -159,7 +160,22 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     if (!v) return gone(c);
     const flash = flashes.get(sid);
     flashes.delete(sid);
-    return ctx.page(c, agentPage({ sessionId: sid, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, stats: v.stats, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf, diff: ctx.hosted || v.run?.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, v.session?.cwd ?? v.run?.cwd) }));
+    const pair = v.run ? pairOf(v.run, desk.view().runs) : undefined;
+    return ctx.page(c, agentPage({ sessionId: sid, pair, session: v.session, turns: v.turns, run: v.run, flash, discardable: v.discardable, turnCost: v.turnCost, stats: v.stats, queued: v.queued, mac: macOf(sid), replyCopies: v.replyCopies, copies: v.copies, copyOf: v.copyOf, diff: ctx.hosted || v.run?.sandbox ? undefined : diffOf(ctx.env.CODE_DIR, v.session?.cwd ?? v.run?.cwd) }));
+  });
+  /** The same prompt on two harnesses (#242): both sides, filled in over the hub as they work. */
+  app.get("/agents/pair/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!PAIR_ID.test(id)) return c.notFound();
+    const runs = desk.view().runs.filter((r) => r.pair === id).sort((a, b) => a.startedAt - b.startedAt);
+    if (!runs.length) return gone(c);
+    // What each said is the machine's to tell (hosted keeps metadata only); a side it can't reach shows without it.
+    const full = await Promise.all(runs.map((r) => desk.run(r.id).catch(() => undefined)));
+    const sides = runs.map((r, i) => {
+      const run = full[i] ?? r;
+      return { run, said: full[i] ? lastSaid(run) : undefined, diff: ctx.hosted ? undefined : diffOf(ctx.env.CODE_DIR, run.cwd) };
+    });
+    return ctx.page(c, pairPage(id, sides, { mac: macOf(runs[0]!.id) }));
   });
   /** Answers to the agent's newest question (AskUserQuestion), as its next message. Only offered choices count. */
   app.post("/agents/s/:sid/answer", async (c) => {

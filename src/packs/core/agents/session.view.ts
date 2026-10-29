@@ -9,7 +9,7 @@ import type { PageOpts } from "../../types.ts";
 import { HARNESS_LABEL, harnessFields, modeShort, turnFields } from "../../../pages/models.ts";
 import { optionsOf } from "../../../agents/harnesses/index.ts";
 import type { Session } from "../../../sources/claude.ts";
-import { type Child, Confirm, Empty, Item, List, Notice, PageHeader, Panel, Pill, icon } from "../../../ui/kit.ts";
+import { type Child, Confirm, Empty, Grid2, Item, List, Notice, PageHeader, Panel, Pill, icon } from "../../../ui/kit.ts";
 import { AUTO_LABEL } from "../../../agents/auto.ts";
 import type { Need } from "../../../home/needs.ts";
 import { type IssuePick, needPrompt } from "./picks.ts";
@@ -177,7 +177,7 @@ function sandboxPanel(run: Run) {
   });
 }
 
-export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string; /** Local, in a checkout: its diff page (dovre#105). */ diff?: string; /** Its turns started here (#241). */ stats?: TurnStat[] }): PageOpts {
+export function agentPage(opts: { sessionId: string; session?: Session; turns: Turn[]; run?: Run; flash?: string; /** Started side by side with another harness (#242): the pair's id. */ pair?: string; /** Started here and ended: it can be cleared away. */ discardable?: boolean; /** What the newest turn cost by itself (src/agents/latest.ts). */ turnCost?: number; /** Written while it worked, waiting for the turn to end (src/agents/queue.ts). */ queued?: Queued[]; /** Hosted: the Mac's agents, online or not. */ mac?: MacStatus; /** What I send goes to a copy: a terminal has the session open. */ replyCopies?: boolean; /** Copies made of it from here. */ copies?: Copy[]; /** The session this one is a copy of. */ copyOf?: string; /** Local, in a checkout: its diff page (dovre#105). */ diff?: string; /** Its turns started here (#241). */ stats?: TurnStat[] }): PageOpts {
   const { sessionId, session: s, turns, run } = opts;
   const lines = statsAt(turns, opts.stats ?? [], run?.id);
   const linesAt = (i: number) => (lines.get(i) ?? []).map((t) => statLine(t, opts.diff));
@@ -231,6 +231,7 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
   })}
 ${opts.flash ? Notice({ tone: "bad", children: opts.flash }) : ""}
 ${macNotice(opts.mac)}
+${opts.pair ? Notice({ children: html`Started side by side with another agent on the same prompt: <a href="/agents/pair/${opts.pair}">compare them</a>.` }) : ""}
 ${opts.copyOf ? Notice({ children: html`A copy of <a href="/agents/s/${opts.copyOf}">a session open in a terminal</a>. They don't see each other: what's said here stays here.` }) : ""}
 ${opts.copies?.length ? Notice({ children: html`Copies made from here: ${opts.copies.map((c, i) => html`${i ? ", " : ""}${c.sid ? html`<a href="/agents/s/${c.sid}">${c.status === "running" ? "working" : "copy"}</a>` : html`<a href="/agents/r/${c.run}">starting</a>`} · ${Ago(c.startedAt)}`)}. The terminal doesn't see them.` }) : ""}
 ${s?.summary ? html`<p class="ai"><span class="spark">Recap</span>${s.summary}</p>` : ""}
@@ -313,6 +314,7 @@ ${opts.machines && opts.machines.length > 1 ? html`<label class="field"><span cl
 ${componentChips}
 <label class="field"><span class="label">What should it do?</span><textarea name="prompt" rows="8" required placeholder="Skills work as usual: /some-skill …, or say what to do">${opts.prompt ?? ""}</textarea></label>
 ${opts.sandbox ? sandboxField(opts.sandbox, !!opts.sandboxed) : ""}
+${harnesses.length > 1 && repo !== WORK ? html`<label class="field"><span class="label">Side by side with</span><select name="also"><option value="">No other agent</option>${harnesses.map((h) => html`<option value="${h}">${HARNESS_LABEL[h]}</option>`)}</select><span class="hint">The same prompt to a second agent: each works in a new worktree beside the checkout, on its own branch, and you compare them on one page. The second takes its default model.</span></label>` : ""}
 <div class="fields"><label class="field"><span class="label">Agent</span><select name="harness"${harnesses.length > 1 ? html` data-harness-pick` : ""}>${harnesses.map((h) => html`<option value="${h}">${HARNESS_LABEL[h]}</option>`)}</select></label>${harnessFields(harnesses)}<div class="field"><button type="submit" class="primary" data-busy="Starting">Start</button></div></div>
 ${harnesses.includes("omp") ? html`<p class="hint t3">omp's own setting may approve everything; sessions started here always ask first, in the mode you pick.</p>` : ""}
 </form>`,
@@ -329,4 +331,34 @@ export function goneAgentPage(): PageOpts {
     body: html`${PageHeader({ title: "Not here any more", crumbs: [{ href: "/agents", label: "Agents" }] })}
 ${Empty({ title: "That run isn't here any more", children: html`<p class="t2">A run's record is kept for a week after it ends, then swept away. One on a machine that's gone goes with it.</p><p><a class="btn" href="/agents">Agents</a></p>` })}`,
   };
+}
+
+/** One side of a pair (#242): its run (with what it said, when the machine answered), and its pages. */
+export type PairSide = { run: Run; said?: string; diff?: string };
+
+const RUN_STATE: Record<Run["status"], { label: string; tone?: "ok" | "bad" }> = { running: { label: "working" }, done: { label: "done", tone: "ok" }, failed: { label: "failed", tone: "bad" }, stopped: { label: "stopped" } };
+
+/** The same prompt on two harnesses, side by side (#242): what each said last, its cost and time, and what it changed in its worktree. */
+export function pairPage(id: string, sides: PairSide[], opts: { mac?: MacStatus } = {}): PageOpts {
+  const first = sides[0]!.run;
+  const col = ({ run, said, diff }: PairSide) => {
+    const st = RUN_STATE[run.status];
+    const href = run.sessionId ? `/agents/s/${run.sessionId}` : `/agents/r/${run.id}`;
+    const time = (run.endedAt ?? Date.now()) - run.startedAt;
+    const d = run.diff;
+    const changed = d ? (d.files ? html`${d.files} ${d.files === 1 ? "file" : "files"} <span class="add">+${d.add}</span> <span class="del">−${d.del}</span>` : "no changes") : run.status === "running" ? "" : "—";
+    return Panel({
+      title: html`${harnessTag(run.harness, run.model)}`,
+      meta: Pill({ tone: st.tone, children: st.label }),
+      children: html`<p class="pair-stats t2">${run.cost ? `$${run.cost.toFixed(3)} · ` : ""}${duration(time)}${changed ? html` · ${changed}` : ""}</p><p class="t3"><code>${run.repo}</code></p>${
+        said ? html`<div class="pair-said">${markdown(trunc(said, 8000), { headingOffset: 3 })}</div>` : html`<p class="t3">${run.status === "running" ? "Working…" : "Nothing said."}</p>`
+      }`,
+      foot: html`<a class="btn" href="${href}">Open the session</a>${diff ? html` <a class="btn ghost" href="${diff}">Diff</a>` : ""}`,
+    });
+  };
+  const body = html`${PageHeader({ title: "Side by side", crumbs: [{ href: "/agents", label: "Agents" }], sub: html`The same prompt on ${sides.map((s, i) => html`${i ? " and " : ""}${HARNESS_NAME[s.run.harness]}`)}, each in a worktree of its own.` })}
+${macNotice(opts.mac)}
+<p class="pair-prompt t2">${trunc(first.prompt.split("\n")[0]!, 240)}</p>
+<div data-live id="pair">${Grid2(sides.map(col))}</div>`;
+  return { title: "Side by side · Agents", current: "/agents", body, head: html`<meta name="u-topics" content="snapshot agents ${sides.map((s) => `run:${s.run.id}${s.run.sessionId ? ` run:${s.run.sessionId}` : ""}`).join(" ")}">` };
 }

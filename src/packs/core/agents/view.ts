@@ -22,6 +22,9 @@ export function askBar(a: AgentAsk): Html {
   return html`<section class="approval" aria-label="Agent in ${a.repo} asks"><div class="approval-text"><h2>Agent in ${a.repo} wants to run</h2><p class="approval-q"><code>${a.details[0] ?? a.specs[0]}</code>${more > 0 ? html` <span class="t3">+${more} more</span>` : ""}</p><p class="t3">${a.title} · <a href="/agents/s/${a.sid}">Open</a></p></div><div class="approval-do"><form method="post" action="/agents/s/${a.sid}/allow">${a.specs.map((s) => html`<input type="hidden" name="spec" value="${s}">`)}<input type="hidden" name="mode" value="${a.mode}"><input type="hidden" name="model" value="${a.model}">${effortHidden}<input type="hidden" name="back" value="1"><button type="submit" class="primary" data-busy="Allowing" data-hotkey="A" title="Allow (A)">Allow</button></form><form method="post" action="/agents/s/${a.sid}/reply"><input type="hidden" name="prompt" value="${NO}"><input type="hidden" name="mode" value="${a.mode}"><input type="hidden" name="model" value="${a.model}">${effortHidden}<input type="hidden" name="back" value="1"><button type="submit" class="ghost">No</button></form></div></section>`;
 }
 
+/** The pair a session's first turn was started in (#242): its later turns are of it too. */
+export const pairOf = (r: Run, all: Run[]): string | undefined => r.pair ?? (r.sessionId ? all.find((x) => x.sessionId === r.sessionId && x.pair)?.pair : undefined);
+
 /** One run started here: what it was asked, how it's doing, and Stop or Clear away. */
 function runItem(r: Run, all: Run[]) {
   const cost = sessionCost(r, all);
@@ -29,6 +32,7 @@ function runItem(r: Run, all: Run[]) {
   const today = daySpend(r.sessionId, all, Date.now());
   const older = today > 0 && today < cost - 0.005;
   const href = r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.id}`;
+  const pair = pairOf(r, all);
   const denied = r.events.some((e) => e.t === "denied");
   const tone = r.status === "running" ? "ok" : r.status === "failed" ? "bad" : denied ? "warn" : undefined;
   const label = r.status === "running" ? "working" : denied ? "needs your OK" : r.status;
@@ -39,7 +43,7 @@ function runItem(r: Run, all: Run[]) {
   return Item({
     lead: html`<span class="dot${tone ? ` ${tone}` : ""}" aria-hidden="true"></span>`,
     title: html`<a class="name" href="${href}"><strong>${r.prompt.split("\n")[0]!.slice(0, 120)}</strong></a> ${Pill({ tone, children: label })}`,
-    line: html`${harnessTag(r.harness, r.model)} ${r.machine ? html`<span class="t3">${r.machine}</span> · ` : ""}${r.repo} · ${r.mode}${r.forked ? " · copy" : ""}`,
+    line: html`${harnessTag(r.harness, r.model)} ${r.machine ? html`<span class="t3">${r.machine}</span> · ` : ""}${r.repo} · ${r.mode}${r.forked ? " · copy" : ""}${pair ? html` · <a href="/agents/pair/${pair}">side by side</a>` : ""}`,
     more: html`<span class="actions">${act}</span>`,
     trail: html`${Ago(r.startedAt)}${cost ? (older ? html`<span class="t3" title="$${cost.toFixed(2)} in all">$${today.toFixed(2)} today</span>` : html`<span class="t3">$${cost.toFixed(2)}</span>`) : ""}`,
     quiet: r.status !== "running" && !denied,
