@@ -4,7 +4,7 @@
  */
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
-import { hooksOf, type Off, type Refreshes, type RefreshState } from "../packs/registry.ts";
+import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState } from "../packs/registry.ts";
 import type { Copy } from "../packs/copies.ts";
 import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
@@ -120,6 +120,7 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (m) pairs.push(["Runs", `${WHERE[m.execution ?? "any"] ?? m.execution} · ${m.domain}${v.core?.includes(id) ? " · Dovre's own" : ""}`]);
   if (o.pack) {
     pairs.push(["Answers", hooksOf(o.pack).join(", ") || "nothing yet"]);
+    pairs.push(["Bino hears", binoOf(o.pack)]);
     pairs.push(["Refresh", refreshLine(o.pack, r, v.hosted)]);
   }
   const cron = m && cronLine(m, o.pack, r);
