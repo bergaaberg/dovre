@@ -23,6 +23,7 @@ import type { Forge } from "./forge/types.ts";
 import { loadMemory, memoryLater } from "./packs/core/assistant/bino/memory.ts";
 import { type HubClient, hubClient, type HubNamespace, remoteBino } from "./hosted/client.ts";
 import { remoteDesk } from "./bridge/remote.ts";
+import { useFoundModels } from "./agents/harnesses/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
@@ -260,7 +261,10 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const memory = memoryLater(loadMemory(bindings.DB));
     // The agents desk is the machines', over the bridge (PLAN D24, H7), when it's set up (a BRIDGE_KEY).
     // Without the bridge, a desk with nothing to run: the pages say so.
-    const desk = hub && keyOk(bindings.BRIDGE_KEY) ? remoteDesk(hub) : localDesk({ env, queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
+    const remote = hub && keyOk(bindings.BRIDGE_KEY) ? remoteDesk(hub) : undefined;
+    const desk = remote ?? localDesk({ env, queue: createQueue(), sessions: async () => ({ live: [], recent: [] }) });
+    // The pickers offer what the machines found in their CLIs' configs (#238), never this server's own home.
+    if (remote) useFoundModels((id) => remote.foundModels(id));
     const dismissed = createDismissed(bindings.DB);
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });

@@ -23,6 +23,8 @@ import { LEGACY_MACHINE, type Call } from "./wire.ts";
 export type RemoteDesk = Desk & {
   /** Reads the hub's view of the machines again, unless it did a moment ago. */
   refresh(): Promise<void>;
+  /** The models the machines online found in a harness's config (#238), without its default; none: the fixed list stays. */
+  foundModels(id: HarnessId): { value: string; label: string }[];
 };
 
 type Sessions = { live: Session[]; recent: Session[] };
@@ -114,6 +116,10 @@ export function remoteDesk(hub: Pick<HubClient, "mac" | "call">, o: { ttlMs?: nu
         // Sandbox runs: offered when a machine online can start one (the machine says why not, if the picked one can't).
         ...(on.some((m) => m.state?.sandbox) ? { sandbox: { ok: true as const } } : {}),
       };
+    },
+    foundModels(id) {
+      const seen = new Set<string>();
+      return online().flatMap((m) => m.state?.models?.[id] ?? []).filter((x) => x.value !== "" && !seen.has(x.value) && !!seen.add(x.value));
     },
     machineOf(id) {
       const m = machines().find((x) => x.id === owner.get(id));

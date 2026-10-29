@@ -662,3 +662,43 @@ test("what Dovre sends (#145): the Mac records each dial and frame before it goe
     bridge.stop();
   }
 });
+
+test("found models (#238): the Mac reports what its CLIs' configs name, the hub keeps only sound ones, and hosted offers them", async () => {
+  const { stateOf } = await import("../src/bridge/serve.ts");
+  const { remoteDesk } = await import("../src/bridge/remote.ts");
+  const { modelsOf, useFoundModels } = await import("../src/agents/harnesses/index.ts");
+  const base = { at: 1, harnesses: ["omp", "claude"], runs: [], sessions: { live: [], recent: [] } };
+  const up = parseUp({ t: "state", state: { ...base, models: {
+    omp: [{ value: "", label: "omp's default" }, { value: "zai/glm-5.3-flash", label: "glm" }, { value: "x; rm -rf ~", label: "bad" }, { value: "ok", label: 5 }],
+    codex: [{ value: "gpt-6", label: "not a harness it has" }],
+    claude: "nope",
+  } } });
+  assert.deepEqual(up && up.t === "state" ? up.state.models : "?", { omp: [{ value: "", label: "omp's default" }, { value: "zai/glm-5.3-flash", label: "glm" }] });
+  assert.equal(parseUp({ t: "state", state: { ...base, models: [1] } })?.t, "state", "odd models: the state still counts, without them");
+
+  // The bridge sends only harnesses whose list came from a config.
+  const desk = { view: () => ({ harnesses: ["claude", "omp"], runs: [], workDir: "" }) } as any;
+  useFoundModels((id) => (id === "omp" ? [{ value: "zai/glm-5.3-flash", label: "glm" }] : []));
+  try {
+    assert.deepEqual(Object.keys(stateOf(desk, { live: [], recent: [] }).models ?? {}), ["omp"]);
+  } finally {
+    useFoundModels(undefined);
+  }
+
+  // Hosted: the machines online, merged, without each default.
+  const state = (models: Record<string, { value: string; label: string }[]>) => ({ ...base, models });
+  const hub = { mac: async () => ({ watching: false, machines: [
+    { id: "a", online: true, state: state({ omp: [{ value: "", label: "d" }, { value: "zai/glm", label: "glm" }] }) },
+    { id: "b", online: true, state: state({ omp: [{ value: "zai/glm", label: "glm" }, { value: "x/y", label: "y" }] }) },
+    { id: "c", online: false, state: state({ omp: [{ value: "off/line", label: "gone" }] }) },
+  ] }), call: async () => ({ ok: false as const, error: "no" }) };
+  const remote = remoteDesk(hub as any, { ttlMs: 0 });
+  await remote.refresh();
+  assert.deepEqual(remote.foundModels("omp").map((m) => m.value), ["zai/glm", "x/y"]);
+  useFoundModels((id) => remote.foundModels(id));
+  try {
+    assert.deepEqual(modelsOf("omp").slice(1).map((m) => m.value), ["zai/glm", "x/y"]);
+  } finally {
+    useFoundModels(undefined);
+  }
+});
