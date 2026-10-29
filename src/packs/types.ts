@@ -332,6 +332,8 @@ export type ActDone = { ok: true; /** "Sent to Kari Nordmann". */ done: string; 
  * nothing: it writes a block of kind `<pack id>.<kind>` with these fields, the core checks them
  * (unknown ones dropped, each cut to its max, a missing required one drops the block), and I see a
  * card I can change before I press it. Local only (hosted, Bino proposes nothing).
+ * Build one with `dovre/packs/acts.ts` (`writeAct`, or a tracker's comment, create, assign and
+ * status shapes): it draws the inputs, re-checks, and logs every outcome.
  */
 export type ActKind = {
   /** A lowercase word. */
