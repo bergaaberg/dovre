@@ -66,6 +66,7 @@ test("berth: found where its setup puts it or on the PATH, and only its status's
   assert.equal(findBerth({ LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local", PATH: "D:\\tools" }, exists), "C:\\Users\\me\\AppData\\Local\\berth\\bin\\berth.exe");
   assert.equal(findBerth({ Path: "C:\\x;D:\\tools" }, exists), "D:\\tools\\berth.exe");
   assert.equal(findBerth({}, exists), undefined);
+  assert.equal(findBerth({ Path: ".;tools" }, (p) => p.endsWith("berth.exe")), undefined, "a relative PATH folder isn't searched");
   assert.equal(berthOn('{"on":false,"pipes":[]}'), false);
   assert.equal(berthOn('{"on":"yes"}'), undefined);
   assert.equal(berthOn("not json"), undefined);

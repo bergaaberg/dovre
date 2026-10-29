@@ -255,7 +255,7 @@ test("autoTick: a run that makes nothing gets stuck, says why on the issue and s
   assert.match(comment.body, /got stuck 3 times/);
   assert.ok(!comment.body.includes("@boss"), "no mentions from the agent's text");
   assert.deepEqual((w.writes.find((x) => x.path.endsWith("/labels") && x.method === "POST")!.body as { labels: string[] }).labels, ["dovre:auto-stuck"]);
-  assert.equal(autoNeeds(p, "github.com", Date.now())[0]!.tone, "warn");
+  assert.equal(autoNeeds(p, "github.com", Date.parse("2026-10-28T13:00:00Z"))[0]!.tone, "warn");
 });
 
 test("autoTick: a machine too busy to answer (pushing for a PR) isn't a run cleared away; one it no longer lists is", async () => {
