@@ -6,7 +6,8 @@ import { currentTz, hostZone, resetWhen, setWhen, validZone } from "../src/when.
 import { horizon, nightIn, peaks, rng, sunTimes } from "../src/home/horizon.ts";
 import { createHub, signature, throttle } from "../src/live.ts";
 import { type Need, needsOf } from "../src/home/needs.ts";
-import { DEFAULT_POLICY, type Note, createNotifier, createRinger, noteOf, policyOf, toastXml, workHours } from "../src/notify.ts";
+import { quietAt, quietLabel } from "../src/quiet.ts";
+import { DEFAULT_POLICY, type Note, createNotifier, createRinger, noteOf, policyOf, toastXml } from "../src/notify.ts";
 import { failedRunOf, failedRuns, loadRedBranches } from "../src/sources/ghe.ts";
 import { H, assertInert, deploy, fakeGhe, move, note, pr, snapshot } from "./helpers.ts";
 import { feedOf } from "../src/home/feed.ts";
@@ -206,13 +207,20 @@ test("the ringer: the first note at once, the rest of a burst as one; quiet hour
   timer!();
   assert.deepEqual(delivered[1]!.map((x) => x.title), ["2 more things need you"]);
   assert.equal(delivered[1]![0]!.body, "b · c");
-  policy = { ...policy, workHoursOnly: true };
+  policy = { ...policy, quiet: { from: 17, to: 8, weekends: true } };
   now = at("2026-10-24T10:00:00Z"); // Saturday
   r.ring([note("d")]);
   assert.equal(delivered.length, 2);
   assert.equal(r.log()[0]!.held, "quiet");
-  assert.equal(workHours(at("2026-10-22T14:59:00Z"), "Europe/Oslo"), true);
-  assert.equal(workHours(at("2026-10-22T15:01:00Z"), "Europe/Oslo"), false, "17:01 in Oslo");
+  assert.equal(quietAt(policy.quiet, at("2026-10-22T14:59:00Z"), "Europe/Oslo"), false, "16:59 on a Thursday in Oslo");
+  assert.equal(quietAt(policy.quiet, at("2026-10-22T15:01:00Z"), "Europe/Oslo"), true, "17:01");
+  assert.equal(quietAt({ from: 22, to: 7 }, at("2026-10-22T05:30:00Z"), "UTC"), true, "across midnight");
+  assert.equal(quietAt({ from: 9, to: 17 }, at("2026-10-24T12:00:00Z"), "UTC"), true, "within a day, a Saturday too");
+  assert.equal(quietAt({ from: 0, to: 0, weekends: true }, at("2026-10-22T12:00:00Z"), "UTC"), false, "weekends only: a Thursday rings");
+  assert.equal(quietAt(null, at("2026-10-24T12:00:00Z"), "UTC"), false);
+  assert.equal(quietLabel({ from: 17, to: 8, weekends: true }), "17:00–08:00 and weekends");
+  assert.equal(quietLabel({ from: 0, to: 0, weekends: true }), "all weekend");
+  assert.equal(quietLabel(null), "none");
 });
 
 test("a stored policy is read safely: missing or odd values fall back, numbers are kept in range", () => {
@@ -222,7 +230,9 @@ test("a stored policy is read safely: missing or odd values fall back, numbers a
   assert.equal(p.kinds.deploy, true, "a non-boolean keeps the default");
   assert.equal(p.longTurnMin, 240);
   assert.equal(p.bundleSec, 0);
-  assert.equal(p.workHoursOnly, true);
+  assert.deepEqual(p.quiet, { from: 17, to: 8, weekends: true }, "the old weekdays 08–17 reads as quiet the rest of the time (#272)");
+  assert.deepEqual(policyOf({ quiet: { from: 23, to: 23 } }).quiet, null, "from = to is no hours");
+  assert.deepEqual(policyOf({ quiet: { from: 22, to: 6, weekends: "x" } }).quiet, { from: 22, to: 6 });
 });
 
 test("a toast's text is escaped into its XML", () => {

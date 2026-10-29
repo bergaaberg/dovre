@@ -51,7 +51,7 @@ import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
 import { agentViews, createReviewRoutes, type ReviewDeps } from "./pages/reviews.ts";
 import type { Kept } from "./issues/templates.ts";
-import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
+import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
 import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
@@ -79,6 +79,7 @@ import { safeUrl } from "./pages/parts.ts";
 import type { Pack, PackContext, PackManifest, Pulse, TodayCard } from "./packs/types.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
+import { quietOf } from "./quiet.ts";
 import { listRepos } from "./sources/claude.ts";
 import { SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
@@ -1142,7 +1143,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   };
   /** The areas this instance has: Panes and Work only where Settings keeps config, Agents only on a machine. */
   const settingsAreas = (): AreaId[] =>
-    AREAS.map((a) => a.id).filter((id) => (id === "panes" || id === "work" ? !!deps.config : id === "agents" ? !hosted && !!deps.agentTools : id === "packs" ? packSettings().length > 0 : true));
+    AREAS.map((a) => a.id).filter((id) => (id === "panes" || id === "work" ? !!deps.config : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
   /** Every setting as it is now, to find and to mark what was changed. */
   const rowsNow = async (frame: Frame) => {
     const v = panesView();
@@ -1183,8 +1184,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
         return panesPanel(panesView()!, !!deps.restart);
       case "work":
         return workPanel(panesView()!, !!deps.restart, await myTeams());
-      case "agents":
-        return agentToolsPanel({ ...deps.agentTools!.view(), said: takeToolsSaid() });
+      case "agents": {
+        // One area for agents (#272): their tools here, the long-turn ring, and the auto runs' limits.
+        const agents = shown().find((p) => p.manifest.id === "agents");
+        const auto = agents ? await ownPanel(agents) : undefined;
+        return html`${!hosted && deps.agentTools ? agentToolsPanel({ ...deps.agentTools.view(), said: takeToolsSaid() }) : ""}${deps.notify ? longTurnPanel(deps.notify.policy()) : ""}${auto ? Panel({ title: "Auto runs", id: "auto", children: auto }) : ""}`;
+      }
       case "packs":
         return packsList(packSettings());
       case "calls":
@@ -1197,6 +1202,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   };
   /** Settings → Packs → one pack: its own panel (and ingest tokens), its manifest's settings, and where else it has some. */
   const showPack = async (c: Context<AppEnv>, id: string, made?: { pack: string; source: string; token: string }) => {
+    // The agents pack's settings (auto runs) live in Settings → Agents (#272).
+    if (id === "agents" && settingsAreas().includes("agents")) return c.redirect("/settings/agents#auto", 303);
     const k = packSettings().find((x) => x.id === id);
     if (!k) return c.notFound();
     const { frame } = await page();
@@ -1329,16 +1336,26 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const form = await c.req.parseBody({ all: true });
     const kinds = new Set([form.kind ?? []].flat().map(String));
     const num = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? Number(v) : undefined);
+    const was = deps.notify?.policy() ?? policyOf(undefined);
     const next = policyOf({
       // The kinds on the form: the core's and the shown packs'; any other keeps what it was.
-      kinds: { ...(deps.notify?.policy().kinds ?? {}), ...Object.fromEntries([...RING_KINDS, ...packRings].map((k) => [k.kind, kinds.has(k.kind)])) },
-      longTurnMin: num(form.longTurnMin),
+      kinds: { ...was.kinds, ...Object.fromEntries([...RING_KINDS, ...packRings].map((k) => [k.kind, kinds.has(k.kind)])) },
+      // A long turn is set on Settings → Agents (#272).
+      longTurnMin: was.longTurnMin,
       bundleSec: num(form.bundleSec),
-      workHoursOnly: form.workHoursOnly === "on",
+      quiet: quietOf(form.quietFrom, form.quietTo, form.quietWeekends),
     });
     await deps.notify?.setPolicy(next);
     saved = true;
     return c.redirect("/settings/notifications", 303);
+  });
+  /** Settings → Agents: how long a turn runs before its end rings (the rest of the policy as it was). */
+  app.post("/settings/agents/long-turn", async (c) => {
+    if (!deps.notify) return c.notFound();
+    const v = (await c.req.parseBody()).longTurnMin;
+    await deps.notify.setPolicy(policyOf({ ...deps.notify.policy(), longTurnMin: typeof v === "string" && v.trim() !== "" ? Number(v) : undefined }));
+    saved = true;
+    return c.redirect("/settings/agents#long-turn", 303);
   });
   app.post("/settings/restart", (c) => {
     // The supervisor (`dovre supervise`, launcher/) starts it again; the page waits on the starting page.

@@ -14,7 +14,8 @@
 import { spawn } from "node:child_process";
 import type { D1 } from "./db.ts";
 import type { Need, RingKind } from "./home/needs.ts";
-import { currentTz, dtf } from "./when.ts";
+import { currentTz } from "./when.ts";
+import { type Quiet, quietAt, quietOf } from "./quiet.ts";
 
 /** `kind`: a RingKind, a pack's ring kind, or "bundle" / "test". */
 export type Note = { title: string; body?: string; url?: string; tag: string; kind?: string };
@@ -37,20 +38,20 @@ export type Policy = {
   longTurnMin: number;
   /** Seconds after a note during which more are gathered into one. */
   bundleSec: number;
-  /** Ring only Mon–Fri 08:00–17:00 in Oslo. */
-  workHoursOnly: boolean;
+  /** Nothing rings in these hours (src/quiet.ts); auto runs use them too unless they keep their own. */
+  quiet: Quiet | null;
 };
 
 export const DEFAULT_POLICY: Policy = {
   kinds: { deploy: true, ci: true, ask: true, review: true, "pr-red": true, "pr-ready": true, mention: false },
   longTurnMin: 5,
   bundleSec: 45,
-  workHoursOnly: false,
+  quiet: null,
 };
 
 /** A stored policy, with anything missing or odd taken from the defaults. */
 export function policyOf(raw: unknown): Policy {
-  const p = (raw && typeof raw === "object" ? raw : {}) as Partial<Policy>;
+  const p = (raw && typeof raw === "object" ? raw : {}) as Partial<Policy> & { workHoursOnly?: unknown };
   const kinds: Record<string, boolean> = { ...DEFAULT_POLICY.kinds };
   // Every kind kept, the packs' too (a pack switched off keeps my choice for when it's back).
   const given = p.kinds && typeof p.kinds === "object" ? Object.entries(p.kinds as Record<string, unknown>).slice(0, 200) : [];
@@ -60,7 +61,8 @@ export function policyOf(raw: unknown): Policy {
     kinds,
     longTurnMin: num(p.longTurnMin, DEFAULT_POLICY.longTurnMin, 0, 240),
     bundleSec: num(p.bundleSec, DEFAULT_POLICY.bundleSec, 0, 600),
-    workHoursOnly: typeof p.workHoursOnly === "boolean" ? p.workHoursOnly : DEFAULT_POLICY.workHoursOnly,
+    // Before #272 it was "only on weekdays, 08:00–17:00": the same as quiet 17–08 and weekends.
+    quiet: p.quiet && typeof p.quiet === "object" ? quietOf(p.quiet.from, p.quiet.to, p.quiet.weekends) : p.workHoursOnly === true ? { from: 17, to: 8, weekends: true } : DEFAULT_POLICY.quiet,
   };
 }
 
@@ -99,14 +101,6 @@ export function createNotifier() {
       return fresh.map(noteOf);
     },
   };
-}
-
-/** Mon–Fri 08:00–17:00 in the instance timezone. */
-export function workHours(at: number, tz = currentTz()): boolean {
-  const parts = dtf("en-GB", { timeZone: tz, weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(at);
-  const day = parts.find((p) => p.type === "weekday")!.value;
-  const hour = Number(parts.find((p) => p.type === "hour")!.value);
-  return !["Sat", "Sun"].includes(day) && hour >= 8 && hour < 17;
 }
 
 /** Several notes as one. */
@@ -149,7 +143,7 @@ export function createRinger(opts: { deliver: (notes: Note[]) => void; policy: (
     ring(notes: Note[]) {
       const p = opts.policy();
       if (!notes.length) return;
-      if (p.workHoursOnly && !workHours(now())) {
+      if (quietAt(p.quiet, now(), currentTz())) {
         for (const n of notes) remember(n, "quiet");
         return;
       }

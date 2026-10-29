@@ -7,13 +7,14 @@ import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState, t
 import { found } from "../tools.ts";
 import { currentTz } from "../when.ts";
 import { DEFAULT_POLICY, type Policy, RING_KINDS, type Rung } from "../notify.ts";
+import { quietLabel } from "../quiet.ts";
 import type { Layout } from "../layout.ts";
 import { DEFAULT_KEYS, KEY_GROUPS, type KeyPrefs, SCROLL_STEPS } from "../keys.ts";
 import type { Clicks, WriteKind } from "../writes.ts";
 import { LOOK, STATS_RANGES, statsRange } from "./layout.ts";
 import type { Reg, ToolsHarness } from "../agents/mcpsetup.ts";
 import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
-import { Ago } from "./parts.ts";
+import { Ago, quietFields } from "./parts.ts";
 
 /** What this machine has, for the Setup panel: each a line saying what it does, and how to turn it on when it's off. Panes have their own panel. */
 export type SetupFacts = {
@@ -223,16 +224,26 @@ export function appPanel(info: { version: string; startedAt: number } | undefine
 const ringOn = (p: Policy, k: { kind: string; off?: boolean }) => p.kinds[k.kind] ?? !k.off;
 
 /** Notifications: what rings and when, and what rang lately. `rings`: the packs' kinds, after the core's. */
+/** Settings → Agents: how long a turn runs before its end rings (kept with the notification policy). */
+export function longTurnPanel(p: Policy) {
+  return Panel({
+    title: "A long turn rings",
+    id: "long-turn",
+    children: html`<form method="post" action="/settings/agents/long-turn"><div class="fields aligned"><label class="field"><span class="label">A long agent turn is at least</span><input type="number" name="longTurnMin" min="0" max="240" value="${p.longTurnMin}"><span class="hint">minutes. Its end rings; ordinary replies never do. What rings, and when it's quiet: <a href="/settings/notifications">Notifications</a>.</span></label></div>
+<div class="buttons"><button type="submit" class="primary">Save</button></div></form>`,
+  });
+}
+
 export function notifyPanels(p: Policy, log: Rung[], rings: { kind: string; label: string; hint?: string; off?: boolean }[] = []) {
   const form = html`<form method="post" action="/settings/notify">
 <div class="field" id="ring-for"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...rings].map(
     (k) => html`<label class="check"><input type="checkbox" name="kind" value="${k.kind}"${ringOn(p, k) ? html` checked` : ""}> ${k.label}${k.hint ? html` <span class="t3">· ${k.hint}</span>` : ""}</label><br>`,
   )}</fieldset></div>
 <div class="fields aligned">
-<label class="field" id="long-turn"><span class="label">A long agent turn is at least</span><input type="number" name="longTurnMin" min="0" max="240" value="${p.longTurnMin}"><span class="hint">minutes. Ordinary replies never ring.</span></label>
 <label class="field" id="bundle"><span class="label">Bundle what follows for</span><input type="number" name="bundleSec" min="0" max="600" value="${p.bundleSec}"><span class="hint">seconds after a notification: the rest come as one. 0 rings each.</span></label>
 </div>
-<div class="field" id="work-hours"><label class="check"><input type="checkbox" name="workHoursOnly" value="on"${p.workHoursOnly ? html` checked` : ""}> Only on weekdays, 08:00–17:00</label><span class="hint">Outside those hours nothing rings; Dovre still shows it.</span></div>
+${quietFields(p.quiet, "Nothing rings then; Dovre still shows it. Auto runs start nothing then too, unless they keep their own (Settings → Agents).")}
+<p class="t2">How long an agent turn runs before its end rings: <a href="/settings/agents#long-turn">Settings → Agents</a>.</p>
 <div class="buttons"><button type="submit" class="primary">Save</button></div>
 </form>`;
   const rang = log.length
@@ -267,7 +278,7 @@ export const AREAS = [
   { id: "keys", title: "Keys", about: "Shortcuts without Ctrl, and how far j/k scroll", also: ["keyboard", "shortcuts", "vim"] },
   { id: "panes", title: "Panes", about: "What runs here: how Bino answers, Stats, reviews, summaries, the lab (packs are switched on Packs)", also: ["features", "on", "off", "enable"] },
   { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
-  { id: "agents", title: "Agents", about: "Which agent CLIs here get the packs' tools", also: ["mcp", "tools", "omp", "agy", "claude"] },
+  { id: "agents", title: "Agents", about: "Which agent CLIs get the packs' tools, when a long turn rings, and auto runs' limits", also: ["mcp", "tools", "omp", "agy", "claude", "auto", "sandbox", "budget", "long turn"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
   { id: "calls", title: "GitHub calls", about: "How much of GitHub's API quota is left, and what in Dovre used it", also: ["rate limit", "quota", "api", "usage", "403"] },
   { id: "sent", title: "What Dovre sends", about: "Every call Dovre can make home, and the record of the ones it made", also: ["privacy", "telemetry", "phone home", "security", "trust", "data", "bridge"] },
@@ -321,9 +332,9 @@ export function settingRows(s: RowsState): SettingRow[] {
     rows.push({ area: "notifications", label: `Ring for: ${k.label}`, href: "/settings/notifications#ring-for", now: onOff(on), changed: on !== (DEFAULT_POLICY.kinds[k.kind] ?? !("off" in k && k.off === true)), also: ["ring", "notify"] });
   }
   rows.push(
-    { area: "notifications", label: "A long agent turn is at least", href: "/settings/notifications#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes"] },
+    { area: "agents", label: "A long agent turn is at least", href: "/settings/agents#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes", "notification", "ring"] },
     { area: "notifications", label: "Bundle what follows for", href: "/settings/notifications#bundle", now: `${p.bundleSec} s`, changed: p.bundleSec !== DEFAULT_POLICY.bundleSec, also: ["group", "seconds"] },
-    { area: "notifications", label: "Only on weekdays, 08:00–17:00", href: "/settings/notifications#work-hours", now: onOff(p.workHoursOnly), changed: p.workHoursOnly !== DEFAULT_POLICY.workHoursOnly, also: ["quiet hours", "work hours"] },
+    { area: "notifications", label: "Quiet hours", href: "/settings/notifications#quiet-hours", now: quietLabel(p.quiet), changed: !!p.quiet, also: ["quiet hours", "work hours", "weekend", "night", "auto runs"] },
     { area: "notifications", label: "Send a test notification", href: "/settings/notifications#rang-lately", also: ["test", "rang lately"] },
   );
   for (const w of s.writes.kinds) {

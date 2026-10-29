@@ -5,6 +5,7 @@ import type { Result, Snapshot } from "../gather.ts";
 import type { Session } from "../sources/claude.ts";
 import { type Pr, type PrRef, prKeyOfUrl } from "../sources/ghe.ts";
 import { type Child, type Html, Item, newTab, Notice, Pill, type Tab, Tabs } from "../ui/kit.ts";
+import type { Quiet } from "../quiet.ts";
 
 /** The AI harness an agent runs in, by name. */
 /** Pull requests' two views: the list, and the stacks (PRs built on other PRs). */
@@ -176,3 +177,14 @@ export const mineByKey = (s: Pick<Snapshot, "prs">) => new Map<string, Pr>((s.pr
 export const st = (tone: "ok" | "warn" | "bad" | "acc" | "mute", text: unknown) => html`<span class="st ${tone}"><i></i>${text}</span>`;
 /** The chevron on a row that opens in place. */
 export const Chev = html`<span class="chev" aria-hidden="true"></span>`;
+
+/** Quiet hours as fields (src/quiet.ts): from, until, and all weekend. Empty hours and no weekend: none. */
+export function quietFields(q: Quiet | null, hint: string, prefix = "quiet") {
+  const h = (n: number | undefined) => (n === undefined ? "" : String(n));
+  const hours = q && q.from !== q.to;
+  return html`<div class="fields aligned" id="quiet-hours">
+<label class="field"><span class="label">Quiet from</span><input type="number" name="${prefix}From" min="0" max="23" value="${h(hours ? q.from : undefined)}"><span class="hint">hour</span></label>
+<label class="field"><span class="label">Quiet until</span><input type="number" name="${prefix}To" min="0" max="23" value="${h(hours ? q.to : undefined)}"><span class="hint">hour. Empty: no quiet hours.</span></label>
+</div>
+<div class="field"><label class="check"><input type="checkbox" name="${prefix}Weekends" value="on"${q?.weekends ? html` checked` : ""}> And all weekend</label><span class="hint">${hint}</span></div>`;
+}

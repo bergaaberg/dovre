@@ -1,5 +1,6 @@
 /** What tests share: the hostile string, a snapshot builder, a scripted fake GHE, and the app signed in. */
 import type { SentView } from "../src/pages/sent.ts";
+import type { Policy, Rung } from "../src/notify.ts";
 import type { Forge } from "../src/forge/types.ts";
 import { agentsPack } from "../src/packs/core/agents/index.ts";
 import { fixedHere, type Here } from "../src/packs/core/agents/here.ts";
@@ -67,7 +68,7 @@ const hereOf = (m: Machine = {}) => fixedHere({ live: m.sessions?.live ?? [], re
 
 /** The app with a fixed snapshot and a fake GHE, signed in. */
 /** `extra.sessions`, `extra.worktrees`: what the agents pack read here. */
-export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: unknown) => unknown)> = {}, extra: Machine & { panes?: PanesOn; config?: { panes: Record<PaneId, PaneState>; stored: Config }; packs?: Pack[]; /** The instance's settings the packs read. */ packEnv?: Record<string, string>; budgetMs?: number; desk?: Desk; /** The forge's abilities (default GitHub: all). */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "propose">>; /** Where a pack's starting-page picture goes. */ startPicture?: (svg: string) => void; varsFile?: string; /** Packs copied from dovre-packs (src/packs/copies.ts). */ copies?: Copies; /** Settings on top of the tests' own (PUBLIC_ORIGIN, …). */ env?: Partial<Omit<Env, "DB">>; /** Settings → What Dovre sends (#145). */ sent?: () => Promise<SentView> } = {}) {
+export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: unknown) => unknown)> = {}, extra: Machine & { panes?: PanesOn; config?: { panes: Record<PaneId, PaneState>; stored: Config }; packs?: Pack[]; /** The instance's settings the packs read. */ packEnv?: Record<string, string>; budgetMs?: number; desk?: Desk; /** The forge's abilities (default GitHub: all). */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "propose">>; /** Where a pack's starting-page picture goes. */ startPicture?: (svg: string) => void; varsFile?: string; /** Packs copied from dovre-packs (src/packs/copies.ts). */ copies?: Copies; /** Settings on top of the tests' own (PUBLIC_ORIGIN, …). */ env?: Partial<Omit<Env, "DB">>; /** Settings → What Dovre sends (#145). */ sent?: () => Promise<SentView>; /** Notifications: the policy and what rang. */ notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void } } = {}) {
   const db = openDb();
   const { ghe, calls } = fakeGhe(routes);
   const gatherer = fixedGatherer(s);
@@ -77,7 +78,7 @@ export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: u
   // The agents pack, with the desk and the sessions cleared away, as index.ts makes them.
   const { pack: agents } = agentsFor({ ...ENV, DB: db.DB }, { here: hereOf(extra), desk: extra.desk });
   const packs = [agents, terminalPack(terminals), ...(extra.packs ?? [])];
-  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, core: ["agents", "terminal"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent });
+  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, core: ["agents", "terminal"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent, notify: extra.notify });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
     app.request(`http://localhost${path}`, {

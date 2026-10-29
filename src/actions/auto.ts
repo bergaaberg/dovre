@@ -18,7 +18,9 @@
 import type { D1 } from "../db.ts";
 import type { Desk } from "../agents/desk.ts";
 import type { Run } from "../agents/runner.ts";
-import { AUTO_LABEL, type AutoOptions, type AutoRow, type AutoSettings, type AutoStore, BUSY, DONE_LABEL, STUCK_LABEL, autoKey, autoOptionsOf, autoPrompt, autoStore, capsFor, isQuiet, loadAutoSettings, localHour, MAX_TRIES, repoOn } from "../agents/auto.ts";
+import { AUTO_LABEL, type AutoOptions, type AutoRow, type AutoSettings, type AutoStore, BUSY, DONE_LABEL, STUCK_LABEL, autoKey, autoOptionsOf, autoPrompt, autoStore, capsFor, loadAutoSettings, MAX_TRIES, repoOn } from "../agents/auto.ts";
+import { loadPolicy } from "../notify.ts";
+import { quietAt } from "../quiet.ts";
 import { ownerQuery, ownersOf } from "../owners.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { ownedRepo } from "../sources/files.ts";
@@ -344,7 +346,8 @@ async function stuck(d: AutoDeps, store: AutoStore, row: AutoRow, why: string, r
 async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoRow[], isOwner: (l: string | undefined) => boolean, now: () => number): Promise<string | undefined> {
   const queued = rows.filter((r) => r.state === "queued" && repoOn(s, r.repo)).sort((a, b) => a.at - b.at);
   if (!s.on || !queued.length) return undefined;
-  if (isQuiet(s, localHour(now(), d.tz))) return "Quiet hours: queued issues start after them.";
+  const quiet = s.quietOwn ? s.quiet : ((await loadPolicy(d.db).catch(() => undefined))?.quiet ?? null);
+  if (quietAt(quiet, now(), d.tz)) return "Quiet hours: queued issues start after them.";
   if ((await store.spent(now() - 24 * 60 * MIN)) >= s.dayUsd) return `Auto runs have spent $${s.dayUsd.toFixed(2)} in the last 24 hours, the day's cap.`;
   let busy = rows.filter((r) => BUSY.includes(r.state)).length;
   for (const row of queued) {

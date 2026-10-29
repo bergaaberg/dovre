@@ -7,29 +7,23 @@
  */
 import type { D1 } from "../db.ts";
 import { EFFORTS, type Effort } from "./runner.ts";
-import { dtf } from "../when.ts";
+import { type Quiet, quietOf } from "../quiet.ts";
 
 export const AUTO_LABEL = "dovre:auto";
 export const DONE_LABEL = "dovre:auto-done";
 export const STUCK_LABEL = "dovre:auto-stuck";
 
 /**
- * What Settings allows. `off`: repos (owner/name) left out while the rest are on. `quiet`: hours
- * (0–23, in the instance's timezone) when nothing new starts, `from` up to `to`, across midnight
- * when `from` > `to`.
+ * What Settings allows. `off`: repos (owner/name) left out while the rest are on. Nothing new starts
+ * in quiet hours (src/quiet.ts): Notifications' (#272), or with `quietOwn` its own `quiet`.
  */
-export type AutoSettings = { on: boolean; off: string[]; atOnce: number; runUsd: number; dayUsd: number; minutes: number; quiet: { from: number; to: number } | null };
+export type AutoSettings = { on: boolean; off: string[]; atOnce: number; runUsd: number; dayUsd: number; minutes: number; quietOwn: boolean; quiet: Quiet | null };
 
-export const DEFAULT_AUTO: AutoSettings = { on: false, off: [], atOnce: 1, runUsd: 5, dayUsd: 20, minutes: 60, quiet: null };
+export const DEFAULT_AUTO: AutoSettings = { on: false, off: [], atOnce: 1, runUsd: 5, dayUsd: 20, minutes: 60, quietOwn: false, quiet: null };
 
 const num = (v: unknown, d: number, min: number, max: number) => {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d;
-};
-const hour = (v: unknown): number | undefined => {
-  if (v === "" || v === undefined || v === null) return undefined;
-  const n = Number(v);
-  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : undefined;
 };
 const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
 
@@ -37,8 +31,8 @@ const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
 export function autoSettingsOf(v: unknown): AutoSettings {
   const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
   const offList = Array.isArray(o.off) ? o.off : typeof o.off === "string" ? o.off.split(/[\s,]+/) : [];
-  const from = hour((o.quiet as { from?: unknown } | undefined)?.from ?? o.quietFrom);
-  const to = hour((o.quiet as { to?: unknown } | undefined)?.to ?? o.quietTo);
+  const q = (o.quiet && typeof o.quiet === "object" ? o.quiet : {}) as { from?: unknown; to?: unknown; weekends?: unknown };
+  const quiet = quietOf(q.from ?? o.quietFrom, q.to ?? o.quietTo, q.weekends ?? o.quietWeekends);
   return {
     on: o.on === true || o.on === "on",
     off: [...new Set(offList.map((x) => String(x).trim()).filter((x) => REPO.test(x)).map((x) => x.toLowerCase()))].slice(0, 100),
@@ -46,7 +40,9 @@ export function autoSettingsOf(v: unknown): AutoSettings {
     runUsd: num(o.runUsd, DEFAULT_AUTO.runUsd, 0.5, 100),
     dayUsd: num(o.dayUsd, DEFAULT_AUTO.dayUsd, 0.5, 500),
     minutes: Math.round(num(o.minutes, DEFAULT_AUTO.minutes, 5, 240)),
-    quiet: from !== undefined && to !== undefined && from !== to ? { from, to } : null,
+    // Kept before #272 without the choice: hours of its own were its own.
+    quietOwn: typeof o.quietOwn === "boolean" ? o.quietOwn : o.quietAs !== undefined ? o.quietAs === "own" : !!quiet,
+    quiet,
   };
 }
 
@@ -69,24 +65,7 @@ export async function saveAutoSettings(db: D1, s: AutoSettings): Promise<void> {
 /** Whether `repo` may run now, by Settings. */
 export const repoOn = (s: AutoSettings, repo: string) => s.on && !s.off.includes(repo.toLowerCase());
 
-/** The hour at `now` in `tz` (an IANA zone; invalid or empty: this machine's). */
-export function localHour(now: number, tz?: string): number {
-  const fmt = (zone?: string) => dtf("en-GB", { timeZone: zone, hour: "2-digit", hourCycle: "h23" });
-  let f: Intl.DateTimeFormat;
-  try {
-    f = fmt(tz || undefined);
-  } catch {
-    f = fmt();
-  }
-  return Number(f.formatToParts(new Date(now)).find((x) => x.type === "hour")?.value ?? 0) % 24;
-}
 
-/** Inside quiet hours: `from` up to (not including) `to`, across midnight when `from` > `to`. */
-export function isQuiet(s: Pick<AutoSettings, "quiet">, h: number): boolean {
-  if (!s.quiet) return false;
-  const { from, to } = s.quiet;
-  return from < to ? h >= from && h < to : h >= from || h < to;
-}
 
 /**
  * An issue's own options: a fenced block with the info string `dovre`, `key: value` a line. They
