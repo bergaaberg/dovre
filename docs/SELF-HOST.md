@@ -41,7 +41,7 @@ DOCKER_GID=$(stat -c %g /var/run/docker.sock) DOVRE_CODE=/srv/code docker compos
 
 > **Warning:** access to the Docker socket is root on the host. Anyone who can use Dovre can then start a container that mounts `/` and do anything on this machine. `:ro` on the mount doesn't help, since it limits the file, not the API calls made through it. Turn it on only when the sign-in in front of Dovre lets in no one but you.
 
-The pane finds the socket at `/var/run/docker.sock` by itself, and Settings → Panes shows Docker once it's there.
+The Docker pack finds the socket at `/var/run/docker.sock` by itself, and Packs shows it on once it's there. Turn it off there (or with `PACK_DOCKER=off`).
 
 **Without Docker** (Node 24, pnpm, git): `deploy/dovre.service` is a systemd unit. Its comments have the install steps.
 

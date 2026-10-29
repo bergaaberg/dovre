@@ -10,7 +10,7 @@ import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
 
-export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean };
+export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[] };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -112,7 +112,11 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   const r = v.refreshes?.get(id);
   const settings = manifestSettings(m);
   const pairs: [Child, Child][] = [];
+  // One switch per pack (#271): a pack that can run is on or off here; one that can't says why.
+  const hidden = !!o.pack && !!v.hidden?.includes(id);
+  const on = !!o.pack && !hidden;
   if (o.why) pairs.push(["Off", o.why]);
+  if (hidden) pairs.push(["Off", "switched off here"]);
   if (m) pairs.push(["Runs", `${WHERE[m.execution ?? "any"] ?? m.execution} · ${m.domain}${v.core?.includes(id) ? " · Dovre's own" : ""}`]);
   if (o.pack) {
     pairs.push(["Answers", hooksOf(o.pack).join(", ") || "nothing yet"]);
@@ -128,7 +132,7 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
     id: `pack-${id}`,
     title: name,
     meta: id,
-    actions: o.pack ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" }),
+    actions: html`${on ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" })}${o.pack ? Post({ action: `/packs/${encodeURIComponent(id)}/switch`, fields: { on: on ? "" : "1" }, label: on ? "Turn off" : "Turn on" }) : ""}`,
     children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
   });
 }
@@ -138,10 +142,11 @@ const panels = (v: PacksView, fun: boolean) =>
   html`${v.on.filter((c) => (c.manifest.domain === "fun") === fun).map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.filter((o) => (o.manifest?.domain === "fun") === fun).map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`;
 
 export function packsPage(frame: Frame, v: PacksView) {
-  const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length} on, ${v.off.length} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
+  const hidden = v.on.filter((c) => v.hidden?.includes(c.manifest.id)).length;
+  const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length - hidden} on, ${v.off.length + hidden} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
 <div data-live id="packs">
 ${v.on.length || v.off.length
-  ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these. Hide one on <a href="/settings/layout#packs-shown">Settings → Layout</a>.</p>${panels(v, true)}` : ""}`
+  ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these.</p>${panels(v, true)}` : ""}`
   : Panel({ children: Empty({ title: "No packs here", children: html`<p class="t2">${v.hosted ? "This Worker bundles none." : "PACKS lists none on this machine."}</p>` }) })}
 </div>`;
   return shell({ title: "Packs · Dovre", frame, current: "/packs", body, head: html`<meta name="u-topics" content="packs">` });

@@ -38,6 +38,8 @@ export type Pane = {
   key: string;
   on: Choice[];
   options: Field[];
+  /** Its on/off is this pack's (Packs, one switch per feature, #271): the pane keeps only how. */
+  pack?: string;
 };
 
 const ON: Choice[] = [{ value: "on", label: "On" }];
@@ -50,6 +52,7 @@ export const PANES: Pane[] = [
     name: "Bino",
     what: "The assistant: scoped memory, what the packs know about your repos, and plan proposals; it proposes, you click",
     key: "BINO_VIA",
+    pack: "assistant",
     on: [
       { value: "claude", label: "Claude Code" },
       { value: "omp", label: "Copilot (omp)" },
@@ -62,8 +65,6 @@ export const PANES: Pane[] = [
     ],
     options: [],
   },
-  { id: "terminal", name: "Terminal", what: "Shells and agent CLIs in a checkout, inside Dovre", key: "TERMINAL", on: ON, options: [] },
-  { id: "docker", name: "Docker", what: "Containers on Docker Engine: start, stop, restart and logs", key: "DOCKER", on: ON, options: [] },
   { id: "stats", name: "Stats", what: "Twelve weeks of PRs, reviews and agent spend", key: "STATS", on: ON, options: [] },
   { id: "reviews", name: "Agent reviews", what: "Review a PR, or assess a review on yours, with an agent skill (REVIEW_SKILL, TRIAGE_SKILL)", key: "REVIEWS", on: ON, options: [] },
   {
@@ -103,17 +104,24 @@ export type PaneState = { id: PaneId; wanted: boolean; on: boolean; via?: string
 /** A switch that isn't "off" (or no/false/0) is on. */
 const isOff = (v: string | undefined) => /^(off|no|false|0)$/i.test((v ?? "").trim());
 
+/** The panes' old on/off switches, now their packs' (#271): an old "off" turns the pack off. */
+export const LEGACY_SWITCHES: Record<string, string> = { TERMINAL: "terminal", DOCKER: "docker", BINO_VIA: "assistant", ASSISTANT_VIA: "assistant" };
+/** The packs an old pane switch in `v` has off. */
+export const legacyOff = (v: Record<string, unknown>): string[] => [...new Set(Object.entries(LEGACY_SWITCHES).filter(([k]) => typeof v[k] === "string" && isOff(v[k] as string)).map(([, id]) => id))];
+
 export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): Record<PaneId, PaneState> {
   const v = env as Record<string, string | undefined>;
-  const simple = (id: PaneId, key: string, can: boolean, why: string): PaneState => {
-    const wanted = !isOff(v[key]);
+  const simple = (id: PaneId, key: string | undefined, can: boolean, why: string): PaneState => {
+    const wanted = !key || !isOff(v[key]);
     return { id, wanted, on: wanted && can, why: wanted && !can ? why : undefined };
   };
   const windows = f.windows !== false;
   const copilot = f.copilot ?? f.omp;
   const noCopilot = f.omp ? "Copilot through omp isn't set up yet: see Setup." : "Needs omp (`omp` on the PATH).";
   const cli = !!f.copilotCli;
-  const binoVia = viaOf(v.ASSISTANT_VIA ?? v.BINO_VIA, f.claude, f.omp, cli, !!f.agy);
+  // "off" is the assistant pack's now (legacyOff): here it's the default route.
+  const binoRaw = v.ASSISTANT_VIA ?? v.BINO_VIA;
+  const binoVia = viaOf(isOff(binoRaw) ? undefined : binoRaw, f.claude, f.omp, cli, !!f.agy);
   const hasDirectKey = !!(v.ASSISTANT_API_KEY || v.ANTHROPIC_API_KEY || v.OPENAI_API_KEY || v.GEMINI_API_KEY);
   const hasOpenRouter = !!(v.OPENROUTER_API_KEY || v.ASSISTANT_API_KEY);
   const binoCan =
@@ -167,8 +175,9 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
                         : noCopilot
           : undefined,
     },
-    terminal: simple("terminal", "TERMINAL", f.terminals, "Needs the launcher built (go build -o ../bin/dovre . in launcher/, or scripts/install.ps1)."),
-    docker: simple("docker", "DOCKER", windows || !!f.dockerSocket, windows ? "Windows only: Docker Engine runs in a WSL distro of its own." : "No Docker Engine socket found (looked in ~/.docker/run/docker.sock, ~/.orbstack/run/docker.sock, ~/.colima/default/docker.sock, /var/run/docker.sock)."),
+    // On or off as their packs are: these say only whether they can run here.
+    terminal: simple("terminal", undefined, f.terminals, "Needs the launcher built (go build -o ../bin/dovre . in launcher/, or scripts/install.ps1)."),
+    docker: simple("docker", undefined, windows || !!f.dockerSocket, windows ? "Windows only: Docker Engine runs in a WSL distro of its own." : "No Docker Engine socket found (looked in ~/.docker/run/docker.sock, ~/.orbstack/run/docker.sock, ~/.colima/default/docker.sock, /var/run/docker.sock)."),
     stats: simple("stats", "STATS", true, ""),
     reviews: simple("reviews", "REVIEWS", f.claude || f.omp, "Needs an agent CLI: Claude Code or omp."),
     summaries: { id: "summaries", wanted: sumVia !== "off", on: sumCan, via: sumVia, why: sumVia !== "off" && !sumCan ? (sumVia === "claude" ? "Needs Claude Code (`claude` on the PATH)." : sumVia === "copilot" ? noCli : sumVia === "agy" ? noAgy : sumVia === "codex" ? noCodex : noCopilot) : undefined },
@@ -183,7 +192,8 @@ export const runningOf = (p: Record<PaneId, PaneState>): PanesOn => Object.fromE
 // ── Kept in the settings table ──
 
 export type Config = Record<string, string>;
-const KEYS = new Set([...PANES.flatMap((p) => [p.key, ...p.options.map((o) => o.key)]), ...GENERAL.map((g) => g.key), "SETUP_DONE"]);
+// The old switches are still read, so starting can move an "off" to its pack (src/index.ts).
+const KEYS = new Set([...PANES.flatMap((p) => [p.key, ...p.options.map((o) => o.key)]), ...GENERAL.map((g) => g.key), ...Object.keys(LEGACY_SWITCHES), "SETUP_DONE"]);
 
 export async function loadConfig(db: D1): Promise<Config> {
   const row = await db.prepare("SELECT value FROM settings WHERE key = 'config'").first<{ value: string }>();
@@ -237,7 +247,8 @@ export function configFromForm(form: Record<string, unknown>, was: Config, fixed
     else next[key] = value;
   };
   for (const p of opts.panes ? PANES : []) {
-    const on = form[`on.${p.id}`] !== undefined;
+    // A pane whose pack is its switch has no on/off here (#271).
+    const on = !!p.pack || form[`on.${p.id}`] !== undefined;
     const via = typeof form[`via.${p.id}`] === "string" ? String(form[`via.${p.id}`]) : p.on[0]!.value;
     put(p.key, !on ? "off" : p.on.some((c) => c.value === via) ? via : undefined, p.name);
     for (const o of p.options) if (o.key in form) put(o.key, fieldValue(o, form[o.key], form), `${p.name}: ${o.label}`);

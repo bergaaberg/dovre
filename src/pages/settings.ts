@@ -87,7 +87,11 @@ export function paneSets(v: PanesView) {
     const fixed = v.fixed.has(p.key);
     const via = p.on.length > 1 ? html`<label class="field"><span class="label">Through</span><select name="via.${p.id}"${fixed ? html` disabled` : ""}>${p.on.map((c) => html`<option value="${c.value}"${st.via === c.value ? html` selected` : ""}>${c.label}</option>`)}</select></label>` : "";
     const opts = p.options.map((o) => fieldInput(o, v.values[o.key], v.fixed.has(o.key)));
-    return html`<fieldset class="pane-set" id="pane-${p.id}"><legend><label class="check"><input type="checkbox" name="on.${p.id}" value="on"${st.wanted ? html` checked` : ""}${fixed ? html` disabled` : ""}> <strong>${p.name}</strong></label>${st.wanted && !st.on ? html` <span class="pane-why">${st.why ?? "Can't run here."}</span>` : ""}${fixed ? html` <span class="t3">Set in .dev.vars (${p.key})</span>` : ""}</legend>
+    // A pane whose pack is its switch (#271): how it runs here; on or off is on Packs.
+    const toggle = p.pack
+      ? html`<strong>${p.name}</strong> <a class="t3" href="/packs#pack-${p.pack}">On or off: Packs</a>`
+      : html`<label class="check"><input type="checkbox" name="on.${p.id}" value="on"${st.wanted ? html` checked` : ""}${fixed ? html` disabled` : ""}> <strong>${p.name}</strong></label>`;
+    return html`<fieldset class="pane-set" id="pane-${p.id}"><legend>${toggle}${st.wanted && !st.on ? html` <span class="pane-why">${st.why ?? "Can't run here."}</span>` : ""}${fixed ? html` <span class="t3">Set in .dev.vars (${p.key})</span>` : ""}</legend>
 <p class="pane-what">${p.what}</p>${via || opts.length ? html`<div class="fields aligned">${via}${opts}</div>` : ""}</fieldset>`;
   });
 }
@@ -261,7 +265,7 @@ export const AREAS = [
   { id: "notifications", title: "Notifications", about: "What rings, when, and what rang lately", also: ["ring", "toast", "alert", "quiet"] },
   { id: "writes", title: "Writes", about: "Which writes take one click instead of asking twice", also: ["confirm", "one click", "twice"] },
   { id: "keys", title: "Keys", about: "Shortcuts without Ctrl, and how far j/k scroll", also: ["keyboard", "shortcuts", "vim"] },
-  { id: "panes", title: "Panes", about: "What runs here: Bino, terminals, Docker, Stats, reviews, summaries", also: ["features", "on", "off", "enable"] },
+  { id: "panes", title: "Panes", about: "What runs here: how Bino answers, Stats, reviews, summaries, the lab (packs are switched on Packs)", also: ["features", "on", "off", "enable"] },
   { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
   { id: "agents", title: "Agents", about: "Which agent CLIs here get the packs' tools", also: ["mcp", "tools", "omp", "agy", "claude"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
@@ -309,7 +313,7 @@ export function settingRows(s: RowsState): SettingRow[] {
     { area: "layout", label: "What Stats shows", href: "/settings/layout#stats", changed: !!l.stats && Object.keys(l.stats).length > 0, also: ["charts", "panels"] },
     { area: "layout", label: "Range on Stats", href: "/settings/layout#stats", now: STATS_RANGES.find((r) => r.value === range)?.label, changed: range !== "", also: ["weeks", "days"] },
     { area: "layout", label: "What's happening: its sources", href: "/settings/layout#feed", now: l.feedOff?.length ? `${l.feedOff.length} left out` : undefined, changed: !!l.feedOff?.length, also: ["feed", "events"] },
-    { area: "layout", label: "Packs shown", href: "/settings/layout#packs-shown", now: l.packsOff?.length ? `${l.packsOff.length} hidden` : undefined, changed: !!l.packsOff?.length, also: ["hide", "pack"] },
+    { area: "layout", label: "Packs on", href: "/settings/layout#packs-shown", now: l.packsOff?.length ? `${l.packsOff.length} off` : undefined, changed: !!l.packsOff?.length, also: ["hide", "pack", "switch", "off", "Bino", "Terminal", "Docker"] },
   );
   const p = s.policy;
   for (const k of [...RING_KINDS, ...s.rings]) {

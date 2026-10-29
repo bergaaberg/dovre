@@ -1,7 +1,7 @@
 /** Panes switched on Settings (WP-A23): what runs, what's kept, and an off pane gone from every page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { configFromForm, type Found, loadConfig, PANE_IDS, panesOf, runningOf, saveConfig } from "../src/config.ts";
+import { configFromForm, type Found, legacyOff, loadConfig, PANE_IDS, panesOf, runningOf, saveConfig } from "../src/config.ts";
 import { openDb } from "../src/db.ts";
 import { loadEnv } from "../src/env.ts";
 import { pagesOf } from "../src/search/search.ts";
@@ -105,9 +105,12 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
   const page = await (await get("/settings/panes")).text();
   assertInert("settings", page);
   assert.match(page, /name="on\.lab"/);
-  assert.match(page, /Needs the launcher built/);
+  // Bino, Terminal and Docker are switched as packs (#271): Bino's pane keeps only its route.
+  assert.doesNotMatch(page, /name="on\.(bino|terminal|docker)"/);
+  assert.doesNotMatch(page, /id="pane-(terminal|docker)"/);
+  assert.match(page, /<a class="t3" href="\/packs#pack-assistant">On or off: Packs<\/a>/);
   assert.match(page, /<option value="omp" selected>/);
-  const r = await post("/settings/panes", { "on.bino": "on", "via.bino": "claude", "on.stats": "on" });
+  const r = await post("/settings/panes", { "via.bino": "claude", "on.stats": "on" });
   assert.equal(r.status, 303);
   const kept = await loadConfig(db.DB);
   assert.equal(kept.BINO_VIA, "claude");
@@ -196,4 +199,14 @@ test("without Claude Code, Bino and summaries talk to Copilot through omp: no to
   assert.equal(args.at(-1), "<stdin>Hva nå?");
   assert.deepEqual(await copilotComplete(copilot)({ system: "Summarise.", user: "PR text" }), { text: "Hei.", cost: 0 });
   assert.equal(routeOf({ via: "omp" }).ready, false, "no omp at all");
+});
+
+test("the old Terminal, Docker and Bino switches turn their packs off; Bino's route stays (#271)", () => {
+  assert.deepEqual(legacyOff({ TERMINAL: "off", DOCKER: "on", BINO_VIA: "omp" }), ["terminal"]);
+  assert.deepEqual(legacyOff({ DOCKER: "no", BINO_VIA: "off", ASSISTANT_VIA: "off" }), ["docker", "assistant"]);
+  const p = panesOf({ BINO_VIA: "off", TERMINAL: "off", DOCKER: "off" }, all);
+  assert.equal(p.bino.via, "claude", "an old off is the pack's now: the route is the default");
+  assert.equal(p.terminal.on, true, "can run: on or off is the pack's");
+  assert.equal(p.docker.on, true);
+  assert.equal(configFromForm({ "via.bino": "omp" }, {}, new Set(), { panes: true }).config.BINO_VIA, "omp", "no checkbox: never written off");
 });

@@ -409,3 +409,11 @@ test("demo: the External link page names another app's host when the path starts
   assert.match(text, /On your own Dovre this opens <strong>NW-142<\/strong> on linear\.app\./);
   assertInert("elsewhere host", await (await w.fetch(at(`/elsewhere/x.example/${encodeURIComponent(H)}`))).text());
 });
+
+test("demo: with the assistant pack switched off, Bino's button and menu item go too (#271)", async () => {
+  const on = await (await createDemoWorker().fetch(at("/"))).text();
+  assert.match(on, /id="bdock"/);
+  const off = await (await createDemoWorker({ layout: { packsOff: ["assistant"] } }).fetch(at("/"))).text();
+  assert.doesNotMatch(off, /id="bdock"/);
+  assert.doesNotMatch(off, /href="\/bino"/);
+});

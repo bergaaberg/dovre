@@ -1053,3 +1053,19 @@ test("ctx.codeDir: a pack sees the code folder locally (#147)", async () => {
   await packApp([pack], { codeDir: "/code" }).get("/where");
   assert.deepEqual(seen, ["/code"]);
 });
+
+test("one switch per pack (#271): Turn off on Packs takes it off everywhere, Layout shows the same, Turn on brings it back", async () => {
+  const { get, post } = signedIn(snapshot());
+  assert.equal((await get("/terminal")).status, 200);
+  let page = await (await get("/packs")).text();
+  assert.match(page, /id="pack-terminal"[^]*?action="\/packs\/terminal\/switch"[^]*?Turn off/);
+  assert.equal((await post("/packs/terminal/switch", { on: "" })).status, 303);
+  assert.equal((await get("/terminal")).status, 404, "off: its pages answer 404");
+  assert.doesNotMatch(await (await get("/")).text(), /href="\/terminal"/, "and it's gone from the menu");
+  page = await (await get("/packs")).text();
+  assert.match(page, /id="pack-terminal"[^]*?Turn on[^]*?switched off here/);
+  assert.match(await (await get("/settings/layout")).text(), /name="pack" value="terminal">/, "Layout's list unticked: the same switch");
+  await post("/packs/terminal/switch", { on: "1" });
+  assert.equal((await get("/terminal")).status, 200);
+  assert.equal((await post("/packs/nope/switch", { on: "" })).status, 404, "only a pack that can run here");
+});
