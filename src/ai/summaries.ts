@@ -5,6 +5,7 @@
  */
 import type { D1 } from "../db.ts";
 import type { Complete } from "./llm.ts";
+import { inFiles } from "../sources/ghe.ts";
 
 export type Summary = { state: "ready"; text: string } | { state: "pending" } | { state: "failed"; error: string };
 
@@ -66,14 +67,14 @@ export function createSummaries(db: D1, complete: Complete, opts: { concurrency?
 
 const SYSTEM = `You summarize software changes for a busy tech lead at a Norwegian insurance company. Write in English; keep Norwegian product terms as they are. Plain text, no markdown, no preamble, no "This PR". Be concrete about what changes for users or systems. Mention risk only when there is a specific one (migrations, auth, payments, prod config, deleted code paths).`;
 
-export function prPrompt(p: { repo: string; number: number; title: string; author: string; body: string; additions: number; deletions: number; files: { path: string; additions: number; deletions: number }[] }) {
+export function prPrompt(p: { repo: string; number: number; title: string; author: string; body: string; additions: number; deletions: number; changedFiles?: number; files: { path: string; additions: number; deletions: number }[] }) {
   return {
     system: SYSTEM,
     user: [
       `Summarize this pull request in at most two sentences.`,
       `Repo: ${p.repo} #${p.number} by ${p.author}`,
       `Title: ${p.title}`,
-      `Size: +${p.additions} −${p.deletions} in ${p.files.length} files`,
+      `Size: +${p.additions} −${p.deletions}${inFiles(p)}`,
       `Files:\n${p.files.slice(0, 40).map((f) => `- ${f.path} (+${f.additions} −${f.deletions})`).join("\n")}`,
       `Description:\n${p.body.slice(0, 6000) || "(none)"}`,
     ].join("\n\n"),

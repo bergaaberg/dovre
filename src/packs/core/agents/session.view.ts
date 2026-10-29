@@ -3,7 +3,7 @@ import { html } from "hono/html";
 import { dovreParts, NO, type Question, type Turn } from "../../../agents/conversation.ts";
 import type { Copy } from "../../../agents/desk.ts";
 import type { Queued } from "../../../agents/queue.ts";
-import type { HarnessId, Run } from "../../../agents/runner.ts";
+import { HARNESSES, type HarnessId, type Run } from "../../../agents/runner.ts";
 import { WORK, WORK_LABEL } from "../../../agents/workdir.ts";
 import type { PageOpts } from "../../types.ts";
 import { HARNESS_LABEL, MODE_SHORT, modelSelect, modeSelect } from "../../../pages/models.ts";
@@ -215,7 +215,10 @@ export function agentPage(opts: { sessionId: string; session?: Session; turns: T
   const body = html`${PageHeader({
     title,
     crumbs: [{ href: "/agents", label: "Agents" }],
-    sub: html`${harnessTag(s?.harness ?? run?.harness, s?.model ?? run?.model)} ${s?.repo ?? run?.repo ?? ""}${s?.branch ? html` · ${s.branch}` : ""}${run?.sandbox ? html` · <span class="t3">sandbox</span>` : ""} · ${status}${s?.cost ? html` · <span class="t3">$${s.cost.toFixed(2)} so far</span>` : ""}`,
+    // Each part keeps the dot after it, so a wrapped line never starts with "·".
+    sub: html`${harnessTag(s?.harness ?? run?.harness, s?.model ?? run?.model)} ${[s?.repo ?? run?.repo, s?.branch, run?.sandbox ? html`<span class="t3">sandbox</span>` : "", status, s?.cost ? html`<span class="t3">$${s.cost.toFixed(2)} so far</span>` : ""]
+      .filter(Boolean)
+      .map((part, i, all) => html`<span class="nowrap">${part}${i < all.length - 1 ? " ·" : ""}</span> `)}`,
     actions: html`${opts.diff ? html`<a class="btn ghost" href="${opts.diff}" title="What's changed in its checkout, committed or not">Diff</a>` : ""}${opts.discardable && !run?.sandbox ? html`<form method="post" action="/agents/s/${sessionId}/discard"><button type="submit" class="ghost" title="Off Dovre's lists; the transcript stays, and replying brings it back">Clear away</button></form>` : ""}<a class="btn ghost" href="/agents/new">New session</a>`,
   })}
 ${opts.flash ? Notice({ tone: "bad", children: opts.flash }) : ""}
@@ -286,7 +289,9 @@ export function newAgentPage(opts: { repos: string[]; repo?: string; prompt?: st
       current: "/agents",
       body: html`${PageHeader({ title: "New agent session", crumbs: [{ href: "/agents", label: "Agents" }] })}${Notice({
         tone: "warn",
-        children: html`No agent CLI found on this machine. Install <strong>Claude Code</strong> (<code>claude</code>) or <strong>omp</strong>, or point <code>CLAUDE_BIN</code> / <code>OMP_BIN</code> in <code>.dev.vars</code> at one, then restart Dovre. Settings → Setup shows what was found.`,
+        children: opts.mac
+          ? html`${opts.mac.name ?? "Your Mac"} is online, but its bridge found no agent CLI. Install one there (${HARNESSES.map((h, i) => html`${i ? ", " : ""}<strong>${HARNESS_LABEL[h]}</strong>`)}), then restart the bridge.`
+          : html`No agent CLI found on this machine. Install one of ${HARNESSES.map((h, i) => html`${i ? (i === HARNESSES.length - 1 ? " or " : ", ") : ""}<strong>${HARNESS_LABEL[h]}</strong>`)}, or point ${HARNESSES.map((h, i) => html`${i ? " / " : ""}<code>${h.toUpperCase()}_BIN</code>`)} in <code>.dev.vars</code> at one, then restart Dovre. Settings → Setup shows what was found.`,
       })}`,
     };
   const repo = opts.repo && opts.repos.includes(opts.repo) ? opts.repo : WORK;

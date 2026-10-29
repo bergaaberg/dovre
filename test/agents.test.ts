@@ -1,13 +1,14 @@
 /** Running agents from Dovre: the CLI args, reading the stream, the narrow allow rules, the conversation, and the routes. */
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { cleanUserText, turnsOf } from "../src/agents/conversation.ts";
+import { cachedTurns } from "../src/agents/desk.ts";
 import { createRunner, repoDir, type Run } from "../src/agents/runner.ts";
 import { apply, argsFor, HEADLESS_NOTE } from "../src/agents/harnesses/claude/harness.ts";
 import { toolSpec } from "../src/agents/harnesses/shared.ts";
@@ -115,4 +116,19 @@ test("the conversation: what was asked and said, tool calls as one line, nothing
   const all = JSON.stringify(turns);
   for (const bad of ["secret harness", "PROD ROW", "meta", "subagent"]) assert.ok(!all.includes(bad), bad);
   assert.equal(cleanUserText("<command-name>/clear</command-name>"), "");
+});
+
+test("a transcript is parsed again only when it changes (#267)", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "dovre-cache-")), "t.jsonl");
+  const line = (text: string) => JSON.stringify({ type: "user", timestamp: "2026-10-29T07:00:00Z", message: { role: "user", content: text } }) + "\n";
+  writeFileSync(file, line("first"));
+  let parses = 0;
+  const parse = (t: string) => (parses++, turnsOf(t));
+  const a = cachedTurns(file, parse);
+  assert.equal(cachedTurns(file, parse), a);
+  assert.equal(parses, 1);
+  appendFileSync(file, line("second"));
+  assert.equal(cachedTurns(file, parse).length, 2);
+  assert.equal(parses, 2);
+  assert.deepEqual(cachedTurns(join(file, "..", "gone.jsonl"), parse), []);
 });

@@ -95,6 +95,8 @@ export type Pr = {
   headSha: string;
   labels: string[];
   files: { path: string; additions: number; deletions: number }[];
+  /** How many files it changes in all (`files` stops at 80); older sources leave it out. */
+  changedFiles?: number;
   /** Each reviewer's latest say, and who's still asked. */
   reviews: { login: string; state: string }[];
   requested: string[];
@@ -103,7 +105,7 @@ export type Pr = {
 };
 
 const PR_FIELDS = `number title url isDraft updatedAt createdAt headRefName headRefOid author{login} repository{nameWithOwner}
-  body additions deletions labels(first:10){nodes{name}} files(first:80){nodes{path additions deletions}}
+  body additions deletions changedFiles labels(first:10){nodes{name}} files(first:80){nodes{path additions deletions}}
   latestReviews(first:10){nodes{author{login} state}}
   reviewRequests(first:10){nodes{requestedReviewer{... on User{login} ... on Team{name}}}}
   reviewDecision reviewThreads(first:80){nodes{isResolved}}
@@ -125,7 +127,7 @@ const RANK = { bad: 0, pending: 1, ok: 2, skipped: 3 } as const;
 type PrNode = {
   number: number; title: string; url: string; isDraft: boolean; updatedAt: string; createdAt?: string; headRefName: string; headRefOid?: string;
   author: { login: string } | null; repository: { nameWithOwner: string }; reviewDecision: Pr["review"];
-  body?: string; additions?: number; deletions?: number; labels?: { nodes: { name: string }[] };
+  body?: string; additions?: number; deletions?: number; changedFiles?: number; labels?: { nodes: { name: string }[] };
   files?: { nodes: { path: string; additions: number; deletions: number }[] } | null;
   latestReviews?: { nodes: { author: { login: string } | null; state: string }[] };
   reviewRequests?: { nodes: { requestedReviewer: { login?: string; name?: string } | null }[] };
@@ -153,6 +155,7 @@ export function normalizePr(p: PrNode): Pr {
     headSha: p.headRefOid ?? "",
     labels: p.labels?.nodes.map((l) => l.name) ?? [],
     files: p.files?.nodes ?? [],
+    ...(p.changedFiles !== undefined ? { changedFiles: p.changedFiles } : {}),
     reviews: (p.latestReviews?.nodes ?? []).map((r) => ({ login: r.author?.login ?? "ghost", state: r.state })),
     requested: (p.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer?.login ?? r.requestedReviewer?.name ?? "").filter(Boolean),
     runs: (p.commits.nodes[0]?.commit.statusCheckRollup?.contexts?.nodes ?? [])
@@ -160,6 +163,17 @@ export function normalizePr(p: PrNode): Pr {
       .map((c) => ({ name: (c.name ?? c.context)!, state: checkState(c), url: c.detailsUrl ?? c.targetUrl ?? null }))
       .sort((a, b) => RANK[a.state] - RANK[b.state] || a.name.localeCompare(b.name)),
   };
+}
+
+/** How many files a PR changes, or null when the source didn't say (an empty list may just be unfetched). */
+export function fileCount(p: Pick<Pr, "files" | "changedFiles">): number | null {
+  return p.changedFiles ?? (p.files.length ? p.files.length : null);
+}
+
+/** " in 4 files", or "" when the count isn't known. */
+export function inFiles(p: Pick<Pr, "files" | "changedFiles">): string {
+  const n = fileCount(p);
+  return n === null ? "" : ` in ${n} ${n === 1 ? "file" : "files"}`;
 }
 
 /** What a PR of mine is waiting on, if anything I should do: the reasons, worst first. */

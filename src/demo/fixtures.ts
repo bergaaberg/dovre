@@ -41,19 +41,194 @@ const pr = (now: number, o: Partial<Pr> & Pick<Pr, "repo" | "number" | "title">)
   requested: [],
   runs: [{ name: "build", state: "ok", url: `${base}/${o.repo}/actions` }, { name: "test", state: "ok", url: `${base}/${o.repo}/actions` }],
   ...o,
+  ...sizeOf(o.repo, o.number),
 });
+/** A PR's files and size, from its patches, so the list and its page agree. */
+function sizeOf(repo: string, n: number): Pick<Pr, "files" | "changedFiles" | "additions" | "deletions"> | {} {
+  const files = demoPrFiles(repo, n).map((f) => ({ path: f.filename, additions: f.additions, deletions: f.deletions }));
+  if (!files.length) return {};
+  return { files, changedFiles: files.length, additions: files.reduce((a, f) => a + f.additions, 0), deletions: files.reduce((a, f) => a + f.deletions, 0) };
+}
+
+/** Each demo PR's changed files with their patches, by "repo#number" (the repo without the org). */
+const DEMO_FILES: Record<string, { path: string; status?: string; patch: string }[]> = {
+  "checkout#412": [
+    { path: "src/payments/charge.ts", patch: `@@ -18,9 +18,17 @@ export async function charge(order: Order, card: Card): Promise<Receipt> {
+   const body = { amount: order.total, currency: order.currency, card: card.token };
+-  const res = await gateway.post("/charges", body);
+-  if (!res.ok) throw new ChargeError(res.status);
+-  return res.json();
++  // A timeout says nothing about whether the charge went through: ask once, with the same key.
++  const key = order.id;
++  for (let attempt = 1; ; attempt++) {
++    try {
++      const res = await gateway.post("/charges", body, { idempotencyKey: key, timeoutMs: 8_000 });
++      if (!res.ok) throw new ChargeError(res.status);
++      return res.json();
++    } catch (e) {
++      if (!(e instanceof TimeoutError) || attempt > 1) throw e;
++      log.warn("charge timed out, retrying once", { order: order.id });
++    }
++  }
+ }` },
+    { path: "test/charge.test.ts", patch: `@@ -40,3 +40,15 @@ test("a declined card throws", async () => {
+   await assert.rejects(charge(order, declined), ChargeError);
+ });
++
++test("a gateway timeout is retried once with the same key", async () => {
++  const gw = fakeGateway([timeout(), ok(receipt)]);
++  assert.deepEqual(await charge(order, card, gw), receipt);
++  assert.deepEqual(gw.keys, [order.id, order.id]);
++});
++
++test("a second timeout gives up", async () => {
++  const gw = fakeGateway([timeout(), timeout()]);
++  await assert.rejects(charge(order, card, gw), TimeoutError);
++  assert.equal(gw.calls, 2);
++});` },
+  ],
+  "catalog#88": [
+    { path: "src/images/serve.ts", patch: `@@ -7,8 +7,12 @@ export async function serveImage(req: Request, env: Env): Promise<Response> {
+   const { id, width } = parse(new URL(req.url));
+-  const original = await env.IMAGES.get(id);
+-  if (!original) return new Response("Not found", { status: 404 });
+-  return resize(original, width);
++  const cache = caches.default;
++  const hit = await cache.match(req);
++  if (hit) return hit;
++  const original = await env.IMAGES.get(id);
++  if (!original) return new Response("Not found", { status: 404 });
++  const res = resize(original, width);
++  res.headers.set("Cache-Control", "public, max-age=86400");
++  await cache.put(req, res.clone());
++  return res;
+ }` },
+    { path: "test/serve.test.ts", patch: `@@ -12,2 +12,8 @@ test("an unknown image is a 404", async () => {
+   assert.equal((await serveImage(get("/img/nope"), env)).status, 404);
+ });
++
++test("a second request comes from the cache", async () => {
++  await serveImage(get("/img/p1?w=400"), env);
++  await serveImage(get("/img/p1?w=400"), env);
++  assert.equal(env.IMAGES.reads, 1);
++});` },
+  ],
+  "web#1290": [
+    { path: "src/pages/orders.css", patch: `@@ -1,6 +1,14 @@
+ .orders { display: grid; gap: 12px; }
+-.order { background: #fff; color: #222; border: 1px solid #ddd; }
++.order { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
++
++@media (prefers-color-scheme: dark) {
++  :root { --surface: #1d1f22; --ink: #e8e6e3; --line: #34373b; }
++}
++@media (prefers-color-scheme: light) {
++  :root { --surface: #fff; --ink: #222; --line: #ddd; }
++}
+ .order h3 { margin: 0; }` },
+  ],
+  "checkout#415": [
+    { path: "src/basket/eta.ts", status: "added", patch: `@@ -0,0 +1,14 @@
++/** When the basket would arrive if ordered now: the carrier's estimate for the postcode, plus picking time. */
++export async function deliveryEstimate(postcode: string, now = new Date()): Promise<{ from: Date; to: Date }> {
++  const days = await carrier.estimate(postcode);
++  const picked = now.getHours() < 14 ? now : nextMorning(now);
++  return { from: addWorkdays(picked, days.min), to: addWorkdays(picked, days.max) };
++}
++
++function nextMorning(d: Date): Date {
++  const n = new Date(d);
++  n.setDate(n.getDate() + 1);
++  n.setHours(8, 0, 0, 0);
++  return n;
++}
++` },
+    { path: "src/basket/Basket.tsx", patch: `@@ -31,6 +31,10 @@ export function Basket({ items, postcode }: Props) {
+   return (
+     <section className="basket">
+       <Items items={items} />
++      <Suspense fallback={<p className="eta">Working out delivery…</p>}>
++        <Eta postcode={postcode} />
++      </Suspense>
+-      <Total items={items} />
++      <Total items={items} showVat />
+     </section>
+   );` },
+  ],
+  "accounts#233": [
+    { path: "src/auth/reset.ts", patch: `@@ -22,6 +22,13 @@ export async function requestReset(email: string, ip: string): Promise<void> {
+   const user = await users.byEmail(email);
++  // At most 3 a quarter-hour per address and 20 per IP: the same answer either way, so it says nothing about who has an account.
++  const ok = await limits.take([\`reset:email:\${email}\`, 3, 15 * 60], [\`reset:ip:\${ip}\`, 20, 15 * 60]);
++  if (!ok) {
++    log.info("reset rate-limited", { ip });
++    return;
++  }
+   if (!user) return;
+-  await mail.send(user.email, resetMail(user));
++  await mail.send(user.email, resetMail(user), { category: "security" });
+ }` },
+  ],
+};
+
+const fileStats = (patch: string) => {
+  const lines = patch.split("\n");
+  return { additions: lines.filter((l) => l.startsWith("+")).length, deletions: lines.filter((l) => l.startsWith("-")).length };
+};
+
+/** A demo PR's files as the forge's REST API lists them. */
+export function demoPrFiles(repo: string, n: number) {
+  return (DEMO_FILES[`${repo.split("/")[1]}#${n}`] ?? []).map((f, i) => ({ filename: f.path, status: f.status ?? "modified", ...fileStats(f.patch), patch: f.patch, sha: `d${i}e${n}`.padEnd(40, "0") }));
+}
+
+/** A demo PR as the forge's GraphQL answers for its page (src/sources/prview.ts), or undefined. */
+export function demoPrNode(now: number, repo: string, n: number): unknown {
+  const { mine, review } = demoPrs(now);
+  const p = [...mine, ...review].find((x) => x.repo === repo && x.number === n);
+  if (!p) return undefined;
+  const files = DEMO_FILES[`${repo.split("/")[1]}#${n}`] ?? [];
+  const reviewer = p.reviews[0]?.login ?? p.requested[0] ?? "ola-demo";
+  const threads = files.length && p.openThreads
+    ? Array.from({ length: p.openThreads }, (_, i) => ({
+        id: `PRRT_demo${n}${i}`, isResolved: false, isOutdated: false, path: files[0]!.path, line: 10 + i * 4, diffSide: "RIGHT",
+        comments: { nodes: [{ databaseId: 9000 + i, author: { login: reviewer }, body: i ? "Does this need a test for the miss case too?" : "This caches the 404 as well, doesn't it? Only put a 200.", createdAt: ago(now, 70 - i * 5), url: `${p.url}#discussion_r${9000 + i}` }] },
+      }))
+    : [];
+  const ctx = (r: Pr["runs"][number]) => ({ name: r.name, status: r.state === "pending" ? "IN_PROGRESS" : "COMPLETED", conclusion: { ok: "SUCCESS", bad: "FAILURE", skipped: "SKIPPED", pending: null }[r.state], detailsUrl: r.url });
+  return {
+    repository: {
+      pullRequest: {
+        number: p.number, title: p.title, url: p.url, state: "OPEN", isDraft: p.draft, mergeable: "MERGEABLE",
+        baseRefName: "main", headRefName: p.branch, headRefOid: p.headSha, author: { login: p.author },
+        body: p.body, additions: p.additions, deletions: p.deletions, changedFiles: files.length,
+        createdAt: p.createdAt, updatedAt: p.updatedAt, reviewDecision: p.review, labels: { nodes: p.labels.map((name) => ({ name })) },
+        reviewRequests: { nodes: p.requested.map((login) => ({ requestedReviewer: { login } })) },
+        reviews: { nodes: p.reviews.map((rv, i) => ({ author: { login: rv.login }, state: rv.state, body: rv.state === "CHANGES_REQUESTED" ? "The tests fail on the cache key; see the two comments." : "", submittedAt: ago(now, 15 + i * 10), url: `${p.url}#review-${i}` })) },
+        reviewThreads: { nodes: threads },
+        commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: p.runs.map(ctx) } } } }] },
+        timelineItems: {
+          nodes: [
+            { __typename: "PullRequestCommit", commit: { oid: "c0ffee1234567", messageHeadline: p.title, committedDate: p.createdAt, author: { user: { login: p.author } } } },
+            ...p.requested.map((login) => ({ __typename: "ReviewRequestedEvent", createdAt: p.createdAt, actor: { login: p.author }, requestedReviewer: { login } })),
+            { __typename: "PullRequestCommit", commit: { oid: "beef5678abcd9", messageHeadline: "Address review notes", committedDate: p.updatedAt, author: { user: { login: p.author } } } },
+          ],
+        },
+      },
+    },
+  };
+}
 
 export function demoPrs(now: number): { mine: Pr[]; review: Pr[] } {
   const r = (name: string) => `${DEMO_ORG}/${name}`;
   return {
     mine: [
-      pr(now, { repo: r("checkout"), number: 412, title: "Retry card payments once on a gateway timeout", branch: "feat/payment-retry", review: "APPROVED", updatedAt: ago(now, 18), additions: 86, deletions: 12, reviews: [{ login: "ola-demo", state: "APPROVED" }], files: [{ path: "src/payments/charge.ts", additions: 54, deletions: 9 }, { path: "test/charge.test.ts", additions: 32, deletions: 3 }] }),
-      pr(now, { repo: r("catalog"), number: 88, title: "Cache product images at the edge", branch: "feat/image-cache", checks: "FAILURE", updatedAt: ago(now, 52), openThreads: 2, runs: [{ name: "test", state: "bad", url: `${base}/${r("catalog")}/actions` }, { name: "build", state: "ok", url: `${base}/${r("catalog")}/actions` }], reviews: [{ login: "per-demo", state: "CHANGES_REQUESTED" }], review: "CHANGES_REQUESTED" }),
-      pr(now, { repo: r("web"), number: 1290, title: "Dark mode for the order history page", branch: "feat/dark-orders", draft: true, checks: "PENDING", updatedAt: ago(now, 140), runs: [{ name: "build", state: "pending", url: `${base}/${r("web")}/actions` }] }),
+      pr(now, { repo: r("checkout"), number: 412, title: "Retry card payments once on a gateway timeout", branch: "feat/payment-retry", review: "APPROVED", updatedAt: ago(now, 18), reviews: [{ login: "ola-demo", state: "APPROVED" }], body: "The gateway times out a few times a day under load, and the customer sees a failed payment that often went through.\n\nThis retries a timed-out charge once with the same idempotency key, so the gateway answers the first charge rather than making a second." }),
+      pr(now, { repo: r("catalog"), number: 88, title: "Cache product images at the edge", branch: "feat/image-cache", checks: "FAILURE", updatedAt: ago(now, 52), openThreads: 2, runs: [{ name: "test", state: "bad", url: `${base}/${r("catalog")}/actions` }, { name: "build", state: "ok", url: `${base}/${r("catalog")}/actions` }], reviews: [{ login: "per-demo", state: "CHANGES_REQUESTED" }], review: "CHANGES_REQUESTED", body: "Product images are resized on every request. This puts the resized image in the edge cache for a day." }),
+      pr(now, { repo: r("web"), number: 1290, title: "Dark mode for the order history page", branch: "feat/dark-orders", draft: true, checks: "PENDING", updatedAt: ago(now, 140), runs: [{ name: "build", state: "pending", url: `${base}/${r("web")}/actions` }], body: "Draft: the order history follows the system's dark mode. Still to do: the receipts." }),
     ],
     review: [
-      pr(now, { repo: r("checkout"), number: 415, title: "Show the delivery estimate in the basket", author: "ola-demo", branch: "feat/delivery-eta", updatedAt: ago(now, 25), requested: [DEMO_LOGIN], additions: 120, deletions: 30 }),
-      pr(now, { repo: r("accounts"), number: 233, title: "Rate-limit password reset emails", author: "per-demo", branch: "fix/reset-limit", updatedAt: ago(now, 95), requested: [DEMO_LOGIN], labels: ["security"], additions: 44, deletions: 6 }),
+      pr(now, { repo: r("checkout"), number: 415, title: "Show the delivery estimate in the basket", author: "ola-demo", branch: "feat/delivery-eta", updatedAt: ago(now, 25), requested: [DEMO_LOGIN], body: "Shows when the basket would arrive, from the carrier's estimate for the postcode. Orders after 14:00 are picked the next morning." }),
+      pr(now, { repo: r("accounts"), number: 233, title: "Rate-limit password reset emails", author: "per-demo", branch: "fix/reset-limit", updatedAt: ago(now, 95), requested: [DEMO_LOGIN], labels: ["security"], body: "Anyone could send a reset email to any address as often as they liked. This caps it per address and per IP, and answers the same either way." }),
     ],
   };
 }

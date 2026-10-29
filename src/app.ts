@@ -131,7 +131,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
   const items: (NavItem | false)[] = [
     { href: "/", title: "Today", icon: "home" },
     opts.stats !== false && { href: "/stats", title: "Stats", icon: "chart" },
-    { href: "/prs", title: "Pull requests", icon: "pr", group: "Code", order: 10, count: prs, hot: s.prs.ok && s.prs.value.review.length > 0 },
+    { href: "/prs", title: "Pull requests", short: "PRs", icon: "pr", group: "Code", order: 10, count: prs, hot: s.prs.ok && s.prs.value.review.length > 0 },
     { href: "/deploys", title: "Deploys", icon: "rocket", group: "Code", order: 20, count: deploys, hot: deploys > 0 },
     !opts.hosted && { href: "/code", title: "Code", icon: "code", group: "Code", order: 40 },
     !opts.hosted && { href: "/movement", title: "Moved", icon: "health", group: "Code", order: 50 },

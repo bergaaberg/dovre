@@ -130,7 +130,7 @@ export function statOffers(v: StatsView, o: { now: number; forge?: ForgeView; we
     if (spends) out.push({ id: "spend-daily", label: "Agent spend per day", from: "Agents", draw: () => spendPanel(v.spend) });
     out.push(
       gh("org-merged", "The org, merged PRs per week", (_, _w, c) => Panel({ title: `The org, merged PRs per ${per}`, children: columns({ title: `Merged pull requests in the org per ${per}`, labels, tips, every, fmt: compact, partialLast: true, series: [{ name: "Merged", tone: "c1", values: last(c.orgMerged) }] }) })),
-      gh("releases", "The org, releases per week", (h, _w, c) => Panel({ title: `The org, releases per ${per}`, meta: `${h.repos} most active repos`, children: columns({ title: `Releases per ${per}`, labels, tips, every, fmt: compact, partialLast: true, series: [{ name: "Releases", tone: "c1", values: last(c.releases) }] }) })),
+      gh("releases", "The org, releases per week", (h, _w, c) => Panel({ title: `The org, releases per ${per}`, meta: `top ${h.repos} repos`, children: columns({ title: `Releases per ${per}`, labels, tips, every, fmt: compact, partialLast: true, series: [{ name: "Releases", tone: "c1", values: last(c.releases) }] }) })),
       gh("main-red-weekly", "Main red, per week", (_, _w, c) => Panel({ title: `Main red, per ${per}`, meta: "commits whose checks failed", children: lines({ title: `Share of commits on main with failing checks, per ${per}`, labels, tips, every, fmt: pct, yMax: 100, series: [{ name: "Red", tone: "c1", values: last(c.red.map((r) => r?.pct)) }] }) })),
       gh("waits", "Your PRs, waiting", (_, _w, c) => {
         const waits = last(c.waits);

@@ -61,7 +61,7 @@ export const trunc = (s: string | undefined, n: number) => (s && s.length > n ? 
 export function checksPill(c: Pr["checks"]): Html | "" {
   if (c === "SUCCESS") return Pill({ tone: "ok", children: "checks ✓" });
   if (c === "FAILURE" || c === "ERROR") return Pill({ tone: "bad", children: "checks ✗" });
-  if (c === "PENDING" || c === "EXPECTED") return Pill({ tone: "warn", children: "checks …" });
+  if (c === "PENDING" || c === "EXPECTED") return Pill({ tone: "warn", children: "checks running" });
   return "";
 }
 

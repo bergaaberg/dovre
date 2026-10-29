@@ -7,6 +7,7 @@
  * under the same rule.
  */
 import type { Snapshot } from "../../../../gather.ts";
+import { inFiles } from "../../../../sources/ghe.ts";
 
 /** Pages whose content never reaches Bino: shells, artifacts (and private packs' pages, below). */
 const PRIVATE: [string, string][] = [
@@ -63,7 +64,7 @@ export function viewOf(raw: string, s?: Snapshot, apps: ViewApp[] = []): string 
       p.requested.length ? `asked: ${p.requested.slice(0, 8).join(", ")}` : "",
       bad.length ? `failing checks: ${bad.slice(0, 6).join(", ")}` : p.runs.some((r) => r.state === "pending") ? "checks running" : p.runs.length ? "checks green" : "",
       p.openThreads ? `${p.openThreads} open review threads` : "",
-      `+${p.additions} −${p.deletions} in ${p.files.length} files${p.files.length ? `: ${p.files.slice(0, 20).map((f) => one(f.path, 120)).join(", ")}${p.files.length > 20 ? ", …" : ""}` : ""}`,
+      `+${p.additions} −${p.deletions}${inFiles(p)}${p.files.length ? `: ${p.files.slice(0, 20).map((f) => one(f.path, 120)).join(", ")}${p.files.length > 20 ? ", …" : ""}` : ""}`,
       p.labels.length ? `labels: ${p.labels.slice(0, 8).join(", ")}` : "",
     ];
     return `${parts.filter(Boolean).join("; ")}.`;

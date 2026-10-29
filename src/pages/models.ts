@@ -10,11 +10,12 @@ export const HARNESS_LABEL: Record<HarnessId, string> = HARNESS_NAME;
 
 export const modeSelect = (current = "default") =>
   html`<label class="field"><span class="label">Mode</span><select name="mode">${MODES.map((m) => html`<option value="${m}"${m === current ? html` selected` : ""}>${MODE_LABEL[m]}</option>`)}</select></label>`;
-const options = (list: { value: string; label: string }[], current: string) => list.map((m) => html`<option value="${m.value}"${m.value === current ? html` selected` : ""}>${m.label}</option>`);
+const options = (list: { value: string; label: string }[], current: string | null) => list.map((m) => html`<option value="${m.value}"${m.value === current ? html` selected` : ""}>${m.label}</option>`);
 /** One harness's models; with several harnesses, each in its own group (the server checks the pair). */
 export const modelSelect = (current = "", harnesses: HarnessId[] = ["claude"]) =>
   html`<label class="field"><span class="label">Model</span><select name="model">${
     harnesses.length === 1
       ? options(modelsFor(harnesses[0]), current)
-      : harnesses.map((h) => html`<optgroup label="${HARNESS_LABEL[h]}">${options(modelsFor(h), current)}</optgroup>`)
+      : // Every group has a default (""): only the first is picked, else the browser shows the last group's.
+        harnesses.map((h, i) => html`<optgroup label="${HARNESS_LABEL[h]}">${options(modelsFor(h), current === "" && i > 0 ? null : current)}</optgroup>`)
   }</select></label>`;

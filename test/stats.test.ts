@@ -32,6 +32,10 @@ test("weeks: twelve, Monday to Monday in Oslo, the last one this week", () => {
   assert.equal(median([]), undefined);
   assert.deepEqual(niceTicks(41), [0, 20, 40, 60]);
   assert.deepEqual(niceTicks(0), [0, 1]);
+  // Counts step by whole numbers: no "0.5 releases".
+  assert.deepEqual(niceTicks(1, true), [0, 1]);
+  assert.deepEqual(niceTicks(7, true), [0, 5, 10]);
+  assert.deepEqual(niceTicks(1), [0, 0.5, 1]);
 });
 
 const people = {

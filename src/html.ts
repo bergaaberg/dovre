@@ -31,7 +31,7 @@ export type { Html };
  * section (the default), under More, or a button on the right ("action"). `minor` is the old word
  * for More.
  */
-export type NavItem = { href: string; title: string; icon?: IconName; group?: string; /** Its place within its group (lower first; unset: 50, in the order given). */ order?: number; count?: number; hot?: boolean; minor?: boolean; place?: "main" | "more" | "action"; /** A tab in the phone's bar at the foot (after Today, three at most, in nav order). */ tab?: boolean; /** Where among the tabs, when I've ordered them (src/layout.ts). */ tabAt?: number };
+export type NavItem = { href: string; title: string; icon?: IconName; group?: string; /** Its place within its group (lower first; unset: 50, in the order given). */ order?: number; count?: number; hot?: boolean; minor?: boolean; place?: "main" | "more" | "action"; /** A tab in the phone's bar at the foot (after Today, three at most, in nav order). */ tab?: boolean; /** Where among the tabs, when I've ordered them (src/layout.ts). */ tabAt?: number; /** Its label in the phone's tab bar, when the title is too long there. */ short?: string };
 const placeOf = (p: NavItem) => p.place ?? (p.minor ? "more" : "main");
 /** The menu's groups, in order (Today has none); any other group a pack names comes after these. */
 export const NAV_GROUPS = ["", "Code", "Agents", "Plan", "Ops"];
@@ -173,7 +173,7 @@ function tabBar(nav: NavItem[], here: NavItem | undefined, gap = false): Html | 
   if (!tabs.length) return "";
   const inMore = !!here && !tabs.includes(here);
   const tab = (p: NavItem) =>
-    html`<a href="${p.href}"${p === here ? html` aria-current="page"` : ""}><span class="tab-ico">${icon(p.icon ?? "home")}${p.count ? html`<b class="${p.hot ? "hot" : ""}">${p.count > 99 ? "99+" : p.count}</b>` : ""}</span><span class="tab-lbl">${p.title}</span></a>`;
+    html`<a href="${p.href}"${p === here ? html` aria-current="page"` : ""}><span class="tab-ico">${icon(p.icon ?? "home")}${p.count ? html`<b class="${p.hot ? "hot" : ""}">${p.count > 99 ? "99+" : p.count}</b>` : ""}</span><span class="tab-lbl">${p.short ?? p.title}</span></a>`;
   // The middle of the bar, More counted; with an odd count the extra one goes left of the gap.
   const mid = Math.ceil((tabs.length + 1) / 2);
   const items = tabs.map(tab);
@@ -191,7 +191,8 @@ export function shell(opts: { title: string; frame: Frame; current?: string; bod
   const tabs = new Set(tabsOf(frame.nav));
   const link = (p: NavItem) =>
     html`<a href="${p.href}" title="${p.title}"${tabs.has(p) ? html` class="is-tab"` : ""}${p === here ? html` aria-current="page"` : ""}>${p.icon ? icon(p.icon) : ""}<span class="lbl">${p.title}</span>${p.count ? html`<b class="${p.hot ? "hot" : ""}">${p.count}</b>` : ""}</a>`;
-  // The side menu's groups, in the order they first appear; "You" goes to the foot.
+  // The side menu's groups, in the order they first appear; "You" goes to the foot. A group whose first item has
+  // its name (Agents) shows no heading: "Agents" over "Agents" says nothing.
   const groups: [string, NavItem[]][] = [];
   for (const p of frame.nav.filter((x) => placeOf(x) !== "action" && x.group !== "You")) {
     const g = p.group ?? "";
@@ -231,7 +232,7 @@ ${SPRITE}
 <div class="side-top"><a class="brand" href="/" aria-label="Dovre, Today">${MARK}<span>Dovre</span></a><button type="button" class="side-menu" id="side-menu" aria-controls="side-nav" aria-expanded="false" title="Menu">${icon("menu")}</button></div>
 <a class="search-btn" id="search-btn" href="/search" aria-keyshortcuts="Control+K" title="Search (Ctrl K)">${SEARCH_ICON}<span class="lbl">Search</span><kbd>Ctrl K</kbd></a>
 <div class="side-sheet" id="side-sheet">
-<div class="side-nav" id="side-nav"><div data-live id="nav">${groups.map(([g, items]) => html`<div class="${`side-g${items.every((p) => tabs.has(p)) ? " all-tabs" : ""}`}">${g ? html`<p class="side-h">${g}</p>` : ""}${items.map(link)}</div>`)}</div></div>
+<div class="side-nav" id="side-nav"><div data-live id="nav">${groups.map(([g, items]) => html`<div class="${`side-g${items.every((p) => tabs.has(p)) ? " all-tabs" : ""}`}">${g && items[0]?.title !== g ? html`<p class="side-h">${g}</p>` : ""}${items.map(link)}</div>`)}</div></div>
 <div class="side-foot">
 <form method="post" action="/refresh" id="refresh"><button type="submit" class="side-sync" title="Refresh: gather everything now">${icon("refresh")}<span class="lbl"><span class="live-dot" id="live-dot" aria-hidden="true"></span><span id="synced">${frame.syncing ? "Syncing…" : frame.syncedAt ? `Synced ${hm(frame.syncedAt, frame.tz)}` : "Not synced yet"}</span></span></button></form>
 ${you.map(link)}

@@ -6,7 +6,7 @@ import { html } from "hono/html";
 import type { Summary } from "../ai/summaries.ts";
 import { deploySummaryKey, prSummaryKey, type Result } from "../gather.ts";
 import { type Changelog, groupChanges, KIND_TITLE } from "../sources/changelog.ts";
-import type { Pr } from "../sources/ghe.ts";
+import { inFiles, type Pr } from "../sources/ghe.ts";
 import { type Child, type Html, KeyValues, Notice, Pill } from "../ui/kit.ts";
 import type { PrSlotArg, RefRule } from "../packs/types.ts";
 import { appRefs } from "../todo/links.ts";
@@ -88,7 +88,7 @@ export function prCard(p: Pr, opts: { org: string; summary: SummaryOf; agent?: A
   const short = p.repo.replace(`${opts.org}/`, "");
   const sum = opts.summary(prSummaryKey(p));
   return html`<li><details class="thread pr" id="${prAnchor(p)}"${opts.open ? html` open` : ""}>
-<summary class="item"><span class="lead"><span class="repo-tag">${short}</span>${opts.slots?.lead(p) ?? ""}</span><span class="main"><span class="title"><strong>#${p.number} ${p.title}</strong> ${prPills(p)}</span><span class="line">${opts.showAuthor ? html`${p.author} · ` : ""}${p.branch} · <span class="ok">+${p.additions}</span> <span class="bad">−${p.deletions}</span> in ${p.files.length} files</span>${
+<summary class="item"><span class="lead"><span class="repo-tag">${short}</span>${opts.slots?.lead(p) ?? ""}</span><span class="main"><span class="title"><strong>#${p.number} ${p.title}</strong> ${prPills(p)}</span><span class="line">${opts.showAuthor ? html`${p.author} · ` : ""}${p.branch} · <span class="ok">+${p.additions}</span> <span class="bad">−${p.deletions}</span>${inFiles(p)}</span>${
     sum?.state === "ready" ? html`<span class="clamp ai-clamp">${sum.text}</span>` : ""
   }</span><span class="trail">${Ago(p.updatedAt)}</span></summary>
 <div class="thread-body">${prBody(p, opts)}</div></details></li>`;
