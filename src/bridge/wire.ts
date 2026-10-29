@@ -161,7 +161,7 @@ export async function channel(o: { key: string; send: Dir; sent?: number; got?: 
 /** A call the Worker makes of the Mac's desk: an op name and its arguments (src/agents/desk.ts checks them). */
 export type Call = { op: string; [k: string]: unknown };
 /** What the Mac keeps the hub told of (metadata only: never what a turn says). */
-export type MacState = { at: number; version?: string; /** The machine's own name for itself (its hostname). */ name?: string; harnesses: string[]; runs: unknown[]; sessions: { live: unknown[]; recent: unknown[] }; workDir?: string; /** Sandbox runs can start there now (src/agents/sandbox.ts). */ sandbox?: boolean };
+export type MacState = { at: number; version?: string; /** The machine's own name for itself (its hostname). */ name?: string; harnesses: string[]; runs: unknown[]; sessions: { live: unknown[]; recent: unknown[] }; workDir?: string; /** Sandbox runs can start there now (src/agents/sandbox.ts). */ sandbox?: boolean; /** The models each CLI's own config names there (#238), by harness. */ models?: Record<string, { value: string; label: string }[]> };
 
 export type Up =
   | { t: "state"; state: MacState }
@@ -200,9 +200,24 @@ export function parseUp(v: unknown): Up | undefined {
     if (!harnesses || !runs || !live || !recent) return undefined;
     const workDir = typeof s.workDir === "string" && s.workDir.length <= 500 ? s.workDir : undefined;
     const name = typeof s.name === "string" ? s.name.replace(/[^\w .'-]/g, "").trim().slice(0, 60) : "";
-    return { t: "state", state: { at: s.at, version: typeof s.version === "string" ? s.version.slice(0, 40) : undefined, ...(name ? { name } : {}), harnesses, runs, sessions: { live, recent }, ...(workDir ? { workDir } : {}), ...(s.sandbox === true ? { sandbox: true } : {}) } };
+    const models = modelsIn(s.models, harnesses);
+    return { t: "state", state: { at: s.at, version: typeof s.version === "string" ? s.version.slice(0, 40) : undefined, ...(name ? { name } : {}), harnesses, runs, sessions: { live, recent }, ...(workDir ? { workDir } : {}), ...(s.sandbox === true ? { sandbox: true } : {}), ...(models ? { models } : {}) } };
   }
   return undefined;
+}
+
+/** A model id as a CLI's config names one ("" is its default), and how it's shown. */
+const MODEL = /^[\w.\/:@+-]{0,120}$/;
+/** The models a machine reports, for the harnesses it has only: at most 50 each, ids and labels checked. Anything off: left out. */
+function modelsIn(v: unknown, harnesses: string[]): MacState["models"] {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: NonNullable<MacState["models"]> = {};
+  for (const h of harnesses) {
+    const list = arr((v as Record<string, unknown>)[h], 50);
+    const ok = list?.filter((m): m is { value: string; label: string } => !!m && typeof m === "object" && typeof (m as any).value === "string" && MODEL.test((m as any).value) && typeof (m as any).label === "string" && (m as any).label.length <= 120);
+    if (ok?.length) out[h] = ok.map((m) => ({ value: m.value, label: m.label.replace(/[\u0000-\u001f]/g, "") }));
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** What the Mac takes from the hub. */

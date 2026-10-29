@@ -10,6 +10,7 @@
  */
 import type { Desk } from "../agents/desk.ts";
 import type { Run } from "../agents/runner.ts";
+import { harnessDef, modelsOf } from "../agents/harnesses/index.ts";
 import type { Session } from "../sources/claude.ts";
 import { type Call, MAX_FRAME, type MacState } from "./wire.ts";
 
@@ -30,7 +31,9 @@ export function runMeta(r: Run): Run {
 
 export function stateOf(desk: Desk, sessions: { live: Session[]; recent: Session[] }, o: { at?: number; version?: string; name?: string } = {}): MacState {
   const v = desk.view();
-  return { at: o.at ?? Date.now(), version: o.version, ...(o.name ? { name: o.name } : {}), harnesses: v.harnesses, runs: v.runs.map(runMeta), sessions, workDir: v.workDir, ...(v.sandbox?.ok ? { sandbox: true } : {}) };
+  // The models found in each CLI's config here (#238); a harness on its fixed list sends none.
+  const found = v.harnesses.flatMap((h) => (modelsOf(h) === harnessDef(h).models ? [] : [[h, modelsOf(h)] as const]));
+  return { at: o.at ?? Date.now(), version: o.version, ...(o.name ? { name: o.name } : {}), harnesses: v.harnesses, runs: v.runs.map(runMeta), sessions, workDir: v.workDir, ...(v.sandbox?.ok ? { sandbox: true } : {}), ...(found.length ? { models: Object.fromEntries(found) } : {}) };
 }
 
 /** Leaves room for the frame around an answer. */

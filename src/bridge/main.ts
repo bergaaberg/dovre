@@ -24,7 +24,8 @@ import { createQueue } from "../agents/queue.ts";
 import { createRunner, type Run } from "../agents/runner.ts";
 import { gitTurnDiff } from "../agents/turndiff.ts";
 import { appleContainer } from "../agents/sandbox.ts";
-import { findHarnessTools, harnessesFor } from "../agents/harnesses/index.ts";
+import { findHarnessTools, harnessesFor, useFoundModels } from "../agents/harnesses/index.ts";
+import { foundModels } from "../agents/harnesses/found.ts";
 import { loadEnv, rawVars } from "../env.ts";
 import { localSessions } from "../sources/sessions.ts";
 import { liveAgents, type Session } from "../sources/claude.ts";
@@ -103,6 +104,8 @@ const tools = findHarnessTools(env);
 const { claude, omp, agy, codex } = tools;
 // Only the CLIs switched on (AGENT_HARNESSES in .dev.vars); unset, every one found.
 const harnessOn = harnessesOn(env.AGENT_HARNESSES);
+// The models each CLI's own config names here (#238): offered on this machine, and reported to the hub.
+useFoundModels(foundModels());
 
 let bridge: Bridge | undefined;
 const queue = createQueue({ file: join(dataDir, "queue.json"), onChange: (sid) => bridge?.topics([`run:${sid}`]) });
