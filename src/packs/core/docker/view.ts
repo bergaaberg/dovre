@@ -46,24 +46,34 @@ function groupPanel(g: Group, v: DockerView): Html {
   return Panel({ title: p ?? "Not in a compose project", meta: `${g.running} of ${all} running`, actions: acts, flush: true, children: List(g.containers.map((c) => containerItem(c, v))) });
 }
 
+const BERTH = "https://github.com/bergaaberg/berth";
+
+/** Windows without an engine: berth runs one without Docker Desktop. */
+const berthHint = html`<p>berth runs Docker Engine in a WSL distro of its own, without Docker Desktop (<a href="${BERTH}">github.com/bergaaberg/berth</a>). With its <code>berth.exe</code>:</p><pre class="code">berth setup</pre><p>Then restart Dovre (Settings → Restart), and this page switches it on and off.</p>`;
+
 function engineNote(v: DockerView): Html {
   if (v.state === "none")
     return Notice({
-      children: v.ours
-        ? html`<p><strong>No Docker engine here yet.</strong> Dovre runs Docker Engine in a WSL distro of its own, without Docker Desktop:</p><pre class="code">pwsh scripts/docker.ps1</pre><p>Then restart Dovre (Settings → Restart): the launcher serves the engine to the docker CLI, Testcontainers and this page.</p>`
+      children: v.windows
+        ? html`<p><strong>No Docker engine here yet.</strong></p>${berthHint}`
         : html`<p><strong>No Docker engine found.</strong> Start Docker Desktop, OrbStack, Colima, or native dockerd. On a Mac without one, this sets up Colima and starts it at login:</p><pre class="code">sh scripts/docker.sh</pre>`,
     });
   if (v.state === "off") return Notice({ children: html`<p><strong>Docker is off.</strong> Its containers stopped with it; the ones with a restart policy come back when it starts.</p><div class="buttons">${btn("/docker/engine/on", "Start Docker", "Starting", "primary")}</div>` });
   if (v.state === "starting") return Notice({ children: html`<p><strong>Starting Docker…</strong> The distro and the engine take a few seconds; this fills in by itself.</p>` });
   if (v.state === "down")
-    return Notice({ tone: "bad", children: html`<p><strong>Docker isn't answering.</strong> ${v.error ?? ""}</p>${v.ours ? html`<div class="buttons">${btn("/docker/engine/on", "Start Docker", "Starting", "primary")}</div>` : ""}` });
+    return Notice({
+      tone: "bad",
+      children: html`<p><strong>Docker isn't answering${v.pipe ? html` on <code>${v.pipe}</code>` : ""}.</strong> ${v.error ?? ""}</p>${
+        v.ours ? html`<div class="buttons">${btn("/docker/engine/on", "Start Docker", "Starting", "primary")}</div>` : v.windows ? html`<p>Start Docker Desktop, or use berth instead.</p>${berthHint}` : ""
+      }`,
+    });
   return html``;
 }
 
 export function dockerPage(v: DockerView, flash?: DockerView["flash"]): PageOpts {
   const groups = groupsOf(v.containers);
   const running = v.containers.filter((c) => c.state === "running").length;
-  const sub = v.state === "ok" ? `${running} running · ${v.containers.length} in all${v.version ? ` · Docker Engine ${v.version}` : ""}` : (v.ours ? "Containers on this machine, without Docker Desktop." : "Containers on Docker Engine.");
+  const sub = v.state === "ok" ? `${running} running · ${v.containers.length} in all${v.version ? ` · Docker Engine ${v.version}` : ""}` : (v.ours ? "Containers on berth: Docker Engine without Docker Desktop." : "Containers on Docker Engine.");
   const actions = v.ours && v.state === "ok" ? Confirm({ kind: "docker.engine-off", action: "/docker/engine/off", label: "Stop Docker", question: `Stop the engine and every container (${running} running)? Volumes and images stay.` }) : undefined;
   const body = html`${PageHeader({ title: "Docker", sub, actions })}
 <div data-live id="docker">

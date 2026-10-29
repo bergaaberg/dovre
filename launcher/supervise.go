@@ -36,9 +36,6 @@ func supervise(p Paths) error {
 		_ = os.Remove(stop)
 	}()
 
-	// Docker Engine in its WSL distro, on a pipe (docker.go); nothing when there's no distro.
-	go ServeDocker(p)
-
 	pause := 2 * time.Second
 	for {
 		if _, err := os.Stat(stop); err == nil {

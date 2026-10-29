@@ -61,8 +61,3 @@ func supervise(Paths) error {
 }
 
 func hideChild(cmd *exec.Cmd) {}
-
-// ServeDocker: the Docker pipe is a Windows named pipe (dockerpipe_windows.go).
-func ServeDocker(Paths) {}
-
-func dockerPipe(Paths) error { return errors.New("the docker pipe is Windows-only") }
