@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createApp } from "../../../../app.ts";
 import { ACT_FENCE } from "../bino/acts.ts";
-import { appsOf } from "../bino/context.ts";
+import { appsOf, defaultBinoOf } from "../bino/context.ts";
 import { loadMemory, noMemory } from "../bino/memory.ts";
 import { viewOf } from "../bino/view.ts";
 import { activePacks } from "../../../registry.ts";
@@ -159,6 +159,9 @@ test("hosted pages: Bino through the object, what packs share instead of GitHub,
   const client = hubClient(nsOf(hub));
   const quill: Pack = { manifest: { api: PACK_API, id: "quill", name: "Quill", description: "", domain: "personal" }, bino: () => `12 trials\u0007, 3 end this week ${H}` };
   const broken: Pack = { manifest: { api: PACK_API, id: "broken", name: "Broken", description: "", domain: "personal" }, bino: () => { throw new Error("no memory"); } };
+  // No `bino` of its own: Bino hears what it shows on Today. A private pack's stays out.
+  const lark: Pack = { manifest: { api: PACK_API, id: "lark", name: "Lark", description: "", domain: "personal" }, glance: () => [{ label: "queued", value: 4 }], needs: () => [{ key: "a", title: "Lark job failed: nightly", href: "/lark", tone: "bad", at: 1 }] };
+  const mail: Pack = { manifest: { api: PACK_API, id: "mail", name: "Mail", description: "", domain: "personal", private: true }, needs: () => [{ key: "m", title: "MAIL-SUBJECT", href: "/mail", tone: "warn", at: 1 }] };
   const s = snapshot({ prs: { ok: true, value: { mine: [pr({ title: "GITHUB-ONLY-TITLE" })], review: [] } } as never });
   const app = createApp(
     { ...ENV, DB: db.DB, IS_HOSTED: "1" },
@@ -169,7 +172,7 @@ test("hosted pages: Bino through the object, what packs share instead of GitHub,
       hub: client,
       events: client.events,
       bino: { remote: remoteBino(client, { route: hostedBinoRoute(env), memory: noMemory("no"), sees: "My list and what your apps share" }) },
-      packs: { ...activePacks([quill, broken], { env: {}, hosted: true }), env: {} },
+      packs: { ...activePacks([quill, broken, lark, mail], { env: {}, hosted: true }), env: {} },
     },
   );
   const at = "https://dovre.example.dev";
@@ -186,8 +189,11 @@ test("hosted pages: Bino through the object, what packs share instead of GitHub,
   assert.match(system, /## Quill \(one of the user's apps\)\n12 trials , 3 end this week/, "the pack's lines, control characters out");
   assert.ok(!system.includes("GITHUB-ONLY-TITLE"), "no GitHub snapshot hosted");
   assert.ok(!system.includes("Broken"), "a pack that fails says nothing");
+  assert.match(system, /## Lark \(one of the user's apps\)\nqueued: 4\.\nNeeds them: Lark job failed: nightly\./, "a pack without `bino`: its glance and needs");
+  assert.ok(system.indexOf("## Quill") < system.indexOf("## Lark"), "packs that speak for themselves first");
+  assert.ok(!system.includes("MAIL-SUBJECT") && !system.includes("## Mail"), "a private pack says nothing it didn't choose to");
   const user = calls.find((x) => x.body.model === "claude-sonnet-5-5")!.body.messages[0]!.content;
-  assert.match(user, /\[Looking at a page of their app Quill \(\/quill\/writers\)\.\]/);
+  assert.match(user, /\[Looking at a page of their app Quill \(\/quill\/writers\)\. You only know which page this is/);
   const conv = (await (await hub.fetch(new Request("https://hub.internal/bino", { method: "POST", body: JSON.stringify({ op: "get", id }) }))).json()) as { app?: string };
   assert.equal(conv.app, "quill", "a conversation started on Quill's page is about Quill");
 
@@ -199,7 +205,7 @@ test("hosted pages: Bino through the object, what packs share instead of GitHub,
   await client.drain();
 });
 
-test("appsOf: plain text, capped, nameless or empty packs left out; viewOf names a pack's page without describing it", () => {
+test("appsOf: plain text, capped, nameless or empty packs left out; viewOf names a pack's page without describing it", async () => {
   const long = "x".repeat(5000);
   const got = appsOf([
     { name: "Quill", text: `a\r\nb\u0000c\n\n\n\nd` },
@@ -211,6 +217,22 @@ test("appsOf: plain text, capped, nameless or empty packs left out; viewOf names
   assert.deepEqual(got.map((a) => a.name), ["Quill", "Long"]);
   assert.equal(got[0]!.text, "a\nb c\n\nd");
   assert.equal(got[1]!.text.length, 1500);
-  assert.equal(viewOf("/quill/x?y=1", undefined, [{ id: "quill", name: "Quill" }]), "a page of their app Quill (/quill/x).");
-  assert.equal(viewOf("/quilller", undefined, [{ id: "quill", name: "Quill" }]), "a page in Dovre.");
+  assert.match(await viewOf("/quill/x?y=1", undefined, [{ id: "quill", name: "Quill" }]), /^a page of their app Quill \(\/quill\/x\)\. You only know which page/);
+  assert.equal(await viewOf("/quilller", undefined, [{ id: "quill", name: "Quill" }]), "a page in Dovre.");
+});
+
+test("defaultBinoOf: a pack's glance, pulse, needs and last day's feed as plain lines; junk and old events left out", () => {
+  const now = Date.parse("2026-10-29T12:00:00Z");
+  const got = defaultBinoOf(
+    {
+      glance: [{ label: "trials", value: 12 }, { label: "", value: 3 }, "junk", { label: "mrr", value: "4 200 kr" }],
+      pulse: { working: 2, asking: 0, trouble: { level: "fire", why: "queue stuck" } },
+      needs: [...Array.from({ length: 7 }, (_, i) => ({ title: `need ${i}` })), { title: "  " }],
+      feed: [{ at: now - 1000, what: "signed up", title: "a writer" }, { at: now - 2 * 86_400_000, what: "OLD" }, { at: now - 10, what: "deployed" }],
+    },
+    now,
+  );
+  assert.equal(got, "trials: 12, mrr: 4 200 kr.\nNow: 2 working, trouble: queue stuck.\nNeeds them: need 0; need 1; need 2; need 3; need 4 (and 2 more).\nLately: deployed; signed up a writer.");
+  assert.equal(defaultBinoOf({}), "");
+  assert.equal(defaultBinoOf({ glance: "x", needs: { title: "y" }, pulse: 3, feed: null }), "");
 });

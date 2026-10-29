@@ -45,7 +45,7 @@ import { searchList, searchPage } from "./pages/search.ts";
 import { createIssueRoutes } from "./pages/issues.ts";
 import { type Asks, askInBar, createAsks } from "./relay/asks.ts";
 import { type Bino, createBino } from "./packs/core/assistant/bino/bino.ts";
-import { appsOf, contextOf } from "./packs/core/assistant/bino/context.ts";
+import { appsOf, contextOf, defaultBinoOf } from "./packs/core/assistant/bino/context.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
@@ -480,8 +480,29 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       shown().filter((c) => !layout.get().feedOff?.includes(c.manifest.id)).flatMap((c) => (c.feed ? safely(() => c.feed!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`feed: ${(e as Error)?.message ?? e}`)).map((item) => ({ pack: c.manifest, item })) : [])),
       Date.now(),
     );
-  const packBino = () =>
-    appsOf(shown().flatMap((c) => (c.bino ? [{ name: c.manifest.name, own: packs.core?.includes(c.manifest.id), text: safely(() => c.bino!(ctxOf(c)), "", (e) => packLog(c.manifest.id)(`bino: ${(e as Error)?.message ?? e}`)) }] : [])));
+  // What each pack says Bino may know. A pack that says nothing gets what it already shows on Today
+  // (defaultBinoOf), unless it's private. Packs that speak for themselves come first.
+  const packBino = () => {
+    const tried = <T,>(c: Pack, hook: string, f: () => T, none: T): T => safely(f, none, (e) => packLog(c.manifest.id)(`${hook}: ${(e as Error)?.message ?? e}`));
+    const said: { name: string; own?: boolean; text: unknown }[] = [];
+    const told: typeof said = [];
+    for (const c of shown()) {
+      const ctx = ctxOf(c);
+      const own = packs.core?.includes(c.manifest.id);
+      if (c.bino) said.push({ name: c.manifest.name, own, text: tried(c, "bino", () => c.bino!(ctx), "") });
+      else if (!c.manifest.private) {
+        const pulse = c.pulse ?? c.avatar;
+        const text = defaultBinoOf({
+          glance: c.glance ? tried(c, "glance", () => c.glance!(ctx), []) : [],
+          needs: c.needs ? tried(c, "needs", () => c.needs!(ctx), []) : [],
+          pulse: pulse ? tried(c, "pulse", () => pulse.call(c, ctx), undefined) : undefined,
+          feed: c.feed ? tried(c, "feed", () => c.feed!(ctx), []) : [],
+        });
+        told.push({ name: c.manifest.name, own, text });
+      }
+    }
+    return appsOf([...said, ...told]);
+  };
   // Core pages' named places (types.ts SlotMap): what each shown pack puts there.
   const fill = fillOf(shown, ctxOf, (id, line) => packLog(id)(line));
   /** What the packs call an actions-log entry of theirs (a name for an id). */
@@ -1389,7 +1410,17 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
             paths: c.manifest.paths,
             own: packs.core?.includes(c.manifest.id),
             private: c.manifest.private === true,
-            about: c.about ? (path: string) => safely(() => c.about!(ctxOf(c), path), undefined, (e) => packLog(c.manifest.id)(`about: ${(e as Error)?.message ?? e}`)) : undefined,
+            about: c.about
+              ? async (path: string) => {
+                  try {
+                    return await c.about!(ctxOf(c), path);
+                  } catch (e) {
+                    packLog(c.manifest.id)(`about: ${(e as Error)?.message ?? e}`);
+                    return undefined;
+                  }
+                }
+              : undefined,
+            needs: c.needs ? () => safely(() => c.needs!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`needs: ${(e as Error)?.message ?? e}`)) : undefined,
           })),
       }),
     );

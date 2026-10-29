@@ -22,30 +22,37 @@ const S = snapshot({
   },
 });
 
-test("the page I'm on, as Bino hears it: names and states, never a body, a prompt or a private page's content", () => {
-  const prView = viewOf("/prs/ACME/shop-api/7/files", S);
+test("the page I'm on, as Bino hears it: names and states, never a body, a prompt or a private page's content", async () => {
+  const prView = await viewOf("/prs/ACME/shop-api/7/files", S);
   for (const shown of ["ACME/shop-api#7", "Katalog: vis varene", "changes requested", "kari", "failing checks: build", "src/Catalog.cs", "its files"]) assert.ok(prView.includes(shown), shown);
   assert.doesNotMatch(prView, /SECRET/);
-  assert.match(viewOf("/prs/ACME/other/3", S), /not among the PRs Dovre gathered/);
+  assert.match(await viewOf("/prs/ACME/other/3", S), /not among the PRs Dovre gathered/);
   // A pack's page: in its own words (cut to a line), or which app; Dovre's own packs say so.
-  const notes = { id: "notes", name: "Notes", paths: ["jot"], about: (p: string) => (p === "/jot/1" ? `the note «Plan»\n\n${"x".repeat(400)}` : undefined) };
-  const said = viewOf("/jot/1", S, [notes]);
+  const notes = { id: "notes", name: "Notes", paths: ["jot"], about: (p: string) => (p === "/jot/1" ? `the note «Plan»\n\n${"x".repeat(800)}` : undefined) };
+  const said = await viewOf("/jot/1", S, [notes]);
   assert.match(said, /^the note «Plan» x+$/);
-  assert.equal(said.length, 300);
-  assert.equal(viewOf("/notes/2", S, [notes]), "a page of their app Notes (/notes/2).");
-  assert.equal(viewOf("/notes/2", S, [{ ...notes, own: true }]), "a page of Dovre's Notes (/notes/2).");
-  assert.equal(viewOf("/agents/s/s-9", S), "a page in Dovre.", "the core knows nothing of agents");
+  assert.equal(said.length, 600);
+  // Nothing from the pack about this page: which app, its needs that point here, and that Bino knows no more.
+  const ONLY = "You only know which page this is, not what it shows: if asked about it, say so in one line first.";
+  assert.equal(await viewOf("/notes/2", S, [notes]), `a page of their app Notes (/notes/2). ${ONLY}`);
+  assert.equal(await viewOf("/notes/2", S, [{ ...notes, own: true }]), `a page of Dovre's Notes (/notes/2). ${ONLY}`);
+  const needy = { ...notes, needs: () => [{ title: "Note «Plan» is overdue", href: "/notes/2" }, { title: "Elsewhere", href: "/notes/9" }, { title: "Out", href: "https://x.example/notes/2" }] };
+  assert.equal(await viewOf("/notes/2?x=1", S, [needy]), `a page of their app Notes (/notes/2). What Notes says needs them here: Note «Plan» is overdue. ${ONLY}`);
+  // `about` may read its app first (awaited 2 s at most); one that throws leaves the page named.
+  assert.equal(await viewOf("/jot/2", S, [{ ...notes, about: async () => "the note «Later», 3 open items" }]), "the note «Later», 3 open items");
+  assert.equal(await viewOf("/jot/2", S, [{ ...notes, about: async () => { throw new Error("down"); } }]), `a page of their app Notes (/jot/2). ${ONLY}`);
+  assert.equal(await viewOf("/agents/s/s-9", S), "a page in Dovre.", "the core knows nothing of agents");
   // A private pack (Teams: chats, mail): named, never described, whatever its `about` would say, and never its path.
   const chats = { id: "chats", name: "Chats", paths: ["inbox"], private: true, about: () => "the chat with Kari: «secret»" };
-  for (const path of ["/chats/c/19%3Aabc%40thread.v2", "/chats", "/inbox/m/7"]) assert.equal(viewOf(path, S, [chats]), "a page of their app Chats. What it shows is kept from you: don't guess at it.", path);
+  for (const path of ["/chats/c/19%3Aabc%40thread.v2", "/chats", "/inbox/m/7"]) assert.equal(await viewOf(path, S, [chats]), "a page of their app Chats. What it shows is kept from you: don't guess at it.", path);
   for (const [path, name] of [["/terminal/3", "Terminal"], ["/lab/x.html", "Lab"]] as const) {
-    const v = viewOf(path, S);
+    const v = await viewOf(path, S);
     assert.equal(v, `the ${name} page. What it shows is kept from you: don't guess at it.`, path);
   }
-  assert.equal(viewOf("/", S), "Today, the overview of their day.");
-  assert.equal(viewOf("/deploys?x=1", S), "the Deploys page.");
-  assert.equal(viewOf("/somewhere/new", S), "a page in Dovre.");
-  for (const bad of ["", "https://evil.example/prs/ACME/x/1", "//evil.example/", "javascript:alert(1)", "/%E0%A4%A"]) assert.equal(viewOf(bad, S), "", bad);
+  assert.equal(await viewOf("/", S), "Today, the overview of their day.");
+  assert.equal(await viewOf("/deploys?x=1", S), "the Deploys page.");
+  assert.equal(await viewOf("/somewhere/new", S), "a page in Dovre.");
+  for (const bad of ["", "https://evil.example/prs/ACME/x/1", "//evil.example/", "javascript:alert(1)", "/%E0%A4%A"]) assert.equal(await viewOf(bad, S), "", bad);
 });
 
 function setup(reply = "Ok.") {

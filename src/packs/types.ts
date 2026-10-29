@@ -443,7 +443,8 @@ export type Pack = {
   feed?(ctx: PackContext): FeedItem[];
   /**
    * What Bino may know about this app right now: a few plain lines from memory (like feed), never
-   * awaited. States and counts ("3 open signals: …", "12 trials, 2 end this week"); never a
+   * awaited. Without it, Bino hears what the pack shows on Today (glance, needs, pulse, the last day's
+   * feed), unless the pack is `private`. States and counts ("3 open signals: …", "12 trials, 2 end this week"); never a
    * customer's words, an address, a token, or anything else that isn't mine to hand a model.
    */
   bino?(ctx: PackContext): string;
@@ -470,9 +471,11 @@ export type Pack = {
   lane?(ctx: PackContext): Lane | undefined;
   /**
    * What one of its pages is, for Bino when I ask from there: names and states only, like `bino`
-   * (a session's title and status, never what was said). Undefined: "a page of <pack name>".
+   * (a session's title and status, never what was said). It may read its app first (what the page
+   * would show): Bino waits 2 s at most. Undefined: "a page of <pack name>", with its needs that
+   * point at that page.
    */
-  about?(ctx: PackContext, path: string): string | undefined;
+  about?(ctx: PackContext, path: string): string | undefined | Promise<string | undefined>;
   /** What Bino may propose that this pack carries out (see ActKind); local only. */
   acts?(ctx: PackContext): ActKind[];
   /**

@@ -84,7 +84,36 @@ Dev tasks: a repo in ${o.org}.`);
 
 /** Most a pack may tell Bino, and how many packs are heard. */
 export const APP_CHARS = 1500;
-const MAX_APPS = 12;
+const MAX_APPS = 24;
+/** Most core writes for a pack that says nothing itself. */
+export const DEFAULT_CHARS = 600;
+
+/**
+ * What Bino hears about a pack that has no `bino` of its own: what it already shows on Today, from
+ * memory (its glance numbers, what needs me, its pulse, its newest events). Names, states and counts,
+ * as Today shows them; "" when there's nothing.
+ */
+export function defaultBinoOf(o: { glance?: unknown; needs?: unknown; pulse?: unknown; feed?: unknown }, now = Date.now()): string {
+  const arr = (v: unknown) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []) as Record<string, unknown>[];
+  const str = (v: unknown, max = 80) => (typeof v === "string" || typeof v === "number" ? line(String(v), max) : "");
+  const lines: string[] = [];
+  const glance = arr(o.glance).flatMap((g) => (str(g.label) && str(g.value) ? [`${str(g.label, 40)}: ${str(g.value, 40)}`] : []));
+  if (glance.length) lines.push(`${glance.slice(0, 4).join(", ")}.`);
+  const p = o.pulse && typeof o.pulse === "object" ? (o.pulse as Record<string, unknown>) : {};
+  const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.min(99, Math.round(v)) : 0);
+  const pulse = [count(p.working) ? `${count(p.working)} working` : "", count(p.asking) ? `${count(p.asking)} asking for them` : ""].filter(Boolean);
+  const trouble = p.trouble && typeof p.trouble === "object" ? str((p.trouble as Record<string, unknown>).why, 120) : "";
+  if (pulse.length || trouble) lines.push(`Now: ${[...pulse, trouble ? `trouble: ${trouble}` : ""].filter(Boolean).join(", ")}.`);
+  const needs = arr(o.needs).flatMap((n) => (str(n.title, 120) ? [str(n.title, 120)] : []));
+  if (needs.length) lines.push(`Needs them: ${needs.slice(0, 5).join("; ")}${needs.length > 5 ? ` (and ${needs.length - 5} more)` : ""}.`);
+  const day = 86_400_000;
+  const feed = arr(o.feed)
+    .filter((f) => typeof f.at === "number" && f.at > now - day && str(f.what))
+    .sort((a, b) => (b.at as number) - (a.at as number))
+    .map((f) => [str(f.what, 40), str(f.title, 80)].filter(Boolean).join(" "));
+  if (feed.length) lines.push(`Lately: ${feed.slice(0, 5).join("; ")}.`);
+  return lines.join("\n").slice(0, DEFAULT_CHARS);
+}
 
 /** What packs said Bino may know: plain text, no control characters, capped; a pack with nothing to say is left out. */
 export function appsOf(said: { name: string; text: unknown; own?: boolean }[]): { name: string; text: string; own?: boolean }[] {

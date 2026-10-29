@@ -152,8 +152,8 @@ test("Today (#39): Bino gets counts and repo#n only; Ctrl K finds each issue onc
   const finds = s.pack.finds!(s.ctx);
   assert.equal(finds.length, 1);
   assert.equal(finds[0]!.sub, "bergaaberg/dovre#33 · assigned");
-  assert.match(s.pack.about!(s.ctx, "/tracker") ?? "", /1 assigned/);
-  assert.equal(s.pack.about!(s.ctx, "/elsewhere"), undefined);
+  assert.match((await s.pack.about!(s.ctx, "/tracker")) ?? "", /1 assigned/);
+  assert.equal(await s.pack.about!(s.ctx, "/elsewhere"), undefined);
 });
 
 test("my own writes show at once, stay shown over lagging reads for a while, and don't ring me", async () => {
