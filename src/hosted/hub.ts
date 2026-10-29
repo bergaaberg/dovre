@@ -33,6 +33,7 @@ import { apiKeyRouteOf, gatewayRouteOf, openRouterRouteOf } from "../packs/core/
 import { loadMemory, noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { type LookupsBinding, lookupsVia } from "./lookups.ts";
 import type { D1 } from "../db.ts";
+import { type CheckJob, runCheck } from "../reviews/check.ts";
 import { DAY_MS, frameKind, KEEP_DAYS } from "../sent.ts";
 import { type Call, type Channel, channel, type Down, helloOk, keyOk, LEGACY_MACHINE, machineKey, machineOk, type MacState, nonce, parseUp, sessionKey } from "../bridge/wire.ts";
 
@@ -228,6 +229,12 @@ export class DovreHub {
       return json({ ok: true, listeners: this.subs.size + this.pages().length });
     }
     if (req.method === "POST" && path === "/bino") return json(await this.binoOp((await req.json()) as BinoOp));
+    if (req.method === "POST" && path === "/review/check") {
+      const b = (await req.json().catch(() => ({}))) as { job?: CheckJob; topic?: unknown };
+      const j = b.job;
+      if (!j || typeof j.who !== "string" || typeof j.pr !== "string" || typeof j.at !== "number" || typeof j.user !== "string" || !j.review || !Array.isArray(j.files) || typeof b.topic !== "string") return json({ ok: false }, 400);
+      return json({ ok: await this.reviewCheck(j, b.topic) });
+    }
     if (req.method === "GET" && path === "/export") return json(this.dump());
     // For hosted Dovre's fair-use data count, asked through the tenant script like /export.
     if (req.method === "GET" && path === "/size") {
@@ -256,7 +263,26 @@ export class DovreHub {
   /** Keeps the object from being put away while Bino is answering. */
   async alarm(): Promise<void> {
     const b = this.bino && (await this.bino);
-    if (b?.list().some((c) => c.thinking)) await this.state.storage.setAlarm(Date.now() + AWAKE_MS);
+    if (this.checking || b?.list().some((c) => c.thinking)) await this.state.storage.setAlarm(Date.now() + AWAKE_MS);
+  }
+
+  /** Checks of my review running here (dovre#299): the object stays awake for them. */
+  private checking = 0;
+  /** For tests: the last check's run, to wait on. */
+  lastCheck?: Promise<void>;
+
+  /** The agent's check of my review: answered here, kept on the review in D1, and its page told. */
+  private async reviewCheck(job: CheckJob, topic: string): Promise<boolean> {
+    const route = hostedBinoRoute(this.env, this.fetchFn, (l) => console.log(l));
+    if (!this.env.DB || !route.ready || !route.ask) return false;
+    this.checking++;
+    this.lastCheck = runCheck(this.env.DB, route.ask, job).finally(() => {
+      this.checking--;
+      this.publish([topic]);
+    });
+    const at = await this.state.storage.getAlarm?.();
+    if (!at) await this.state.storage.setAlarm(Date.now() + AWAKE_MS);
+    return true;
   }
 
   /** `synced`: a gather finished then (the sidebar's "Synced", as the local server's events say it). */

@@ -7,7 +7,7 @@
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type LineComment, MAX_BODY, MAX_SUMMARY, type ReviewDraft, type Side, type Verdict, VERDICT_LABEL, VERDICTS } from "../reviews/draft.ts";
-import { CARD_LABEL, type Card, type Check, targetLabel } from "../reviews/check.ts";
+import { CARD_LABEL, type Card, type Check, lost, targetLabel } from "../reviews/check.ts";
 import type { MyReview, Pending } from "../reviews/mine.ts";
 import { Confirm, type Html, Notice, Panel, Pill, Post } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
@@ -80,8 +80,10 @@ export type ReviewPageView = {
   flash?: Flash;
   /** An agent can check the review before I post it (Bino's route is ready). */
   checker?: boolean;
-  /** Its last check's cards, still to keep or dismiss. */
+  /** Its last check: running, failed, or its cards still to keep or dismiss. */
   check?: Check;
+  /** The hub topic a check's answer is published on. */
+  topic?: string;
 };
 
 /** One of the agent's cards: what it's about, why, and its text to keep (as I edit it) or dismiss. */
@@ -100,14 +102,18 @@ ${keep ? html`<textarea name="body" rows="${rows(card.text!)}" maxlength="${card
 </form>`;
 }
 
-/** The agent's last check, while it has cards left. */
+/** The agent's last check: reading still, why it failed, or its cards left. */
 function checkPanel(v: ReviewPageView, comments: Pending[]): Html | "" {
   const k = v.check;
   if (!k) return "";
   const stale = !!v.review && k.sha !== v.review.sha;
-  const body = k.cards.length
-    ? html`${stale ? Notice({ tone: "warn", children: "This check was of your review on an earlier commit." }) : ""}${k.cards.map((c) => checkCard(c, comments, v.base))}`
-    : html`<p class="t3">The agent has nothing to add. Your review is as it was.</p>`;
+  const body = k.running && !lost(k)
+    ? html`<p class="t3" role="status">The agent is reading your review. Its cards show up here when it answers, in up to 3 minutes. You can leave this page.</p>`
+    : k.running || k.error
+      ? Notice({ tone: "bad", children: k.error ?? "The check stopped before the agent answered. Try again." })
+      : k.cards.length
+        ? html`${stale ? Notice({ tone: "warn", children: "This check was of your review on an earlier commit." }) : ""}${k.cards.map((c) => checkCard(c, comments, v.base))}`
+        : html`<p class="t3">The agent has nothing to add. Your review is as it was.</p>`;
   return Panel({ id: "check", title: "The agent's check", meta: html`<span class="t3">${k.model}${k.cost ? ` · $${k.cost.toFixed(3)}` : ""}</span>`, children: html`${body}<p class="hint">Keeping a card changes only your pending review. The agent never posts.</p>` });
 }
 
@@ -124,7 +130,7 @@ export function reviewPage(frame: Frame, v: ReviewPageView): Html {
 <div class="field"><fieldset><legend class="label">Verdict</legend>${verdicts.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset>${v.own ? html`<span class="hint">Your own PR: a Comment only.</span>` : ""}</div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(v.summary, 5)}" maxlength="${MAX_SUMMARY}" placeholder="Markdown">\n${v.summary}</textarea></label>
 ${list}
-<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="The agent is reading">Check with an agent</button>` : ""}<span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}<span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
 </form>`;
   const p = v.preview;
   const preview = !p
@@ -153,5 +159,5 @@ ${list}
     ? html`<div class="buttons">${Confirm({ kind: "review.discard", action: `${v.base}/review/discard`, label: "Discard your review", question: `Throw away your summary and ${comments.length} pending ${comments.length === 1 ? "comment" : "comments"}? Nothing was posted.`, danger: true })}</div>`
     : "";
   const body = html`${v.header}${flash}${movedNote}${agent}${Panel({ title: "Your review", meta: comments.length ? `${comments.length} pending` : undefined, children: form })}${checkPanel(v, comments)}${preview}${discard}`;
-  return shell({ title: `Your review · ${v.title} · Dovre`, frame, current: "/prs", body });
+  return shell({ title: `Your review · ${v.title} · Dovre`, frame, current: "/prs", body, head: v.topic ? html`<meta name="u-topics" content="${v.topic}">` : undefined });
 }

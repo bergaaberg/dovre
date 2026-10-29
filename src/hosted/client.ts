@@ -8,6 +8,7 @@ import type { BinoMemory } from "../packs/core/assistant/bino/memory.ts";
 import type { Route } from "../packs/core/assistant/bino/route.ts";
 import type { Hub } from "../live.ts";
 import type { Call } from "../bridge/wire.ts";
+import type { CheckJob } from "../reviews/check.ts";
 import type { BinoOp, MacAnswer, MacView, ReceivedDay } from "./hub.ts";
 
 type Stub = { fetch(input: Request | string, init?: RequestInit): Promise<Response> };
@@ -18,6 +19,8 @@ export type HubClient = Hub & {
   /** A page's event stream: the object's. */
   events(): Promise<Response>;
   bino(op: BinoOp): Promise<unknown>;
+  /** The agent's check of my review, run in the object; `topic` is published when it's done. Rejects when it didn't start. */
+  reviewCheck(job: CheckJob, topic: string): Promise<void>;
   /** A gather finished at `at`: pages hear when (their "Synced"), and "snapshot" if it changed anything. */
   gathered(at: number, changed: boolean): void;
   /** Publishes still on their way (worker.ts waits for them after answering). */
@@ -65,6 +68,11 @@ export function hubClient(ns: HubNamespace): HubClient {
       const res = await stub().fetch(`${BASE}/bino`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op) });
       if (!res.ok) throw new Error(`Bino's hub answered ${res.status}`);
       return res.json();
+    },
+    async reviewCheck(job, topic) {
+      const res = await stub().fetch(`${BASE}/review/check`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ job, topic }) });
+      const b = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (!res.ok || !b.ok) throw new Error(res.ok ? "the hub has no model to ask" : `the hub answered ${res.status}`);
     },
     async drain() {
       while (pending.size) await Promise.all([...pending]);
