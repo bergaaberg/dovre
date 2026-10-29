@@ -6,7 +6,7 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { win32 } from "node:path";
 
 /** berth's own pipe: it serves this whenever it's on, and docker_engine too when that's free. */
 export const BERTH_PIPE = "\\\\.\\pipe\\berth";
@@ -23,9 +23,10 @@ export type EngineControl = {
   stop(): Promise<{ ok: boolean; error?: string }>;
 };
 
-/** berth.exe: where `berth setup` puts it, else on the PATH. */
+/** berth.exe: where `berth setup` puts it, else in an absolute folder on the PATH. Windows paths on any OS, so tests run anywhere. */
 export function findBerth(env: Record<string, string | undefined>, exists: (p: string) => boolean = existsSync): string | undefined {
-  const at = [env.LOCALAPPDATA ? join(env.LOCALAPPDATA, "berth", "bin", "berth.exe") : undefined, ...(env.PATH ?? env.Path ?? "").split(";").filter(Boolean).map((d) => join(d, "berth.exe"))];
+  const dirs = (env.PATH ?? env.Path ?? "").split(";").filter((d) => d && win32.isAbsolute(d));
+  const at = [env.LOCALAPPDATA ? win32.join(env.LOCALAPPDATA, "berth", "bin", "berth.exe") : undefined, ...dirs.map((d) => win32.join(d, "berth.exe"))];
   return at.find((p): p is string => !!p && exists(p));
 }
 
