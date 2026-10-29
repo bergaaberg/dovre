@@ -277,6 +277,8 @@ export type PackContext = {
    * most, shown as an image. The newest wins. Local only; elsewhere nothing happens.
    */
   startPicture(svg: string): void;
+  /** Where one of its `wasm` modules is served (a hashed path, cached for good), or undefined for a name it didn't ship. */
+  wasm(name: string): string | undefined;
 };
 
 /** The forge as a pack reads it (PackContext.forge): read-only, in the owners' repos. */
@@ -449,6 +451,14 @@ export type Pack = {
    * live region about to be swapped for a fresh one, so it can carry over what it shows).
    */
   script?: string;
+  /**
+   * WebAssembly for its script to run in the browser: name → the module's bytes (`\0asm…`), each
+   * served at a hashed path that `ctx.wasm(name)` gives. Names are lowercase, 32 characters at most;
+   * a module is 8 MB at most. One that breaks a rule isn't served (logged). While a pack with any is
+   * on, pages' CSP adds `'wasm-unsafe-eval'` to `script-src`: compiling WebAssembly, still only from
+   * scripts this app serves.
+   */
+  wasm?: Record<string, Uint8Array>;
   nav?(ctx: PackContext): NavItem[];
   /** Mounted after the core's guard (login or Access) and core routes: it can't shadow a core path. */
   routes?(app: Hono<AppEnv>, ctx: PackContext): void;

@@ -53,7 +53,8 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
    another pack owns, or a `routes` that throws. Pack `styles` and `script`s are served as one
-   hashed file each; scripts listen for `dovre:change` and `dovre:swap` on `document`.
+   hashed file each, and each `wasm` module (lowercase name, 8 MB at most, real WebAssembly) at a
+   hashed path; while any pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
    A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
    `data-motion="always"` (Settings → Look → Motion): scope those rules under
    `:root:not([data-motion="always"])`, and check the attribute in scripts too.
@@ -77,12 +78,13 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `ask()`, `asking()`: put a question in the top bar and wait for the answer (local only)
 - `forge()`: user, owners, and the forge's `work` and `merged` (read-only); `repos()` and `file()` to read the owners' repos, and `everyRepo(paths)` for every repo's files at once (one call per owner, kept for every isolate up to the age the pack takes); `propose()` to open a PR changing one file (one of the pack's `writes` kinds, re-checked against `expect`, logged)
 - `startPicture(svg)`, `pulse()`
+- `wasm(name)`: where one of its `wasm` modules is served
 
 **Hooks**, by where they land:
 
 | Where | Hooks | Timing |
 |---|---|---|
-| Own pages | `routes`, `styles`, `script`, `nav`, manifest `paths` | on request |
+| Own pages | `routes`, `styles`, `script`, `wasm`, `nav`, manifest `paths` | on request |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
 | Stats | `stats` (chart or headline number) | from memory |
 | Search | `pages`, `finds` | from memory |

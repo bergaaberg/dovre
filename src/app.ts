@@ -154,6 +154,15 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
+const WASM_MAX = 8 * 1024 * 1024;
+const isWasm = (b: Uint8Array) => b.length >= 8 && b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d;
+/** hashOf (FNV-1a) over bytes: a module's URL changes when it does. */
+function hashBytes(b: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < b.length; i++) h = Math.imul(h ^ b[i]!, 0x01000193);
+  return (h >>> 0).toString(36);
+}
+
 export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
@@ -240,13 +249,30 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   };
   const hasLab = () => env.IS_HOSTED !== "1" && !off("lab") && existsSync(resolve(labDir, "index.html"));
 
+  // Packs' WebAssembly (Pack.wasm): checked, hashed, served below. Pages may compile WebAssembly
+  // only while a pack ships some.
+  const wasmServed = new Map<string, Uint8Array>();
+  const wasmPaths = new Map<string, Map<string, string>>();
+  for (const p of deps.packs?.on ?? []) {
+    for (const [name, bytes] of Object.entries(p.wasm ?? {})) {
+      const why = !/^[a-z][a-z0-9-]{0,31}$/.test(name) ? "isn't a lowercase name" : !(bytes instanceof Uint8Array) || !isWasm(bytes) ? "isn't WebAssembly" : bytes.length > WASM_MAX ? "is over 8 MB" : "";
+      if (why) {
+        console.log(`pack ${p.manifest.id}: wasm ${name.slice(0, 40)} ${why}; not served`);
+        continue;
+      }
+      const path = `/assets/wasm/${p.manifest.id}.${name}.${hashBytes(bytes)}.wasm`;
+      wasmServed.set(path, bytes);
+      (wasmPaths.get(p.manifest.id) ?? wasmPaths.set(p.manifest.id, new Map()).get(p.manifest.id)!).set(name, path);
+    }
+  }
+  const scriptSrc = wasmServed.size ? ["'self'", "'wasm-unsafe-eval'"] : ["'self'"];
   const appPolicy = (frames: string[] = []) =>
     secureHeaders({
       referrerPolicy: "same-origin",
       contentSecurityPolicy: {
         defaultSrc: ["'self'"],
         ...(frames.length ? { frameSrc: ["'self'", ...frames] } : {}),
-        scriptSrc: ["'self'"],
+        scriptSrc,
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
         formAction: ["'self'"],
@@ -284,7 +310,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     xFrameOptions: "SAMEORIGIN",
     contentSecurityPolicy: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc,
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
       formAction: ["'self'"],
@@ -436,6 +462,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
             const f = forge;
             return { id: f.id, name: f.name, host: f.host ?? env.GHE_HOST, login, owners, ...(f.work ? { work: (since: string) => f.work!(login, owners, since) } : {}), ...(f.merged ? { merged: (since: string) => f.merged!(login, owners, since) } : {}), ...reads, ...(f.propose ? { propose: proposals(c) } : {}) };
           },
+          wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
           startPicture: (svg) => {
             if (typeof svg === "string" && svg.length <= 200_000 && /^\s*<svg[\s>]/.test(svg)) deps.startPicture?.(svg);
           },
@@ -576,6 +603,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       c.header("Content-Type", "text/css; charset=utf-8");
       c.header("Cache-Control", "private, max-age=31536000, immutable");
       return c.body(PACK_CSS.body);
+    });
+  for (const [path, bytes] of wasmServed)
+    app.get(path, (c) => {
+      c.header("Content-Type", "application/wasm");
+      c.header("Cache-Control", "private, max-age=31536000, immutable");
+      return c.body(bytes as Uint8Array<ArrayBuffer>);
     });
   if (PACK_JS)
     app.get(PACK_JS.path, (c) => {

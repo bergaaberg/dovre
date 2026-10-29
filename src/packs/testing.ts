@@ -35,6 +35,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     pulse: () => ({ working: 0, asking: 0, trouble: [], busy: false }),
     forge: () => undefined,
     startPicture: () => {},
+    wasm: () => undefined,
     ...over,
   };
 }
