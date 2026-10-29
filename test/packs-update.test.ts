@@ -66,6 +66,8 @@ test("add skips what git ignores (a Rust target/) and wires the pack, not the fi
     mkdirSync(join(s.up, "rust", "target", "release"), { recursive: true });
     writeFileSync(join(s.up, "rust", "Cargo.toml"), "[package]\n");
     writeFileSync(join(s.up, "rust", "target", "release", "foo.wasm"), "built");
+    const BIN = new Uint8Array([0, 0x61, 0x73, 0x6d, 0xff, 0xfe, 0x80, 0xc3]);
+    writeFileSync(join(s.up, "foo.wasm"), BIN);
     s.commit("rust");
     const r = addPack({ id: "foo", into: s.into, from: s.repo, allowClone: false });
     assert.equal(r.exportName, "fooPack");
@@ -73,6 +75,7 @@ test("add skips what git ignores (a Rust target/) and wires the pack, not the fi
     assert.ok(existsSync(join(s.pack, "rust", "Cargo.toml")));
     assert.ok(!existsSync(join(s.pack, "rust", "target")));
     assert.ok(!r.wrote.some((f) => f.includes("target")));
+    assert.deepEqual(new Uint8Array(readFileSync(join(s.pack, "foo.wasm"))), BIN, "a binary file is copied byte for byte");
   } finally {
     s.done();
   }

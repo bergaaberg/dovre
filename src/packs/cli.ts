@@ -115,7 +115,7 @@ export function addPack(o: { id: string; into: string; from?: string; allowClone
     const rel = relative(srcRoot, f);
     const dest = join(destRoot, rel);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, readFileSync(f, "utf8"), { flag: "wx" });
+    writeFileSync(dest, readFileSync(f), { flag: "wx" });
     wrote.push(join(subDir, o.id, rel));
   }
   writeMeta(destRoot, provenance(repoDir, o.id));
