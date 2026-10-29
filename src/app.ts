@@ -545,7 +545,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
    * start), a page waits a little, then shows "Gathering…" and swaps itself in when it lands.
    */
   /** Every page's frame: menu, docks, styles, sync state. */
-  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: !!bino?.route.ready, stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: !!bino?.route.ready, face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
+  const binoOn = () => !!bino?.route.ready && !hidden("assistant");
+  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: binoOn(), stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
@@ -661,7 +663,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.get("/search", async (c) => {
     const { s, frame } = await page();
     const raw = (c.req.query("q") ?? "").slice(0, 200);
-    const pages = pagesOf({ bino: !!bino?.route.ready, lab: hasLab(), stats: !off("stats") }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages(), settingsAreas().map((id) => { const a = AREAS.find((x) => x.id === id)!; return { title: `Settings: ${a.title}`, href: `/settings/${id}`, icon: "⚙", about: a.about, also: ["settings", ...a.also] }; }));
+    const pages = pagesOf({ bino: binoOn(), lab: hasLab(), stats: !off("stats") }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages(), settingsAreas().map((id) => { const a = AREAS.find((x) => x.id === id)!; return { title: `Settings: ${a.title}`, href: `/settings/${id}`, icon: "⚙", about: a.about, also: ["settings", ...a.also] }; }));
     // GHE's own search too: on the page, and in the palette once typing pauses (remote=1). At most 3.5 s.
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
@@ -1045,7 +1047,17 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.get("/packs", async (c) => {
     const { frame } = await page();
     const copies = hosted ? undefined : deps.packs?.copies?.get();
-    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, canRestart: !!deps.restart }));
+    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [] }));
+  });
+  /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
+  app.post("/packs/:id/switch", strictOrigin, async (c) => {
+    const id = c.req.param("id");
+    if (!packs.on.some((p) => p.manifest.id === id)) return c.notFound();
+    const on = (await c.req.parseBody()).on === "1";
+    const was = layout.get().packsOff ?? [];
+    await layout.save({ ...layout.get(), packsOff: on ? was.filter((x) => x !== id) : [...new Set([...was, id])] });
+    deps.hub?.publish(["snapshot", "packs"]);
+    return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
   });
   app.post("/packs/:id/update", strictOrigin, async (c) => {
     const copies = deps.packs?.copies;
@@ -1124,6 +1136,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
     const own = new Set(settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)).map((x) => x.id));
     return [
       ...shown().map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: true, settings: set(p.manifest), panel: own.has(p.manifest.id) || !!p.ingest })),
+      ...packs.on.filter((p) => hidden(p.manifest.id)).map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: false, settings: set(p.manifest), panel: false })),
       ...packs.off.map((o) => ({ id: o.id, name: o.name, on: false, settings: set(o.manifest), panel: false })),
     ].filter((k) => k.settings.length || k.panel);
   };
@@ -1340,7 +1353,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   app.route("/", createReviewRoutes(env, { ...reviewDeps, ghe, stale: () => gatherer.stale() }));
   app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), list: () => (shown().some((x) => x.manifest.id === "tracker") ? "/tracker" : undefined), prewarm: deps.prewarm }));
   // ── My list (src/pages/todo.ts): small things kept on this machine ──
-  app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: !!bino?.route.ready, proposals: async () => html`${fill("todo.proposals", {})}` }));
+  app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: binoOn, proposals: async () => html`${fill("todo.proposals", {})}` }));
   if (bino)
     app.route(
       "/",

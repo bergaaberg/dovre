@@ -112,7 +112,7 @@ ${v.feeds.length
   ? html`<div class="field" id="feed"><span class="label">What's happening</span><fieldset>${v.feeds.map((f) => html`<label class="check"><input type="checkbox" name="feed" value="${f.id}"${off(v.layout.feedOff, f.id) ? "" : html` checked`}> ${f.name}</label><br>`)}</fieldset><span class="hint">The apps whose events reach the feed.</span></div>`
   : ""}
 ${v.packs.length
-  ? html`<div class="field" id="packs-shown"><span class="label">Packs shown</span><fieldset>${v.packs.map((c) => html`<label class="check"><input type="checkbox" name="pack" value="${c.id}"${off(v.layout.packsOff, c.id) ? "" : html` checked`}> ${c.name}</label><br>`)}</fieldset><span class="hint">A hidden pack leaves the menu, Today, the feed, search and Bino, its pages answer 404, and it stops refreshing. <a href="/packs">Packs</a> lists them all.</span></div>`
+  ? html`<div class="field" id="packs-shown"><span class="label">Packs on</span><fieldset>${v.packs.map((c) => html`<label class="check"><input type="checkbox" name="pack" value="${c.id}"${off(v.layout.packsOff, c.id) ? "" : html` checked`}> ${c.name}</label><br>`)}</fieldset><span class="hint">The same switch as on <a href="/packs">Packs</a>. A pack that's off leaves the menu, Today, the feed, search and Bino, its pages answer 404, and it stops refreshing.</span></div>`
   : ""}
 <noscript><div class="buttons"><button type="submit" class="primary">Save</button></div></noscript>
 </form>`;

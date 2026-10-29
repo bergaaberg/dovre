@@ -39,7 +39,7 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
     if (!m || !ID.test(m.id)) no("its id isn't lowercase letters, digits and dashes");
     else if (seen.has(m.id)) no("another pack has the same id");
     else if (m.api !== PACK_API) no(`written for pack contract ${m.api ?? "?"}, this Dovre speaks ${PACK_API}`);
-    else if (OFF.test((opts.env[`PACK_${envId(m.id)}`] ?? opts.env[`CRATE_${envId(m.id)}`] ?? "").trim())) no("switched off");
+    else if (OFF.test((opts.env[`PACK_${envId(m.id)}`] ?? opts.env[`CRATE_${envId(m.id)}`] ?? "").trim())) no(`switched off in .dev.vars or the environment (PACK_${envId(m.id)}=off)`);
     else if (opts.hosted && m.execution === "local-only") no("runs only on a machine, not hosted");
     else if (!opts.hosted && m.execution === "hosted-only") no("runs only hosted (it needs the Worker's bindings)");
     else if (opts.hosted && m.requiredBindings?.some((b) => !(b in (opts.bindings ?? {})))) no(`missing binding ${m.requiredBindings.find((b) => !(b in (opts.bindings ?? {})))}`);

@@ -49,7 +49,7 @@ test("WP-M4: Pack contract aliases, PACK_<ID>=off, and loadPacks with packs.ts",
   };
   const off = activePacks([p], { env: { PACK_DEMO_PACK: "off" }, hosted: false });
   assert.equal(off.on.length, 0);
-  assert.equal(off.off[0]?.why, "switched off");
+  assert.equal(off.off[0]?.why, "switched off in .dev.vars or the environment (PACK_DEMO_PACK=off)");
 
   const dir = tmp("dovre-packs-load-");
   writeFileSync(
