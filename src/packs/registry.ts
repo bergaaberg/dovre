@@ -8,7 +8,8 @@ import { safeUrl } from "../pages/parts.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
-import { type ActDone, type ActKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
+import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
+import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /** A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page shows its settings). */
 export type Off = { id: string; name: string; why: string; manifest?: PackManifest; pack?: Pack };
@@ -387,6 +388,58 @@ export function actsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: 
   return out;
 }
 
+/** A pack's lookup as Bino sees it: checked and cut to size, bound to the pack; `run` never throws. */
+export type PackLookup = LookupSpec & { pack: string; run(args: Record<string, string>): Promise<{ text: string; error?: boolean }> };
+export const LOOKUP_MS = 8000;
+
+/** The packs' lookups (`lookups`): five a pack, six fields each, sixteen in all; a bad one is left out and logged. */
+export function lookupsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, ms = LOOKUP_MS): PackLookup[] {
+  const out: PackLookup[] = [];
+  for (const c of on) {
+    if (!c.lookups) continue;
+    const id = c.manifest.id;
+    const say = (line: string) => log(id, line);
+    const kinds = safely((): LookupKind[] => c.lookups!(ctxOf(c)), [], (e) => say(`lookups: ${(e as Error)?.message ?? e}`));
+    if (!Array.isArray(kinds)) continue;
+    const seen = new Set<string>();
+    for (const k of kinds.slice(0, 5)) {
+      if (out.length >= 16) break;
+      const when = oneLine(k?.when, 400);
+      if (!k || !WORD.test(String(k.kind)) || seen.has(k.kind) || !when || !Array.isArray(k.fields) || typeof k.run !== "function") {
+        say(`lookups: ${String(k?.kind).slice(0, 40)} left out (it needs a word for its kind, when, fields and run)`);
+        continue;
+      }
+      seen.add(k.kind);
+      const fields = k.fields
+        .slice(0, 6)
+        .filter((f) => FIELD.test(String(f?.name)) && f.name !== "kind")
+        .map((f) => ({ name: f.name, about: oneLine(f.about, 160), required: f.required === true, max: Math.max(1, Math.min(1000, Math.round(Number(f.max) || 200))) }));
+      out.push({
+        kind: `${id}.${k.kind}`,
+        app: c.manifest.name,
+        pack: id,
+        when,
+        fields,
+        run: async (args) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const late = new Promise<never>((_, no) => (timer = setTimeout(() => no(new Error("late")), ms)));
+            const text = await Promise.race([Promise.resolve().then(() => k.run(args, ctxOf(c))), late]);
+            return { text: resultOf(text) || "(nothing found)" };
+          } catch (e) {
+            const late = (e as Error)?.message === "late";
+            say(`lookups ${k.kind}: ${late ? `no answer in ${ms / 1000} s` : ((e as Error)?.message ?? e)}`);
+            return { text: late ? `${c.manifest.name} didn't answer in time.` : `${c.manifest.name} couldn't look that up (Dovre's log says why).`, error: true };
+          } finally {
+            clearTimeout(timer);
+          }
+        },
+      });
+    }
+  }
+  return out;
+}
+
 /** What the packs add to Today's briefing: numbers beside the greeting, sentences, horizon rows. */
 export type Briefing = { glance: Glance[]; brief: Bit[][]; lanes: Lane[] };
 
@@ -549,13 +602,13 @@ export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, l
 /** Which hooks a pack answers, in words, for the Packs page. */
 /**
  * What a pack gives Bino and agents (#262), as /packs says it: its context (its own lines, what it
- * shows on Today, or only its name when private), what it says of its pages, its proposals and tools.
+ * shows on Today, or only its name when private), what it says of its pages, its lookups, proposals and tools.
  */
 export function binoOf(c: Pack): string {
-  if (c.manifest.private) return `only its name: private${c.acts ? " · proposes acts" : ""}${c.tools ? " · tools for agents" : ""}`;
+  if (c.manifest.private) return `only its name: private${c.lookups ? " · lookups" : ""}${c.acts ? " · proposes acts" : ""}${c.tools ? " · tools for agents" : ""}`;
   const context = c.bino ? "its own lines" : c.glance || c.needs || c.pulse || c.avatar || c.feed ? "what it shows on Today" : "nothing";
   const pages = c.about ? "what its pages are" : c.routes ? "its pages by name only" : "";
-  return [`context: ${context}`, pages, c.acts ? "proposes acts" : "", c.tools ? "tools for agents" : ""].filter(Boolean).join(" · ");
+  return [`context: ${context}`, pages, c.lookups ? "lookups" : "", c.acts ? "proposes acts" : "", c.tools ? "tools for agents" : ""].filter(Boolean).join(" · ");
 }
 
 export function hooksOf(c: Pack): string[] {

@@ -87,7 +87,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 | Stats | `stats` (chart or headline number) | from memory |
 | Search | `pages`, `finds` | from memory |
 | Attention | `needs` (+ manifest `rings`), `banner`, `dock` | from memory |
-| Bino | `bino`, `about`, `acts` (local) | `bino` from memory; `about` may read its app (2 s at most); acts run in the background |
+| Bino | `bino`, `about`, `lookups`, `acts` (local) | `bino` from memory; `about` may read its app (2 s at most); lookups run when Bino asks (8 s at most); acts run in the background |
 | Core pages | `slots` (14 in `SlotMap`) | from memory |
 | Framing | `frames`: `https://` origins its pages may frame | from memory |
 | Links | `refs` (ticket keys), `linked` (PR links to look up) | from memory |
@@ -110,7 +110,8 @@ throw adds nothing and is logged. A failed Today card shows "Didn't answer".
 - Text is truncated, and single-line where a line is drawn.
 - Every `href` goes through `safeUrl`; anything but a local path or http(s) is dropped.
 - Tones come from fixed lists.
-- Caps: 3 docks; acts 5 per pack, 8 fields each, 12 total; finds 500 per pack; linked PRs 200;
+- Caps: 3 docks; acts 5 per pack, 8 fields each, 12 total; lookups 5 per pack, 6 fields each, 16 total,
+  4000 characters a result, 3 rounds an answer; finds 500 per pack; linked PRs 200;
   glance 2; brief 12; lane 200; pulse counts 0–99 and 5 troubles of 80 chars, local links only.
 - A dock's `key` is one free capital letter (B is Bino's), first come first served.
 
@@ -193,4 +194,6 @@ Teams and Data moved to instance packs (2026-10-26), the avatar to dovre-packs (
    `/agents/new` and `/agents/s/…`, which 404 with `PACK_AGENTS=off`. Fine while agents is a
    core pack. If it ever becomes truly optional, those links become a slot.
 2. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs, so
-   `acts` are local only. It does get packs' `bino` lines through the page context.
+   `acts` are local only. It does get packs' `bino` lines through the page context, and it
+   looks up through the Worker: the instance exports a `BinoLookups` entrypoint and binds it to
+   itself as `BINO_LOOKUPS` (`src/hosted/lookups.ts`).

@@ -362,6 +362,30 @@ export type ActKind = {
   run(form: Record<string, string>, act: Record<string, string>, ctx: PackContext): Promise<ActDone>;
 };
 
+/** One argument of a lookup: a line of text (an issue key, a search). */
+export type LookupField = { name: string; about: string; required?: boolean; /** Longest it may be (default 200, 1000 at most). */ max?: number };
+
+/**
+ * Something Bino may read from this app when the user's question needs it ("what's ENG-12 about?"):
+ * read-only, run as soon as Bino asks, no card. Bino writes a block of kind `<pack id>.<kind>`; the
+ * core checks its fields as for an act, runs it (8 s at most), and hands Bino the text for that
+ * conversation only: it's never stored with the conversation nor fed to Bino's memory, and the log
+ * keeps the kind and the fields' names, never what came back. The user asked, so it may say more
+ * than `bino` does (an issue's description), still through the pack's own filter: nothing that
+ * isn't the user's to hand a model (a token, a customer's address). The same lookups are tools for
+ * the agent turns Dovre starts (`<id>_<kind>` on /mcp, unless `tools` has that name).
+ */
+export type LookupKind = {
+  /** A lowercase word. */
+  kind: string;
+  /** For Bino: what it finds and when to use it, a sentence or two. */
+  when: string;
+  /** Its arguments (none: it needs nothing, "my open issues"). */
+  fields: LookupField[];
+  /** What it found, as plain text for a model (4000 characters are kept), or a sentence saying why not. Its fields are the model's: treat them as hostile. */
+  run(args: Record<string, string>, ctx: PackContext): Promise<string> | string;
+};
+
 /**
  * A pack's pulse, from memory: how many of its things work for me and wait on me, and what's
  * wrong, if anything (a storm, or a fire). `why` is a short line of counts ("2 red signals"),
@@ -480,6 +504,8 @@ export type Pack = {
   about?(ctx: PackContext, path: string): string | undefined | Promise<string | undefined>;
   /** What Bino may propose that this pack carries out (see ActKind); local only. */
   acts?(ctx: PackContext): ActKind[];
+  /** What Bino may look up in this app when a question needs it (see LookupKind); local and hosted, and agent turns' tools. */
+  lookups?(ctx: PackContext): LookupKind[];
   /**
    * Its panel on Settings, under its name, from memory: what isn't a key in the manifest's `settings`
    * (how it's signed in, the databases it may open). Its forms post to its own routes.

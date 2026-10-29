@@ -45,6 +45,7 @@ import { searchList, searchPage } from "./pages/search.ts";
 import { createIssueRoutes } from "./pages/issues.ts";
 import { type Asks, askInBar, createAsks } from "./relay/asks.ts";
 import { type Bino, createBino } from "./packs/core/assistant/bino/bino.ts";
+import type { Lookups } from "./packs/core/assistant/bino/lookups.ts";
 import { appsOf, contextOf, defaultBinoOf } from "./packs/core/assistant/bino/context.ts";
 import { investigateOf, investigatePage } from "./pages/investigate.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
@@ -67,7 +68,7 @@ import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
+import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies } from "./packs/copies.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
@@ -148,7 +149,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
 }
 
 /** A built app's packs, for the composition roots (their refresh schedule, cron, email). */
-const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[] }>();
+const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
 export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
@@ -209,6 +210,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
           context: async (_c, given) => given ?? binoContext(),
           onChange: (c) => deps.hub?.publish([`bino:${c.id}`, "bino"]),
           kinds: () => packActs(),
+          lookups: { specs: () => packLookups(), run: (l) => runLookup(l) },
         })
       : undefined;
   const bino: Bino | undefined = binoDeps && "remote" in binoDeps ? binoDeps.remote : engine;
@@ -511,6 +513,17 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
   const packWhat = (kind: string) => whatFrom(fill, kind);
   /** What Bino may propose that the packs carry out (`acts`): local only, as Bino's own are. */
   const packActs = () => (hosted ? [] : actsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)));
+  /** What Bino may look up in the packs' apps (`lookups`), here and hosted. */
+  const packLookups = () => lookupsFrom(shown(), ctxOf, (id, line) => packLog(id)(line));
+  /** One lookup, logged as `<pack>.lookup`: its kind and the fields' names, never what came back. */
+  const runLookup = async (l: { kind: string; args: Record<string, string> }): Promise<{ text: string; error?: boolean }> => {
+    const k = packLookups().find((x) => x.kind === l.kind);
+    if (!k) return { text: "That app isn't on here now.", error: true };
+    const args = Object.fromEntries(k.fields.flatMap((f) => (typeof l.args?.[f.name] === "string" && l.args[f.name] ? [[f.name, l.args[f.name]!.slice(0, f.max)]] : [])));
+    const got = await k.run(args);
+    await logAction(env.DB, { kind: `${k.pack}.lookup`, target: k.kind, detail: Object.keys(args).length ? `by ${Object.keys(args).join(", ")}` : undefined, ok: !got.error }).catch(() => {});
+    return got;
+  };
   const packPages = () => shown().flatMap((c) => (c.pages ? safely(() => c.pages!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`pages: ${(e as Error)?.message ?? e}`)) : []));
   /** The packs' things for search, each named after its pack; an href that isn't a path here or http(s) is dropped. */
   /** The packs' rows for search: under "In your apps" named after the pack, or in one of search's own groups by `kind`. */
@@ -549,7 +562,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; ghe: Ghe; /** Se
       pulsing = false;
     }
   };
-  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)) });
+  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), lookups: { specs: () => packLookups().map(({ run: _r, pack: _p, ...spec }) => spec), run: runLookup } });
   if (PACK_CSS)
     app.get(PACK_CSS.path, (c) => {
       c.header("Content-Type", "text/css; charset=utf-8");

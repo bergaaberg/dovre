@@ -32,6 +32,7 @@ import { localDesk } from "./agents/desk.ts";
 import { createQueue } from "./agents/queue.ts";
 import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER } from "./hosted/hub.ts";
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
+import { serveLookups } from "./hosted/lookups.ts";
 
 export interface WorkerBindings {
   DB: D1;
@@ -298,6 +299,13 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     hosted = built;
     return hosted;
   };
+
+  // Bino's lookups, for the instance's BinoLookups entrypoint (src/hosted/lookups.ts).
+  serveLookups(async (env) => {
+    const h = build(env as WorkerBindings);
+    await capped(h.ready);
+    return packsOf(h.app)!.lookups;
+  });
 
   /** Cron: every pack's scheduled hook, then any refresh that's due and the snapshot. */
   const runScheduled = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {

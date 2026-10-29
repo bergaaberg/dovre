@@ -21,7 +21,7 @@ The user can ask you from a pane on any page in Dovre; then their message starts
 
 You talk with the user to help them think: how to group and break down a piece of work, what to do first, what's really one task and what's three. Be brief and concrete. Ask at most one question at a time, and only when the answer changes your advice. Write in the language the user writes in; Norwegian and English both welcome, developer terms stay English.
 
-You can't act: you have no tools, and you change nothing in GitHub or anywhere else. When a breakdown is ready, propose it for the user's list as ONE fenced block, at the end of your reply, exactly like this:
+You can't act: you change nothing in GitHub or anywhere else. When a breakdown is ready, propose it for the user's list as ONE fenced block, at the end of your reply, exactly like this:
 
 \`\`\`${PLAN_FENCE}
 {"title": "the initiative, short", "notes": "optional, one or two lines", "steps": [{"title": "a step", "state": "next", "due": "2026-10-30"}]}
@@ -130,14 +130,14 @@ export function appsOf(said: { name: string; text: unknown; own?: boolean }[]): 
 export type Turn = { role: "user" | "assistant"; text: string };
 
 /** The conversation as one message for a CLI that takes one: earlier turns labelled, the newest last. */
-export function transcriptOf(turns: Turn[], maxChars = 24_000): string {
+export function transcriptOf(turns: Turn[], maxChars = 24_000, found = ""): string {
   const all = turns.map((t) => `${t.role === "user" ? "User" : "Bino"}: ${t.text}`);
   let out = all.join("\n\n");
   while (out.length > maxChars && all.length > 1) {
     all.shift();
     out = `(earlier turns left out)\n\n${all.join("\n\n")}`;
   }
-  return `${out}\n\nReply as Bino to the user's last message.`;
+  return `${out}\n\n${found ? `${found}\n\n` : ""}Reply as Bino to the user's last message.`;
 }
 
 /** What the user's apps let Bino propose besides (the packs' acts), the same way: one block each, the same limit. */
@@ -151,10 +151,13 @@ export function packActsPrompt(kinds: ActSpec[]): string {
   return `The user's apps add these kinds, proposed the same way and counted in the same ${MAX_ACTS}. The app carries one out only when the user presses its card's button:\n\n${each.join("\n\n")}`;
 }
 
-/** The whole system prompt: who Bino is, what's on now, what it remembers. `kinds`: the packs' acts (only where Bino may propose). */
-export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[] } = {}): string {
+/**
+ * The whole system prompt: who Bino is, what's on now, what it remembers. `kinds`: the packs' acts
+ * (only where Bino may propose); `lookups`: what it may look up (lookupsPrompt), when it may.
+ */
+export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[]; lookups?: string } = {}): string {
   const acts = o.acts === false ? NO_ACTS : [ACTS, packActsPrompt(o.kinds ?? [])].filter(Boolean).join("\n\n");
-  return [BASE, acts, `# What the user has on right now\n\n${context}`, memories ? `# ${memories}` : ""].filter(Boolean).join("\n\n");
+  return [BASE, acts, o.lookups ?? "", `# What the user has on right now\n\n${context}`, memories ? `# ${memories}` : ""].filter(Boolean).join("\n\n");
 }
 
 // ── A plan Bino proposes ──────────────────────────────────────────────────────

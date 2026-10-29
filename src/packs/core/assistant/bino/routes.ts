@@ -97,7 +97,7 @@ function actCard(c: Conv, i: number, n: number, a: Act, ax: ActCtx): Html {
 
 function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx): Html {
   if (m.role === "user") return html`<li class="bino-msg you" data-stop="1" data-stop-label="${m.text.slice(0, 120)}"><p class="bino-who">You <span class="t3">${Ago(m.at)}</span></p><div class="bino-text">${markdown(m.text)}</div></li>`;
-  return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}</li>`;
+  return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}</li>`;
 }
 
 /** The box Bino is talked to in: one field, the send button in its own footer. Enter sends, Shift+Enter is a new line, ↑ in an empty box brings back what I last sent (src/ui/app.js.ts). */
@@ -110,7 +110,7 @@ function composer(o: { action: string; label: string; placeholder: string; butto
 function answering(c: Conv, dock: boolean): Html {
   if (c.stopped && !c.thinking) return html`<p class="notes">You stopped this answer. Ask again, or say something else.</p>`;
   if (!c.thinking) return html``;
-  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite">${dock ? html`<input type="hidden" name="dock" value="1">` : ""}<span class="spinner" aria-hidden="true"></span> Bino is thinking… <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
+  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite">${dock ? html`<input type="hidden" name="dock" value="1">` : ""}<span class="spinner" aria-hidden="true"></span> ${c.looking ? `Bino is looking up ${c.looking}…` : "Bino is thinking…"} <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
 }
 
 const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? "Bino can't answer here." });
