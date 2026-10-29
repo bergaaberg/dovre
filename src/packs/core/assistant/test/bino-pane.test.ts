@@ -151,3 +151,53 @@ test("the pane is a chat: its header names the conversation and lists the others
   const home = await (await s.req("/bino/dock")).text();
   assert.ok(home.indexOf('id="bino-list"') < home.indexOf("data-chat"), "the box at the bottom");
 });
+
+test("the workspace: every chat in a sidebar (searched, renamed, pinned, deleted), the chat in the middle, what Bino sees beside it", async () => {
+  const s = setup("Sure.");
+  const a = (await s.req("/bino/new", { text: "Sertifikater som går ut" })).headers.get("location")!;
+  await s.until(() => s.asked.length > 0);
+  const b = (await s.req("/bino/new", { text: "Planlegg uka" })).headers.get("location")!;
+  await s.until(() => s.asked.length > 1);
+  await new Promise((r) => setTimeout(r, 30));
+  const [ida, idb] = [a.split("/").pop()!, b.split("/").pop()!];
+  const page = await (await s.req(b)).text();
+  assert.match(page, /<div class="bino-ws"><nav class="bino-nav" aria-label="Conversations">/);
+  assert.match(page, new RegExp(`<li class="bino-ci on" data-conv="${idb}"[^>]*><a href="/bino/c/${idb}" aria-current="page">`), "the open one is marked");
+  assert.match(page, new RegExp(`<li class="bino-ci" data-conv="${ida}"`));
+  assert.match(page, /<h2 class="bino-starts-h">Today<\/h2>/);
+  assert.match(page, /<aside class="bino-side"><div data-live id="bino-side">[\s\S]*What Bino sees/);
+  assert.match(page, /<meta name="u-topics" content="bino bino:/, "the sidebar follows the other chats too");
+
+  // Search: by what was said too, not just the title.
+  const found = await (await s.req("/bino?q=sure")).text();
+  assert.match(found, /2 with «sure»/);
+  const one = await (await s.req("/bino?q=uka")).text();
+  assert.ok(one.includes(`data-conv="${idb}"`) && !one.includes(`data-conv="${ida}"`));
+
+  // Rename and pin go back to the page they were on; anywhere else is /bino.
+  let res = await s.req(`/bino/c/${ida}/rename`, { title: "Sertifikater", back: b });
+  assert.equal(res.headers.get("location"), b);
+  res = await s.req(`/bino/c/${ida}/pin`, { on: "1", back: "https://evil.example/" });
+  assert.equal(res.headers.get("location"), "/bino");
+  const pinned = await (await s.req(b)).text();
+  assert.match(pinned, /<h2 class="bino-starts-h">Pinned<\/h2><ul class="bino-convs"><li class="bino-ci" data-conv="[0-9a-f-]{36}" data-title="sertifikater">/);
+  assert.match(pinned, /name="on" value="0"><button type="submit" class="ghost">Unpin/);
+
+  // Delete: one click unless Settings asks twice (bino.delete); deleting the chat I'm on goes back to /bino.
+  assert.match(pinned, new RegExp(`<form class="post" method="post" action="/bino/c/${ida}/delete"><input type="hidden" name="back" value="${b}"><button type="submit" class="danger">Delete</button>`));
+  res = await s.req(`/bino/c/${ida}/delete`, { back: a });
+  assert.equal(res.headers.get("location"), "/bino");
+  assert.equal((await s.req(a)).status, 404);
+  assert.doesNotMatch(await (await s.req("/bino")).text(), new RegExp(`data-conv="${ida}"`));
+  assert.equal((await s.req(`/bino/c/00000000-0000-0000-0000-000000000000/rename`, { title: "x" })).status, 404);
+});
+
+test("the workspace keeps hostile text inert: titles, search, what was said", async () => {
+  const s = setup(H);
+  const at = (await s.req("/bino/new", { text: H })).headers.get("location")!;
+  await s.until(() => s.asked.length > 0);
+  await new Promise((r) => setTimeout(r, 30));
+  await s.req(`${at}/rename`, { title: H, back: at });
+  await s.req(`${at}/pin`, { on: "1", back: at });
+  for (const path of ["/bino", at, `/bino?q=${encodeURIComponent(H)}`, `${at}?q=${encodeURIComponent(H)}`]) assertInert(path, await (await s.req(path)).text());
+});

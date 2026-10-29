@@ -111,10 +111,20 @@ test("hosted Bino answers in the Durable Object: through the gateway, with what 
   assert.match(await memory.prompt("app:quill"), /About the app quill:[\s\S]*small schools/);
   assert.equal(await memory.forget(mems[0]!.id), true);
 
-  // A restart (a new object on the same storage) keeps the conversation.
+  // The sidebar's ops go to the object too.
+  assert.equal(await bino.rename(c.id, "Quill"), true);
+  assert.equal(await bino.pin(c.id, true), true);
+  const gone = await bino.start("Throwaway");
+  assert.equal(await bino.remove(gone.id), true);
+  assert.equal(await bino.get(gone.id), undefined);
+  await hub.idle();
+
+  // A restart (a new object on the same storage) keeps the conversation, its new name and its pin.
   const again = new DovreHub(state, env);
-  const kept = (await (await again.fetch(new Request("https://hub.internal/bino", { method: "POST", body: JSON.stringify({ op: "get", id: c.id }) }))).json()) as { msgs: unknown[] };
-  assert.equal(kept.msgs.length, 2);
+  const ask = async (o: unknown) => (await (await again.fetch(new Request("https://hub.internal/bino", { method: "POST", body: JSON.stringify(o) }))).json()) as { msgs: unknown[]; title: string; pinned?: boolean } | null;
+  const kept = (await ask({ op: "get", id: c.id }))!;
+  assert.deepEqual([kept.msgs.length, kept.title, kept.pinned], [2, "Quill", true]);
+  assert.equal(await ask({ op: "get", id: gone.id }), null, "deleted stays deleted");
 });
 
 test("an answer cut off by the object going away says so, and the hub refuses what isn't its protocol", async () => {
@@ -177,7 +187,7 @@ test("hosted pages: Bino through the object, what packs share instead of GitHub,
   );
   const at = "https://dovre.example.dev";
   const page = await (await app.fetch(new Request(`${at}/bino`))).text();
-  assert.match(page, /Sees My list and what your apps share/);
+  assert.match(page, /class="bino-sees">My list and what your apps share/);
   assert.match(page, /href="\/bino"/, "Bino is in the menu hosted");
 
   const form = new URLSearchParams({ text: "How is it going?", dock: "1", view: "/quill/writers" });

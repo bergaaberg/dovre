@@ -17,7 +17,7 @@ import { html } from "hono/html";
 import { type Act, type PackAct as PackActOf, isPackAct } from "./acts.ts";
 import type { PackAct } from "../../../registry.ts";
 import type { Bino, Conv, Msg } from "./bino.ts";
-import { MAX_SAY } from "./bino.ts";
+import { MAX_SAY, MAX_TITLE } from "./bino.ts";
 import { MAX_STEPS, type Plan, planOf } from "./context.ts";
 import { type ViewApp, viewOf } from "./view.ts";
 import type { AppEnv, Env } from "../../../../env.ts";
@@ -28,6 +28,7 @@ import { addTodo, getTodo, listTodos, STATES, type Todo } from "../../../../todo
 import { Confirm, type Html, Notice, PageHeader, Panel } from "../../../../ui/kit.ts";
 import { markdown } from "../../../../ui/markdown.ts";
 import { Ago, harnessTag } from "../../../../pages/parts.ts";
+import { currentTz, dtf } from "../../../../when.ts";
 
 const LABEL: Record<string, string> = { doing: "Doing", next: "Next", waiting: "Waiting" };
 const OPEN_STATES = STATES.filter((s) => s !== "done");
@@ -144,31 +145,85 @@ const binoTag = (b: Bino) => (b.route.via === "claude" ? harnessTag("claude", b.
 /** A pack's face beside Bino's header (the dock, where it usually is, isn't on Bino's pages): at work while Bino answers. */
 const binoFace = (frame: Frame, thinking = false) => frame.face?.({ place: "mini", thinking }) ?? "";
 
-/** One conversation; the messages sit in a live region, the box to answer in outside it. */
-export function convPage(frame: Frame, b: Bino, c: Conv, target?: Todo, ax?: ActCtx): Html {
-  const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoFace(frame, c.thinking)}` })}
-<div class="bino-thread"><div data-live id="bino-conv">${thread(c, target, ax)}
-${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
-${answering(c, false)}</div>
-${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask for a breakdown", button: "Send", busy: "Sending" }) : cantAnswer(b)}</div>`;
-  return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino:${c.id}">` });
+/** The day a time falls on in my timezone, as 2026-10-29. */
+const dayIn = (at: number, tz: string) => dtf("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+
+/** The sidebar's groups: pinned first, then by how long ago, in my timezone. */
+export function groupsOf(convs: Conv[], now: number, tz: string): { label: string; convs: Conv[] }[] {
+  const today = Date.parse(dayIn(now, tz));
+  const label = (at: number) => {
+    const days = Math.round((today - Date.parse(dayIn(at, tz))) / 86_400_000);
+    return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "This week" : days < 31 ? "This month" : "Earlier";
+  };
+  const out: { label: string; convs: Conv[] }[] = [];
+  const add = (l: string, c: Conv) => {
+    const g = out.find((x) => x.label === l);
+    if (g) g.convs.push(c);
+    else out.push({ label: l, convs: [c] });
+  };
+  for (const c of convs) if (c.pinned) add("Pinned", c);
+  for (const c of convs) if (!c.pinned) add(label(c.at), c);
+  return out;
 }
 
-/** Ready-made openings: whole questions about what Bino can see. */
-const STARTERS = ["What should I do first today?", "Group and tidy what's on my list", "What's waiting on me?"];
+/** Whether a conversation says this, in its title or anything said in it. */
+export const saysIt = (c: Conv, q: string) => {
+  const n = q.toLowerCase();
+  return c.title.toLowerCase().includes(n) || c.msgs.some((m) => m.text.toLowerCase().includes(n));
+};
 
-/** Starting points: a box for anything, the openings, and the open items on my list to break down. */
-export async function binoPage(frame: Frame, b: Bino, todos: Todo[] = []): Promise<Html> {
-  const convs = await b.list();
+/** What the workspace around a page needs: the conversations, my list, the packs' apps. */
+export type Ws = { convs: Conv[]; todos: Todo[]; apps: ViewApp[]; q?: string; now?: number; tz?: string };
+
+/** One conversation in the sidebar: its link, and a menu to rename, pin or delete it. */
+function navItem(c: Conv, current: string | undefined, back: string): Html {
+  const on = c.id === current;
+  const backField = html`<input type="hidden" name="back" value="${back}">`;
+  return html`<li class="bino-ci${on ? " on" : ""}" data-conv="${c.id}" data-title="${c.title.toLowerCase()}"><a href="/bino/c/${c.id}"${on ? html` aria-current="page"` : ""}><span class="bino-conv-t">${c.title}</span><span class="t3">${c.pinned ? "Pinned · " : ""}${Ago(c.at)}${c.thinking ? " · thinking" : ""}</span></a>
+<details class="bino-ci-m" id="cm-${c.id}"><summary class="dock-i" title="Rename, pin or delete" aria-label="More for this chat">⋯</summary><div class="bino-ci-menu">
+<form method="post" action="/bino/c/${c.id}/rename" class="bino-rename" data-inplace>${backField}<input type="text" name="title" value="${c.title}" maxlength="${MAX_TITLE}" required aria-label="New title"><button type="submit">Rename</button></form>
+<form method="post" action="/bino/c/${c.id}/pin" data-inplace>${backField}<input type="hidden" name="on" value="${c.pinned ? "0" : "1"}"><button type="submit" class="ghost">${c.pinned ? "Unpin" : "Pin to the top"}</button></form>
+${Confirm({ kind: "bino.delete", action: `/bino/c/${c.id}/delete`, fields: { back }, label: "Delete", question: "Delete this chat? It can't be brought back.", danger: true })}
+</div></details></li>`;
+}
+
+/** The conversations: a new one, search, and every one grouped by date. */
+function binoNav(ws: Ws, current?: string): Html {
+  const q = ws.q ?? "";
+  const back = current ? `/bino/c/${current}` : "/bino";
+  const convs = q ? ws.convs.filter((c) => saysIt(c, q)) : ws.convs;
+  const groups = groupsOf(convs, ws.now ?? Date.now(), ws.tz ?? currentTz());
+  return html`<nav class="bino-nav" aria-label="Conversations">
+<div class="bino-nav-h"><a class="btn primary" href="/bino" data-bino-new title="New chat (n)">New chat</a></div>
+<form method="get" action="${back}" class="bino-find" role="search"><input type="search" name="q" value="${q}" maxlength="200" placeholder="Search chats" aria-label="Search conversations" data-conv-filter></form>
+<div data-live id="bino-nav"><div class="bino-nav-s" id="bino-nav-s" data-keep-scroll>${q ? html`<p class="bino-found t3">${convs.length ? `${convs.length} with «${q}»` : `None with «${q}»`} · <a href="${back}">Show all</a></p>` : ""}${
+    groups.length
+      ? groups.map((g) => html`<section class="bino-group"><h2 class="bino-starts-h">${g.label}</h2><ul class="bino-convs">${g.convs.map((c) => navItem(c, current, back))}</ul></section>`)
+      : q ? "" : html`<p class="notes">None yet. What you start shows up here.</p>`
+  }</div></div></nav>`;
+}
+
+/** Beside the chat: what Bino sees, the open items on my list to break down, and what it remembers. */
+async function binoSide(b: Bino, ws: Ws, c?: Conv, target?: Todo): Promise<Html> {
   const memories = await b.memory.list().catch(() => []);
-  const open = todos.filter((t) => t.parent === null && t.state !== "done").slice(0, 4);
-  const starts = html`<div class="bino-starts"><p class="bino-starts-h">Or start from</p><div class="bino-chips">${STARTERS.map((q) => html`<button type="submit" class="bino-chip" name="q" value="${q}" formnovalidate>${q}</button>`)}${open.map((t) => html`<button type="submit" class="bino-chip todo" name="todo" value="${t.id}" formnovalidate title="Break this down with Bino"><span class="t3">Break down</span> ${t.title}</button>`)}</div></div>`;
-  const start = b.route.ready ? composer({ action: "/bino/new", label: "What's on your mind?", placeholder: "What's on your mind? Something to think through, group or break down.", button: "Talk it through", busy: "Starting", extra: starts }) : cantAnswer(b);
-  const list = html`<div data-live id="bino-list">${
-    convs.length
-      ? html`<ul class="bino-convs">${convs.map((c) => html`<li><a href="/bino/c/${c.id}"><span class="bino-conv-t">${c.title}</span><span class="t3">${c.msgs.length} messages · ${Ago(c.at)}${c.thinking ? " · thinking" : ""}</span></a></li>`)}</ul>`
-      : html`<p class="notes">None yet. What you start here shows up here.</p>`
-  }</div>`;
+  const open = ws.todos.filter((t) => t.parent === null && t.state !== "done").slice(0, 6);
+  const app = c?.app ? ws.apps.find((a) => a.id === c.app) : undefined;
+  const from = c ? [...c.msgs].reverse().find((m) => m.view)?.view : undefined;
+  const sees = Panel({
+    title: "What Bino sees",
+    children: html`<p class="bino-sees">${b.sees ?? "My list and pull requests"}.${ws.apps.length ? html` Your apps: ${ws.apps.map((a, i) => html`${i ? ", " : ""}${a.name}`)}.` : ""} It changes nothing by itself.</p>${
+      c && (app || from || target)
+        ? html`<dl class="facts">${target ? html`<dt>About</dt><dd><a href="/todo#t-${target.id}">${target.title}</a></dd>` : ""}${app ? html`<dt>App</dt><dd>${app.name}</dd>` : ""}${from ? html`<dt>Asked from</dt><dd>${from}</dd>` : ""}</dl>`
+        : ""
+    }`,
+  });
+  const list = Panel({
+    title: "My list",
+    meta: String(open.length),
+    children: open.length
+      ? html`<form method="post" action="/bino/new" class="bino-todos"><ul class="bino-convs">${open.map((t) => html`<li><button type="submit" class="ghost bino-todo" name="todo" value="${t.id}" title="Start a chat to break this down"><span class="bino-conv-t">${t.title}</span><span class="t3">Break down with Bino</span></button></li>`)}</ul></form>`
+      : html`<p class="notes">Nothing open on your list.</p>`,
+  });
   const remembered = Panel({
     title: "What Bino remembers",
     meta: b.memory.available ? String(memories.length) : "off",
@@ -178,9 +233,32 @@ export async function binoPage(frame: Frame, b: Bino, todos: Todo[] = []): Promi
         ? html`<ul class="bino-mems">${memories.map((m) => html`<li><span>${m.scope.startsWith("app:") ? html`<span class="tag">${m.scope.slice(4)}</span> ` : ""}${m.text}</span> ${Confirm({ kind: "bino.forget", action: `/bino/memory/${m.id}/forget`, label: "Forget", question: "Forget this?" })}</li>`)}</ul>`
         : html`<p class="notes">Nothing yet. Bino keeps a few short facts from your conversations, never secrets. You can make it forget any of them here.</p>`,
   });
-  const body = html`${PageHeader({ title: "Bino", sub: `Sees ${b.sees ?? "My list and pull requests"}. Changes nothing by itself.`, actions: html`${binoTag(b)}${binoFace(frame, convs.some((x) => x.thinking))}` })}
-<div class="bino-hub"><div class="bino-main">${start}</div>
-<aside class="bino-side">${Panel({ title: "Conversations", meta: String(convs.length), children: list })}${remembered}</aside></div>`;
+  return html`<aside class="bino-side"><div data-live id="bino-side">${sees}${b.route.ready ? list : ""}${remembered}</div></aside>`;
+}
+
+/** The workspace: the conversations at the left, the chat in the middle, what Bino sees at the right. */
+const workspace = (nav: Html, main: Html, side: Html) => html`<div class="bino-ws">${nav}<section class="bino-main">${main}</section>${side}</div>`;
+
+/** One conversation; the messages sit in a live region, the box to answer in outside it. */
+export async function convPage(frame: Frame, b: Bino, c: Conv, ws: Ws, target?: Todo, ax?: ActCtx): Promise<Html> {
+  const main = html`<div class="bino-thread"><div data-live id="bino-conv">${thread(c, target, ax)}
+${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
+${answering(c, false)}</div>
+${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask for a breakdown", button: "Send", busy: "Sending" }) : cantAnswer(b)}</div>`;
+  const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoFace(frame, c.thinking)}` })}
+${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }, c.id), main, await binoSide(b, ws, c, target))}`;
+  return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino bino:${c.id}">` });
+}
+
+/** Ready-made openings: whole questions about what Bino can see. */
+const STARTERS = ["What should I do first today?", "Group and tidy what's on my list", "What's waiting on me?"];
+
+/** A new chat: a box for anything and the openings, beside the conversations and what Bino sees. */
+export async function binoPage(frame: Frame, b: Bino, ws: Ws): Promise<Html> {
+  const starts = html`<div class="bino-starts"><p class="bino-starts-h">Or start from</p><div class="bino-chips">${STARTERS.map((q) => html`<button type="submit" class="bino-chip" name="q" value="${q}" formnovalidate>${q}</button>`)}</div></div>`;
+  const start = b.route.ready ? composer({ action: "/bino/new", label: "What's on your mind?", placeholder: "What's on your mind? Something to think through, group or break down.", button: "Talk it through", busy: "Starting", extra: starts }) : cantAnswer(b);
+  const body = html`${PageHeader({ title: "Bino", sub: "Ask about your work, or think something through. It changes nothing by itself.", actions: html`${binoTag(b)}${binoFace(frame, ws.convs.some((x) => x.thinking))}` })}
+${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }), start, await binoSide(b, ws))}`;
   return shell({ title: "Bino · Dovre", frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino">` });
 }
 
@@ -223,6 +301,8 @@ const first = (v: unknown): string => (typeof v === "string" ? v : Array.isArray
 const all = (v: unknown): string[] => (Array.isArray(v) ? v : v === undefined ? [] : [v]).map((x) => (typeof x === "string" ? x : ""));
 const idOf = (s: string) => (/^\d{1,9}$/.test(s) ? Number(s) : undefined);
 const CONV = /^[0-9a-f-]{36}$/;
+/** The workspace's pages, the only places a sidebar form goes back to. */
+const BACK = /^\/bino(\/c\/[0-9a-f-]{36})?$/;
 
 /** The plan as the card's form says it now: the same checks as Bino's own block. */
 export function planFromForm(form: Record<string, unknown>): Plan | null {
@@ -263,7 +343,15 @@ export function createBinoRoutes(env: Env, deps: {
   };
   const known = async () => (deps.context ? { context: await deps.context() } : {});
 
-  app.get("/bino", async (c) => c.html(await binoPage((await deps.page()).frame, bino, await listTodos(db).catch(() => []))));
+  /** What the workspace shows around a page: every conversation, my list, the apps; `q` narrows the conversations. */
+  const wsOf = async (q: string | undefined): Promise<Ws> => ({ convs: await bino.list(), todos: await listTodos(db).catch(() => []), apps: deps.apps?.() ?? [], q: (q ?? "").trim().slice(0, 200) });
+  /** Where a sidebar's form goes back to: the workspace page it was on. */
+  const backOf = (form: Record<string, unknown>, gone?: string) => {
+    const b = first(form.back);
+    return BACK.test(b) && b !== `/bino/c/${gone}` ? b : "/bino";
+  };
+
+  app.get("/bino", async (c) => c.html(await binoPage((await deps.page()).frame, bino, await wsOf(c.req.query("q")))));
   app.post("/bino/new", async (c) => {
     const form = await c.req.parseBody();
     const todo = idOf(first(form.todo));
@@ -277,7 +365,29 @@ export function createBinoRoutes(env: Env, deps: {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.notFound();
     const target = conv.todo !== undefined ? await getTodo(db, conv.todo) : undefined;
-    return c.html(convPage((await deps.page()).frame, bino, conv, target, ax()));
+    return c.html(await convPage((await deps.page()).frame, bino, conv, await wsOf(c.req.query("q")), target, ax()));
+  });
+  app.post("/bino/c/:id/rename", async (c) => {
+    const id = c.req.param("id");
+    if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
+    const form = await c.req.parseBody();
+    await bino.rename(id, first(form.title));
+    return c.redirect(backOf(form), 303);
+  });
+  app.post("/bino/c/:id/pin", async (c) => {
+    const id = c.req.param("id");
+    if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
+    const form = await c.req.parseBody();
+    await bino.pin(id, first(form.on) === "1");
+    return c.redirect(backOf(form), 303);
+  });
+  /** Delete: gone for good, an answer being written stopped first. */
+  app.post("/bino/c/:id/delete", async (c) => {
+    const id = c.req.param("id");
+    if (!CONV.test(id)) return c.notFound();
+    const form = await c.req.parseBody();
+    await bino.remove(id);
+    return c.redirect(backOf(form, id), 303);
   });
   app.post("/bino/c/:id/say", async (c) => {
     const id = c.req.param("id");

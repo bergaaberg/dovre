@@ -6,7 +6,7 @@ import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } f
 import { investigateHref } from "../src/ui/kit.ts";
 import type { Run } from "../src/agents/runner.ts";
 
-const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
+const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", `/bino?q=${encodeURIComponent(H)}`, "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
 
 test("nobody without the cookie, or on another host, learns anything is here", async () => {
   const { app, get } = signedIn(snapshot());

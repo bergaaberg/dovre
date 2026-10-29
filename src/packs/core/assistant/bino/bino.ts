@@ -14,7 +14,7 @@ import { type Found, foundPart, labelOf, type Lookups, lookupsPrompt, MAX_ROUNDS
 import type { Route } from "./route.ts";
 
 export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number; /** What Bino looked up for it ("Linear: issue ENG-12"), never what came back. */ looked?: string[] };
-export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string };
+export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string };
 
 /** Where the last few conversations are kept between restarts. */
 export type ConvStore = { load(): Conv[]; save(keep: Conv[]): void };
@@ -25,6 +25,9 @@ export type StartOpts = { todo?: number; view?: string; app?: string; /** What B
 export const MAX_SAY = 8000;
 const KEEP = 30;
 const ON_DISK = 12;
+/** At most this many pinned: they're kept beside the last few, on disk too. */
+export const MAX_PINNED = 10;
+export const MAX_TITLE = 80;
 
 /** Bino as pages see it: the engine here, or hosted the Durable Object's, asked over a fetch. */
 export type Bino = {
@@ -42,6 +45,12 @@ export type Bino = {
   stop(id: string): P<boolean>;
   /** Asks again for the last answer (or for one that was stopped or failed); false while one is being written, or when the last was acted on. */
   retry(id: string, o?: { context?: string }): P<boolean>;
+  /** A new title; false when it's empty or the conversation's gone. */
+  rename(id: string, title: string): P<boolean>;
+  /** Pins or unpins; false when MAX_PINNED are pinned already. */
+  pin(id: string, on: boolean): P<boolean>;
+  /** Deletes it, stopping an answer being written. */
+  remove(id: string): P<boolean>;
   /** Marks a plan as added to the list. */
   added(id: string, index: number, todo: number): P<void>;
   /** An act Bino proposed: how it stands (sending, done, refused). */
@@ -57,6 +66,9 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
   say(id: string, text: string, o?: { view?: string; context?: string }): boolean;
   stop(id: string): boolean;
   retry(id: string, o?: { context?: string }): boolean;
+  rename(id: string, title: string): boolean;
+  pin(id: string, on: boolean): boolean;
+  remove(id: string): boolean;
   added(id: string, index: number, todo: number): void;
   act(id: string, index: number, n: number): Act | undefined;
   setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): void;
@@ -123,8 +135,15 @@ export function createBino(o: {
       const cut = c.msgs.at(-1)?.role === "user" && !c.error && !c.stopped;
       convs.set(c.id, { ...c, thinking: false, ...(cut ? { error: "Bino was interrupted (Dovre restarted) before answering: ask again." } : {}) });
     }
+  const byAt = (a: Conv, b: Conv) => b.at - a.at;
+  /** The pinned ones, and the last `n` of the rest. */
+  const kept = (n: number) => {
+    const all = [...convs.values()].sort(byAt);
+    return [...all.filter((c) => c.pinned), ...all.filter((c) => !c.pinned).slice(0, n)].sort(byAt);
+  };
   const trim = () => {
-    const old = [...convs.values()].sort((a, b) => b.at - a.at).slice(keep);
+    const stay = new Set(kept(keep));
+    const old = [...convs.values()].filter((c) => !stay.has(c));
     for (const c of old) {
       convs.delete(c.id);
       found.delete(c.id);
@@ -133,10 +152,14 @@ export function createBino(o: {
   trim();
   const save = () => {
     if (!store) return;
-    store.save([...convs.values()].sort((a, b) => b.at - a.at).slice(0, ON_DISK).map(({ thinking: _t, looking: _l, ...c }) => c as Conv));
+    store.save(kept(ON_DISK).map(({ thinking: _t, looking: _l, ...c }) => c as Conv));
   };
   const changed = (c: Conv) => {
     c.at = now();
+    touched(c);
+  };
+  /** A change that isn't news (a new title, a pin): saved and shown, its place in the list kept. */
+  const touched = (c: Conv) => {
     save();
     o.onChange?.(c);
   };
@@ -236,11 +259,11 @@ export function createBino(o: {
     route: o.route,
     memory: o.memory,
     sees: o.sees,
-    list: () => [...convs.values()].sort((a, b) => b.at - a.at),
+    list: () => [...convs.values()].sort(byAt),
     get: (id) => convs.get(id),
     start(text, opts = {}) {
       const said = clean(text);
-      const c: Conv = { id: randomUUID(), title: said.split("\n")[0]!.slice(0, 80) || "A conversation", at: now(), todo: opts.todo, ...(opts.app ? { app: opts.app } : {}), msgs: [{ role: "user", text: said, at: now(), ...(opts.view ? { view: opts.view } : {}) }], thinking: false };
+      const c: Conv = { id: randomUUID(), title: said.split("\n")[0]!.slice(0, MAX_TITLE) || "A conversation", at: now(), todo: opts.todo, ...(opts.app ? { app: opts.app } : {}), msgs: [{ role: "user", text: said, at: now(), ...(opts.view ? { view: opts.view } : {}) }], thinking: false };
       convs.set(c.id, c);
       trim();
       if (opts.context !== undefined) given.set(c.id, opts.context);
@@ -281,6 +304,35 @@ export function createBino(o: {
       if (c.msgs.at(-1)?.role !== "user") return false;
       if (opts.context !== undefined) given.set(c.id, opts.context);
       answer(c);
+      return true;
+    },
+    rename(id, title) {
+      const c = convs.get(id);
+      const t = title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+      if (!c || !t) return false;
+      c.title = t;
+      touched(c);
+      return true;
+    },
+    pin(id, on) {
+      const c = convs.get(id);
+      if (!c) return false;
+      if (on && !c.pinned && [...convs.values()].filter((x) => x.pinned).length >= MAX_PINNED) return false;
+      if (on) c.pinned = true;
+      else delete c.pinned;
+      touched(c);
+      return true;
+    },
+    remove(id) {
+      const c = convs.get(id);
+      if (!c) return false;
+      writing.get(id)?.abort();
+      writing.delete(id);
+      given.delete(id);
+      found.delete(id);
+      convs.delete(id);
+      c.thinking = false;
+      touched(c);
       return true;
     },
     added(id, index, todo) {
