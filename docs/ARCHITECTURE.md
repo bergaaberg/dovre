@@ -87,7 +87,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 | Stats | `stats` (chart or headline number) | from memory |
 | Search | `pages`, `finds` | from memory |
 | Attention | `needs` (+ manifest `rings`), `banner`, `dock` | from memory |
-| Bino | `bino`, `about`, `acts` (local) | from memory; acts run in the background |
+| Bino | `bino`, `about`, `acts` (local) | `bino` from memory; `about` may read its app (2 s at most); acts run in the background |
 | Core pages | `slots` (14 in `SlotMap`) | from memory |
 | Framing | `frames`: `https://` origins its pages may frame | from memory |
 | Links | `refs` (ticket keys), `linked` (PR links to look up) | from memory |
@@ -143,6 +143,9 @@ Also:
 - A pack showing content not fit for a model (chats, mail, query results) sets `private`: from
   its pages, Bino hears only the pack's name.
 - `bino` and `about` give names, states and counts. Never content, addresses or tokens.
+  A pack without `bino` is heard through what it shows on Today (glance, needs, pulse, the
+  last day's feed), unless it's `private`. A page without `about` is named, with the pack's
+  needs that point at it.
 - Tests live in `packs/<id>/test/`, with a hostile-input case per page. `testContext()`
   (`dovre/packs/testing.ts`) gives safe defaults.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).

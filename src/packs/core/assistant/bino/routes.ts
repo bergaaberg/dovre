@@ -224,7 +224,7 @@ export function createBinoRoutes(env: Env, deps: {
   const ax = (dock = false): ActCtx => ({ org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms });
   /** Where a conversation is shown: in the pane when it was asked from there. */
   const convHref = (id: string, dock: boolean) => (dock ? `/bino/dock/c/${id}` : `/bino/c/${id}`);
-  const viewIn = (form: Record<string, unknown>) => (first(form.dock) === "1" ? viewOf(first(form.view).slice(0, 500), deps.peek?.(), deps.apps?.()) || undefined : undefined);
+  const viewIn = async (form: Record<string, unknown>) => (first(form.dock) === "1" ? (await viewOf(first(form.view).slice(0, 500), deps.peek?.(), deps.apps?.())) || undefined : undefined);
   /** The app the page I asked from belongs to, if it's one of the packs'. */
   const appIn = (form: Record<string, unknown>) => {
     const path = first(form.dock) === "1" ? first(form.view) : "";
@@ -241,7 +241,7 @@ export function createBinoRoutes(env: Env, deps: {
     const item = todo !== undefined ? await getTodo(db, todo) : undefined;
     const text = first(form.text) || first(form.q) || (item ? `Help me group and break this down: ${item.title}${item.notes ? `\n\n${item.notes}` : ""}` : "");
     if (!text.trim() || !bino.route.ready) return c.redirect(first(form.dock) === "1" ? "/bino/dock" : "/bino", 303);
-    const conv = await bino.start(text, { todo: item ? (item.parent ?? item.id) : undefined, view: viewIn(form), app: appIn(form), ...(await known()) });
+    const conv = await bino.start(text, { todo: item ? (item.parent ?? item.id) : undefined, view: await viewIn(form), app: appIn(form), ...(await known()) });
     return c.redirect(convHref(conv.id, first(form.dock) === "1"), 303);
   });
   app.get("/bino/c/:id", async (c) => {
@@ -254,7 +254,7 @@ export function createBinoRoutes(env: Env, deps: {
     const id = c.req.param("id");
     if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
     const form = await c.req.parseBody();
-    await bino.say(id, first(form.text), { view: viewIn(form), ...(await known()) });
+    await bino.say(id, first(form.text), { view: await viewIn(form), ...(await known()) });
     return c.redirect(convHref(id, first(form.dock) === "1"), 303);
   });
   /** Stop: the answer being written is cancelled; what I said stays, to ask again. */
