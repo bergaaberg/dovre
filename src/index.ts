@@ -444,7 +444,7 @@ const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv
 // Terminal and Docker aren't added where they can't run: Packs says why.
 for (const id of ["terminal", "docker"] as const) if (!on[id]) packSet.off.push({ id, name: id === "terminal" ? "Terminal" : "Docker", why: panes[id].why ?? "can't run here" });
 packSet.off.push(...loaded.failed);
-mcpOn = () => packSet.on.some((p) => p.tools);
+mcpOn = () => packSet.on.some((p) => p.tools || p.lookups);
 for (const o of packSet.off) console.log(`pack ${o.id}: off, ${o.why}`);
 
 const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {

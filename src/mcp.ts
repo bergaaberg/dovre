@@ -15,6 +15,7 @@
 import type { Hono } from "hono";
 import { logAction } from "./actions/deploys.ts";
 import type { D1 } from "./db.ts";
+import { lookupsFrom, type PackLookup } from "./packs/registry.ts";
 import type { Pack, PackContext, PackTool, ToolCall } from "./packs/types.ts";
 
 import { MCP_VERSIONS } from "./mcp-stdio.ts";
@@ -59,7 +60,33 @@ export function offered(packs: Pack[], ctxOf: (p: Pack) => PackContext, log: (li
       if (!out.has(name)) out.set(name, { name, pack: p, tool: t });
     }
   }
+  // Its lookups too (Pack.lookups), read-only, unless a tool already has the name.
+  for (const k of lookupsFrom(packs, ctxOf, (id, line) => log(`mcp: ${id}'s ${line}`))) {
+    const name = k.kind.replace(/[-.]/g, "_");
+    const pack = packs.find((p) => p.manifest.id === k.pack);
+    if (!pack || !TOOL_NAME.test(name) || out.has(name)) continue;
+    out.set(name, { name, pack, tool: toolOf(k) });
+  }
   return out;
+}
+
+/** A lookup as an agent's tool: its fields as string arguments, what it found as the answer. */
+export function toolOf(k: PackLookup): PackTool {
+  return {
+    name: k.kind.split(".").slice(1).join("_").replace(/-/g, "_"),
+    description: `${k.when} (Read-only, from ${k.app}.)`,
+    input: {
+      type: "object",
+      properties: Object.fromEntries(k.fields.map((f) => [f.name, { type: "string", description: f.about, maxLength: f.max }])),
+      required: k.fields.filter((f) => f.required).map((f) => f.name),
+    },
+    run: async (args) => {
+      const given = Object.fromEntries(k.fields.flatMap((f) => (typeof args[f.name] === "string" && args[f.name] ? [[f.name, (args[f.name] as string).slice(0, f.max)]] : [])));
+      const missing = k.fields.find((f) => f.required && !given[f.name]);
+      if (missing) return { text: `${missing.name} is needed.`, error: true };
+      return k.run(given);
+    },
+  };
 }
 
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });

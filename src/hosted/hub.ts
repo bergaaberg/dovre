@@ -31,6 +31,7 @@
 import { createBino, type ConvStore, type Conv, type Engine } from "../packs/core/assistant/bino/bino.ts";
 import { apiKeyRouteOf, gatewayRouteOf, openRouterRouteOf } from "../packs/core/assistant/bino/gateway.ts";
 import { loadMemory, noMemory } from "../packs/core/assistant/bino/memory.ts";
+import { type LookupsBinding, lookupsVia } from "./lookups.ts";
 import type { D1 } from "../db.ts";
 import { DAY_MS, frameKind, KEEP_DAYS } from "../sent.ts";
 import { type Call, type Channel, channel, type Down, helloOk, keyOk, LEGACY_MACHINE, machineKey, machineOk, type MacState, nonce, parseUp, sessionKey } from "../bridge/wire.ts";
@@ -104,6 +105,8 @@ export type HubEnv = {
   BINO_REFLECT_MODEL?: string;
   /** The bridge's shared key (WP-N10): without one, /bridge is closed. */
   BRIDGE_KEY?: string;
+  /** The Worker's lookups for Bino (src/hosted/lookups.ts): a service binding to itself. */
+  BINO_LOOKUPS?: LookupsBinding;
   [k: string]: unknown;
 };
 
@@ -324,6 +327,7 @@ export class DovreHub {
         memory,
         store: sqlConvStore(this.state.storage.sql),
         acts: false,
+        ...(this.env.BINO_LOOKUPS ? { lookups: lookupsVia(this.env.BINO_LOOKUPS) } : {}),
         // Hosted, the Worker always sends what Bino knows with the message.
         context: async (_c, given) => given ?? "",
         onChange: (c) => this.publish([`bino:${c.id}`, "bino"]),

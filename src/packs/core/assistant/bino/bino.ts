@@ -10,10 +10,11 @@ import { randomUUID } from "node:crypto";
 import { type Act, type ActSpec, fenceOf, splitActs } from "./acts.ts";
 import { type Plan, splitReply, systemOf, transcriptOf } from "./context.ts";
 import { type BinoMemory, scopeOf } from "./memory.ts";
+import { type Found, foundPart, labelOf, type Lookups, lookupsPrompt, MAX_ROUNDS, resultOf, splitLookups } from "./lookups.ts";
 import type { Route } from "./route.ts";
 
-export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number };
-export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean };
+export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number; /** What Bino looked up for it ("Linear: issue ENG-12"), never what came back. */ looked?: string[] };
+export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string };
 
 /** Where the last few conversations are kept between restarts. */
 export type ConvStore = { load(): Conv[]; save(keep: Conv[]): void };
@@ -92,6 +93,8 @@ export function createBino(o: {
   acts?: boolean;
   /** The packs' acts on now (src/packs/registry.ts actsFrom): told to Bino, and its blocks checked against them. */
   kinds?: () => ActSpec[];
+  /** What Bino may look up while it answers (the packs' lookups; hosted, the Worker's). */
+  lookups?: Lookups;
   sees?: string;
   now?: () => number;
   log?: (line: string) => void;
@@ -108,6 +111,8 @@ export function createBino(o: {
   const given = new Map<string, string>();
   /** The answer being written, by conversation: Stop aborts it. */
   const writing = new Map<string, AbortController>();
+  /** What Bino looked up, by conversation: in memory only, for follow-ups. */
+  const found = new Map<string, Found[]>();
   for (const c of store?.load() ?? []) if (c && typeof c.id === "string" && Array.isArray(c.msgs)) {
       // A send cut off by a restart: say so rather than look stuck.
       for (const a of c.msgs.flatMap((m) => m.acts ?? [])) if (a.sending) Object.assign(a, { sending: false, error: "Dovre restarted while this was sending: check the chat before sending again." });
@@ -117,12 +122,15 @@ export function createBino(o: {
     }
   const trim = () => {
     const old = [...convs.values()].sort((a, b) => b.at - a.at).slice(keep);
-    for (const c of old) convs.delete(c.id);
+    for (const c of old) {
+      convs.delete(c.id);
+      found.delete(c.id);
+    }
   };
   trim();
   const save = () => {
     if (!store) return;
-    store.save([...convs.values()].sort((a, b) => b.at - a.at).slice(0, ON_DISK).map(({ thinking: _t, ...c }) => c as Conv));
+    store.save([...convs.values()].sort((a, b) => b.at - a.at).slice(0, ON_DISK).map(({ thinking: _t, looking: _l, ...c }) => c as Conv));
   };
   const changed = (c: Conv) => {
     c.at = now();
@@ -153,20 +161,53 @@ export function createBino(o: {
         const context = await o.context(c, given.get(c.id));
         given.delete(c.id);
         const kinds = o.acts === false ? [] : (o.kinds?.() ?? []);
-        const system = systemOf(context, await o.memory.prompt(c.app ? scopeOf(c.app) : undefined).catch(() => ""), { acts: o.acts ?? true, kinds });
-        signal.throwIfAborted();
-        const { text, cost } = await ask({ system, user: transcriptOf(c.msgs.map(said)), signal });
-        // Stopped while it was being written: what came anyway isn't shown.
-        if (signal.aborted) return;
+        const memories = await o.memory.prompt(c.app ? scopeOf(c.app) : undefined).catch(() => "");
+        const specs = o.lookups ? await Promise.resolve(o.lookups.specs()).catch(() => []) : [];
+        const turns = c.msgs.map(said);
+        const looked: string[] = [];
+        let cost = 0;
+        let text = "";
+        // Ask; when Bino asks to look something up, look it up and ask again, a few rounds at most.
+        for (let round = 0; ; round++) {
+          const spent = round >= MAX_ROUNDS;
+          const system = systemOf(context, memories, { acts: o.acts ?? true, kinds, lookups: lookupsPrompt(specs, spent) });
+          signal.throwIfAborted();
+          const got = await ask({ system, user: transcriptOf(turns, undefined, foundPart(found.get(c.id) ?? [])), signal });
+          // Stopped while it was being written: what came anyway isn't shown.
+          if (signal.aborted) return;
+          cost += got.cost;
+          const split = splitLookups(got.text, specs);
+          text = split.text;
+          if (spent || !split.lookups.length || !o.lookups) break;
+          const labels = split.lookups.map((l) => labelOf(l, specs));
+          c.looking = labels.join("; ");
+          changed(c);
+          const results = await Promise.all(
+            split.lookups.map(async (l): Promise<Found> => {
+              try {
+                const r = await o.lookups!.run(l);
+                return { ...l, text: resultOf(r.text) || "(nothing)", ...(r.error ? { error: true } : {}) };
+              } catch (e) {
+                return { ...l, text: `It didn't work: ${String((e as Error)?.message ?? e).slice(0, 200)}`, error: true };
+              }
+            }),
+          );
+          if (signal.aborted) return;
+          found.set(c.id, [...(found.get(c.id) ?? []), ...results].slice(-12));
+          looked.push(...labels);
+          c.looking = undefined;
+        }
+        c.looking = undefined;
         const { text: noPlan, plan } = splitReply(text);
         const { text: shown, acts } = splitActs(noPlan, kinds);
-        c.msgs.push({ role: "assistant", text: shown || (plan ? "Here's a breakdown:" : acts.length ? "Here it is:" : "…"), at: now(), cost, ...(plan ? { plan } : {}), ...(acts.length ? { acts } : {}) });
+        c.msgs.push({ role: "assistant", text: shown || (plan ? "Here's a breakdown:" : acts.length ? "Here it is:" : "…"), at: now(), cost, ...(plan ? { plan } : {}), ...(acts.length ? { acts } : {}), ...(looked.length ? { looked: [...new Set(looked)].slice(0, 9) } : {}) });
       } catch (e) {
         if (signal.aborted) return;
         c.error = `Bino didn't answer: ${String((e as Error).message ?? e).slice(0, 300)}`;
       }
       writing.delete(c.id);
       c.thinking = false;
+      c.looking = undefined;
       changed(c);
       // Memory, after the reply is out: only what was said, with the cheap model.
       if (!c.error && o.memory.available) {
@@ -220,6 +261,7 @@ export function createBino(o: {
       given.delete(id);
       ctl.abort();
       c.thinking = false;
+      c.looking = undefined;
       c.stopped = true;
       changed(c);
       return true;
