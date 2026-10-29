@@ -7,8 +7,9 @@ import (
 
 // omp (its JSON event stream), as src/agents/harnesses/omp/ reads it.
 
-// keepOmp keeps the session id, text as it streams, tool calls with their slim input, the
-// message's cost and stop reason, and omp's own "needs approval" refusal. Any other tool output stays out.
+// keepOmp keeps the session id, text as it streams, tool calls with their slim input, the model's
+// thinking (its own words, cut short; never a signature), the message's cost and stop reason, and
+// omp's own "needs approval" refusal. Any other tool output stays out.
 func keepOmp(j map[string]any) []byte {
 	out := map[string]any{"type": j["type"]}
 	switch j["type"] {
@@ -32,6 +33,10 @@ func keepOmp(j map[string]any) []byte {
 			switch bb["type"] {
 			case "text":
 				blocks = append(blocks, map[string]any{"type": "text", "text": str(bb["text"], 50000)})
+			case "thinking":
+				if t, _ := bb["thinking"].(string); strings.TrimSpace(t) != "" {
+					blocks = append(blocks, map[string]any{"type": "thinking", "thinking": cut(t, 4000)})
+				}
 			case "toolCall":
 				blocks = append(blocks, map[string]any{"type": "toolCall", "id": str(bb["id"], 100), "name": str(bb["name"], 100), "arguments": slimInput(bb["arguments"])})
 			}

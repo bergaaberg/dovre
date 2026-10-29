@@ -4,6 +4,7 @@
  * secrets), nor are the system's own injected messages.
  */
 import { toolDetail } from "./harnesses/shared.ts";
+import { type Todo, subagentOf, todosOf } from "./todos.ts";
 
 /** One question an agent puts with AskUserQuestion: what it asks, and the choices it offers. */
 export type Question = { question: string; header: string; multiSelect: boolean; options: { label: string; description: string }[] };
@@ -11,7 +12,11 @@ export type Question = { question: string; header: string; multiSelect: boolean;
 export type Turn =
   | { role: "user"; text: string; at?: string }
   | { role: "assistant"; text: string; at?: string }
-  | { role: "tools"; calls: { name: string; detail: string }[]; at?: string }
+  | { role: "tools"; calls: { name: string; detail: string; /** A subagent call: its kind. */ sub?: string }[]; at?: string }
+  /** The agent's to-do list as it set it (#240). */
+  | { role: "todos"; items: Todo[]; at?: string }
+  /** The model's thinking, cut short (#240). */
+  | { role: "thinking"; text: string; at?: string }
   | { role: "ask"; questions: Question[]; at?: string };
 
 const s = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -101,9 +106,15 @@ export function turnsOf(text: string, limit = 60): Turn[] {
           continue;
         }
       }
+      const todos = b.type === "tool_use" && b.name === "TodoWrite" ? todosOf(b.input) : null;
+      if (todos) {
+        turns.push({ role: "todos", items: todos, at: j.timestamp });
+        continue;
+      }
       if (b.type === "tool_use") {
         const last = turns[turns.length - 1];
-        const call = { name: String(b.name), detail: toolDetail(b.name, b.input) };
+        const sub = subagentOf(b.name, b.input);
+        const call = { name: String(b.name), detail: toolDetail(b.name, b.input), ...(sub ? { sub } : {}) };
         if (last?.role === "tools") last.calls.push(call);
         else turns.push({ role: "tools", calls: [call], at: j.timestamp });
       }

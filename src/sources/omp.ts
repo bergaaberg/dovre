@@ -397,7 +397,7 @@ export function ompSessionById(ompAgentDir: string, id: string, live: Session[] 
 /**
  * A session's conversation, in the same shape as Claude's: what the user typed, what the agent
  * said, one line per tool call. Never tool results (they can hold prod data and secrets), never
- * omp's injected messages (developer role, custom_message), never thinking.
+ * omp's injected messages (developer role, custom_message). Thinking is kept, cut short (#240): it's the model's own words.
  */
 export function ompTurnsOf(text: string, limit = 60): Turn[] {
   const turns: Turn[] = [];
@@ -426,6 +426,7 @@ export function ompTurnsOf(text: string, limit = 60): Turn[] {
         if (last?.role === "assistant" && last.text === b.text) continue;
         turns.push({ role: "assistant", text: b.text, at });
       }
+      if (b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) turns.push({ role: "thinking", text: b.thinking.trim().slice(0, 4000), at });
       if (b?.type === "toolCall" && typeof b.name === "string") {
         const last = turns[turns.length - 1];
         const call = { name: b.name, detail: ompToolDetail(b.name, b.arguments) };

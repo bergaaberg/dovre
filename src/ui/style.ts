@@ -951,6 +951,21 @@ ol.chat { list-style: none; margin: 0; padding: 4px 0 8px; display: flex; flex-d
 .turn-row.ask, .turn-row.meta { margin-top: 10px; }
 ul.calls { list-style: none; margin: 6px 0 0; padding: 0 0 0 14px; display: grid; gap: 4px; font-size: var(--fs-xs); color: var(--ink-3); border-left: 1px solid var(--line-2); }
 ul.calls > li { overflow-wrap: anywhere; }
+ul.calls > li.call-sub code { color: var(--accent); }
+/* The agent's plan (#240): its to-do list, the step under way in accent, done ones struck through */
+.todos-card { margin: 8px 0 0; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); max-width: 78ch; }
+.todos-card > .who { color: var(--ink-3); font-size: var(--fs-xs); margin: 0 0 4px; }
+ul.todos { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--fs-s); color: var(--ink-2); }
+ul.todos > li { position: relative; padding-left: 20px; overflow-wrap: anywhere; }
+ul.todos > li::before { content: ""; position: absolute; left: 2px; top: 0.35em; width: 10px; height: 10px; border: 1.5px solid var(--line-2); border-radius: 3px; box-sizing: border-box; }
+ul.todos > li.plan-done { color: var(--ink-3); text-decoration: line-through; }
+ul.todos > li.plan-done::before { background: var(--ink-3); border-color: var(--ink-3); }
+ul.todos > li.plan-pending { color: var(--ink-2); }
+ul.todos > li.plan-active { color: var(--ink); font-weight: 600; }
+ul.todos > li.plan-active::before { border-color: var(--accent); background: var(--accent-soft); }
+/* The model's thinking (#240): folded, quiet, its own words as plain text */
+details.thinking > summary { color: var(--ink-3); cursor: pointer; font-size: var(--fs-xs); }
+.thinking-text { margin: 4px 0 0; padding-left: 14px; border-left: 1px solid var(--line-2); color: var(--ink-3); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 78ch; }
 /* The reply box: one field that grows, a send button; mode and model folded into a line */
 form.chatbox { margin: 14px 0 0; display: grid; gap: 6px; }
 .chatbox-in { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); }

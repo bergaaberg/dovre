@@ -8,6 +8,7 @@ import type { Deploy, Move, Note, Pr } from "../sources/ghe.ts";
 import type { Session } from "../sources/claude.ts";
 import type { Sessions } from "../sources/sessions.ts";
 import type { Turn } from "../agents/conversation.ts";
+import type { Todo } from "../agents/todos.ts";
 import type { History, MyPr, OpenPr, Commit, Release } from "../stats/history.ts";
 import { weeksOf } from "../stats/history.ts";
 import type { SpendDay } from "../stats/spend.ts";
@@ -292,8 +293,15 @@ export function demoSessions(now = Date.now()): Sessions {
 }
 
 /** What each made-up session said, for its page. */
-const TALK: Record<string, { tools: { name: string; detail: string }[]; reply: string }> = {
-  "1": { tools: [{ name: "Read", detail: "src/payments/charge.ts" }, { name: "Grep", detail: "timeout" }], reply: "The gateway call has a 10 s timeout and no retry. I'm adding a test that fakes a slow gateway and checks we retry once, then fail with a clear message." },
+const TALK: Record<string, { plan?: Todo[]; tools: { name: string; detail: string; sub?: string }[]; reply: string }> = {
+  "1": {
+    plan: [
+      { text: "Find where the gateway call times out", status: "done" },
+      { text: "Add a test with a slow fake gateway", status: "active" },
+      { text: "Retry once, then fail with a clear message", status: "pending" },
+    ],
+    tools: [{ name: "Task", detail: "Find every caller of chargeCard", sub: "Explore" }, { name: "Read", detail: "src/payments/charge.ts" }, { name: "Grep", detail: "timeout" }],
+    reply: "The gateway call has a 10 s timeout and no retry. I'm adding a test that fakes a slow gateway and checks we retry once, then fail with a clear message." },
   "2": { tools: [{ name: "Read", detail: "test/cache.test.ts" }, { name: "Bash", detail: "pnpm test cache" }], reply: "It passes here and fails on CI because CI runs in UTC: the cache key includes the local date. Should I key it by UTC date, or freeze the clock in the test?" },
   "3": { tools: [{ name: "Edit", detail: "src/orders/history.css" }], reply: "Dark mode is in for the order history page, and the draft PR is open as web#1290." },
 };
@@ -304,6 +312,7 @@ export function demoTurns(sid: string): Turn[] {
   if (!s || !talk) return [];
   return [
     { role: "user", text: s.lastPrompt ?? s.title ?? "" },
+    ...(talk.plan ? [{ role: "todos" as const, items: talk.plan }] : []),
     { role: "tools", calls: talk.tools },
     { role: "assistant", text: talk.reply },
   ];
