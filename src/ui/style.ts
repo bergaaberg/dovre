@@ -786,6 +786,9 @@ button svg, .btn svg { width: 15px; height: 15px; }
 .pane-what { margin: 0 0 .5rem 1.6rem; color: var(--ink-3); font-size: var(--fs-s); }
 .pane-set > .fields { margin-left: 1.6rem; }
 .pane-why { color: var(--warn); font-size: var(--fs-s); }
+/* The new-session form's options for one harness (#236): its fields sit in the row as if loose. */
+.harness-opts { border: 0; padding: 0; margin: 0; min-width: 0; }
+.harness-opts:not([hidden]) { display: contents; }
 label.check { display: inline-flex; gap: .4rem; align-items: center; margin: .15rem 1.1rem .15rem 0; font-size: var(--fs-s); }
 .fields { display: flex; flex-wrap: wrap; gap: 0 1rem; align-items: flex-end; }
 .fields > .field { flex: 1 1 11rem; min-width: 0; }

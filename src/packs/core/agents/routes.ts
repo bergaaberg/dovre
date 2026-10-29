@@ -133,7 +133,7 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
   });
   app.post("/agents/new", async (c) => {
     const form = await c.req.parseBody();
-    const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model, machine: form.machine, sandbox: form.sandbox });
+    const r = await desk.start({ repo: form.repo, prompt: form.prompt, harness: form.harness, mode: form.mode, model: form.model, effort: form.effort, machine: form.machine, sandbox: form.sandbox });
     if ("to" in r) return c.redirect(r.to, 303);
     const v = desk.view();
     const repos = await desk.repos();
@@ -172,14 +172,14 @@ export function agentRoutes(app: Hono<AppEnv>, ctx: PackContext, { desk, dismiss
     if (!SID.test(sid)) return c.notFound();
     const form = await c.req.parseBody();
     // From the bar on another page: stay there.
-    return done(c, sid, await desk.reply(sid, { prompt: form.prompt, mode: form.mode, model: form.model }), form.back);
+    return done(c, sid, await desk.reply(sid, { prompt: form.prompt, mode: form.mode, model: form.model, effort: form.effort, copy: form.copy }), form.back);
   });
   /** One click allows the exact calls that were refused (each the narrowest rule), and the agent goes on. */
   app.post("/agents/s/:sid/allow", async (c) => {
     const sid = c.req.param("sid");
     if (!SID.test(sid)) return c.notFound();
     const form = await c.req.parseBody({ all: true });
-    return done(c, sid, await desk.allow(sid, { specs: form.spec, mode: form.mode, model: form.model }), one(form.back));
+    return done(c, sid, await desk.allow(sid, { specs: form.spec, mode: form.mode, model: form.model, effort: form.effort }), one(form.back));
   });
   app.post("/agents/s/:sid/queue/:id/remove", async (c) => {
     const sid = c.req.param("sid");

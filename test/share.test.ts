@@ -159,9 +159,10 @@ test("only the harnesses found are offered and run; with none, the pages say so 
   const hosted = bodyOf(newAgentPage({ repos: ["a"], harnesses: [], mac: { online: true, name: "Studio" } }));
   assert.match(hosted, /Studio is online, but its bridge found no agent CLI/);
   assert.doesNotMatch(hosted, /\.dev\.vars/);
-  // With several CLIs, the first one's default model is the one picked.
+  // With several CLIs, each has its own options (#236): the first one's show, the others' are hidden and not sent.
   const both = bodyOf(newAgentPage({ repos: ["a"], harnesses: ["claude", "codex"] }));
-  assert.equal(both.match(/<option value=""[^>]* selected>/g)?.length, 1);
+  assert.match(both, /<fieldset class="harness-opts" data-harness="claude">/);
+  assert.match(both, /<fieldset class="harness-opts" data-harness="codex" hidden disabled>/);
   const ompOnly = bodyOf(newAgentPage({ repos: ["a"], harnesses: ["omp"] }));
   assert.match(ompOnly, /Starts Copilot · omp headless/);
   assert.doesNotMatch(ompOnly, /value="claude"/);

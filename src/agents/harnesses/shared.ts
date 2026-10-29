@@ -3,7 +3,7 @@
  * allow rule for one, and how a turn reaches Dovre's MCP server. The contract they implement is
  * `Harness` in src/agents/runner.ts; each one's filter in the agent host is launcher/keep_<id>.go.
  */
-import type { Harness, HarnessId } from "../runner.ts";
+import type { Harness, HarnessId, Mode } from "../runner.ts";
 import type { Tool } from "../../tools.ts";
 
 /**
@@ -18,10 +18,31 @@ export type HarnessDef = {
   binVar: "CLAUDE_BIN" | "OMP_BIN" | "AGY_BIN" | "CODEX_BIN";
   /** The models offered for a turn; the first (empty) is the CLI's own default. */
   models: { value: string; label: string }[];
+  /** What a turn in it may pick besides the model (#236): the form shows only these. */
+  options: HarnessOptions;
   /** Its part of the agent host's filter (`Keep`): what of its stream may be stored. */
   keep: string;
   make(tool: Pick<Tool, "bin" | "pre">, ctx: HarnessCtx): Harness;
 };
+
+export type Choice = { value: string; label: string };
+
+/**
+ * The options a harness takes. The modes are Dovre's three underneath (default, acceptEdits, plan),
+ * each in the harness's own words. `efforts`: the levels it passes on, the first ("") its own
+ * default; none, and the form offers no effort. `fork`: a reply may go to a copy of the session.
+ */
+export type HarnessOptions = {
+  modes: Record<Mode, { label: string; short: string }>;
+  efforts: Choice[];
+  fork: boolean;
+};
+
+/** An effort list: its default, then each level as the CLI spells it. */
+export const effortList = (levels: readonly string[]): Choice[] => [{ value: "", label: "Default effort" }, ...levels.map((l) => ({ value: l, label: l === "xhigh" ? "Extra high" : l[0]!.toUpperCase() + l.slice(1) }))];
+
+/** A level this list has, else none: what goes after the CLI's flag. */
+export const effortIn = (list: Choice[], v: unknown): string | undefined => (typeof v === "string" && v && list.some((c) => c.value === v) ? v : undefined);
 
 /** What a harness may need from where it runs. */
 export type HarnessCtx = { /** omp: the profile a session was made with, to resume it there. */ ompProfileOf?: (sessionId: string) => string | undefined };
