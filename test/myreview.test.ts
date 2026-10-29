@@ -318,6 +318,44 @@ test("the agent's check: one call with my review and the diff; its cards kept, u
   assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing goes to GHE");
 });
 
+test("the agent's first review: from the Files tab with nothing written, its comments and summary as cards, all added at once; nothing posted", async () => {
+  const asked: { system: string; user: string }[] = [];
+  let reply = "";
+  let open = () => {};
+  const gate = new Promise<void>((r) => (open = r));
+  const { db, calls, post, text, runs } = setup({ checker: { model: "sonnet", ask: async (p) => (asked.push(p), await gate, { text: reply, cost: 0.02 }) } });
+  const files = await text(`${B}/files`);
+  assert.match(files, /name="mode" value="review"/, "the Files tab offers it while my review is empty");
+  assert.match(await text(`${B}/review`), /Review with an agent/);
+  assert.doesNotMatch(await text(`${B}/review`), /Check with an agent/, "nothing to check yet");
+  reply = "```review-check\n" + JSON.stringify({ cards: [
+    { kind: "missed", path: PATH, line: 12, side: "RIGHT", why: `Wrong total ${H}`, text: `This divides by the wrong count ${H}.` },
+    { kind: "missed", path: PATH, line: 11, side: "RIGHT", why: "Small", text: "nit: a clearer name" },
+    { kind: "rewrite", on: "summary", why: "Overall", text: "One bug to fix, then good." },
+  ] }) + "\n```";
+  const res = await post(`${B}/review/check`, { mode: "review" });
+  assert.equal(res.headers.get("location"), `${B}/review#check`);
+  assert.match(await text(`${B}/review`), /The agent is reading the PR/);
+  open();
+  await runs[0]!.done;
+  assert.match(asked[0]!.system, /You review a pull request first/, "the first-review prompt, not the check's");
+  assert.match(asked[0]!.user, /\(none yet\)/);
+  const page = await text(`${B}/review`);
+  assertInert("review with the agent's first review", page);
+  assert.match(page, /The agent&#39;s review/);
+  assert.match(page, />Comment</);
+  assert.match(page, />Summary</);
+  assert.match(page, /Add all 3/);
+  await post(`${B}/review/check/all`, {});
+  const mine = (await myReview(db.DB, "", "ACME/shop-api#840"))!;
+  assert.deepEqual(mine.comments.map((c) => c.line).sort(), [11, 12], "its comments are now pending, mine to edit");
+  assert.equal(mine.summary, "One bug to fix, then good.");
+  assert.deepEqual((await checkOf(db.DB, "", "ACME/shop-api#840"))!.cards, []);
+  assert.match(await text(`${B}/review`), /Check with an agent/, "with something written, it can be checked");
+  assert.doesNotMatch(await text(`${B}/files`), /name="mode" value="review"/, "and the Files tab stops offering a first review");
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing goes to GHE");
+});
+
 test("no agent to check with: no button, and the route says so", async () => {
   const { post, text } = setup();
   assert.doesNotMatch(await text(`${B}/review`), /Check with an agent/);

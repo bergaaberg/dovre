@@ -7,7 +7,7 @@
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type LineComment, MAX_BODY, MAX_SUMMARY, type ReviewDraft, type Side, type Verdict, VERDICT_LABEL, VERDICTS } from "../reviews/draft.ts";
-import { CARD_LABEL, type Card, type Check, lost, targetLabel } from "../reviews/check.ts";
+import { type Card, cardLabel, type Check, type CheckMode, lost, targetLabel } from "../reviews/check.ts";
 import type { MyReview, Pending } from "../reviews/mine.ts";
 import { Confirm, type Html, Notice, Panel, Pill, Post } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
@@ -43,7 +43,7 @@ export function pendingCard(c: Pending, base: string): Html {
 }
 
 /** Above the files: what's pending, where to finish, and the agent's draft to start from. */
-export function reviewBar(o: { base: string; review?: MyReview; head: string; agent?: number; flash?: Flash }): Html {
+export function reviewBar(o: { base: string; review?: MyReview; head: string; agent?: number; flash?: Flash; /** An agent can write a first review. */ checker?: boolean }): Html {
   const r = o.review;
   const n = r?.comments.length ?? 0;
   const moved = !!r && r.sha !== o.head;
@@ -56,7 +56,8 @@ export function reviewBar(o: { base: string; review?: MyReview; head: string; ag
     })}`;
   const what = n ? html`<strong>Your review:</strong> ${n} pending ${n === 1 ? "comment" : "comments"}` : r ? html`<strong>Your review</strong> is started` : html`<span class="t3">Click + on a line to comment; comments collect as your review.</span>`;
   const finish = n || r ? "btn primary sm" : "btn ghost sm";
-  return html`${flash}<div class="review-bar">${what}<span class="buttons">${agent}<a class="${finish}" href="${o.base}/review">Finish your review…</a></span></div>`;
+  const first = o.checker && !n && !r?.summary ? Post({ action: `${o.base}/review/check`, fields: { mode: "review" }, label: "Review with an agent" }) : "";
+  return html`${flash}<div class="review-bar">${what}<span class="buttons">${agent}${first}<a class="${finish}" href="${o.base}/review">Finish your review…</a></span></div>`;
 }
 
 /** The comments that aren't on a line of this diff, under the files. */
@@ -78,7 +79,7 @@ export type ReviewPageView = {
   agent?: number;
   preview?: { draft: ReviewDraft; notes: string[]; nonce: string; print: string } | { problem: string };
   flash?: Flash;
-  /** An agent can check the review before I post it (Bino's route is ready). */
+  /** An agent can review the PR first, or check my review before I post it (Bino's route is ready). */
   checker?: boolean;
   /** Its last check: running, failed, or its cards still to keep or dismiss. */
   check?: Check;
@@ -87,7 +88,7 @@ export type ReviewPageView = {
 };
 
 /** One of the agent's cards: what it's about, why, and its text to keep (as I edit it) or dismiss. */
-function checkCard(card: Card, comments: Pending[], base: string): Html {
+function checkCard(card: Card, comments: Pending[], base: string, mode: CheckMode): Html {
   const about = card.at
     ? html`<code class="draft-where">${whereOf({ ...card.at, body: "" })}</code>`
     : html`<code class="draft-where">${targetLabel(card.on!, comments)}</code>${card.also !== undefined ? html` and <code class="draft-where">${targetLabel(card.also, comments)}</code>` : ""}`;
@@ -95,7 +96,7 @@ function checkCard(card: Card, comments: Pending[], base: string): Html {
   const keep = card.text !== undefined && !gone;
   const label = card.kind === "missed" ? "Add this comment" : card.on === "summary" ? "Use as your summary" : "Use this text";
   return html`<form method="post" action="${base}/review/check/${card.id}" class="draft-card" id="k-${card.id}">
-<div class="draft-card-h">${Pill({ children: CARD_LABEL[card.kind] })}${about}</div>
+<div class="draft-card-h">${Pill({ children: cardLabel(card, mode) })}${about}</div>
 ${card.why ? html`<div class="draft-text">${markdown(card.why)}</div>` : ""}
 ${keep ? html`<textarea name="body" rows="${rows(card.text!)}" maxlength="${card.on === "summary" ? MAX_SUMMARY : MAX_BODY}" aria-label="The agent's text">\n${card.text}</textarea>` : ""}
 <div class="buttons">${keep ? html`<button type="submit" name="do" value="keep" class="sm">${label}</button>` : ""}<button type="submit" name="do" value="drop" class="ghost sm">Dismiss</button></div>
@@ -107,14 +108,17 @@ function checkPanel(v: ReviewPageView, comments: Pending[]): Html | "" {
   const k = v.check;
   if (!k) return "";
   const stale = !!v.review && k.sha !== v.review.sha;
+  const first = k.mode === "review";
+  const keepable = k.cards.filter((c) => c.text !== undefined).length;
+  const all = !stale && keepable > 1 ? html`<div class="buttons">${Post({ action: `${v.base}/review/check/all`, label: `Add all ${keepable}` })}<span class="hint">Then edit or remove any of them on the Files tab.</span></div>` : "";
   const body = k.running && !lost(k)
-    ? html`<p class="t3" role="status">The agent is reading your review. Its cards show up here when it answers, in up to 3 minutes. You can leave this page.</p>`
+    ? html`<p class="t3" role="status">The agent is reading ${first ? "the PR" : "your review"}. Its cards show up here when it answers, in up to 3 minutes. You can leave this page.</p>`
     : k.running || k.error
-      ? Notice({ tone: "bad", children: k.error ?? "The check stopped before the agent answered. Try again." })
+      ? Notice({ tone: "bad", children: k.error ?? `The ${first ? "review" : "check"} stopped before the agent answered. Try again.` })
       : k.cards.length
-        ? html`${stale ? Notice({ tone: "warn", children: "This check was of your review on an earlier commit." }) : ""}${k.cards.map((c) => checkCard(c, comments, v.base))}`
-        : html`<p class="t3">The agent has nothing to add. Your review is as it was.</p>`;
-  return Panel({ id: "check", title: "The agent's check", meta: html`<span class="t3">${k.model}${k.cost ? ` · $${k.cost.toFixed(3)}` : ""}</span>`, children: html`${body}<p class="hint">Keeping a card changes only your pending review. The agent never posts.</p>` });
+        ? html`${stale ? Notice({ tone: "warn", children: `This ${first ? "review" : "check"} was of an earlier commit.` }) : ""}${all}${k.cards.map((c) => checkCard(c, comments, v.base, first ? "review" : "check"))}`
+        : html`<p class="t3">${first ? "The agent found nothing to comment on." : "The agent has nothing to add. Your review is as it was."}</p>`;
+  return Panel({ id: "check", title: first ? "The agent's review" : "The agent's check", meta: html`<span class="t3">${k.model}${k.cost ? ` · $${k.cost.toFixed(3)}` : ""}</span>`, children: html`${body}<p class="hint">Keeping a card changes only your pending review. The agent never posts.</p>` });
 }
 
 /** The Review tab: my comments, the summary and verdict, then the preview with its Post. */
@@ -130,7 +134,7 @@ export function reviewPage(frame: Frame, v: ReviewPageView): Html {
 <div class="field"><fieldset><legend class="label">Verdict</legend>${verdicts.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset>${v.own ? html`<span class="hint">Your own PR: a Comment only.</span>` : ""}</div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(v.summary, 5)}" maxlength="${MAX_SUMMARY}" placeholder="Markdown">\n${v.summary}</textarea></label>
 ${list}
-<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}<span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" name="mode" value="review" data-busy="Starting">Review with an agent</button>${comments.length || v.summary ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}` : ""}<span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
 </form>`;
   const p = v.preview;
   const preview = !p

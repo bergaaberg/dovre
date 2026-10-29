@@ -29,7 +29,7 @@ import { checkReview, postReview } from "../actions/reviews.ts";
 import { replyToThread, resolveThread } from "../actions/threads.ts";
 import type { D1 } from "../db.ts";
 import { cleanText, MAX_BODY, postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
-import { type CheckJob, checkOf, lost, saveCheck, startCheck, takeCard } from "../reviews/check.ts";
+import { type Card, type CheckJob, checkOf, lost, saveCheck, startCheck, takeCard } from "../reviews/check.ts";
 import { addComment, anchorOf, asDraft, clearReview, dropComment, editComment, importDraft, moveReview, type MyReview, myReview, saveSummary } from "../reviews/mine.ts";
 import { commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
 
@@ -248,7 +248,7 @@ export function fileView(fv: FileView, o: { sha: string; dir?: string; present: 
 }
 
 /** My own review on the Files tab (dovre#106): pending comments, the form open at a line (no script), the agent's draft to start from. */
-export type MineOnFiles = { review?: MyReview; at?: { path: string; side: Side; line: number }; agent?: number; flash?: Flash };
+export type MineOnFiles = { review?: MyReview; at?: { path: string; side: Side; line: number }; agent?: number; flash?: Flash; /** An agent can write a first review (Bino's route is ready). */ checker?: boolean };
 
 export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string; mine?: MineOnFiles }): Html {
   const v = o.view;
@@ -273,7 +273,7 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
     // The no-script form opens in its own file only.
     const fileExtra = (path: string): LineExtra => (l) => (m?.at && m.at.path !== path && !(l.kind !== "hunk" && l.kind !== "note" && l.mine?.length) ? "" : extra(l));
     const fetch = o.dir && !o.present ? html`<p class="t3">${v.headSha.slice(0, 7)} isn't in your checkout yet: <code data-copy>git -C ${o.dir} fetch origin ${v.head}</code></p>` : "";
-    const bar = m ? reviewBar({ base, review: m.review, head: v.headSha, agent: m.agent, flash: m.flash }) : "";
+    const bar = m ? reviewBar({ base, review: m.review, head: v.headSha, agent: m.agent, flash: m.flash, checker: m.checker }) : "";
     const template = comment ? commentForm({ base, sha: v.headSha, template: true }) : "";
     inner = html`${bar}${withTree(
       views,
@@ -518,6 +518,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       at: a ?? undefined,
       agent: d && sameSha(v.headSha, d.sha) && d.draft.comments.length ? d.draft.comments.length : undefined,
       flash: flashOf(`${who}|${key}`),
+      checker: !!deps.checker?.(),
     };
   }
 
@@ -659,24 +660,55 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       if (!x) return c.notFound();
       const form = await c.req.parseBody();
       const back = `${x.base}/review`;
+      const mode = form.mode === "review" ? "review" : "check";
       const fail = (message: string) => (setFlash(x.flashKey, { ok: false, message }), c.redirect(back, 303));
-      if (x.review && x.review.sha !== x.v.headSha) return fail(`Your review is on ${x.review.sha.slice(0, 7)}: move it to ${x.v.headSha.slice(0, 7)} before an agent checks it.`);
-      await saveSummary(db, x.who, x.key, x.v.headSha, form.summary);
-      const review = (await myReview(db, x.who, x.key))!;
+      if (x.review && x.review.sha !== x.v.headSha) return fail(`Your review is on ${x.review.sha.slice(0, 7)}: move it to ${x.v.headSha.slice(0, 7)} before an agent ${mode === "review" ? "reviews the PR" : "checks it"}.`);
       const ck = deps.checker?.();
-      if (!ck) return fail("There's no agent to check with: Bino isn't set up here.");
-      if (!review.summary && !review.comments.length) return fail("Nothing to check yet: write a summary or add a comment.");
+      if (!ck) return fail(`There's no agent to ${mode === "review" ? "review" : "check"} with: Bino isn't set up here.`);
+      // From the Files tab there's no summary field: keep the one I have.
+      if (typeof form.summary === "string") await saveSummary(db, x.who, x.key, x.v.headSha, form.summary);
+      else if (!x.review) await saveSummary(db, x.who, x.key, x.v.headSha, "");
+      const review = (await myReview(db, x.who, x.key))!;
+      if (mode === "check" && !review.summary && !review.comments.length) return fail("Nothing to check yet: write a summary or add a comment, or have the agent review the PR first.");
       const was = await checkOf(db, x.who, x.key);
       if (was?.running && !lost(was)) return c.redirect(`${back}#check`, 303);
       const fs = (await files(`files:${x.repo}#${x.n}@${x.v.headSha}`, () => loadPrFiles(deps.ghe, x.repo, x.n)).catch(() => [])) as PrFile[];
-      const job = await startCheck(db, { who: x.who, pr: x.key, model: ck.model, review, files: fs, prView: x.v });
+      const job = await startCheck(db, { who: x.who, pr: x.key, model: ck.model, review, files: fs, prView: x.v, mode });
       const topic = topicOf(x.repo, x.n);
       ck.start(job, topic).catch(async (e) => {
         // It never started (the hub didn't take it): the page says so rather than waiting.
-        await saveCheck(db, x.who, x.key, { sha: review.sha, at: job.at, model: ck.model, cost: 0, cards: [], error: `The agent couldn't start: ${String((e as Error)?.message ?? e).slice(0, 200)}` }).catch(() => undefined);
+        await saveCheck(db, x.who, x.key, { sha: review.sha, at: job.at, model: ck.model, cost: 0, cards: [], mode, error: `The agent couldn't start: ${String((e as Error)?.message ?? e).slice(0, 200)}` }).catch(() => undefined);
         deps.hub?.publish([topic]);
       });
       return c.redirect(`${back}#check`, 303);
+    });
+
+    /** A card's text (as I edited it) into my pending review. False with a flash when it doesn't fit. */
+    const keepCard = async (x: NonNullable<Awaited<ReturnType<typeof ctxOf>>>, card: Card, body: string): Promise<boolean> => {
+      if (!x.review || card.text === undefined) return true;
+      if (card.at) {
+        const r = await addComment(db, x.who, x.key, x.review.sha, { ...card.at, body });
+        if (!r.ok) return (setFlash(x.flashKey, r), false);
+      } else if (card.on === "summary") await saveSummary(db, x.who, x.key, x.review.sha, body);
+      else if (x.review.comments.some((k) => k.id === card.on)) await editComment(db, x.who, x.key, card.on as number, body);
+      return true;
+    };
+
+    /** Every card with text kept as the agent wrote it (a first review taken whole, to edit on the diff). */
+    app.post("/prs/:owner/:repo/:n/review/check/all", async (c) => {
+      const x = await ctxOf(c);
+      if (!x) return c.notFound();
+      const back = `${x.base}/review#check`;
+      const k = await checkOf(db, x.who, x.key);
+      if (!k || k.running || !x.review || k.sha !== x.review.sha) return c.redirect(back, 303);
+      let n = 0;
+      for (const card of k.cards.filter((y) => y.text !== undefined)) {
+        if (!(await keepCard(x, card, card.text!))) return c.redirect(back, 303);
+        await takeCard(db, x.who, x.key, card.id);
+        n++;
+      }
+      setFlash(x.flashKey, { ok: true, message: `Added ${n} of the agent's ${n === 1 ? "card" : "cards"} to your review. Change any of it before you post.` });
+      return c.redirect(`${x.base}/review`, 303);
     });
 
     /** A card kept (its text, as I edited it, goes into my pending review) or dismissed. */
@@ -687,14 +719,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       const form = await c.req.parseBody();
       const back = `${x.base}/review#check`;
       const card = (await checkOf(db, x.who, x.key))?.cards.find((k) => k.id === id);
-      if (card && form.do === "keep" && x.review && card.text !== undefined) {
-        const body = typeof form.body === "string" ? form.body : card.text;
-        if (card.at) {
-          const r = await addComment(db, x.who, x.key, x.review.sha, { ...card.at, body });
-          if (!r.ok) return (setFlash(x.flashKey, r), c.redirect(back, 303));
-        } else if (card.on === "summary") await saveSummary(db, x.who, x.key, x.review.sha, body);
-        else if (x.review.comments.some((k) => k.id === card.on)) await editComment(db, x.who, x.key, card.on as number, body);
-      }
+      if (card && form.do === "keep" && card.text !== undefined && !(await keepCard(x, card, typeof form.body === "string" ? form.body : card.text))) return c.redirect(back, 303);
       if (card) await takeCard(db, x.who, x.key, id);
       return c.redirect(back, 303);
     });
