@@ -7,7 +7,8 @@ import type { Proposal } from "../actions/propose.ts";
 import type { Changelog } from "../sources/changelog.ts";
 import type { Deploy, Move, Note, Pr, PrRef, RedBranch } from "../sources/ghe.ts";
 import type { Issue, IssueAct, IssueSets } from "../sources/issues.ts";
-
+import type { Thread, ThreadHit } from "../sources/threads.ts";
+export type { Thread, ThreadHit };
 export type { Changelog, Deploy, Issue, IssueAct, IssueSets, Move, Note, Pr, PrRef, RedBranch };
 
 /**
@@ -64,6 +65,10 @@ export type Forge = {
   issues?(login: string, owners: string, opts?: { triage?: string[] }): Promise<IssueSets>;
   /** One issue as it is now (for re-checking before a write); undefined: no such issue. Absent: no writes. */
   issue?(repo: string, number: number): Promise<Issue | undefined>;
+  /** One issue or PR in full (its description, latest comments and reviews), for Bino's lookups and agents' tools. Absent: none. */
+  thread?(repo: string, number: number): Promise<Thread | undefined>;
+  /** Issues and PRs in these owners' accounts matching words, newest first (15 at most). Absent: none. */
+  searchThreads?(owners: string[], words: string): Promise<ThreadHit[]>;
   /** Assign, close, reopen or comment on an issue. Absent: the Issues page has no actions. */
   issueAct?(act: IssueAct): Promise<void>;
   /** What I did in the owners' repos since a day (YYYY-MM-DD): counts, days, commit times. Absent: packs read none. */
