@@ -53,6 +53,12 @@ export type PackManifest = {
    */
   crons?: string[];
   /**
+   * Packs it needs, by id (#326; Auto review: ["agents"]). It's off while any of them is off,
+   * missing or switched off on the Packs page, and starts and refreshes after them. It reaches
+   * them only through what they share in its context, never by importing them.
+   */
+  requires?: string[];
+  /**
    * Top-level paths it owns besides /<id> (agents: "worktrees"), each a lowercase word. One that's a
    * core path or another pack's keeps the pack off, as a route outside them does.
    */

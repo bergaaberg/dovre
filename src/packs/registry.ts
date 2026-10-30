@@ -11,8 +11,11 @@ import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
 import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
-/** A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page shows its settings). */
-export type Off = { id: string; name: string; why: string; manifest?: PackManifest; pack?: Pack };
+/**
+ * A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page
+ * shows its settings). `needs`: off only because these packs it requires are, so it comes back with them.
+ */
+export type Off = { id: string; name: string; why: string; manifest?: PackManifest; pack?: Pack; needs?: string[] };
 export type Active = { on: Pack[]; off: Off[] };
 
 export type ActiveOpts = {
@@ -53,7 +56,71 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
     }
     if (m && ID.test(m.id)) seen.add(m.id);
   }
-  return { on, off };
+  const active = { on, off };
+  settleRequires(active);
+  return active;
+}
+
+/** The packs a manifest requires: valid ids, each once, itself left out. */
+export const requiresOf = (m: PackManifest | undefined): string[] =>
+  Array.isArray(m?.requires) ? [...new Set(m.requires.filter((r): r is string => typeof r === "string" && ID.test(r) && r !== m.id))] : [];
+
+/**
+ * Packs that require others (#326), settled after any change to what's on: a pack off only for
+ * its required packs (`needs`) comes back once they're all on; an on pack whose required pack
+ * isn't on goes off, saying which (a chain falls together, a loop stays off); and `on` is put in
+ * order, each after what it requires, the rest as they were. Changes the lists in place (the
+ * refresher holds `on`). Returns the packs that came back, for the caller to start.
+ */
+export function settleRequires(active: Active): Pack[] {
+  const back: Pack[] = [];
+  for (const o of [...active.off]) {
+    if (!o.needs || !o.pack) continue;
+    active.off.splice(active.off.indexOf(o), 1);
+    active.on.push(o.pack);
+    back.push(o.pack);
+  }
+  const placed: Pack[] = [];
+  const ids = new Set<string>();
+  let rest = [...active.on];
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const c of [...rest]) {
+      if (!requiresOf(c.manifest).every((r) => ids.has(r))) continue;
+      placed.push(c);
+      ids.add(c.manifest.id);
+      rest = rest.filter((x) => x !== c);
+      moved = true;
+    }
+  }
+  const nameOf = (id: string) => active.on.find((c) => c.manifest.id === id)?.manifest.name ?? active.off.find((o) => o.id === id)?.name;
+  for (const c of rest) {
+    const needs = requiresOf(c.manifest).filter((r) => !ids.has(r));
+    const r = needs[0]!;
+    const name = nameOf(r);
+    const pending = rest.some((x) => x.manifest.id === r);
+    const why = !name ? `needs the ${r} pack, which isn't installed` : pending ? `needs ${name}, which can't run either` : `needs ${name}, which is off`;
+    active.off.push({ id: c.manifest.id, name: c.manifest.name, why, manifest: c.manifest, pack: c, needs });
+  }
+  active.on.splice(0, active.on.length, ...placed);
+  return back.filter((c) => placed.includes(c));
+}
+
+/**
+ * Switched off on the Packs page (Settings → Layout's list), with what requires it: for each
+ * pack that's off this way, the id of the switched-off pack that holds it (itself when it's switched off).
+ */
+export function heldOff(on: Pack[], switchedOff: string[]): Map<string, string> {
+  const held = new Map<string, string>();
+  for (const c of on) {
+    const id = c.manifest.id;
+    if (switchedOff.includes(id)) held.set(id, id);
+    else {
+      const by = requiresOf(c.manifest).find((r) => held.has(r));
+      if (by) held.set(id, held.get(by)!);
+    }
+  }
+  return held;
 }
 
 /** A hook's answer within `ms`, or why not. */
@@ -584,10 +651,13 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
   };
 }
 
-/** Starts every pack; one whose init throws is taken off (`on` shrinks) and named in `off`. */
+/**
+ * Starts every pack, each after what it requires; one whose init throws is taken off (`on`
+ * shrinks) and named in `off`, and so is what requires it, unstarted.
+ */
 export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, log: (line: string) => void): Promise<void> {
   for (const c of [...active.on]) {
-    if (!c.init) continue;
+    if (!c.init || !active.on.includes(c)) continue;
     try {
       await c.init(ctxOf(c));
     } catch (e) {
@@ -595,6 +665,7 @@ export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, l
       log(`pack ${c.manifest.id}: ${why}`);
       active.on.splice(active.on.indexOf(c), 1);
       active.off.push({ id: c.manifest.id, name: c.manifest.name, why, manifest: c.manifest });
+      settleRequires(active);
     }
   }
 }

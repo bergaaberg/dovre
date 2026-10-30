@@ -71,7 +71,7 @@ import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, todayCards } from "./packs/registry.ts";
+import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, todayCards } from "./packs/registry.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies } from "./packs/copies.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
@@ -509,9 +509,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     packs.on.splice(packs.on.indexOf(c), 1);
     packs.off.push({ id: c.manifest.id, name: c.manifest.name, why: "can't run here (the pack says so)", manifest: c.manifest });
   }
+  // What requires a pack that just went off goes off with it (#326).
+  settleRequires(packs);
   // Settings → Layout: packs I've hidden, and packs whose events stay out of the feed (src/layout.ts).
   const layout = deps.layout ?? layoutStore(env.DB);
-  const hidden = (id: string) => !!layout.get().packsOff?.includes(id);
+  /** Switched off on the Packs page, or requires a pack that is (#326). */
+  const held = () => heldOff(packs.on, layout.get().packsOff ?? []);
+  const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
   const packCss = packs.on.filter((c) => c.styles).map((c) => `/* ${c.manifest.id} */\n${c.styles}`).join("\n");
   const PACK_CSS = packCss ? { path: `/assets/packs.${hashOf(packCss)}.css`, body: packCss } : undefined;
@@ -1171,7 +1175,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.get("/packs", async (c) => {
     const { frame } = await page();
     const copies = hosted ? undefined : deps.packs?.copies?.get();
-    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [] }));
+    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held() }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
   app.post("/packs/:id/switch", strictOrigin, async (c) => {
@@ -1224,19 +1228,28 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     if (onPack && missing) {
       packs.on.splice(packs.on.indexOf(onPack), 1);
       packs.off.push({ id, name: manifest.name, why: `${missing.key} isn't set`, manifest, pack: onPack });
-    } else if (offEntry?.pack && !missing) {
+      settleRequires(packs);
+    } else if (offEntry?.pack && !offEntry.needs && !missing) {
       const p = offEntry.pack;
       packs.off.splice(packs.off.indexOf(offEntry), 1);
       packs.on.push(p);
-      try {
-        await p.init?.(ctxOf(p));
-      } catch (e) {
-        packs.on.splice(packs.on.indexOf(p), 1);
-        packs.off.push({ id, name: manifest.name, why: `didn't start: ${(e as Error)?.message ?? e}`, manifest });
+      // It, and what was off only for want of it (#326), start in order: each after what it requires.
+      const starting = [p, ...settleRequires(packs)];
+      for (const q of [...packs.on]) {
+        if (!starting.includes(q) || !packs.on.includes(q)) continue;
+        try {
+          await q.init?.(ctxOf(q));
+        } catch (e) {
+          packs.on.splice(packs.on.indexOf(q), 1);
+          packs.off.push({ id: q.manifest.id, name: q.manifest.name, why: `didn't start: ${(e as Error)?.message ?? e}`, manifest: q.manifest });
+          settleRequires(packs);
+        }
       }
-      if (packs.on.includes(p)) void runPackRefresh.one(p);
+      for (const q of starting) if (packs.on.includes(q)) void runPackRefresh.one(q);
     } else if (offEntry && missing) {
       offEntry.why = `${missing.key} isn't set`;
+      // Off for its settings now, not only for a pack it requires: it waits for them first.
+      delete offEntry.needs;
     } else if (onPack) {
       void runPackRefresh.one(onPack);
     }
@@ -1662,6 +1675,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   for (const c of [...packs.on]) {
     if (!mountPackRoutes(c)) packs.on.splice(packs.on.indexOf(c), 1);
   }
+  settleRequires(packs);
   for (const o of packs.off) {
     if (o.pack && !mountPackRoutes(o.pack, true)) delete o.pack;
   }

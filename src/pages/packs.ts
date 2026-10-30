@@ -4,13 +4,13 @@
  */
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
-import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState } from "../packs/registry.ts";
+import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
 import type { Copy } from "../packs/copies.ts";
 import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
 
-export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[] };
+export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string> };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -113,10 +113,14 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   const settings = manifestSettings(m);
   const pairs: [Child, Child][] = [];
   // One switch per pack (#271): a pack that can run is on or off here; one that can't says why.
-  const hidden = !!o.pack && !!v.hidden?.includes(id);
+  const by = v.held?.get(id);
+  const hidden = !!o.pack && (!!v.hidden?.includes(id) || (!!by && by !== id));
+  // Off with a pack it requires: its own switch can't turn it on, that pack's can.
+  const heldBy = !!o.pack && !!by && by !== id ? (v.on.find((c) => c.manifest.id === by)?.manifest.name ?? by) : undefined;
   const on = !!o.pack && !hidden;
   if (o.why) pairs.push(["Off", o.why]);
-  if (hidden) pairs.push(["Off", "switched off here"]);
+  if (heldBy) pairs.push(["Off", `needs ${heldBy}, which is switched off here`]);
+  else if (hidden) pairs.push(["Off", "switched off here"]);
   if (m) pairs.push(["Runs", `${WHERE[m.execution ?? "any"] ?? m.execution} · ${m.domain}${v.core?.includes(id) ? " · Dovre's own" : ""}`]);
   if (o.pack) {
     pairs.push(["Answers", hooksOf(o.pack).join(", ") || "nothing yet"]);
@@ -127,13 +131,15 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (cron) pairs.push(["Cron", cron]);
   if (m?.requiredBindings?.length) pairs.push(["Bindings", m.requiredBindings.join(", ")]);
   if (m?.requiredBinaries?.length) pairs.push(["Needs on PATH", m.requiredBinaries.join(", ")]);
+  const requires = requiresOf(m);
+  if (requires.length) pairs.push(["Requires", requires.map((r) => v.on.find((c) => c.manifest.id === r)?.manifest.name ?? v.off.find((x) => x.id === r)?.name ?? r).join(", ")]);
   const copy = v.copies?.get(id);
   if (copy) pairs.push(["Copy", copyLine(copy)]);
   return Panel({
     id: `pack-${id}`,
     title: name,
     meta: id,
-    actions: html`${on ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" })}${o.pack ? Post({ action: `/packs/${encodeURIComponent(id)}/switch`, fields: { on: on ? "" : "1" }, label: on ? "Turn off" : "Turn on" }) : ""}`,
+    actions: html`${on ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" })}${o.pack && !heldBy ? Post({ action: `/packs/${encodeURIComponent(id)}/switch`, fields: { on: on ? "" : "1" }, label: on ? "Turn off" : "Turn on" }) : ""}`,
     children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
   });
 }
@@ -143,7 +149,7 @@ const panels = (v: PacksView, fun: boolean) =>
   html`${v.on.filter((c) => (c.manifest.domain === "fun") === fun).map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.filter((o) => (o.manifest?.domain === "fun") === fun).map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`;
 
 export function packsPage(frame: Frame, v: PacksView) {
-  const hidden = v.on.filter((c) => v.hidden?.includes(c.manifest.id)).length;
+  const hidden = v.on.filter((c) => v.hidden?.includes(c.manifest.id) || v.held?.has(c.manifest.id)).length;
   const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length - hidden} on, ${v.off.length + hidden} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
 <div data-live id="packs">
 ${v.on.length || v.off.length
