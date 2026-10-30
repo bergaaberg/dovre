@@ -27,7 +27,7 @@ const view = (o: { author?: string; sha?: string } = {}) => ({
 });
 const FILES = [{ filename: PATH, status: "modified", additions: 2, deletions: 1, sha: "1", patch: "@@ -10,3 +10,4 @@ class A\n ctx\n-old\n+new\n+added\n" }];
 
-function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean }; checker?: { ask: Complete; model: string }; files?: typeof FILES } = {}) {
+function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft: ReviewDraft }; me?: string; thread?: { repo?: string; n?: number; resolved?: boolean }; checker?: { ask: Complete; model: string }; files?: typeof FILES; gate?: Promise<void> } = {}) {
   const calls: { method: string; path: string; body?: any }[] = [];
   const state = { sha: o.sha ?? SHA };
   const ghe: Ghe = {
@@ -51,6 +51,7 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
         const t = o.thread ?? {};
         return { node: q.includes('"PRRT_one"') ? { isResolved: !!t.resolved, pullRequest: { number: t.n ?? 840, repository: { nameWithOwner: t.repo ?? "ACME/shop-api" } }, comments: { nodes: [{ databaseId: 77 }] } } : null } as T;
       }
+      await o.gate;
       return view({ author: o.author, sha: state.sha }) as T;
     },
   };
@@ -354,6 +355,20 @@ test("the agent's first review: from the Files tab with nothing written, its com
   assert.match(await text(`${B}/review`), /Check with an agent/, "with something written, it can be checked");
   assert.doesNotMatch(await text(`${B}/files`), /name="mode" value="review"/, "and the Files tab stops offering a first review");
   assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing goes to GHE");
+});
+
+test("the PR still loading (hosted, nothing cached): Your review says it's reading, and an action waits for it rather than Not found", async () => {
+  let open!: () => void;
+  const { text, post, db } = setup({ gate: new Promise<void>((res) => (open = res)) });
+  const page = await text(`${B}/review`);
+  assert.match(page, /Reading the pull request/);
+  assert.doesNotMatch(page, /Not found/);
+  const posting = post(`${B}/review/comments`, { path: PATH, side: "RIGHT", line: "11", sha: SHA, body: "slow" });
+  setTimeout(open, 50);
+  const r = await posting;
+  assert.equal(r.status, 303);
+  assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))?.comments[0]?.body, "slow");
+  assert.match(await text(`${B}/review`), /slow/);
 });
 
 test("no agent to check with: no button, and the route says so", async () => {
