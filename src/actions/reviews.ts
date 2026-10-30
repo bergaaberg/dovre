@@ -14,8 +14,11 @@ import { logAction } from "./deploys.ts";
 type RawPr = { state: string; head: { sha: string }; user: { login: string } };
 type RawComment = { id: number; in_reply_to_id?: number | null };
 
-/** Whose review it is: an agent's draft goes on someone else's PR only; my own may be a Comment on mine. */
-export type By = "agent" | "me";
+/**
+ * Whose review it is: an agent's draft goes on someone else's PR only; my own may be a Comment on
+ * mine; Auto review's reviewer (#326) posts a Comment on an auto PR, which my account opened.
+ */
+export type By = "agent" | "me" | "auto";
 
 export type Checked<T> = { ok: true; draft: T; notes: string[] } | { ok: false; message: string };
 
@@ -43,7 +46,7 @@ export async function checkReview(ghe: Ghe, repo: string, n: number, o: { review
     const me = currentActor() ? (await ghe.rest<{ login?: string }>("/user"))?.login ?? "" : o.me;
     if (me && at.pr.user.login.toLowerCase() === me.toLowerCase()) {
       if (by === "agent") return { ok: false, message: `${repo}#${n} is your own PR: an agent's review goes on someone else's.` };
-      if (o.verdict && o.verdict !== "comment") return { ok: false, message: `${repo}#${n} is your own PR: GHE takes only a Comment on it, not ${VERDICT_LABEL[o.verdict]}.` };
+      if ((by === "auto" || o.verdict) && o.verdict !== "comment") return { ok: false, message: `${repo}#${n} is your own PR: GHE takes only a Comment on it, not ${o.verdict ? VERDICT_LABEL[o.verdict] : "no verdict"}.` };
     }
     const { inline, outside } = placeComments(o.draft.comments, await loadPrFiles(ghe, repo, n));
     const notes = outside.length ? [`${outside.length === 1 ? "One comment isn't" : `${outside.length} comments aren't`} on a line of the diff, so ${outside.length === 1 ? "it goes" : "they go"} at the end of the summary.`] : [];
@@ -89,18 +92,19 @@ export async function checkReplies(ghe: Ghe, repo: string, n: number, o: { revie
 
 export type Posted = { ok: boolean; message: string; url?: string; what?: string; partial?: boolean };
 
-export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft; verdict: Verdict; by?: By }): Promise<Posted> {
+/** `kind`: what the actions log calls it (default pr.review; Auto review's is autoreview.review). */
+export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft; verdict: Verdict; by?: By; kind?: string }): Promise<Posted> {
   const target = `${repo}#${n}`;
   const checked = await checkReview(ghe, repo, n, o);
   if (!checked.ok) return { ok: false, message: checked.message };
   const what = draftCounts(checked.draft, o.verdict);
   try {
     const r = await ghe.rest<{ html_url?: string }>(`/repos/${repo}/pulls/${n}/reviews`, { method: "POST", body: reviewRequest(checked.draft, o.verdict, checked.commit!) });
-    await logAction(db, { kind: "pr.review", target, detail: what, ok: true });
+    await logAction(db, { kind: o.kind ?? "pr.review", target, detail: what, ok: true });
     return { ok: true, message: `Posted the review on ${target} (${what}).`, url: typeof r?.html_url === "string" ? r.html_url : undefined, what };
   } catch (e) {
     const error = String((e as Error).message ?? e);
-    await logAction(db, { kind: "pr.review", target, detail: what, ok: false, error });
+    await logAction(db, { kind: o.kind ?? "pr.review", target, detail: what, ok: false, error });
     return { ok: false, message: `Couldn't post the review on ${target}: ${error}` };
   }
 }

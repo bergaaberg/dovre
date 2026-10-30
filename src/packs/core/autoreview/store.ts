@@ -17,6 +17,9 @@ export type PrRow = {
   number: number;
   /** The auto run's issue key (owner/repo#n, lowercase). */
   issue: string;
+  /** The auto run that wrote it, and its model once known: the reviewer's must differ. */
+  run: string | null;
+  author: string | null;
   round: number;
   /** The head commit last reviewed. */
   head: string | null;
@@ -29,12 +32,14 @@ export type PrRow = {
   state: PrState;
   /** Why it's in that state, for me. */
   why: string | null;
+  /** When a pass took it to review (one at a time across isolates); null when none has it. */
+  claim: number | null;
   at: number;
   updated: number;
 };
 
 const SCHEMA = [
-  "CREATE TABLE IF NOT EXISTS autoreview_prs (pr TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, issue TEXT NOT NULL, round INTEGER NOT NULL DEFAULT 0, head TEXT, level INTEGER, levels TEXT NOT NULL DEFAULT '[]', cost REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, why TEXT, at INTEGER NOT NULL, updated INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS autoreview_prs (pr TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, issue TEXT NOT NULL, run TEXT, author TEXT, round INTEGER NOT NULL DEFAULT 0, head TEXT, level INTEGER, levels TEXT NOT NULL DEFAULT '[]', cost REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, why TEXT, claim INTEGER, at INTEGER NOT NULL, updated INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS autoreview_prs_state ON autoreview_prs (state)",
 ];
 
@@ -72,14 +77,14 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       return results.map((r) => ({ ...r, levels: levelsOf(r.levels) }));
     },
     /** A new auto PR, waiting for its first review; one already kept stays as it is. False when it was. */
-    async add(r: { pr: string; issue: string }): Promise<boolean> {
+    async add(r: { pr: string; issue: string; run?: string | null }): Promise<boolean> {
       const at = prOf(r.pr);
       if (!at) return false;
       await ensureSchema(db);
       const t = now();
       const res = await db
-        .prepare("INSERT INTO autoreview_prs (pr, repo, number, issue, state, at, updated) VALUES (?, ?, ?, ?, 'reviewing', ?, ?) ON CONFLICT (pr) DO NOTHING")
-        .bind(r.pr, at.repo, at.number, r.issue, t, t)
+        .prepare("INSERT INTO autoreview_prs (pr, repo, number, issue, run, state, at, updated) VALUES (?, ?, ?, ?, ?, 'reviewing', ?, ?) ON CONFLICT (pr) DO NOTHING")
+        .bind(r.pr, at.repo, at.number, r.issue, r.run ?? null, t, t)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
     },
@@ -91,16 +96,36 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       const level = Math.min(5, Math.max(1, Math.trunc(l.level)));
       const levels = [...levelsOf(row.levels), { round: row.round, head: l.head, level, at: now() }];
       const res = await db
-        .prepare("UPDATE autoreview_prs SET head = ?, level = ?, levels = ?, cost = cost + ?, updated = ? WHERE pr = ? AND state = ? AND round = ?")
+        .prepare("UPDATE autoreview_prs SET head = ?, level = ?, levels = ?, cost = cost + ?, claim = NULL, updated = ? WHERE pr = ? AND state = ? AND round = ?")
         .bind(l.head, level, JSON.stringify(levels), l.cost ?? 0, now(), pr, from, row.round)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
+    },
+    /**
+     * Takes a row in `from` to review, unless another pass has it (a claim newer than `staleMs`):
+     * false when it does. `level`, `move` and `release` let it go.
+     */
+    async claim(pr: string, from: PrState, staleMs: number): Promise<boolean> {
+      await ensureSchema(db);
+      const t = now();
+      const res = await db.prepare("UPDATE autoreview_prs SET claim = ? WHERE pr = ? AND state = ? AND (claim IS NULL OR claim < ?)").bind(t, pr, from, t - staleMs).run();
+      return Number(res.meta?.changes ?? 0) === 1;
+    },
+    /** Lets a claim go, adding what the pass cost (a review that didn't post still cost it) and why it's where it is. */
+    async release(pr: string, o: { cost?: number; why?: string | null } = {}): Promise<void> {
+      await ensureSchema(db);
+      await db.prepare("UPDATE autoreview_prs SET claim = NULL, cost = cost + ?, why = COALESCE(?, why), updated = ? WHERE pr = ?").bind(o.cost ?? 0, o.why ?? null, now(), pr).run();
+    },
+    /** The author's model, once its run says. */
+    async author(pr: string, model: string): Promise<void> {
+      await ensureSchema(db);
+      await db.prepare("UPDATE autoreview_prs SET author = ? WHERE pr = ? AND author IS NULL").bind(model, pr).run();
     },
     /** Moves a row on, only from the state it was seen in: false when another pass moved it first. */
     async move(pr: string, from: PrState, to: PrState, set: { why?: string | null; round?: number } = {}): Promise<boolean> {
       await ensureSchema(db);
       const res = await db
-        .prepare("UPDATE autoreview_prs SET state = ?, why = ?, round = COALESCE(?, round), updated = ? WHERE pr = ? AND state = ?")
+        .prepare("UPDATE autoreview_prs SET state = ?, why = ?, round = COALESCE(?, round), claim = NULL, updated = ? WHERE pr = ? AND state = ?")
         .bind(to, set.why ?? null, set.round ?? null, now(), pr, from)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;

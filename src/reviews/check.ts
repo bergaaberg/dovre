@@ -118,15 +118,10 @@ Answer with one fenced block and nothing after it, one card per line as a JSON o
 export const cardLabel = (card: Card, mode: CheckMode = "check") =>
   mode === "review" && card.kind === "missed" ? "Comment" : mode === "review" && card.on === "summary" && card.kind === "rewrite" ? "Summary" : CARD_LABEL[card.kind];
 
-/** The message: the PR, my review with each comment's lines, then as much of the diff as fits (files I commented on first). */
-export function checkPrompt(pr: { repo: string; number: number; title: string; body: string }, review: MyReview, files: PrFile[]): string {
-  const mine = review.comments.map((c) => {
-    const ctx = contextOf(c, files);
-    return `### c${c.id} on ${where(c)}\n${ctx ? `\`\`\`diff\n${ctx}\n\`\`\`\n` : "(this line isn't in the diff)\n"}${c.body}`;
-  });
-  const commented = new Set(review.comments.map((c) => c.path));
-  const order = [...files.filter((f) => commented.has(f.path)), ...files.filter((f) => !commented.has(f.path))].filter((f) => f.patch);
-  let left = MAX_DIFF;
+/** The diff with each line numbered, as much as fits in `max` (files in `first` first), and a note on what's left out. */
+export function shownDiff(files: PrFile[], first: Set<string> = new Set(), max = MAX_DIFF): string {
+  const order = [...files.filter((f) => first.has(f.path)), ...files.filter((f) => !first.has(f.path))].filter((f) => f.patch);
+  let left = max;
   const shown: string[] = [];
   for (const f of order) {
     const text = `--- ${f.path} (${f.status})\n${numbered(f.patch!).map((l) => l.text).join("\n")}`;
@@ -135,12 +130,21 @@ export function checkPrompt(pr: { repo: string; number: number; title: string; b
     shown.push(text);
   }
   const more = files.length - shown.length;
+  return `${shown.join("\n\n")}${more > 0 ? `\n\n(${more} more ${more === 1 ? "file" : "files"} not shown${shown.length ? ": too big, or no patch" : ""})` : ""}`;
+}
+
+/** The message: the PR, my review with each comment's lines, then as much of the diff as fits (files I commented on first). */
+export function checkPrompt(pr: { repo: string; number: number; title: string; body: string }, review: MyReview, files: PrFile[]): string {
+  const mine = review.comments.map((c) => {
+    const ctx = contextOf(c, files);
+    return `### c${c.id} on ${where(c)}\n${ctx ? `\`\`\`diff\n${ctx}\n\`\`\`\n` : "(this line isn't in the diff)\n"}${c.body}`;
+  });
   return [
     `# PR ${pr.repo}#${pr.number}: ${pr.title}`,
     pr.body.trim() ? `## Its description\n${pr.body.trim().slice(0, MAX_PR_BODY)}` : "",
     `## The reviewer's summary\n${review.summary.trim() || "(none yet)"}`,
     `## The reviewer's line comments\n${mine.length ? mine.join("\n\n") : "(none)"}`,
-    `## The diff\n${shown.join("\n\n")}${more > 0 ? `\n\n(${more} more ${more === 1 ? "file" : "files"} not shown${shown.length ? ": too big, or no patch" : ""})` : ""}`,
+    `## The diff\n${shownDiff(files, new Set(review.comments.map((c) => c.path)))}`,
   ]
     .filter(Boolean)
     .join("\n\n");
