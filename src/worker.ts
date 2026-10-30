@@ -143,6 +143,12 @@ const capped = (p: Promise<unknown>, ms = STUCK_MS) => {
   return Promise.race([p.catch(() => undefined), new Promise<void>((res) => (t = setTimeout(res, ms)))]).finally(() => clearTimeout(t));
 };
 
+/** Auto review's model (#326): the assistant's route, called from this Worker's cron, when it can answer. */
+function reviewRoute(bindings: WorkerBindings) {
+  const r = hostedBinoRoute(bindings as HubEnv);
+  return r.ready && r.ask ? { ask: r.ask, model: r.model } : undefined;
+}
+
 /** The real gatherer's remote half: PRs, notifications, movement, deploys. Agents and worktrees live on a machine. */
 export function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Forge, store?: SnapshotStore, onGathered?: (s: Snapshot) => void, linked?: () => string[]): Gatherer {
   const g = createGatherer({
@@ -274,7 +280,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack(), assistantPack(), issues, ...instancePacks], { env: strings, bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), assistantPack(), issues, ...instancePacks], { env: strings, bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,

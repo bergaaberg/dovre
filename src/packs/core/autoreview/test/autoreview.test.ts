@@ -30,7 +30,7 @@ test("the store: a PR added once, levels kept round by round and clamped, and a 
   assert.equal(await s.add({ pr: PR, issue: "acme/web#3" }), false, "kept already");
   assert.equal(await s.add({ pr: "not a pr", issue: "x" }), false);
   let [r] = await s.all();
-  assert.deepEqual({ ...r, levels: r!.levels }, { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", round: 0, head: null, level: null, levels: [], cost: 0, state: "reviewing", why: null, at: 100, updated: 100 });
+  assert.deepEqual({ ...r, levels: r!.levels }, { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, round: 0, head: null, level: null, levels: [], cost: 0, state: "reviewing", why: null, claim: null, at: 100, updated: 100 });
   t = 200;
   assert.equal(await s.level(PR, "fixing", { head: "abc", level: 3 }), false, "not in that state");
   assert.equal(await s.level(PR, "reviewing", { head: "abc", level: 9, cost: 0.5 }), true);
@@ -78,7 +78,7 @@ test("the pack: off without the agents pack's share, else keeps each new auto PR
 });
 
 test("the PR page's row: waiting for a first review, then the level, the round and the levels so far; hostile text inert", () => {
-  const base = { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", head: null, cost: 0, at: 1, updated: 1 };
+  const base = { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, claim: null, head: null, cost: 0, at: 1, updated: 1 };
   assert.equal(String(levelFact({ ...base, round: 0, level: null, levels: [], state: "reviewing", why: null })[1]), "Waiting for its first review · being reviewed");
   const out = String(levelFact({ ...base, round: 2, level: 4, levels: [1, 3, 4].map((level, round) => ({ round, head: "h", level, at: 1 })), state: "yours", why: H })[1]);
   assert.match(out, /^Level 4 of 5 · round 2 · handed to you: /);

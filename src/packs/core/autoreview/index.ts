@@ -3,14 +3,25 @@
  * review rounds: a reviewer's level from 1 to 5, fix sessions on the PR's branch from its comments,
  * and a merge at 5, within hard limits. It requires the agents pack, and reads its auto runs only
  * through what that pack shares (`ctx.required("agents", "auto")`), never by importing it.
- * This step keeps the PRs (store.ts) and shows their levels on the PR's page (view.ts); the
- * reviewer, fix sessions and merging come in #326's later steps.
+ * It keeps the PRs (store.ts), reviews each new head commit (round.ts, reviewer.ts) and shows the
+ * levels on the PR's page (view.ts); fix sessions and merging come in #326's later steps.
  */
-import { type Pack, PACK_API } from "../../types.ts";
+import type { Complete } from "../../../ai/llm.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
+import { writeClicksStore } from "../../../writes.ts";
+import { type Pack, type PackContext, PACK_API } from "../../types.ts";
+import { reviewPass } from "./round.ts";
 import { type PrRow, prsStore } from "./store.ts";
 import { levelFact } from "./view.ts";
 
-export function autoreviewPack(): Pack {
+export type AutoreviewDeps = {
+  /** The forge, to read PRs and post reviews: without it, PRs are kept but not reviewed. */
+  github?: { ghe: Pick<Ghe, "rest">; owners: () => string };
+  /** The model route the reviewer asks (the assistant's), when one can answer. */
+  reviewer?: (ctx: PackContext) => { ask: Complete; model: string } | undefined;
+};
+
+export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
   /** The kept PRs, as the last refresh read them: slots answer from memory. */
   let rows: PrRow[] = [];
   const key = (repo: string, number: number) => `${repo.toLowerCase()}#${number}`;
@@ -18,6 +29,31 @@ export function autoreviewPack(): Pack {
   const keep = (next: PrRow[]) => {
     rows = next;
     byPr = new Map(rows.map((r) => [key(r.repo, r.number), r]));
+  };
+  /** Keeps what's new from the agents pack's share, then (`review`) reviews what's due; tells the page once if anything changed. */
+  const pass = async (ctx: PackContext, review: boolean) => {
+    const auto = ctx.required("agents", "auto");
+    if (!auto) return;
+    const store = prsStore(ctx.db);
+    let changed = false;
+    for (const p of await auto.prs()) if (await store.add({ pr: p.pr, issue: p.key, run: p.run })) changed = true;
+    const login = ctx.forge()?.login;
+    if (review && deps.github && login)
+      changed =
+        (await reviewPass({
+          db: ctx.db,
+          ghe: deps.github.ghe,
+          owners: deps.github.owners(),
+          login,
+          auto,
+          ask: deps.reviewer?.(ctx),
+          model: ctx.env.AUTOREVIEW_MODEL,
+          clicks: () => writeClicksStore(ctx.db).get(),
+          log: (l) => ctx.log(l),
+        })) || changed;
+    const before = JSON.stringify(rows);
+    keep(await store.all());
+    if (changed || JSON.stringify(rows) !== before) ctx.publish(["autoreview"]);
   };
   return {
     manifest: {
@@ -28,8 +64,11 @@ export function autoreviewPack(): Pack {
       domain: "general",
       execution: "any",
       requires: ["agents"],
+      settings: [{ key: "AUTOREVIEW_MODEL", label: "Reviewer model", help: "The model that reviews auto PRs (opus, sonnet, haiku or a full id). Never the one that wrote the PR: when it's the same, another reviews. Empty: the assistant's." }],
       // After the agents pack's auto pass, on the same beat.
       everyMs: 2 * 60_000,
+      // Hosted, reviews run from the cron: a page's refresh is cut off long before a model answers.
+      crons: ["*/5 * * * *"],
     },
     writes: [
       { kind: "review", label: "Post the reviewer's comments on an auto PR, as a Comment review" },
@@ -39,16 +78,8 @@ export function autoreviewPack(): Pack {
     async init(ctx) {
       keep(await prsStore(ctx.db).all());
     },
-    async refresh(ctx) {
-      const auto = ctx.required("agents", "auto");
-      if (!auto) return;
-      const store = prsStore(ctx.db);
-      let added = false;
-      for (const p of await auto.prs()) if (await store.add({ pr: p.pr, issue: p.key })) added = true;
-      const before = JSON.stringify(rows);
-      keep(await store.all());
-      if (added || JSON.stringify(rows) !== before) ctx.publish(["autoreview"]);
-    },
+    refresh: (ctx) => pass(ctx, !ctx.hosted),
+    scheduled: (_e, ctx) => pass(ctx, true),
     slots: () => ({
       "pr.facts": ({ repo, number }) => {
         const r = byPr.get(key(repo, number));

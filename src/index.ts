@@ -392,7 +392,7 @@ const storybookBuild = { builds: storybookBuilds, port: storybookPort, ensure: (
 const corePacks = [
   agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000, repoOf: (dir) => checkouts(env.CODE_DIR, forge.host, ownersIn(env)).find((c) => c.dir === dir)?.repo, ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }),
   // Review rounds on auto runs' PRs (#326): off while agents is.
-  autoreviewPack(),
+  autoreviewPack({ ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => (binoRoute.ready && binoRoute.ask ? { ask: binoRoute.ask, model: binoRoute.model } : undefined) }),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
   // My open issues from the forge (/tracker), where the forge has them.
