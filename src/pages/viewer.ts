@@ -11,7 +11,7 @@ import type { AppEnv, Env } from "../env.ts";
 import { type Frame, shell } from "../html.ts";
 import { type Checkout, checkoutOf, checkouts } from "../issues/tasks.ts";
 import { type Kept, memoize } from "../issues/templates.ts";
-import { Reading, within } from "./later.ts";
+import { BUDGET_MS, Reading, within } from "./later.ts";
 import type { Hub } from "../live.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { loadPrFiles, loadPrView, type PrFile, type PrView, type Thread } from "../sources/prview.ts";
@@ -484,9 +484,10 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
   };
   const topicOf = (repo: string, n: number) => `pr:${repo}#${n}`;
   /** The PR, at once if it's known (refreshed in the background, and the page told when it lands); else up to 1.5 s for the first read. */
-  async function viewOf(repo: string, n: number): Promise<Res<PrView> | undefined> {
+  /** The PR as last read: undefined while it's still loading after `ms` (a page then shows "reading"). */
+  async function viewOf(repo: string, n: number, ms?: number): Promise<Res<PrView> | undefined> {
     const loading = settle(views(`prview:${repo}#${n}`, () => loadPrView(deps.ghe, repo, n).then((v) => (deps.hub?.publish([topicOf(repo, n)]), v))));
-    return within(loading);
+    return within(loading, ms);
   }
   const present = new Map<string, boolean>();
   async function hasCommit(dir: string, sha: string) {
@@ -576,11 +577,14 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       const d = await deps.agentDraft?.(repo, n).catch(() => undefined);
       return d && sameSha(head, d.sha) && d.draft.comments.length ? d : undefined;
     };
-    /** Where an action came from (a PR of the org), the PR as last read, and my review of it. */
-    const ctxOf = async (c: { req: { param: (k: string) => string }; get: (k: "who") => string | undefined }) => {
+    /** Where an action came from (a PR of the org), the PR as last read, and my review of it. An action
+     * waits for the PR however long GitHub takes (hosted, a fresh isolate has nothing cached); a page
+     * passes a budget and reads `slow` instead. */
+    const ctxOf = async (c: { req: { param: (k: string) => string }; get: (k: "who") => string | undefined }, slow?: { ms: number; got?: Res<PrView> | "slow" }) => {
       const at = parse(c.req.param("owner"), c.req.param("repo"), c.req.param("n"));
       if (!at) return undefined;
-      const got = await viewOf(at.repo, at.n);
+      const got = await viewOf(at.repo, at.n, slow ? slow.ms : Infinity);
+      if (slow) slow.got = got ?? "slow";
       if (!got?.ok) return undefined;
       const who = whoOf(c);
       const key = `${at.repo}#${at.n}`;
@@ -613,7 +617,14 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     };
 
     app.get("/prs/:owner/:repo/:n/review", async (c) => {
-      const x = await ctxOf(c);
+      const slow: { ms: number; got?: Res<PrView> | "slow" } = { ms: BUDGET_MS };
+      const x = await ctxOf(c, slow);
+      if (!x && slow.got) {
+        // The PR is still loading, or GitHub failed: say so (it fills in over the hub) rather than "Not found".
+        const at = parse(c.req.param("owner"), c.req.param("repo"), c.req.param("n"))!;
+        const error = slow.got !== "slow" && !slow.got.ok ? slow.got.error : undefined;
+        return c.html(readingPage(await deps.frame(), { ...at, topic: topicOf(at.repo, at.n), error }), error ? 502 : 200);
+      }
       if (!x) return c.notFound();
       return c.html(await page(x));
     });
