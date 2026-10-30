@@ -729,7 +729,9 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       if (!x || !Number.isSafeInteger(id) || id <= 0) return c.notFound();
       const form = await c.req.parseBody();
       const back = `${x.base}/review#check`;
-      const card = (await checkOf(db, x.who, x.key))?.cards.find((k) => k.id === id);
+      const k = await checkOf(db, x.who, x.key);
+      // Still writing: its cards aren't final yet (they're kept again whole when it's done).
+      const card = k?.running ? undefined : k?.cards.find((y) => y.id === id);
       if (card && form.do === "keep" && card.text !== undefined && !(await keepCard(x, card, typeof form.body === "string" ? form.body : card.text))) return c.redirect(back, 303);
       if (card) await takeCard(db, x.who, x.key, id);
       return c.redirect(back, 303);

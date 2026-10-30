@@ -6,10 +6,10 @@ import { openDb } from "../src/db.ts";
 import type { Env } from "../src/env.ts";
 import { createViewerRoutes } from "../src/pages/viewer.ts";
 import type { ReviewDraft } from "../src/reviews/draft.ts";
-import { addComment, anchorOf, importDraft, myReview } from "../src/reviews/mine.ts";
+import { addComment, anchorOf, importDraft, myReview, saveSummary } from "../src/reviews/mine.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import type { Complete } from "../src/ai/llm.ts";
-import { checkOf, runCheck } from "../src/reviews/check.ts";
+import { checkOf, runCheck, saveCheck } from "../src/reviews/check.ts";
 import { assertInert, H } from "./helpers.ts";
 
 const SHA = "a".repeat(40);
@@ -369,6 +369,22 @@ test("the PR still loading (hosted, nothing cached): Your review says it's readi
   assert.equal(r.status, 303);
   assert.equal((await myReview(db.DB, "", "ACME/shop-api#840"))?.comments[0]?.body, "slow");
   assert.match(await text(`${B}/review`), /slow/);
+});
+
+test("the agent still writing: its cards so far show, read-only, and can't be kept until it's done", async () => {
+  const { text, post, db } = setup();
+  const key = "ACME/shop-api#840";
+  await saveSummary(db.DB, "", key, SHA, "");
+  const card = { id: 1, kind: "missed" as const, why: `Off by one ${H}`, text: `Use <= ${H}`, at: { path: PATH, line: 11, side: "RIGHT" as const } };
+  await saveCheck(db.DB, "", key, { sha: SHA, at: Date.now(), model: "m", cost: 0, cards: [card], running: true, mode: "review" });
+  const page = await text(`${B}/review`);
+  assert.match(page, /still writing: 1 card so far/);
+  assert.match(page, /Off by one/);
+  assert.doesNotMatch(page, /Add this comment|Dismiss|Add all/);
+  assertInert("the agent still writing", page);
+  await post(`${B}/review/check/1`, { do: "keep", body: "x" });
+  assert.equal((await myReview(db.DB, "", key))?.comments.length, 0, "not kept while it's writing");
+  assert.equal((await checkOf(db.DB, "", key))?.cards.length, 1);
 });
 
 test("no agent to check with: no button, and the route says so", async () => {

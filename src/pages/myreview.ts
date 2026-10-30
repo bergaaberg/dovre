@@ -88,11 +88,14 @@ export type ReviewPageView = {
 };
 
 /** One of the agent's cards: what it's about, why, and its text to keep (as I edit it) or dismiss. */
-function checkCard(card: Card, comments: Pending[], base: string, mode: CheckMode): Html {
+function checkCard(card: Card, comments: Pending[], base: string, mode: CheckMode, writing = false): Html {
   const about = card.at
     ? html`<code class="draft-where">${whereOf({ ...card.at, body: "" })}</code>`
     : html`<code class="draft-where">${targetLabel(card.on!, comments)}</code>${card.also !== undefined ? html` and <code class="draft-where">${targetLabel(card.also, comments)}</code>` : ""}`;
   const gone = card.on !== undefined && card.on !== "summary" && !comments.some((c) => c.id === card.on);
+  if (writing)
+    return html`<div class="draft-card" id="k-${card.id}"><div class="draft-card-h">${Pill({ children: cardLabel(card, mode) })}${about}</div>
+${card.why ? html`<div class="draft-text">${markdown(card.why)}</div>` : ""}${card.text !== undefined ? html`<div class="draft-text">${markdown(card.text)}</div>` : ""}</div>`;
   const keep = card.text !== undefined && !gone;
   const label = card.kind === "missed" ? "Add this comment" : card.on === "summary" ? "Use as your summary" : "Use this text";
   return html`<form method="post" action="${base}/review/check/${card.id}" class="draft-card" id="k-${card.id}">
@@ -112,7 +115,7 @@ function checkPanel(v: ReviewPageView, comments: Pending[]): Html | "" {
   const keepable = k.cards.filter((c) => c.text !== undefined).length;
   const all = !stale && keepable > 1 ? html`<div class="buttons">${Post({ action: `${v.base}/review/check/all`, label: `Add all ${keepable}` })}<span class="hint">Then edit or remove any of them on the Files tab.</span></div>` : "";
   const body = k.running && !lost(k)
-    ? html`<p class="t3" role="status">The agent is reading ${first ? "the PR" : "your review"}. Its cards show up here when it answers, in up to 3 minutes. You can leave this page.</p>`
+    ? html`<p class="t3" role="status">${k.cards.length ? `The agent is still writing: ${k.cards.length} ${k.cards.length === 1 ? "card" : "cards"} so far. You can keep or dismiss them when it's done.` : html`The agent is reading ${first ? "the PR" : "your review"}. Its cards show up here as it writes them, in up to 3 minutes. You can leave this page.`}</p>${k.cards.map((c) => checkCard(c, comments, v.base, first ? "review" : "check", true))}`
     : k.running || k.error
       ? Notice({ tone: "bad", children: k.error ?? `The ${first ? "review" : "check"} stopped before the agent answered. Try again.` })
       : k.cards.length

@@ -588,6 +588,9 @@ async function swap() {
           dockRestore();
           railBuild();
         }
+      } else if (next.querySelector("[data-pending]") && !document.querySelector("[data-pending]")) {
+        // A loaded page came back still loading (hosted, a fresh isolate reading the PR): ask again soon rather than lose the change.
+        later(1500);
       } else {
         for (const region of document.querySelectorAll("[data-live][id]")) {
           const fresh = next.getElementById(region.id);

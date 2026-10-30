@@ -10,7 +10,8 @@ import { join } from "node:path";
 import type { OmpAsker } from "./omp.ts";
 import { codexCost } from "../agents/harnesses/codex/harness.ts";
 
-export type Complete = (p: { system: string; user: string; model?: string; signal?: AbortSignal }) => Promise<{ text: string; cost: number }>;
+/** `onText`, where the route streams: the reply so far, as it grows. */
+export type Complete = (p: { system: string; user: string; model?: string; signal?: AbortSignal; onText?: (soFar: string) => void }) => Promise<{ text: string; cost: number }>;
 
 export function cliArgs(system: string, model: string): string[] {
   return [

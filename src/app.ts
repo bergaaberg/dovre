@@ -838,7 +838,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         if (!binoOn() || !r?.ready || !r.ask) return undefined;
         const ask = r.ask;
         // Hosted, the Durable Object runs it; locally, this process does, in the background.
-        const start = deps.reviewCheck ?? (async (job: CheckJob, topic: string) => void runCheck(env.DB, ask, job).then(() => deps.hub?.publish([topic])));
+        const start = deps.reviewCheck ?? (async (job: CheckJob, topic: string) => void runCheck(env.DB, ask, job, () => deps.hub?.publish([topic])));
         return { model: r.model, start };
       },
       agentDraft: async (repo, n) => {

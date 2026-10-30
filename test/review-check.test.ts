@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { type D1, openDb } from "../src/db.ts";
 import { DovreHub, type HubState } from "../src/hosted/hub.ts";
-import { CHECK_LOST_MS, cardsOf, checkOf, checkPrompt, contextOf, lost, MAX_CARDS, MAX_DIFF, runCheck, startCheck } from "../src/reviews/check.ts";
+import { CHECK_LOST_MS, cardsOf, cardsSoFar, checkOf, checkPrompt, contextOf, lost, MAX_CARDS, MAX_DIFF, runCheck, startCheck } from "../src/reviews/check.ts";
 import { type MyReview, saveSummary } from "../src/reviews/mine.ts";
 import type { PrFile } from "../src/sources/prview.ts";
 
@@ -87,6 +87,51 @@ test("a run: kept as running, then its cards; a failed answer kept as why; a run
   assert.equal((await checkOf(db, "me", "o/r#3"))!.at, 2000, "the newer run is left to finish");
 });
 
+const lines = (cards: unknown[]) => "Reading it.\n```review-check\n" + cards.map((c) => JSON.stringify(c)).join("\n") + "\n```";
+
+test("cards one per line: read whole, and as they stream (only lines that ended, none before the block)", () => {
+  const nit = { kind: "nit", on: "c4", why: "Small." };
+  const miss = { kind: "missed", path: "src/a.ts", line: 11, side: "RIGHT", why: "Off by one.", text: "Use <=." };
+  assert.deepEqual(cardsOf(lines([nit, miss]), REVIEW, FILES)!.map((c) => c.kind), ["nit", "missed"]);
+  assert.deepEqual(cardsOf("```review-check\n```", REVIEW, FILES), [], "an empty block: nothing to add");
+  assert.deepEqual(cardsOf("```review-check\n" + JSON.stringify(nit) + "\n{broken\n```", REVIEW, FILES)!.length, 1, "a broken line is left out");
+  const all = lines([nit, miss]);
+  assert.deepEqual(cardsSoFar("Reading it.\n```review", REVIEW, FILES), []);
+  const cut = all.indexOf(JSON.stringify(miss)) + 10;
+  assert.deepEqual(cardsSoFar(all.slice(0, cut), REVIEW, FILES).map((c) => c.kind), ["nit"], "the second line isn't done");
+  assert.deepEqual(cardsSoFar(all.slice(0, all.lastIndexOf("```")), REVIEW, FILES).map((c) => c.kind), ["nit", "missed"]);
+  assert.deepEqual(cardsSoFar(all, REVIEW, FILES).map((c) => c.kind), ["nit", "missed"]);
+});
+
+test("a streamed run: each finished card kept as it comes, still running, and the page told; then done", async () => {
+  const db = openDb().DB;
+  const job = await started(db);
+  const nit = { kind: "nit", on: "c4", why: "Small." };
+  const miss = { kind: "missed", path: "src/a.ts", line: 11, side: "RIGHT", why: "Off by one.", text: "Use <=." };
+  const full = lines([nit, miss]);
+  const seen: { running?: boolean; n: number }[] = [];
+  let told = 0;
+  await runCheck(
+    db,
+    async (p) => {
+      for (let i = 1; i <= full.length; i += 7) {
+        p.onText?.(full.slice(0, i));
+        await new Promise((r) => setTimeout(r, 0));
+        const k = (await checkOf(db, "me", "o/r#3"))!;
+        if (k.cards.length !== seen.at(-1)?.n) seen.push({ running: k.running, n: k.cards.length });
+      }
+      return { text: full, cost: 0.01 };
+    },
+    job,
+    () => told++,
+  );
+  assert.deepEqual(seen.filter((x) => x.n > 0), [{ running: true, n: 1 }, { running: true, n: 2 }], "each card shows while it's still writing");
+  const done = (await checkOf(db, "me", "o/r#3"))!;
+  assert.equal(done.running, undefined);
+  assert.equal(done.cards.length, 2);
+  assert.ok(told >= 3, `told per card and at the end (${told})`);
+});
+
 test("hosted: the hub runs a check on its own model route, keeps it in D1 and publishes the PR's topic", async () => {
   const db = openDb().DB;
   const job = await started(db);
@@ -104,12 +149,15 @@ test("hosted: the hub runs a check on its own model route, keeps it in D1 and pu
   assert.equal((await none.fetch(new Request("https://hub.internal/review/check", { method: "POST", body: "{}" }))).status, 400);
 
   const hub = new DovreHub(state, { DB: db, ASSISTANT_VIA: "api-key", ANTHROPIC_API_KEY: "k" });
-  hub.fetchFn = (async () => new Response(JSON.stringify({ content: [{ type: "text", text: block([{ kind: "nit", on: "summary", why: "Say more." }]) }], usage: { input_tokens: 1, output_tokens: 1 } }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+  // The model streams its reply (Messages API events), a few characters at a time.
+  const reply = lines([{ kind: "nit", on: "summary", why: "Say more." }]);
+  const events = [{ type: "message_start", message: { model: "m", usage: { input_tokens: 1 } } }, ...(reply.match(/[\s\S]{1,9}/g) ?? []).map((text) => ({ type: "content_block_delta", delta: { type: "text_delta", text } })), { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } }];
+  hub.fetchFn = (async () => new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
   const published: string[][] = [];
   hub.publish = (t) => void published.push(t);
   assert.deepEqual(await (await hub.fetch(new Request("https://hub.internal/review/check", { method: "POST", body: JSON.stringify({ job, topic: "pr:o/r#3" }) }))).json(), { ok: true });
   assert.ok(alarm > 0, "kept awake while the agent reads");
   await hub.lastCheck;
   assert.deepEqual((await checkOf(db, "me", "o/r#3"))!.cards.map((c) => c.on), ["summary"]);
-  assert.deepEqual(published, [["pr:o/r#3"]]);
+  assert.deepEqual(published, [["pr:o/r#3"], ["pr:o/r#3"]], "once as the card came, once when done");
 });
