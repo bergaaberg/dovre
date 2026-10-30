@@ -36,6 +36,7 @@ import { type AutoSettings, DEFAULT_AUTO, autoSettingsOf, loadAutoSettings, repo
 import { issuePicks } from "./picks.ts";
 import { writeClicksStore } from "../../../writes.ts";
 import { alonePanel, autoNeeds, autoPanel } from "./auto.ts";
+import { autoShare } from "./share.ts";
 
 export type AgentsDeps = {
   /** This machine's desk, or hosted the Mac's over the bridge. */
@@ -99,6 +100,8 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       pass = await autoTick({ db: ctx.db, ghe: github.ghe, owners: github.owners(), desk, clicks: () => writeClicksStore(ctx.db).get(), tz: ctx.env.TZ_NAME });
       if (JSON.stringify(pass) !== before) ctx.publish(["agents"]);
     },
+    // Its auto runs, for Auto review (#326): only with the forge, where they run at all.
+    shares: (ctx) => (github ? { auto: autoShare(ctx.db, desk) } : {}),
     settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME, notifyQuiet) : ""),
     init(ctx) {
       if (github) void readSettings(ctx.db).catch(() => {});

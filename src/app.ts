@@ -71,7 +71,7 @@ import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, todayCards } from "./packs/registry.ts";
+import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards } from "./packs/registry.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies } from "./packs/copies.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
@@ -469,6 +469,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
             return { id: f.id, name: f.name, host: f.host ?? env.GHE_HOST, login, owners, ...(f.work ? { work: (since: string) => f.work!(login, owners, since) } : {}), ...(f.merged ? { merged: (since: string) => f.merged!(login, owners, since) } : {}), ...reads, ...(f.propose ? { propose: proposals(c) } : {}) };
           },
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
+          // Only from a pack it requires, while that one is on and shown (#326).
+          required: (id, name) => {
+            const from = requiresOf(c.manifest).includes(id) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;
+            return from?.shares ? safely(() => from.shares!(ctxOf(from))[name], undefined, (e) => packLog(id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
+          },
           startPicture: (svg) => {
             if (typeof svg === "string" && svg.length <= 200_000 && /^\s*<svg[\s>]/.test(svg)) deps.startPicture?.(svg);
           },

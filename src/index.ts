@@ -54,6 +54,7 @@ import { createDocker, findEngineSocket } from "./packs/core/docker/docker.ts";
 import { createEngine } from "./packs/core/docker/engine.ts";
 import { dockerPack } from "./packs/core/docker/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
+import { autoreviewPack } from "./packs/core/autoreview/index.ts";
 import { createHere } from "./packs/core/agents/here.ts";
 import { localSessions } from "./sources/sessions.ts";
 import { loadWorktrees } from "./sources/worktrees.ts";
@@ -390,6 +391,8 @@ const storybookServer = buildServer(storybookBuilds.outDir, storybookPort, (l) =
 const storybookBuild = { builds: storybookBuilds, port: storybookPort, ensure: () => storybookServer.ensure() };
 const corePacks = [
   agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000, repoOf: (dir) => checkouts(env.CODE_DIR, forge.host, ownersIn(env)).find((c) => c.dir === dir)?.repo, ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }),
+  // Review rounds on auto runs' PRs (#326): off while agents is.
+  autoreviewPack(),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
   // My open issues from the forge (/tracker), where the forge has them.

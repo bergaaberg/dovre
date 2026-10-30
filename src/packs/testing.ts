@@ -36,6 +36,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     forge: () => undefined,
     startPicture: () => {},
     wasm: () => undefined,
+    required: () => undefined,
     ...over,
   };
 }
