@@ -20,6 +20,9 @@ export type CallsView = { quota: Quota[]; counts: CallCount[]; now: number };
 /** A bucket is low below a tenth of its limit (500 of core's 5000), and not once it has filled again. */
 export const isLow = (q: Quota | undefined, now: number) => !!q && q.reset > now && q.remaining < Math.max(1, Math.ceil(q.limit / 10));
 
+/** Added to a call site when GitHub answered 304 Not Modified, which costs no quota. */
+export const NOT_MODIFIED = " (304)";
+
 /** The call site of a REST path: names, numbers, refs and file paths taken out, the query dropped. */
 export function siteOf(method: string, path: string): string {
   const p = (path.split("?")[0] ?? "")
@@ -119,7 +122,8 @@ export function createCalls(now: () => number = Date.now): Calls {
     record(site, headers) {
       const at = now();
       const bucket = bucketOf(headers, site);
-      add({ hour: Math.floor(at / HOUR) * HOUR, bucket, site: site.slice(0, 160), n: 1 });
+      // A 304 still says how much quota is left, but it's counted apart: it didn't spend any.
+      add({ hour: Math.floor(at / HOUR) * HOUR, bucket: site.endsWith(NOT_MODIFIED) ? "not modified" : bucket, site: site.slice(0, 160), n: 1 });
       const q = quotaOf(headers, bucket, at);
       if (q) {
         quotas.set(bucket, q);
