@@ -128,7 +128,7 @@ test("requires (#326): switched off on the Packs page, what requires it is off t
 });
 
 test("requires (#326): a pack reads what a pack it requires shares, only that one, only while it's on, and a share that throws is nothing", async () => {
-  const auto = { prs: async () => [], run: async () => undefined };
+  const auto = { prs: async () => [], run: async () => undefined, limits: async () => ({ on: true, runUsd: 5, dayUsd: 20, minutes: 60 }), fix: async () => ({ wait: "" }), land: async () => ({ wait: "" }) };
   const agents = pack({ id: "helper", name: "Helper" }, { shares: () => ({ auto }) });
   const broken = pack({ id: "broken" }, { shares: () => { throw new Error("no"); } });
   const review = pack({ id: "review", requires: ["helper", "broken"] });

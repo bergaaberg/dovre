@@ -79,7 +79,7 @@ export async function answerCall(desk: Desk, c: Call): Promise<unknown> {
     case "clear":
       return desk.clear();
     case "pushSandbox":
-      return desk.pushSandbox(id);
+      return desk.pushSandbox(id, typeof c.to === "string" ? c.to : undefined);
     case "landed":
       return desk.landed(id, c.pr && typeof c.pr === "object" ? (c.pr as { number?: unknown; url?: unknown }) : {});
   }

@@ -167,7 +167,7 @@ export function remoteDesk(hub: Pick<HubClient, "mac" | "call">, o: { ttlMs?: nu
     stopRun: (id) => acted(call(whose(id), { op: "stopRun", id }).then(() => {}, () => {})),
     discard: (sid) => acted(call(whose(sid), { op: "discard", sid }).then((v) => v as { cleared: string[] } | { flash: string }, (e) => ({ flash: (e as Error).message }))),
     discardRun: (id) => acted(call(whose(id), { op: "discardRun", id }).then((v) => v as { cleared: string[] }, () => ({ cleared: [] }))),
-    pushSandbox: (id) => acted(call(whose(id), { op: "pushSandbox", id }, 25_000).then((v) => v as { repo: string; branch: string; head: string } | { error: string }, (e) => ({ error: (e as Error).message }))),
+    pushSandbox: (id, to) => acted(call(whose(id), { op: "pushSandbox", id, ...(to ? { to } : {}) }, 25_000).then((v) => v as { repo: string; branch: string; head: string } | { error: string }, (e) => ({ error: (e as Error).message }))),
     landed: (id, pr) => acted(call(whose(id), { op: "landed", id, pr: { number: pr.number, url: pr.url } }).then(() => {}, () => {})),
     // Every machine online clears its own.
     clear: () =>

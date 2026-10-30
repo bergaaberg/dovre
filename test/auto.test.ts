@@ -69,6 +69,12 @@ test("capsOf and the harness: caps checked at the desk, and only a sandbox turn 
   assert.deepEqual(capsOf({ base: "origin/main", maxMs: 30 * 60_000, budget: 2.555, effort: "high" }), { base: "origin/main", maxMs: 30 * 60_000, budget: 2.56, effort: "high" });
   assert.deepEqual(capsOf({ base: "-x", maxMs: 1, budget: 1e9, effort: "turbo" }), {});
   assert.deepEqual(capsOf("nope"), {});
+  assert.deepEqual(capsOf({ base: "a".repeat(40), turns: 60 }), { base: "a".repeat(40), turns: 60 });
+  assert.deepEqual(capsOf({ turns: 0.5 }), {});
+  assert.deepEqual(capsOf({ turns: 9999 }), {});
+  const fix = argsFor({ cwd: "/x", prompt: "p", yolo: true, turns: 60 });
+  assert.deepEqual(fix.slice(fix.indexOf("--max-turns"), fix.indexOf("--max-turns") + 2), ["--max-turns", "60"]);
+  assert.ok(!argsFor({ cwd: "/x", prompt: "p", turns: 60 }).includes("--max-turns"), "only in a sandbox");
   const yolo = argsFor({ cwd: "/x", prompt: "p", yolo: true, budget: 2, effort: "low" });
   assert.deepEqual(yolo.slice(yolo.indexOf("--max-budget-usd"), yolo.indexOf("--max-budget-usd") + 4), ["--max-budget-usd", "2", "--effort", "low"]);
   const plain = argsFor({ cwd: "/x", prompt: "p", budget: 2, effort: "low" });

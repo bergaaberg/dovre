@@ -298,16 +298,47 @@ export type PackContext = {
 /** An auto run that ended in a draft PR (I OK'd it, or it opened on its own); it may have closed since. */
 export type AutoPr = { key: string; repo: string; number: number; title: string; pr: string; run: string | null; cost: number; updated: number };
 
-/** A run as its machine reports it now. */
-export type AutoRunResult = { id: string; status: "running" | "done" | "failed" | "stopped"; cost: number; model: string; endedAt?: number };
+/** A run as its machine reports it now. `said`: the agent's last word, once it has one. */
+export type AutoRunResult = { id: string; status: "running" | "done" | "failed" | "stopped"; cost: number; model: string; endedAt?: number; said?: string };
 
-/** The agents pack's auto runs (#207), as Auto review reads them. */
+/** Settings' limits for auto runs, which fix sessions share: whether auto runs are on for a repo, and the dollar and minute caps. */
+export type AutoLimits = { on: boolean; runUsd: number; dayUsd: number; minutes: number };
+
+/**
+ * A fix session (#326): a sandbox run from an auto PR's head commit, whose commits go onto the PR's
+ * branch. `key` is the auto run's issue; `budget` is capped at Settings' `runUsd` again.
+ */
+export type AutoFixAsk = { key: string; pr: string; repo: string; head: string; prompt: string; model: string; budget: number };
+
+/** Its commits on the PR's branch now (`head`); none made (`none` says why); not ended yet (`wait`); or a failure to hand on. */
+export type AutoFixLanded =
+  | { head: string; commits: number; said: string; cost: number }
+  | { none: string; said: string; cost: number }
+  | { wait: string }
+  | { error: string; cost?: number };
+
+/** The agents pack's auto runs (#207), as Auto review reads and extends them. */
 export type AutoShare = {
   /** The auto runs that ended in a draft PR, newest first. */
   prs(): Promise<AutoPr[]>;
   /** A run's result, or undefined when no machine has it now. */
   run(id: string): Promise<AutoRunResult | undefined>;
+  /** Settings' limits, for `repo`. */
+  limits(repo: string): Promise<AutoLimits>;
+  /**
+   * Starts a fix session within auto runs' limits: the at-once slot it shares with them, the day's
+   * cap, quiet hours, Settings' minutes and at most `FIX_TURNS` agent turns. `wait`: not now, and why.
+   */
+  fix(a: AutoFixAsk): Promise<{ run: string } | { wait: string } | { error: string }>;
+  /**
+   * A fix session that ended: its commits pushed onto `branch` (never forced), checked to be what
+   * it made from `base`, and logged under `kind`. Commits that change CI config aren't pushed.
+   */
+  land(run: string, to: { repo: string; branch: string; base: string; pr: { number: number; url: string }; kind: string }): Promise<AutoFixLanded>;
 };
+
+/** A fix session's agent turns at most (`--max-turns`). */
+export const FIX_TURNS = 60;
 
 /** Each contract a pack can share, by name. A new one is additive. */
 export type PackShares = {

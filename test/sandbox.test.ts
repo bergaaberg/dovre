@@ -333,6 +333,46 @@ test("Apple container engine: the commits come home as sandbox/<id> (uncommitted
   assert.equal(git(repo, "branch", "--list", branch), "");
 });
 
+test("Apple container engine: a fix session (#326) starts from a PR head the checkout hasn't seen, fetched from origin, and its commits go onto the PR's branch, never forced", async () => {
+  const { root, repo, bare, git } = checkout();
+  const tokenFile = join(root, "token");
+  writeFileSync(tokenFile, "t\n", { mode: 0o600 });
+  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: withNet(playContainer), egress: fakeEgress().egress });
+  await tick();
+  // The PR's branch on origin, pushed from elsewhere.
+  git(repo, "push", "-q", "origin", "HEAD:refs/heads/main");
+  const other = join(root, "other");
+  git(root, "clone", "-q", bare, other);
+  git(other, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "the PR");
+  git(other, "push", "-q", "origin", "HEAD:refs/heads/sandbox/pr000001");
+  const head = git(other, "rev-parse", "HEAD");
+  assert.throws(() => git(repo, "cat-file", "-e", `${head}^{commit}`), "the checkout hasn't seen it");
+  // Fetched from origin (here the bare repo; only while preparing, so origin still reads as GitHub's after).
+  git(repo, "config", `url.${bare}.insteadOf`, "https://github.com/acme/app.git");
+  const fix = (id: string) => {
+    const box = engine.prepare({ id, repo, base: head });
+    git(join(box.dir, "work"), "-c", "user.name=a", "-c", "user.email=a@a", "commit", "-q", "--allow-empty", "-m", `fix ${id}`);
+    return box;
+  };
+  const one = fix("dddddddd-4444");
+  const two = fix("eeeeeeee-5555");
+  git(repo, "config", "--unset", `url.${bare}.insteadOf`);
+  assert.equal(one.base, head);
+  assert.equal(git(repo, "branch", "--list", "sandbox/base-*"), "", "the branch that held it while cloning is gone");
+  const out = await engine.collect(one, { cwd: repo, branch: sandboxBranch("dddddddd-4444") });
+  assert.equal(out.state, "ready", JSON.stringify(out));
+  if (out.state !== "ready") return;
+  await assert.rejects(engine.push({ cwd: repo, branch: out.branch, head: out.head, repo: "acme/app", to: "main" }), /only onto a sandbox run's branch/);
+  await engine.push({ cwd: repo, branch: out.branch, head: out.head, repo: "acme/app", to: "sandbox/pr000001" });
+  assert.equal(git(bare, "rev-parse", "sandbox/pr000001"), out.head);
+  assert.equal(git(bare, "branch", "--list", out.branch), "", "not pushed under its own name");
+  // A second session from the same head lands only on top of what's there: not over the first one's commits.
+  const out2 = await engine.collect(two, { cwd: repo, branch: sandboxBranch("eeeeeeee-5555") });
+  if (out2.state !== "ready") return assert.fail(JSON.stringify(out2));
+  await assert.rejects(engine.push({ cwd: repo, branch: out2.branch, head: out2.head, repo: "acme/app", to: "sandbox/pr000001" }));
+  assert.equal(git(bare, "rev-parse", "sandbox/pr000001"), out.head);
+});
+
 test("Apple container engine: a run doesn't start onto a nearly full disk", async () => {
   const { root, repo } = checkout();
   const tokenFile = join(root, "token");

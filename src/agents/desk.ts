@@ -95,7 +95,7 @@ export type Desk = {
   discard(sid: string): Promise<{ cleared: string[] } | { flash: string }>;
   discardRun(id: string): Promise<{ cleared: string[] }>;
   /** A sandbox run's branch goes to origin (#206): checked, then pushed with the machine's own git credentials. */
-  pushSandbox(id: string): Promise<{ repo: string; branch: string; head: string } | { error: string }>;
+  pushSandbox(id: string, to?: string): Promise<{ repo: string; branch: string; head: string } | { error: string }>;
   /** Its draft PR is open: the run keeps the link, and its clone goes. */
   landed(id: string, pr: { number?: unknown; url?: unknown }): Promise<void>;
   /** Everything started here that has ended. */
@@ -112,14 +112,15 @@ export const modelOf = (v: unknown, h: HarnessId = "claude"): string => {
 export const effortOf = (v: unknown, h: HarnessId = "claude"): string | undefined => effortIn(optionsOf(h).efforts, v);
 /** A ticked checkbox, as a form or the bridge sends it. */
 export const tickedOf = (v: unknown) => v === "on" || v === true;
-/** A sandbox run's caps, as anyone may send them: a plain ref for the base, minutes 1–600 (as ms), dollars 0.01–1000, a known effort. Anything else is left out. */
-export function capsOf(v: unknown): Pick<StartOpts, "base" | "maxMs" | "budget" | "effort"> {
+/** A sandbox run's caps, as anyone may send them: a plain ref for the base, minutes 1–600 (as ms), dollars 0.01–1000, turns 1–500, a known effort. Anything else is left out. */
+export function capsOf(v: unknown): Pick<StartOpts, "base" | "maxMs" | "budget" | "turns" | "effort"> {
   if (!v || typeof v !== "object") return {};
   const c = v as Record<string, unknown>;
-  const out: Pick<StartOpts, "base" | "maxMs" | "budget" | "effort"> = {};
+  const out: Pick<StartOpts, "base" | "maxMs" | "budget" | "turns" | "effort"> = {};
   if (typeof c.base === "string" && REF.test(c.base) && !c.base.includes("..") && !c.base.endsWith(".lock") && !c.base.endsWith("/")) out.base = c.base;
   if (typeof c.maxMs === "number" && Number.isFinite(c.maxMs) && c.maxMs >= 60_000 && c.maxMs <= 600 * 60_000) out.maxMs = Math.round(c.maxMs);
   if (typeof c.budget === "number" && Number.isFinite(c.budget) && c.budget >= 0.01 && c.budget <= 1000) out.budget = Math.round(c.budget * 100) / 100;
+  if (typeof c.turns === "number" && Number.isInteger(c.turns) && c.turns >= 1 && c.turns <= 500) out.turns = c.turns;
   if ((EFFORTS as readonly string[]).includes(String(c.effort))) out.effort = c.effort as Effort;
   return out;
 }
@@ -377,10 +378,10 @@ export function localDesk(o: {
       const run = RUN_ID.test(id) ? runner?.get(id) : undefined;
       return run && run.status !== "running" ? drop([run], []) : { cleared: [] };
     },
-    async pushSandbox(id) {
+    async pushSandbox(id, to) {
       if (!runner || !RUN_ID.test(id)) return { error: "That isn't a run here." };
       try {
-        return await runner.pushSandbox(id);
+        return await runner.pushSandbox(id, typeof to === "string" ? to : undefined);
       } catch (e) {
         return { error: String((e as Error).message).slice(0, 300) };
       }
