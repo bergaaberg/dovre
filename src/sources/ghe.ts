@@ -1,4 +1,4 @@
-import { type Calls, createCalls, graphqlSiteOf, siteOf } from "../forge/calls.ts";
+import { type Calls, createCalls, graphqlSiteOf, NOT_MODIFIED, siteOf } from "../forge/calls.ts";
 import { ownerQuery, ownersOf } from "../owners.ts";
 /**
  * GitHub Enterprise (acme.ghe.com): my PRs, review requests, notifications, the org's movement and
@@ -27,6 +27,10 @@ export function apiEndpointsOf(host: string): { rest: string; graphql: string } 
 /** A token, or a function that gives the current one (a rotating token: it's asked before every call, so caching is its job). */
 export type TokenSource = string | (() => Promise<string>);
 
+/** Conditional GETs keep at most this many answers, each at most this big. */
+const KEEP_PATHS = 300;
+const KEEP_BYTES = 512 * 1024;
+
 export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fetch; calls?: Calls }): Ghe {
   const calls = opts.calls ?? createCalls();
   const endpoints = apiEndpointsOf(opts.host);
@@ -34,20 +38,48 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
   const t = opts.token;
   const tokenOf = typeof t === "string" ? async () => t : t;
   // GitHub refuses a request without a User-Agent; Node's fetch sends one, a Worker's doesn't.
+  /** GET answers by path, with what GitHub tags them by, for conditional requests (newest last). */
+  const seen = new Map<string, { etag?: string; modified?: string; text: string }>();
+  const keep = (path: string, text: string, h: Headers) => {
+    const etag = h.get("etag") ?? undefined;
+    const modified = h.get("last-modified") ?? undefined;
+    seen.delete(path);
+    if ((!etag && !modified) || text.length > KEEP_BYTES) return;
+    seen.set(path, { etag, modified, text });
+    for (const old of seen.keys()) {
+      if (seen.size <= KEEP_PATHS) break;
+      seen.delete(old);
+    }
+  };
   const headersOf = async () => ({ authorization: `Bearer ${await tokenOf()}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "dovre" });
   return {
     host: opts.host,
     calls,
     async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
-      const headers = await headersOf();
+      const method = (init.method ?? "GET").toUpperCase();
+      const get = method === "GET" && !init.body;
+      const kept = get ? seen.get(path) : undefined;
+      const headers: Record<string, string> = await headersOf();
+      if (kept?.etag) headers["if-none-match"] = kept.etag;
+      else if (kept?.modified) headers["if-modified-since"] = kept.modified;
       const res = await f(endpoints.rest + path, {
-        method: init.method ?? "GET",
+        method,
         headers: init.body ? { ...headers, "content-type": "application/json" } : headers,
         body: init.body ? JSON.stringify(init.body) : undefined,
       });
-      calls.record(siteOf(init.method ?? "GET", path), res.headers);
-      if (!res.ok) throw new Error(`GHE ${init.method ?? "GET"} ${path}: ${res.status} ${(await res.text()).slice(0, 200)}`);
-      return (res.status === 204 ? null : await res.json()) as T;
+      // A 304 doesn't count against the quota: the body kept from last time is still the answer.
+      if (res.status === 304 && kept) {
+        calls.record(siteOf(method, path) + NOT_MODIFIED, res.headers);
+        seen.delete(path);
+        seen.set(path, kept);
+        return JSON.parse(kept.text) as T;
+      }
+      calls.record(siteOf(method, path), res.headers);
+      if (!res.ok) throw new Error(`GHE ${method} ${path}: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      if (res.status === 204) return null as T;
+      const text = await res.text();
+      if (get) keep(path, text, res.headers);
+      return JSON.parse(text) as T;
     },
     async graphql<T>(query: string) {
       const headers = await headersOf();

@@ -52,6 +52,45 @@ test("the client counts each call with its bucket and keeps the quota GitHub sai
   assert.equal(ghe.calls!.low(), false);
 });
 
+test("conditional GETs: the ETag goes back, a 304 returns the kept answer and counts as not modified, writes never send one", async () => {
+  const sent: { url: string; method: string; inm?: string; ims?: string }[] = [];
+  let runs = 1;
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    const h = init.headers as Record<string, string>;
+    sent.push({ url: String(url), method: String(init.method), inm: h["if-none-match"], ims: h["if-modified-since"] });
+    if (String(url).includes("/notifications")) {
+      if (h["if-modified-since"] === "Thu, 29 Oct 2026 10:00:00 GMT") return new Response(null, { status: 304, headers: limits(4990, { resource: "core" }) });
+      return new Response("[]", { headers: { ...Object.fromEntries(limits(4991, { resource: "core" })), "last-modified": "Thu, 29 Oct 2026 10:00:00 GMT" } });
+    }
+    if (init.method === "POST") return new Response("{}", { status: 201, headers: limits(4980, { resource: "core" }) });
+    const tag = `W/"runs-${runs}"`;
+    if (h["if-none-match"] === tag) return new Response(null, { status: 304, headers: limits(4995, { resource: "core" }) });
+    return new Response(JSON.stringify({ workflow_runs: [{ id: runs }] }), { headers: { ...Object.fromEntries(limits(4996, { resource: "core" })), etag: tag } });
+  }) as unknown as typeof fetch;
+  const ghe = createGhe({ host: "github.com", token: "t", fetchFn });
+  const path = "/repos/a/b/actions/runs?status=waiting";
+  const first = await ghe.rest<{ workflow_runs: { id: number }[] }>(path);
+  first.workflow_runs.push({ id: 99 });
+  assert.deepEqual(await ghe.rest(path), { workflow_runs: [{ id: 1 }] }, "the kept answer, not one a caller changed");
+  assert.equal(sent[1]!.inm, 'W/"runs-1"');
+  runs = 2;
+  assert.deepEqual(await ghe.rest(path), { workflow_runs: [{ id: 2 }] }, "a changed answer comes through");
+  await ghe.rest("/notifications");
+  await ghe.rest("/notifications");
+  assert.equal(sent.at(-1)!.ims, "Thu, 29 Oct 2026 10:00:00 GMT");
+  await ghe.rest(path, { method: "POST", body: {} });
+  assert.equal(sent.at(-1)!.inm, undefined, "a write is never conditional");
+  const v = await ghe.calls!.view();
+  assert.deepEqual(topSites(v.counts, 0).map((r) => `${r.bucket} ${r.site} ${r.n}`).sort(), [
+    "core GET /notifications 1",
+    "core GET /repos/:repo/actions/runs 2",
+    "core POST /repos/:repo/actions/runs 1",
+    "not modified GET /notifications (304) 1",
+    "not modified GET /repos/:repo/actions/runs (304) 1",
+  ]);
+  assert.deepEqual(v.quota.map((q) => q.bucket), ["core"], "a 304's quota is core's");
+});
+
 test("low: under a tenth of core or GraphQL, until the reset; search running out isn't", () => {
   let t = 1_000_000;
   const c = createCalls(() => t);
