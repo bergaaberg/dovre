@@ -4,20 +4,20 @@ import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
 import { HOLD_LABEL, mergePass, type MergeDeps } from "../merge.ts";
 import { prsStore } from "../store.ts";
+import { editorsOf, type Said, saidAt } from "./said.ts";
 
 const PR = "https://github.com/acme/web/pull/7";
 const HEAD = "a".repeat(40);
 const BASE = "c".repeat(40);
 const T = 1_000_000_000_000;
 
-type World = { head: string; ci: string; mergeable: boolean | null; labels: string[]; config?: string; said: { kind: "issue" | "line" | "review"; login: string; at: number; review?: number }[]; mergeFails?: boolean };
+type World = { head: string; ci: string; mergeable: boolean | null; labels: string[]; config?: string; said: Said[]; mergeFails?: boolean };
 
 function setup(o: Partial<World> = {}) {
   const { DB } = openDb();
   const w: World = { head: HEAD, ci: "success", mergeable: true, labels: [], config: '{"merge": true}', said: [], ...o };
   const calls: string[] = [];
   const bodies: unknown[] = [];
-  const iso = (t: number) => new Date(t).toISOString();
   const ghe = {
     rest: async <T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> => {
       const m = init?.method ?? "GET";
@@ -28,9 +28,8 @@ function setup(o: Partial<World> = {}) {
         if (w.config === undefined) throw new Error("404");
         return { content: btoa(w.config), encoding: "base64", size: w.config.length } as T;
       }
-      if (path.startsWith("/repos/acme/web/issues/7/comments")) return w.said.filter((s) => s.kind === "issue").map((s) => ({ user: { login: s.login }, created_at: iso(s.at) })) as T;
-      if (path.startsWith("/repos/acme/web/pulls/7/comments")) return w.said.filter((s) => s.kind === "line").map((s) => ({ user: { login: s.login }, created_at: iso(s.at), pull_request_review_id: s.review ?? null })) as T;
-      if (path.startsWith("/repos/acme/web/pulls/7/reviews")) return w.said.filter((s) => s.kind === "review").map((s) => ({ id: s.review, user: { login: s.login }, submitted_at: iso(s.at) })) as T;
+      const said = saidAt(path, w.said);
+      if (said) return said as T;
       if (path.includes("/check-runs")) return { check_runs: w.ci === "none" ? [] : [w.ci === "pending" ? { status: "in_progress", conclusion: null } : { status: "completed", conclusion: w.ci }] } as T;
       if (path.endsWith("/status")) return { statuses: [] } as T;
       if (path === "/repos/acme/web/pulls/7/merge" && m === "PUT") {
@@ -40,7 +39,7 @@ function setup(o: Partial<World> = {}) {
       if (path === "/repos/acme/web/issues/3/comments" && m === "POST") return {} as T;
       throw new Error(`unexpected ${m} ${path}`);
     },
-    graphql: async <T>(q: string): Promise<T> => (calls.push(`graphql ${q}`), {} as T),
+    graphql: async <T>(q: string): Promise<T> => (calls.push(`graphql ${q}`), editorsOf(q) as T),
   };
   let clicks = new Map<string, "once" | "twice">();
   const deps: MergeDeps = { db: DB, ghe, owners: "acme", login: "me", clicks: async () => clicks, log: () => {}, now: () => T + 60_000 };
@@ -98,11 +97,39 @@ test("a merge waits: for CI still running (waiting-ci), while dovre:hold is on, 
   assert.equal(r.state, "merged");
 });
 
-test("a merge is handed to me: an owner commented since the review, CI red or none, conflicts, the repo turned it off, Settings asks twice, GitHub refused", async () => {
+test("a merge: an owner's word since the review starts a fix round instead, even past the rounds' limit; someone else's doesn't stop it", async () => {
+  const cases: [Said[], RegExp][] = [
+    [[{ kind: "issue", login: "Me", at: T + 5 }], /^Level 5, not merged: 1 owner comment since its review\. Round 2: a fix session for them\.$/],
+    [[{ kind: "line", login: "acme", at: T + 5, review: 120 }], /1 owner comment since/],
+    [[{ kind: "review", login: "me", at: T + 5, review: 120 }], /1 owner comment since/],
+    [[{ kind: "review", login: "acme", at: T + 5, review: 121, state: "CHANGES_REQUESTED", body: "" }], /acme's Request changes since/],
+  ];
+  for (const [said, why] of cases) {
+    const s = setup({ said });
+    await s.merging();
+    await mergePass(s.deps);
+    const r = await row(s);
+    assert.deepEqual([r.state, r.round], ["fixing", 2], `${why} ${r.why}`);
+    assert.match(r.why!, why);
+    assert.ok(!s.calls.some((c) => c.startsWith("PUT")));
+  }
+  // Dovre's own posts (marked) and a stranger's words don't count.
+  const t = setup({ said: [{ kind: "issue", login: "stranger", at: T + 5 }, { kind: "line", login: "me", at: T + 5, review: 130, body: "Fixed in abc.\n\n<!-- dovre:autoreview -->" }] });
+  await t.merging();
+  await mergePass(t.deps);
+  assert.equal((await row(t)).state, "merged");
+  // An owner's comment someone else edited isn't acted on: it's mine.
+  const u = setup({ said: [{ kind: "issue", login: "me", at: T + 5, edited: T + 50_000, id: 900 }] });
+  u.deps.ghe.graphql = async <X>(q: string): Promise<X> => (u.calls.push(`graphql ${q}`), editorsOf(q, { N_900: "mallory" }) as X);
+  await u.merging();
+  await mergePass(u.deps);
+  const r = await row(u);
+  assert.equal(r.state, "yours");
+  assert.match(r.why!, /mallory edited me's comment after it was posted, so Dovre doesn't act on it/);
+});
+
+test("a merge is handed to me: CI red or none, conflicts, the repo turned it off, Settings asks twice, GitHub refused", async () => {
   const cases: [Partial<World>, RegExp, Map<string, "once" | "twice">?][] = [
-    [{ said: [{ kind: "issue", login: "Me", at: T + 5 }] }, /Me commented on it after its review/],
-    [{ said: [{ kind: "line", login: "acme", at: T + 5, review: 120 }] }, /acme commented/],
-    [{ said: [{ kind: "review", login: "me", at: T + 5, review: 120 }] }, /me commented/],
     [{ ci: "failure" }, /CI failed on it after its review/],
     [{ ci: "none" }, /no CI ran on it/],
     [{ mergeable: false }, /conflicts with its base/],
@@ -122,11 +149,6 @@ test("a merge is handed to me: an owner commented since the review, CI red or no
     assert.match(r.why!, /^Level 5, not merged: /);
     if (!o.mergeFails) assert.ok(!s.calls.some((c) => c.startsWith("PUT")), String(why));
   }
-  // Someone else's comment doesn't stop it.
-  const t = setup({ said: [{ kind: "issue", login: "stranger", at: T + 5 }] });
-  await t.merging();
-  await mergePass(t.deps);
-  assert.equal((await row(t)).state, "merged");
 });
 
 test("a merge: new commits since the level-5 review go back to review, unmerged", async () => {

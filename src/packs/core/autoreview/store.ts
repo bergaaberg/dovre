@@ -35,6 +35,8 @@ export type PrRow = {
   state: PrState;
   /** Why it's in that state, for me. */
   why: string | null;
+  /** Owners' words on the PR up to this time (ms) are taken in: by a fix round, or by its being handed to me. */
+  heard: number;
   /** When a pass took it to review (one at a time across isolates); null when none has it. */
   claim: number | null;
   at: number;
@@ -42,7 +44,7 @@ export type PrRow = {
 };
 
 const SCHEMA = [
-  "CREATE TABLE IF NOT EXISTS autoreview_prs (pr TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, issue TEXT NOT NULL, run TEXT, author TEXT, round INTEGER NOT NULL DEFAULT 0, head TEXT, review INTEGER, fix TEXT, level INTEGER, levels TEXT NOT NULL DEFAULT '[]', cost REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, why TEXT, claim INTEGER, at INTEGER NOT NULL, updated INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS autoreview_prs (pr TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, issue TEXT NOT NULL, run TEXT, author TEXT, round INTEGER NOT NULL DEFAULT 0, head TEXT, review INTEGER, fix TEXT, level INTEGER, levels TEXT NOT NULL DEFAULT '[]', cost REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, why TEXT, claim INTEGER, heard INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, updated INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS autoreview_prs_state ON autoreview_prs (state)",
 ];
 
@@ -52,6 +54,8 @@ const made = new WeakSet<object>();
 export async function ensureSchema(db: D1): Promise<void> {
   if (made.has(db)) return;
   await db.batch(SCHEMA.map((s) => db.prepare(s)));
+  // A table made before `heard` (#326 step 6) gains it; one that has it says so, and that's fine.
+  await db.prepare("ALTER TABLE autoreview_prs ADD COLUMN heard INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
   made.add(db);
 }
 
@@ -86,8 +90,8 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       await ensureSchema(db);
       const t = now();
       const res = await db
-        .prepare("INSERT INTO autoreview_prs (pr, repo, number, issue, run, state, at, updated) VALUES (?, ?, ?, ?, ?, 'reviewing', ?, ?) ON CONFLICT (pr) DO NOTHING")
-        .bind(r.pr, at.repo, at.number, r.issue, r.run ?? null, t, t)
+        .prepare("INSERT INTO autoreview_prs (pr, repo, number, issue, run, state, heard, at, updated) VALUES (?, ?, ?, ?, ?, 'reviewing', ?, ?, ?) ON CONFLICT (pr) DO NOTHING")
+        .bind(r.pr, at.repo, at.number, r.issue, r.run ?? null, t, t, t)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
     },
@@ -119,6 +123,11 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       await ensureSchema(db);
       await db.prepare("UPDATE autoreview_prs SET claim = NULL, cost = cost + ?, why = COALESCE(?, why), updated = ? WHERE pr = ?").bind(o.cost ?? 0, o.why ?? null, now(), pr).run();
     },
+    /** Owners' words up to `at` are in a fix round now; never moves back. */
+    async heard(pr: string, at: number): Promise<void> {
+      await ensureSchema(db);
+      await db.prepare("UPDATE autoreview_prs SET heard = MAX(heard, ?) WHERE pr = ?").bind(at, pr).run();
+    },
     /** The author's model, once its run says. */
     async author(pr: string, model: string): Promise<void> {
       await ensureSchema(db);
@@ -133,12 +142,13 @@ export function prsStore(db: D1, now: () => number = Date.now) {
     /**
      * Moves a row on, only from the state it was seen in: false when another pass moved it first.
      * Its fix session is let go (a row fixing has one only while it stays fixing); `cost` is added.
+     * Handed to me, what owners said so far is taken in: only what's said after starts a round.
      */
     async move(pr: string, from: PrState, to: PrState, set: { why?: string | null; round?: number; cost?: number } = {}): Promise<boolean> {
       await ensureSchema(db);
       const res = await db
-        .prepare("UPDATE autoreview_prs SET state = ?, why = ?, round = COALESCE(?, round), cost = cost + ?, fix = NULL, claim = NULL, updated = ? WHERE pr = ? AND state = ?")
-        .bind(to, set.why ?? null, set.round ?? null, set.cost ?? 0, now(), pr, from)
+        .prepare("UPDATE autoreview_prs SET state = ?, why = ?, round = COALESCE(?, round), cost = cost + ?, fix = NULL, claim = NULL, heard = CASE WHEN ? = 'yours' THEN MAX(heard, ?) ELSE heard END, updated = ? WHERE pr = ? AND state = ?")
+        .bind(to, set.why ?? null, set.round ?? null, set.cost ?? 0, to, now(), now(), pr, from)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
     },

@@ -2,7 +2,9 @@
  * One review pass (#326): every auto PR being reviewed whose head the reviewer hasn't read gets one
  * review of that exact commit once its CI has settled, posted as a Comment review
  * (`autoreview.review`), and its level kept. Then the decide step: comments to fix start a fix
- * round (fix.ts), within the limits; otherwise, or past a limit, the PR is handed to me. A PR
+ * round (fix.ts), within the limits; otherwise, or past a limit, the PR is handed to me. What an
+ * owner says on the PR (owner.ts) caps the level at 2 and starts a round, even on a PR handed to
+ * me: that's me asking. A PR
  * merged or closed meanwhile, or outside my owners, leaves the loop. A model call takes a while,
  * so hosted it runs from the cron, not a page's refresh.
  */
@@ -15,6 +17,7 @@ import { loadPrFiles } from "../../../sources/prview.ts";
 import type { Clicks } from "../../../writes.ts";
 import type { AutoShare } from "../../types.ts";
 import { AUTO_CONFIG, loadAutoConfig } from "./config.ts";
+import { type Heard, heardLine, heardOpen, ownerSays } from "./owner.ts";
 import { type PrRow, prsStore } from "./store.ts";
 import { AUTOREVIEW_SYSTEM, capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, tagCounts, verdictOf } from "./reviewer.ts";
 
@@ -30,12 +33,12 @@ export const CI_WAIT_MS = 30 * 60_000;
 export const MAX_ROUNDS = 3;
 /** What one PR may cost in all, in fix rounds' budgets (`runUsd`). */
 export const PR_ROUNDS_USD = 3;
-/** A PR handed to me is looked at again this often, to see it merged or closed. */
-const SETTLE_MS = 30 * 60_000;
+/** A PR handed to me is looked at again this often: merged or closed since, or an owner's comment to act on. */
+const SETTLE_MS = 10 * 60_000;
 
 export type ReviewDeps = {
   db: D1;
-  ghe: Pick<Ghe, "rest">;
+  ghe: Pick<Ghe, "rest" | "graphql">;
   owners: string;
   /** Who I am on the forge: the PRs are mine. */
   login: string;
@@ -50,6 +53,9 @@ export type ReviewDeps = {
 };
 
 type RawPr = { state: string; merged?: boolean; draft?: boolean; title?: string; body?: string | null; head: { sha: string }; base?: { sha: string } };
+
+/** "Round 2: a fix session for 2 owner comments.": how an owner-started round says why. */
+const ownerRound = (round: number, h: Heard) => `Round ${round}: a fix session for ${heardLine(h)}.`;
 
 const issueOf = (key: string) => {
   const m = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(key);
@@ -82,12 +88,27 @@ export async function reviewPass(d: ReviewDeps): Promise<boolean> {
   return changed;
 }
 
-/** A PR handed to me: merged or closed since, it leaves what needs me; else looked at again later. */
+/**
+ * A PR handed to me: merged or closed since, it leaves what needs me. An owner's comment since it
+ * was handed over starts a fix round (on new commits, a review first); the cap on what one PR may
+ * cost still holds there. Else it's looked at again later.
+ */
 async function settle(d: ReviewDeps, row: PrRow): Promise<boolean> {
   const store = prsStore(d.db, d.now);
   const pr = await d.ghe.rest<RawPr>(`/repos/${row.repo}/pulls/${row.number}`);
   if (pr.merged) return store.move(row.pr, "yours", "merged", { why: "Merged on GitHub." });
   if (pr.state !== "open") return store.move(row.pr, "yours", "closed", { why: "Closed on GitHub." });
+  const heard = await ownerSays(d, row, row.heard);
+  if (heard.refused) {
+    // Said once; what's refused isn't asked about again.
+    await store.heard(row.pr, (d.now ?? Date.now)());
+    await store.release(row.pr, { why: heard.refused });
+    return row.why !== heard.refused;
+  }
+  if (heard.said.length) {
+    if (!row.head || pr.head.sha !== row.head) return store.move(row.pr, "yours", "reviewing", { why: `${heardLine(heard)} since it was handed over, on new commits: reviewing those first.` });
+    return store.move(row.pr, "yours", "fixing", { round: row.round + 1, why: ownerRound(row.round + 1, heard) });
+  }
   await store.release(row.pr);
   return false;
 }
@@ -126,10 +147,11 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   if (!(await store.claim(row.pr, "reviewing", CLAIM_MS))) return undefined;
   const model = reviewerModel(author ?? "", { set: d.model, route: d.ask.model });
   const issueAt = issueOf(row.issue);
-  const [files, issue, config] = await Promise.all([
+  const [files, issue, config, heard] = await Promise.all([
     loadPrFiles(d.ghe as Ghe, row.repo, row.number),
     issueAt ? d.ghe.rest<{ title?: string; body?: string | null }>(`/repos/${issueAt.repo}/issues/${issueAt.number}`) : Promise.resolve(undefined),
     loadAutoConfig(d.ghe, row.repo, pr.base?.sha ?? ""),
+    ownerSays(d, row, row.heard),
   ]);
   const user = reviewPrompt(
     { repo: issueAt?.repo ?? row.repo, number: issueAt?.number ?? 0, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" },
@@ -149,7 +171,8 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     await store.release(row.pr, { cost: reply.cost });
     return (await store.move(row.pr, "reviewing", "yours", { why: "The reviewer answered, but not with a level Dovre could read." })) ? "moved" : undefined;
   }
-  const capped = capLevel(v.level, { ci, files, blockers: v.comments.filter((c) => c.tag === "blocker").length, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}) });
+  const open = heardOpen(heard);
+  const capped = capLevel(v.level, { ci, files, blockers: v.comments.filter((c) => c.tag === "blocker").length, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) });
   const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft(v, capped, { model, head }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
@@ -158,31 +181,34 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   }
   await store.level(row.pr, "reviewing", { head, level: capped.level, cost: reply.cost, ...(posted.id ? { review: posted.id } : {}) });
   const said = `Level ${capped.level} from ${model}: ${tagCounts(v.comments) || "no comments"}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
-  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: v.comments.filter((c) => c.tag !== "nit").length, ci, said, merge: config.merge, ...(posted.id ? { review: posted.id } : {}) });
+  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: v.comments.filter((c) => c.tag !== "nit").length, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
   return "reviewed";
 }
 
 /**
  * After a review, on that exact commit: level 5 merges (merge.ts) when the repo's `.dovre/auto.json`
  * says so; a fix round when there's something to fix and the limits allow one; else the PR is
- * handed to me, saying why.
+ * handed to me, saying why. An owner's comment is something to fix, and past the rounds' limit
+ * or without progress it still gets its round: I asked. What one PR may cost still caps it.
  */
-async function decide(d: ReviewDeps, row: PrRow, r: { level: number; fixable: number; ci: string; said: string; merge: boolean; review?: number }): Promise<void> {
+async function decide(d: ReviewDeps, row: PrRow, r: { level: number; fixable: number; ci: string; said: string; merge: boolean; heard: Heard; review?: number }): Promise<void> {
   const store = prsStore(d.db, d.now);
   const hand = (why: string) => store.move(row.pr, "reviewing", "yours", { why: `${r.said} ${why}` });
+  if (r.heard.refused) return void (await hand(r.heard.refused));
+  const mine = r.heard.said.length;
   if (r.level >= 5) {
     if (!r.merge) return void (await hand(`Mergeable as is. Automerge is off for this repo (\`${AUTO_CONFIG}\`), so it's yours to merge.`));
     return void (await store.move(row.pr, "reviewing", "merging", { why: `${r.said} Merging it once the checks before a merge pass.` }));
   }
   const red = r.ci === "red";
-  if (!r.fixable && !red) return void (await hand("Nothing for a fix session to do: over to you."));
-  if (!r.review) return void (await hand("Its review's comments couldn't be found for a fix session."));
-  if (row.round >= MAX_ROUNDS) return void (await hand(`${MAX_ROUNDS} fix rounds done, and it's still at level ${r.level}.`));
+  if (!r.fixable && !red && !mine) return void (await hand("Nothing for a fix session to do: over to you."));
+  if (!r.review && !mine) return void (await hand("Its review's comments couldn't be found for a fix session."));
+  if (row.round >= MAX_ROUNDS && !mine) return void (await hand(`${MAX_ROUNDS} fix rounds done, and it's still at level ${r.level}.`));
   const levels = [...row.levels.map((l) => l.level), r.level];
-  if (levels.length >= 3 && r.level <= levels[levels.length - 3]!) return void (await hand("Its level hasn't gone up in two rounds."));
+  if (!mine && levels.length >= 3 && r.level <= levels[levels.length - 3]!) return void (await hand("Its level hasn't gone up in two rounds."));
   const limits = await d.auto.limits(row.repo);
   const cap = PR_ROUNDS_USD * limits.runUsd;
   if (row.cost >= cap) return void (await hand(`It has cost $${row.cost.toFixed(2)}, the cap for one PR ($${cap.toFixed(2)}).`));
-  const what = [r.fixable ? `${r.fixable} comment${r.fixable === 1 ? "" : "s"}` : "", red ? "CI failing" : ""].filter(Boolean).join(" and ");
+  const what = [mine ? heardLine(r.heard) : "", r.fixable ? `${r.fixable} review comment${r.fixable === 1 ? "" : "s"}` : "", red ? "CI failing" : ""].filter(Boolean).join(", ");
   await store.move(row.pr, "reviewing", "fixing", { round: row.round + 1, why: `${r.said} Round ${row.round + 1}: a fix session for ${what}.` });
 }

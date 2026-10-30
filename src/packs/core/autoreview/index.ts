@@ -55,9 +55,9 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
           clicks: () => writeClicksStore(ctx.db).get(),
           log: (l) => ctx.log(l),
         })) || changed;
-    if (review && deps.github)
+    if (review && deps.github && login)
       changed =
-        (await fixPass({ db: ctx.db, ghe: deps.github.ghe, owners: deps.github.owners(), auto, clicks: () => writeClicksStore(ctx.db).get(), log: (l) => ctx.log(l) })) || changed;
+        (await fixPass({ db: ctx.db, ghe: deps.github.ghe, owners: deps.github.owners(), login, auto, clicks: () => writeClicksStore(ctx.db).get(), log: (l) => ctx.log(l) })) || changed;
     if (review && deps.github && login)
       changed =
         (await mergePass({ db: ctx.db, ghe: deps.github.ghe, owners: deps.github.owners(), login, clicks: () => writeClicksStore(ctx.db).get(), log: (l) => ctx.log(l) })) || changed;
