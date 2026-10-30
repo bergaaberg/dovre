@@ -285,6 +285,33 @@ export type PackContext = {
   startPicture(svg: string): void;
   /** Where one of its `wasm` modules is served (a hashed path, cached for good), or undefined for a name it didn't ship. */
   wasm(name: string): string | undefined;
+  /**
+   * What a pack it requires shares (`shares`), by name (#326): undefined unless `id` is in its
+   * manifest's `requires`, that pack is on and shown, and it shares one by that name now.
+   */
+  required<K extends keyof PackShares>(id: string, name: K): PackShares[K] | undefined;
+};
+
+// ── What packs share with the packs that require them (#326) ──
+// Core defines each shape here, so the pack that shares and the one that uses it never import each other.
+
+/** An auto run that ended in a draft PR (I OK'd it, or it opened on its own); it may have closed since. */
+export type AutoPr = { key: string; repo: string; number: number; title: string; pr: string; run: string | null; cost: number; updated: number };
+
+/** A run as its machine reports it now. */
+export type AutoRunResult = { id: string; status: "running" | "done" | "failed" | "stopped"; cost: number; model: string; endedAt?: number };
+
+/** The agents pack's auto runs (#207), as Auto review reads them. */
+export type AutoShare = {
+  /** The auto runs that ended in a draft PR, newest first. */
+  prs(): Promise<AutoPr[]>;
+  /** A run's result, or undefined when no machine has it now. */
+  run(id: string): Promise<AutoRunResult | undefined>;
+};
+
+/** Each contract a pack can share, by name. A new one is additive. */
+export type PackShares = {
+  auto?: AutoShare;
 };
 
 /** The forge as a pack reads it (PackContext.forge): read-only, in the owners' repos. */
@@ -461,6 +488,8 @@ export type Pack = {
    * Confirms pass `kind: "<pack id>.<kind>"`: those take one click unless I set that kind to ask twice.
    */
   writes?: PackWrite[];
+  /** What it shares with the packs that require it (#326): read through their `ctx.required`. */
+  shares?(ctx: PackContext): PackShares;
   /** CSS for its own classes, served beside the core's and linked from every page. */
   styles?: string;
   /**

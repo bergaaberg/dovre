@@ -127,6 +127,22 @@ test("requires (#326): switched off on the Packs page, what requires it is off t
   assert.equal((await get("/review")).status, 200);
 });
 
+test("requires (#326): a pack reads what a pack it requires shares, only that one, only while it's on, and a share that throws is nothing", async () => {
+  const auto = { prs: async () => [], run: async () => undefined };
+  const agents = pack({ id: "helper", name: "Helper" }, { shares: () => ({ auto }) });
+  const broken = pack({ id: "broken" }, { shares: () => { throw new Error("no"); } });
+  const review = pack({ id: "review", requires: ["helper", "broken"] });
+  const nosy = pack({ id: "nosy" });
+  const { app, post } = signedIn(snapshot(), {}, { packs: [review, nosy, agents, broken] });
+  const { ctxOf } = packsOf(app)!;
+  assert.equal(ctxOf(review).required("helper", "auto"), auto);
+  assert.equal(ctxOf(review).required("broken", "auto"), undefined);
+  assert.equal(ctxOf(nosy).required("helper", "auto"), undefined, "not in its requires");
+  assert.equal(ctxOf(review).required("nowhere", "auto"), undefined);
+  await post("/packs/helper/switch", { on: "" });
+  assert.equal(ctxOf(review).required("helper", "auto"), undefined, "switched off on the Packs page");
+});
+
 test("packs in the app: routes under their own path, nav, styles, search, Today; hostile text inert", async () => {
   const health = pack(
     { id: "health" },
