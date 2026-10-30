@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
 import type { PrFile } from "../../../../sources/prview.ts";
 import type { AutoShare } from "../../../types.ts";
+import { autoConfigOf } from "../config.ts";
 import { capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, riskOf, verdictOf } from "../reviewer.ts";
 import { CI_WAIT_MS, MAX_ROUNDS, reviewPass, type ReviewDeps } from "../round.ts";
 import { prsStore } from "../store.ts";
@@ -80,7 +81,7 @@ test("ciOf: red if any failed, pending if any runs, green when all passed, none 
 
 // ── One pass, with a fake forge and model ──
 
-function setup(o: { head?: string; merged?: boolean; model?: string; reply?: string; runModel?: string | null; owners?: string; ci?: string } = {}) {
+function setup(o: { head?: string; merged?: boolean; model?: string; reply?: string; runModel?: string | null; owners?: string; ci?: string; config?: string } = {}) {
   const { DB } = openDb();
   const gh = { head: o.head ?? "sha1", calls: [] as string[], posted: [] as any[] };
   const ghe = {
@@ -90,7 +91,8 @@ function setup(o: { head?: string; merged?: boolean; model?: string; reply?: str
         gh.posted.push(init.body);
         return { html_url: "https://github.com/acme/web/pull/7#r1", id: 99 } as T;
       }
-      if (path === "/repos/acme/web/pulls/7") return { state: o.merged ? "closed" : "open", merged: !!o.merged, title: "Fix", body: "", head: { sha: gh.head }, user: { login: "me" } } as T;
+      if (path === "/repos/acme/web/pulls/7") return { state: o.merged ? "closed" : "open", merged: !!o.merged, title: "Fix", body: "", head: { sha: gh.head }, base: { sha: "c".repeat(40) }, user: { login: "me" } } as T;
+      if (path === `/repos/acme/web/contents/.dovre/auto.json?ref=${"c".repeat(40)}` && o.config !== undefined) return { content: btoa(o.config), encoding: "base64", size: o.config.length } as T;
       if (path.startsWith("/repos/acme/web/pulls/7/files")) return [{ filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1,2 +1,3 @@\n a\n+b\n c", sha: "f" }] as T;
       if (path === "/repos/acme/web/issues/3") return { title: "Fix login", body: "It breaks." } as T;
       if (path.includes("/check-runs")) return { check_runs: [o.ci === "pending" ? { status: "in_progress", conclusion: null } : { status: "completed", conclusion: o.ci ?? "success" }] } as T;
@@ -142,7 +144,7 @@ test("a pass: one Comment review of the head commit by another model than the au
   let [r] = await s.store.all();
   // Level 5 is mine to merge, for now.
   assert.deepEqual([r!.level, r!.head, r!.author, r!.claim, r!.state, r!.cost], [5, "sha1", "opus", null, "yours", 0.02]);
-  assert.match(r!.why!, /^Level 5 from claude-sonnet-5-5: 1 nit\. Mergeable as is/);
+  assert.match(r!.why!, /^Level 5 from claude-sonnet-5-5: 1 nit\. Mergeable as is\. Automerge is off for this repo/);
   const log = await s.DB.prepare("SELECT kind, target, ok FROM actions").all<{ kind: string }>();
   assert.deepEqual(log.results.map((x) => x.kind), ["autoreview.review"]);
 
@@ -299,4 +301,39 @@ test("a review waits for CI still running, without a model call, then reviews an
   await reviewPass(deps);
   assert.equal(s.asked.length, 1);
   assert.equal((await s.store.all())[0]!.level, 2, "capped: CI is still pending");
+});
+
+// ── The repo's .dovre/auto.json (#326 step 5) ──
+
+test("autoConfigOf: merge only when it says true; a size limit in range; a threshold other than 5 ignored, and said", () => {
+  assert.deepEqual(autoConfigOf(undefined), { merge: false, notes: [] });
+  assert.deepEqual(autoConfigOf('{"merge": true, "sizeLimit": 300}'), { merge: true, sizeLimit: 300, notes: [] });
+  assert.deepEqual(autoConfigOf('{"merge": "yes"}').merge, false);
+  assert.match(autoConfigOf('{"merge": true, "threshold": 4}').notes[0]!, /only at level 5/);
+  assert.deepEqual(autoConfigOf('{"sizeLimit": -1}').sizeLimit, undefined);
+  assert.equal(autoConfigOf("not json").merge, false);
+  assert.equal(autoConfigOf("[1]").merge, false);
+});
+
+test("decide: level 5 goes to merging where the repo's file at the base commit allows it", async () => {
+  const s = setup({ config: '{"merge": true}' });
+  await s.add();
+  await reviewPass(s.deps);
+  let [r] = await s.store.all();
+  assert.equal(r!.state, "merging");
+  assert.match(r!.why!, /Merging it once the checks before a merge pass\.$/);
+
+  const t = setup({ config: '{"merge": true, "sizeLimit": 0}' });
+  await t.add();
+  await reviewPass(t.deps);
+  [r] = await t.store.all();
+  assert.equal(r!.state, "merging", "an out-of-range limit leaves the default");
+});
+
+test("capLevel: a repo's size limit replaces the default", () => {
+  const files = [file({ additions: 30, deletions: 0 })];
+  assert.equal(capLevel(5, { ci: "green", files, blockers: 0 }).level, 5);
+  const c = capLevel(5, { ci: "green", files, blockers: 0, sizeLimit: 20 });
+  assert.equal(c.level, 3);
+  assert.match(c.why[0]!, /over the limit of 20/);
 });
