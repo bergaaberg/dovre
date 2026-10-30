@@ -27,6 +27,7 @@ import { DEFAULT_POLICY, type Note } from "../src/notify.ts";
 import { openDb } from "../src/db.ts";
 import { H, appWithAgents, assertInert, deploy, fakeGhe, fixedGatherer, signedIn, snapshot } from "./helpers.ts";
 import { logAction } from "../src/actions/deploys.ts";
+import { currentViewer } from "../src/viewer.ts";
 
 const m = (o: Partial<PackManifest> & { id: string }): PackManifest => ({ api: PACK_API, name: o.id, description: "", domain: "personal", ...o });
 const pack = (o: Partial<PackManifest> & { id: string }, hooks: Partial<Pack> = {}): Pack => ({ manifest: m(o), ...hooks });
@@ -395,18 +396,19 @@ test("createWorker: hosted packs get the bindings; cron, email and stale refresh
     {
       init: (c) => void seen.push(`init ${typeof c.bindings.QUILL}`),
       refresh: async () => void seen.push("refresh"),
-      scheduled: async (e) => void seen.push(`cron ${e.cron}`),
+      scheduled: async (e) => void seen.push(`cron ${e.cron} as ${currentViewer()}`),
       email: async (msg) => (seen.push(`mail ${(msg as { to: string }).to}`), true),
     },
   );
   const worker = createWorker({ packs: [quill] });
-  const bindings = { DB: mockD1(), IS_HOSTED: "1", CF_ACCESS_TEAM: "team", CF_ACCESS_AUD: "aud", QUILL: { ops: () => 1 } };
+  const bindings = { DB: mockD1(), IS_HOSTED: "1", CF_ACCESS_TEAM: "team", CF_ACCESS_AUD: "aud", ALLOWED_EMAILS: " Me@Example.dev , other@example.dev", QUILL: { ops: () => 1 } };
   assert.equal((await worker.fetch(new Request("https://dovre.example.dev/"), bindings, ctx)).status, 404, "no Access token: nobody in");
   await Promise.all(pending);
   assert.ok(seen.includes("init object"), "init sees its bindings");
   assert.ok(seen.includes("refresh"), "a due refresh runs after the response");
   await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: 0 }, bindings, ctx);
-  assert.ok(seen.includes("cron */5 * * * *"));
+  // The cron acts as the instance's owner: it sees what their pages see (their paired machines).
+  assert.ok(seen.includes("cron */5 * * * * as me@example.dev"), seen.join(" | "));
   let rejected = "";
   await worker.email({ to: "support@example.app", setReject: (r: string) => (rejected = r) } as never, bindings, ctx);
   assert.ok(seen.includes("mail support@example.app"));

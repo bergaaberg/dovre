@@ -9,6 +9,7 @@ import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
 import { keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
+import { viewingAs } from "./viewer.ts";
 import { packsOf, createApp } from "./app.ts";
 import { activePacks, initAll, refresher } from "./packs/registry.ts";
 import type { Pack, Defer, ScheduledEvent } from "./packs/types.ts";
@@ -318,8 +319,16 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     return packsOf(h.app)!.lookups;
   });
 
-  /** Cron: every pack's scheduled hook, then any refresh that's due and the snapshot. */
+  /**
+   * Cron: every pack's scheduled hook, then any refresh that's due and the snapshot. The hooks run
+   * as the instance's owner (the first of ALLOWED_EMAILS): background work for them sees what their
+   * pages see, such as their paired machines. Without it, a cron sees no one's machine.
+   */
   const runScheduled = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {
+    const owner = (bindings.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim()).find(Boolean);
+    return viewingAs(owner, () => scheduledAs(event, bindings, ctx));
+  };
+  const scheduledAs = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {
     if (await notSetUp(bindings)) return console.error("dovre: not set up yet (D1, its tables or Access): the cron waits");
     const h = build(bindings);
     await capped(h.ready);
