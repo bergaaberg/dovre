@@ -27,6 +27,8 @@ import { appleContainer } from "../agents/sandbox.ts";
 import { findHarnessTools, harnessesFor, useFoundModels } from "../agents/harnesses/index.ts";
 import { foundModels } from "../agents/harnesses/found.ts";
 import { loadEnv, rawVars } from "../env.ts";
+import { checkoutOf, checkouts } from "../issues/tasks.ts";
+import { ownersIn } from "../owners.ts";
 import { localSessions } from "../sources/sessions.ts";
 import { liveAgents, type Session } from "../sources/claude.ts";
 import { ompProfileOf } from "../sources/omp.ts";
@@ -115,7 +117,16 @@ const runner = createRunner({
   diff: gitTurnDiff(),
   host: existsSync(hostExe) ? { exe: hostExe, dir: join(dataDir, "runs") } : undefined,
   // Sandbox runs (#205): Apple container, so macOS only for now.
-  sandbox: process.platform === "darwin" ? appleContainer({ root: join(dataDir, "sandboxes") }) : undefined,
+  sandbox: process.platform === "darwin"
+    ? appleContainer({
+        root: join(dataDir, "sandboxes"),
+        // A repo's siblings (#208) come from your checkouts under CODE_DIR, of your owners only, as on the server.
+        checkout: (repo) => {
+          const c = checkoutOf(checkouts(env.CODE_DIR, env.GHE_HOST, ownersIn(env)), repo);
+          return c ? join(env.CODE_DIR, c.dir) : undefined;
+        },
+      })
+    : undefined,
   harnesses: harnessesFor(tools, harnessOn, { ompProfileOf }),
   onChange: (r) => {
     const was = statusOf.get(r.id);
