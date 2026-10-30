@@ -14,6 +14,7 @@ import type { Ghe } from "../../../sources/ghe.ts";
 import { loadPrFiles } from "../../../sources/prview.ts";
 import type { Clicks } from "../../../writes.ts";
 import type { AutoShare } from "../../types.ts";
+import { AUTO_CONFIG, loadAutoConfig } from "./config.ts";
 import { type PrRow, prsStore } from "./store.ts";
 import { AUTOREVIEW_SYSTEM, capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, tagCounts, verdictOf } from "./reviewer.ts";
 
@@ -48,7 +49,7 @@ export type ReviewDeps = {
   now?: () => number;
 };
 
-type RawPr = { state: string; merged?: boolean; draft?: boolean; title?: string; body?: string | null; head: { sha: string } };
+type RawPr = { state: string; merged?: boolean; draft?: boolean; title?: string; body?: string | null; head: { sha: string }; base?: { sha: string } };
 
 const issueOf = (key: string) => {
   const m = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(key);
@@ -125,9 +126,10 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   if (!(await store.claim(row.pr, "reviewing", CLAIM_MS))) return undefined;
   const model = reviewerModel(author ?? "", { set: d.model, route: d.ask.model });
   const issueAt = issueOf(row.issue);
-  const [files, issue] = await Promise.all([
+  const [files, issue, config] = await Promise.all([
     loadPrFiles(d.ghe as Ghe, row.repo, row.number),
     issueAt ? d.ghe.rest<{ title?: string; body?: string | null }>(`/repos/${issueAt.repo}/issues/${issueAt.number}`) : Promise.resolve(undefined),
+    loadAutoConfig(d.ghe, row.repo, pr.base?.sha ?? ""),
   ]);
   const user = reviewPrompt(
     { repo: issueAt?.repo ?? row.repo, number: issueAt?.number ?? 0, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" },
@@ -147,7 +149,7 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     await store.release(row.pr, { cost: reply.cost });
     return (await store.move(row.pr, "reviewing", "yours", { why: "The reviewer answered, but not with a level Dovre could read." })) ? "moved" : undefined;
   }
-  const capped = capLevel(v.level, { ci, files, blockers: v.comments.filter((c) => c.tag === "blocker").length });
+  const capped = capLevel(v.level, { ci, files, blockers: v.comments.filter((c) => c.tag === "blocker").length, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}) });
   const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft(v, capped, { model, head }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
@@ -156,19 +158,22 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   }
   await store.level(row.pr, "reviewing", { head, level: capped.level, cost: reply.cost, ...(posted.id ? { review: posted.id } : {}) });
   const said = `Level ${capped.level} from ${model}: ${tagCounts(v.comments) || "no comments"}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
-  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: v.comments.filter((c) => c.tag !== "nit").length, ci, said, review: posted.id });
+  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: v.comments.filter((c) => c.tag !== "nit").length, ci, said, merge: config.merge, ...(posted.id ? { review: posted.id } : {}) });
   return "reviewed";
 }
 
 /**
- * After a review, on that exact commit: a fix round when there's something to fix and the limits
- * allow one; else the PR is handed to me, saying why. Level 5 is handed to me too, to merge, until
- * Auto review merges on its own.
+ * After a review, on that exact commit: level 5 merges (merge.ts) when the repo's `.dovre/auto.json`
+ * says so; a fix round when there's something to fix and the limits allow one; else the PR is
+ * handed to me, saying why.
  */
-async function decide(d: ReviewDeps, row: PrRow, r: { level: number; fixable: number; ci: string; said: string; review?: number }): Promise<void> {
+async function decide(d: ReviewDeps, row: PrRow, r: { level: number; fixable: number; ci: string; said: string; merge: boolean; review?: number }): Promise<void> {
   const store = prsStore(d.db, d.now);
   const hand = (why: string) => store.move(row.pr, "reviewing", "yours", { why: `${r.said} ${why}` });
-  if (r.level >= 5) return void (await hand("Mergeable as is: over to you to merge."));
+  if (r.level >= 5) {
+    if (!r.merge) return void (await hand(`Mergeable as is. Automerge is off for this repo (\`${AUTO_CONFIG}\`), so it's yours to merge.`));
+    return void (await store.move(row.pr, "reviewing", "merging", { why: `${r.said} Merging it once the checks before a merge pass.` }));
+  }
   const red = r.ci === "red";
   if (!r.fixable && !red) return void (await hand("Nothing for a fix session to do: over to you."));
   if (!r.review) return void (await hand("Its review's comments couldn't be found for a fix session."));
