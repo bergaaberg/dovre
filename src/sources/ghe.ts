@@ -1,5 +1,6 @@
 import { type Calls, createCalls, graphqlSiteOf, NOT_MODIFIED, siteOf } from "../forge/calls.ts";
 import { ownerQuery, ownersOf } from "../owners.ts";
+import type { SharedReads } from "./files.ts";
 /**
  * GitHub Enterprise (acme.ghe.com): my PRs, review requests, notifications, the org's movement and
  * the deploys waiting for me. Loaders talk HTTP; the transforms below them are pure and tested.
@@ -31,7 +32,24 @@ export type TokenSource = string | (() => Promise<string>);
 const KEEP_PATHS = 300;
 const KEEP_BYTES = 512 * 1024;
 
-export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fetch; calls?: Calls }): Ghe {
+/** Who a token is (`GET /user`) is asked at most this often per token. */
+const WHO_MS = 3600_000;
+
+/** A short name for a token, so what's kept never holds the token itself. */
+async function tokenKey(token: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(d).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+type KeptGet = { etag?: string; modified?: string; text: string };
+
+/**
+ * `shared` (hosted: D1's forge_reads): GET answers kept for every isolate, so a cron run on a cold
+ * isolate can still ask "changed since?" and get a free 304 (#294).
+ */
+export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fetch; calls?: Calls; shared?: SharedReads; now?: () => number }): Ghe {
+  const now = opts.now ?? Date.now;
+  const shared = opts.shared;
   const calls = opts.calls ?? createCalls();
   const endpoints = apiEndpointsOf(opts.host);
   const f = opts.fetchFn ?? fetch;
@@ -39,27 +57,70 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
   const tokenOf = typeof t === "string" ? async () => t : t;
   // GitHub refuses a request without a User-Agent; Node's fetch sends one, a Worker's doesn't.
   /** GET answers by path, with what GitHub tags them by, for conditional requests (newest last). */
-  const seen = new Map<string, { etag?: string; modified?: string; text: string }>();
-  const keep = (path: string, text: string, h: Headers) => {
-    const etag = h.get("etag") ?? undefined;
-    const modified = h.get("last-modified") ?? undefined;
+  const seen = new Map<string, KeptGet>();
+  const remember = (path: string, k: KeptGet) => {
     seen.delete(path);
-    if ((!etag && !modified) || text.length > KEEP_BYTES) return;
-    seen.set(path, { etag, modified, text });
+    seen.set(path, k);
     for (const old of seen.keys()) {
       if (seen.size <= KEEP_PATHS) break;
       seen.delete(old);
     }
   };
+  const keep = async (path: string, text: string, h: Headers) => {
+    const etag = h.get("etag") ?? undefined;
+    const modified = h.get("last-modified") ?? undefined;
+    seen.delete(path);
+    if ((!etag && !modified) || text.length > KEEP_BYTES) return;
+    const k = { etag, modified, text };
+    remember(path, k);
+    await shared?.put(`get:${opts.host}${path}`, now(), JSON.stringify(k)).catch(() => {});
+  };
+  const keptOf = async (path: string): Promise<KeptGet | undefined> => {
+    const mine = seen.get(path);
+    if (mine || !shared) return mine;
+    const row = await shared.get(`get:${opts.host}${path}`).catch(() => undefined);
+    if (!row) return undefined;
+    try {
+      const k = JSON.parse(row.value) as KeptGet;
+      if (typeof k.text !== "string") return undefined;
+      remember(path, k);
+      return k;
+    } catch {
+      return undefined;
+    }
+  };
+  /** Who each token is, by its key: the login doesn't change, so it isn't asked every pass. */
+  const who = new Map<string, { text: string; at: number }>();
   const headersOf = async () => ({ authorization: `Bearer ${await tokenOf()}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "dovre" });
+  /** `GET /user`, kept an hour per token (in memory and in `shared`). */
+  async function whoIs(headers: Record<string, string>): Promise<unknown> {
+    const key = await tokenKey(headers.authorization ?? "");
+    const fresh = (k: { at: number } | undefined) => !!k && now() - k.at < WHO_MS;
+    let k = who.get(key);
+    if (!fresh(k) && shared) {
+      const row = await shared.get(`user:${opts.host}:${key}`).catch(() => undefined);
+      if (row && fresh(row)) who.set(key, (k = { text: row.value, at: row.at }));
+    }
+    if (k && fresh(k)) return JSON.parse(k.text);
+    const res = await f(endpoints.rest + "/user", { method: "GET", headers });
+    calls.record(siteOf("GET", "/user"), res.headers);
+    if (!res.ok) throw new Error(`GHE GET /user: ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const text = await res.text();
+    const at = now();
+    who.set(key, { text, at });
+    await shared?.put(`user:${opts.host}:${key}`, at, text).catch(() => {});
+    return JSON.parse(text);
+  }
+
   return {
     host: opts.host,
     calls,
     async rest<T>(path: string, init: { method?: string; body?: unknown } = {}) {
       const method = (init.method ?? "GET").toUpperCase();
       const get = method === "GET" && !init.body;
-      const kept = get ? seen.get(path) : undefined;
       const headers: Record<string, string> = await headersOf();
+      if (get && path === "/user") return (await whoIs(headers)) as T;
+      const kept = get ? await keptOf(path) : undefined;
       if (kept?.etag) headers["if-none-match"] = kept.etag;
       else if (kept?.modified) headers["if-modified-since"] = kept.modified;
       const res = await f(endpoints.rest + path, {
@@ -70,15 +131,14 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
       // A 304 doesn't count against the quota: the body kept from last time is still the answer.
       if (res.status === 304 && kept) {
         calls.record(siteOf(method, path) + NOT_MODIFIED, res.headers);
-        seen.delete(path);
-        seen.set(path, kept);
+        remember(path, kept);
         return JSON.parse(kept.text) as T;
       }
       calls.record(siteOf(method, path), res.headers);
       if (!res.ok) throw new Error(`GHE ${method} ${path}: ${res.status} ${(await res.text()).slice(0, 200)}`);
       if (res.status === 204) return null as T;
       const text = await res.text();
-      if (get) keep(path, text, res.headers);
+      if (get) await keep(path, text, res.headers);
       return JSON.parse(text) as T;
     },
     async graphql<T>(query: string) {
