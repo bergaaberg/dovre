@@ -153,6 +153,8 @@ export const MAX_TRIES = 3;
 export const autoKey = (repo: string, number: number) => `${repo.toLowerCase()}#${number}`;
 /** States that hold a slot (count against "at once"). */
 export const BUSY: AutoState[] = ["starting", "running"];
+/** How many slots are held: auto runs and fix sessions (#326) share them. */
+const BUSY_SQL = "((SELECT COUNT(*) FROM auto_runs WHERE state IN ('starting', 'running')) + (SELECT COUNT(*) FROM auto_fixes WHERE state IN ('starting', 'running')))";
 
 export function autoStore(db: D1, now: () => number = Date.now) {
   /** The row's current run has cost this much so far: shown on the row, and kept per run for the day's cap. */
@@ -201,10 +203,9 @@ export function autoStore(db: D1, now: () => number = Date.now) {
      * several isolates at once can't each count room and start past the limit.
      */
     async claim(key: string, atOnce: number): Promise<boolean> {
-      const busy = BUSY.map(() => "?").join(", ");
       const r = await db
-        .prepare(`UPDATE auto_runs SET state = 'starting', why = NULL, updated = ? WHERE key = ? AND state = 'queued' AND (SELECT COUNT(*) FROM auto_runs WHERE state IN (${busy})) < ?`)
-        .bind(now(), key, ...BUSY, atOnce)
+        .prepare(`UPDATE auto_runs SET state = 'starting', why = NULL, updated = ? WHERE key = ? AND state = 'queued' AND ${BUSY_SQL} < ?`)
+        .bind(now(), key, atOnce)
         .run();
       return Number(r.meta?.changes ?? 0) === 1;
     },
@@ -216,3 +217,48 @@ export function autoStore(db: D1, now: () => number = Date.now) {
   };
 }
 export type AutoStore = ReturnType<typeof autoStore>;
+
+// ── Fix sessions (#326) ──
+
+export type FixState = "starting" | "running" | "ended";
+/** A fix session Auto review asked for: the slot it holds, and its run once started. */
+export type FixRow = { id: string; key: string; pr: string; state: FixState; run: string | null; cost: number; at: number; updated: number };
+
+/** Fix sessions in `auto_fixes`: each holds an at-once slot while starting or running, and its cost counts toward the day's cap. */
+export function fixStore(db: D1, now: () => number = Date.now) {
+  return {
+    /** A slot for a new fix session, only while fewer than `atOnce` runs and fixes hold one: one statement, as auto runs claim. */
+    async claim(f: { id: string; key: string; pr: string }, atOnce: number): Promise<boolean> {
+      const t = now();
+      const r = await db
+        .prepare(`INSERT INTO auto_fixes (id, key, pr, state, at, updated) SELECT ?, ?, ?, 'starting', ?, ? WHERE ${BUSY_SQL} < ?`)
+        .bind(f.id, f.key, f.pr, t, t, atOnce)
+        .run();
+      return Number(r.meta?.changes ?? 0) === 1;
+    },
+    async started(id: string, run: string): Promise<void> {
+      await db.prepare("UPDATE auto_fixes SET state = 'running', run = ?, updated = ? WHERE id = ? AND state = 'starting'").bind(run, now(), id).run();
+    },
+    /** Its cost so far, kept per run for the day's cap as auto runs' is. */
+    async setCost(id: string, cost: number): Promise<void> {
+      await db.prepare("UPDATE auto_fixes SET cost = ? WHERE id = ?").bind(cost, id).run();
+      await db
+        .prepare("INSERT INTO auto_spend (key, run, cost, at) SELECT key, run, ?, ? FROM auto_fixes WHERE id = ? AND run IS NOT NULL ON CONFLICT (key, run) DO UPDATE SET cost = excluded.cost, at = excluded.at")
+        .bind(cost, now(), id)
+        .run();
+    },
+    /** The slot goes back. */
+    async end(id: string): Promise<void> {
+      await db.prepare("UPDATE auto_fixes SET state = 'ended', updated = ? WHERE id = ? AND state != 'ended'").bind(now(), id).run();
+    },
+    /** Those holding a slot. */
+    async open(): Promise<FixRow[]> {
+      const { results } = await db.prepare("SELECT * FROM auto_fixes WHERE state IN ('starting', 'running') ORDER BY at").all<FixRow>();
+      return results;
+    },
+    async byRun(run: string): Promise<FixRow | undefined> {
+      return (await db.prepare("SELECT * FROM auto_fixes WHERE run = ?").bind(run).first<FixRow>()) ?? undefined;
+    },
+  };
+}
+export type FixStore = ReturnType<typeof fixStore>;

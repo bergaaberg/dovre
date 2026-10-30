@@ -37,6 +37,7 @@ import { issuePicks } from "./picks.ts";
 import { writeClicksStore } from "../../../writes.ts";
 import { alonePanel, autoNeeds, autoPanel } from "./auto.ts";
 import { autoShare } from "./share.ts";
+import { followFixes } from "../../../actions/autofix.ts";
 
 export type AgentsDeps = {
   /** This machine's desk, or hosted the Mac's over the bridge. */
@@ -98,10 +99,12 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       await readSettings(ctx.db);
       const before = JSON.stringify(pass ?? null);
       pass = await autoTick({ db: ctx.db, ghe: github.ghe, owners: github.owners(), desk, clicks: () => writeClicksStore(ctx.db).get(), tz: ctx.env.TZ_NAME });
+      // Fix sessions Auto review started (#326): their cost, and their slots back once they end.
+      await followFixes({ db: ctx.db, desk }).catch(() => {});
       if (JSON.stringify(pass) !== before) ctx.publish(["agents"]);
     },
     // Its auto runs, for Auto review (#326): only with the forge, where they run at all.
-    shares: (ctx) => (github ? { auto: autoShare(ctx.db, desk) } : {}),
+    shares: (ctx) => (github ? { auto: autoShare(ctx.db, desk, { owners: github.owners, ...(ctx.env.TZ_NAME ? { tz: ctx.env.TZ_NAME } : {}) }) } : {}),
     settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME, notifyQuiet) : ""),
     init(ctx) {
       if (github) void readSettings(ctx.db).catch(() => {});

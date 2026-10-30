@@ -65,9 +65,11 @@ export type SandboxEngine = {
   collect(box: SandboxBox, o: { cwd: string; branch: string }): Promise<SandboxOut>;
   /**
    * Pushes `branch` from `cwd` to origin with the user's own git credentials, once it's checked:
-   * still at `head`, and origin still `repo`. Hooks don't run. Throws why not.
+   * still at `head`, and origin still `repo`. Hooks don't run. Throws why not. `to`: onto another
+   * sandbox branch on origin instead (a fix session's commits onto its auto PR's branch, #326),
+   * never forced, so it lands only on top of what's there.
    */
-  push(o: { cwd: string; branch: string; head: string; repo: string }): Promise<void>;
+  push(o: { cwd: string; branch: string; head: string; repo: string; to?: string }): Promise<void>;
   /** Deletes the local branch a run came home as (discarded). Quietly does nothing when it can't. */
   dropBranch(o: { cwd: string; branch: string }): Promise<void>;
   /** How long a run may take before it's stopped. */
@@ -131,6 +133,8 @@ export const BUNDLE_SCRIPT = [
 /** A bundle bigger than this isn't fetched. */
 const MAX_BUNDLE = 200 * 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
+/** A sandbox run's branch (`sandboxBranch`): the only kind a run's commits are pushed to. */
+export const SANDBOX_BRANCH = /^sandbox\/[\w-]{1,64}$/;
 
 type Exec = (bin: string, args: string[], ms?: number) => Promise<{ ok: boolean; out: string; err?: string }>;
 const exec: Exec = (bin, args, ms = 15_000) => new Promise((res) => execFile(bin, args, { timeout: ms, maxBuffer: 8 * 1024 * 1024 }, (e, out, err) => res({ ok: !e, out: String(out ?? ""), err: String(err ?? "") })));
@@ -281,6 +285,8 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
   const tokenFile = o.tokenFile ?? sandboxTokenFile();
   const run = o.exec ?? exec;
   const git = o.git ?? ((args: string[], cwd: string) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim());
+  /** A fetch from origin, bounded and never prompting. */
+  const fetchGit = o.git ?? ((args: string[], cwd: string) => execFileSync("git", args, { cwd, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }).trim());
   const hgit = o.hostGit ?? hostGit;
   const originOf = async (cwd: string) => originRepo(await hgit(["remote", "get-url", "origin"], cwd).catch(() => ""));
   const egress = o.egress ?? openEgress;
@@ -398,7 +404,14 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
       const gateway = net.gateway;
       let sha: string;
       try {
-        sha = git(["rev-parse", "--verify", `${base ?? "HEAD"}^{commit}`], repo);
+        try {
+          sha = git(["rev-parse", "--verify", `${base ?? "HEAD"}^{commit}`], repo);
+        } catch (e) {
+          // A commit this checkout hasn't seen (a PR's head pushed from elsewhere, #326): fetched once from origin.
+          if (!base || !SHA.test(base)) throw e;
+          fetchGit(["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", base], repo);
+          sha = git(["rev-parse", "--verify", `${base}^{commit}`], repo);
+        }
       } catch (e) {
         throw new Error(`Couldn't find the run's base commit: ${String((e as Error).message).split("\n")[0]}`);
       }
@@ -407,8 +420,20 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
       const dir = join(o.root, id);
       const work = join(dir, "work");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
+      // A commit given by its id may be on no branch here (fetched, or only origin's): a branch
+      // points at it while the clone is made, so the clone has it, and goes right after.
+      const pin = base && SHA.test(base) ? `refs/heads/sandbox/base-${id.slice(0, 8)}` : undefined;
       try {
-        git(["clone", "-q", "--no-local", "--no-checkout", repo, work], dir);
+        try {
+          if (pin) git(["update-ref", pin, sha], repo);
+          git(["clone", "-q", "--no-local", "--no-checkout", repo, work], dir);
+        } finally {
+          if (pin) {
+            try {
+              git(["update-ref", "-d", pin], repo);
+            } catch {}
+          }
+        }
         git(["checkout", "-q", "-b", "work", sha], work);
         git(["remote", "remove", "origin"], work);
         // Read from the real checkout at the base (cat-file: no filters run), so the agent can't widen it.
@@ -504,17 +529,19 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
         rmSync(join(out, "work.bundle"), { force: true });
       }
     },
-    async push({ cwd, branch, head, repo }) {
-      if (!SHA.test(head) || !/^sandbox\/[\w-]{1,64}$/.test(branch)) throw new Error("That isn't a sandbox run's branch.");
+    async push({ cwd, branch, head, repo, to }) {
+      if (!SHA.test(head) || !SANDBOX_BRANCH.test(branch)) throw new Error("That isn't a sandbox run's branch.");
+      if (to !== undefined && !SANDBOX_BRANCH.test(to)) throw new Error("A run's commits go only onto a sandbox run's branch.");
       const now = (await hgit(["rev-parse", "--verify", `refs/heads/${branch}^{commit}`], cwd).catch(() => "")).trim();
       if (!now) throw new Error(`The branch ${branch} is gone from the checkout.`);
       if (now !== head) throw new Error(`The branch ${branch} changed since the run ended.`);
       if ((await originOf(cwd)) !== repo) throw new Error(`The checkout's origin isn't ${repo} any more.`);
       // --no-verify: the checkout's own pre-push hook would run on the host, next to the agent's work.
-      await hgit(["push", "-q", "--no-verify", "origin", `refs/heads/${branch}:refs/heads/${branch}`], cwd, 180_000);
+      // Never forced: onto `to`, it lands only when the branch there is the run's base or behind it.
+      await hgit(["push", "-q", "--no-verify", "origin", `refs/heads/${branch}:refs/heads/${to ?? branch}`], cwd, 180_000);
     },
     async dropBranch({ cwd, branch }) {
-      if (!/^sandbox\/[\w-]{1,64}$/.test(branch)) return;
+      if (!SANDBOX_BRANCH.test(branch)) return;
       await hgit(["branch", "-q", "-D", branch], cwd).catch(() => {});
     },
   };

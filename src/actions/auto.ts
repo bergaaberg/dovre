@@ -18,7 +18,7 @@
 import type { D1 } from "../db.ts";
 import type { Desk } from "../agents/desk.ts";
 import type { Run } from "../agents/runner.ts";
-import { AUTO_LABEL, type AutoOptions, type AutoRow, type AutoSettings, type AutoStore, BUSY, DONE_LABEL, STUCK_LABEL, autoKey, autoOptionsOf, autoPrompt, autoStore, capsFor, loadAutoSettings, MAX_TRIES, repoOn } from "../agents/auto.ts";
+import { AUTO_LABEL, type AutoOptions, type AutoRow, type AutoSettings, type AutoStore, BUSY, DONE_LABEL, STUCK_LABEL, autoKey, autoOptionsOf, autoPrompt, autoStore, capsFor, fixStore, loadAutoSettings, MAX_TRIES, repoOn } from "../agents/auto.ts";
 import { loadPolicy } from "../notify.ts";
 import { quietAt } from "../quiet.ts";
 import { ownerQuery, ownersOf } from "../owners.ts";
@@ -342,6 +342,27 @@ async function stuck(d: AutoDeps, store: AutoStore, row: AutoRow, why: string, r
   await closeOut({ db: d.db, ghe: d.ghe, owners: d.owners, row, done: false, text: `Dovre's unattended run on this got stuck${times} ${why}${said && !why.includes(said) ? `\n\nIts last word:\n\n${said.replace(/^/gm, "> ")}` : ""}\n\nLabel it \`${AUTO_LABEL}\` again to try once more.` });
 }
 
+/**
+ * Where a run for `repo` starts: hosted with several machines, the first online that has its
+ * checkout (named as the repo). `silent`: a machine didn't answer, so it may have it; ask again later.
+ */
+export async function findCheckout(desk: Pick<Desk, "view" | "repos">, repo: string): Promise<{ checkout: string; machine?: string } | { silent: string } | { none: string }> {
+  const name = repo.split("/")[1]!.toLowerCase();
+  const machines = desk.view().machines?.filter((m) => m.online) ?? [];
+  let silent: string | undefined;
+  for (const m of machines.length ? machines : [undefined]) {
+    const listed = await desk.repos(m?.id).catch(() => undefined);
+    if (!listed) {
+      silent ??= m?.name ?? m?.id ?? "The machine";
+      continue;
+    }
+    const checkout = listed.find((r) => r.toLowerCase() === name);
+    if (checkout) return { checkout, ...(m?.id ? { machine: m.id } : {}) };
+  }
+  if (silent) return { silent };
+  return { none: `There's no checkout named ${name} in the code folder${machines.length ? " on a machine online" : ""}.` };
+}
+
 /** Starts what's queued while there's room. Returns why nothing new starts now, when that's so. */
 async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoRow[], isOwner: (l: string | undefined) => boolean, now: () => number): Promise<string | undefined> {
   const queued = rows.filter((r) => r.state === "queued" && repoOn(s, r.repo)).sort((a, b) => a.at - b.at);
@@ -349,7 +370,8 @@ async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoR
   const quiet = s.quietOwn ? s.quiet : ((await loadPolicy(d.db).catch(() => undefined))?.quiet ?? null);
   if (quietAt(quiet, now(), d.tz)) return "Quiet hours: queued issues start after them.";
   if ((await store.spent(now() - 24 * 60 * MIN)) >= s.dayUsd) return `Auto runs have spent $${s.dayUsd.toFixed(2)} in the last 24 hours, the day's cap.`;
-  let busy = rows.filter((r) => BUSY.includes(r.state)).length;
+  // Fix sessions (#326) hold slots too.
+  let busy = rows.filter((r) => BUSY.includes(r.state)).length + (await fixStore(d.db).open()).length;
   for (const row of queued) {
     if (busy >= s.atOnce) break;
     if (!(await store.claim(row.key, s.atOnce))) continue;
@@ -362,37 +384,21 @@ async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoR
         busy--;
         continue;
       }
-      const name = row.repo.split("/")[1]!.toLowerCase();
       const options: AutoOptions = autoOptionsOf(c.body);
       const caps = capsFor(s, options);
       const info = await d.ghe.rest<{ default_branch: string }>(`/repos/${row.repo}`);
-      // Hosted with several machines: the first online that has the checkout.
-      const machines = d.desk.view().machines?.filter((m) => m.online) ?? [];
-      let machine: string | undefined;
-      let checkout: string | undefined;
-      let silent: string | undefined;
-      for (const m of machines.length ? machines : [undefined]) {
-        const listed = await d.desk.repos(m?.id).catch(() => undefined);
-        if (!listed) {
-          silent ??= m?.name ?? m?.id ?? "The machine";
-          continue;
-        }
-        checkout = listed.find((r) => r.toLowerCase() === name);
-        if (checkout) {
-          machine = m?.id;
-          break;
-        }
-      }
+      const found = await findCheckout(d.desk, row.repo);
       // A machine that didn't answer (busy, or the bridge slow) may have it: ask again next pass.
-      if (!checkout && silent) {
-        await store.move(row.key, "starting", "queued", { why: `${silent} didn't list its checkouts in time; trying again.` });
+      if ("silent" in found) {
+        await store.move(row.key, "starting", "queued", { why: `${found.silent} didn't list its checkouts in time; trying again.` });
         return undefined;
       }
-      if (!checkout) {
-        await stuck(d, store, { ...row, state: "starting" }, `There's no checkout named ${name} in the code folder${machines.length ? " on a machine online" : ""}.`, undefined, true);
+      if ("none" in found) {
+        await stuck(d, store, { ...row, state: "starting" }, found.none, undefined, true);
         busy--;
         continue;
       }
+      const { checkout, machine } = found;
       const r = await d.desk.start({
         repo: checkout,
         prompt: autoPrompt({ repo: row.repo, number: row.number, title: c.title, body: c.body }),

@@ -116,6 +116,8 @@ export type StartOpts = {
   base?: string;
   maxMs?: number;
   budget?: number;
+  /** A sandbox run only (#326, fix sessions): at most this many agent turns. */
+  turns?: number;
   /** How hard it thinks (#236): a level from the harness's own list (`options.efforts`); each harness checks it again. */
   effort?: string;
   /** One side of a pair (#242): the pair's id. */
@@ -155,8 +157,11 @@ export type Runner = {
   byMcpToken(token: string): Run | undefined;
   /** Whether sandbox runs can start here, and why not; undefined when they aren't set up at all. */
   sandbox(): SandboxState | undefined;
-  /** Pushes a sandbox run's branch to origin, once checked (src/agents/sandbox.ts `push`): what it pushed. Throws why not. */
-  pushSandbox(id: string): Promise<{ repo: string; branch: string; head: string }>;
+  /**
+   * Pushes a sandbox run's branch to origin, once checked (src/agents/sandbox.ts `push`): what it
+   * pushed. `to`: onto that sandbox branch instead, never forced (a fix session, #326). Throws why not.
+   */
+  pushSandbox(id: string, to?: string): Promise<{ repo: string; branch: string; head: string }>;
   /** A sandbox run's draft PR is open: kept on the run, and the clone goes. */
   landed(id: string, pr: { number: number; url: string }): boolean;
 };
@@ -406,7 +411,9 @@ export function createRunner(opts: {
       // A copy is told it's one, so it leaves the terminal's unfinished work alone (the page shows the note as a line).
       // Yolo is set here and nowhere else: whatever the caller passed, only a sandbox run has it.
       // The caps and base are a sandbox run's alone.
-      const caps = box ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined } : { base: undefined, maxMs: undefined, budget: undefined };
+      const caps = box
+        ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined, turns: given.turns && given.turns > 0 ? given.turns : undefined }
+        : { base: undefined, maxMs: undefined, budget: undefined, turns: undefined };
       let o: HarnessOpts = { ...given, ...caps, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
       const id = randomUUID();
       // Hosts the box was refused: on the run, so its page can say what to allow.
@@ -545,15 +552,15 @@ export function createRunner(opts: {
       return runs.get(id)?.sessionId;
     },
     sandbox: () => opts.sandbox?.state(),
-    async pushSandbox(id) {
+    async pushSandbox(id, to) {
       const run = runs.get(id);
       const out = ready(run);
       if (!run || !opts.sandbox || !out) throw new Error("There's nothing from that run to push.");
       if (run.discarded) throw new Error("It was discarded: its branch is gone.");
       if (out.pr) throw new Error(`Its draft PR is open already: #${out.pr.number}.`);
       if (!out.repo) throw new Error("The checkout's origin isn't a repo on the forge.");
-      await opts.sandbox.push({ cwd: run.cwd, branch: out.branch, head: out.head, repo: out.repo });
-      return { repo: out.repo, branch: out.branch, head: out.head };
+      await opts.sandbox.push({ cwd: run.cwd, branch: out.branch, head: out.head, repo: out.repo, ...(to ? { to } : {}) });
+      return { repo: out.repo, branch: to ?? out.branch, head: out.head };
     },
     landed(id, pr) {
       const run = runs.get(id);

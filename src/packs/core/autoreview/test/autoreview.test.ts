@@ -14,7 +14,7 @@ import { H, assertInert } from "../../../../../test/helpers.ts";
 
 const PR = "https://github.com/acme/web/pull/7";
 const autoPr = (o: Partial<AutoPr> = {}): AutoPr => ({ key: "acme/web#3", repo: "acme/web", number: 3, title: "Fix", pr: PR, run: "r1", cost: 1, updated: 1, ...o });
-const shareOf = (prs: AutoPr[]): AutoShare => ({ prs: async () => prs, run: async () => undefined });
+const shareOf = (prs: AutoPr[]): AutoShare => ({ prs: async () => prs, run: async () => undefined, limits: async () => ({ on: true, runUsd: 5, dayUsd: 20, minutes: 60 }), fix: async () => ({ wait: "" }), land: async () => ({ wait: "" }) });
 
 test("prOf: owner/repo and the number from a PR's address, nothing from anything else", () => {
   assert.deepEqual(prOf(PR), { repo: "acme/web", number: 7 });
@@ -30,7 +30,7 @@ test("the store: a PR added once, levels kept round by round and clamped, and a 
   assert.equal(await s.add({ pr: PR, issue: "acme/web#3" }), false, "kept already");
   assert.equal(await s.add({ pr: "not a pr", issue: "x" }), false);
   let [r] = await s.all();
-  assert.deepEqual({ ...r, levels: r!.levels }, { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, round: 0, head: null, level: null, levels: [], cost: 0, state: "reviewing", why: null, claim: null, at: 100, updated: 100 });
+  assert.deepEqual({ ...r, levels: r!.levels }, { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, round: 0, head: null, review: null, fix: null, level: null, levels: [], cost: 0, state: "reviewing", why: null, claim: null, at: 100, updated: 100 });
   t = 200;
   assert.equal(await s.level(PR, "fixing", { head: "abc", level: 3 }), false, "not in that state");
   assert.equal(await s.level(PR, "reviewing", { head: "abc", level: 9, cost: 0.5 }), true);
@@ -55,13 +55,16 @@ test("the agents pack shares its auto runs that ended in a PR, and a run's resul
   assert.deepEqual((await share.prs()).map((p) => [p.key, p.pr, p.run, p.cost]), [["acme/web#3", PR, "r1", 2]]);
   assert.deepEqual(await share.run("r1"), { id: "r1", status: "done", cost: 2, model: "opus", endedAt: 5 });
   assert.equal(await share.run("gone"), undefined);
+  // The agent's last word, when it has one; never its prompt or its other events.
+  (desk as unknown as { run: (id: string) => Promise<unknown> }).run = async (id) => ({ id, status: "done", cost: 2, model: "opus", prompt: "secret", events: [{ t: "tool", name: "Bash" }, { t: "result", text: " Done. " }] });
+  assert.deepEqual(await share.run("r1"), { id: "r1", status: "done", cost: 2, model: "opus", said: "Done." });
 });
 
 test("the pack: off without the agents pack's share, else keeps each new auto PR, says so once, and shows it on the PR's page", async () => {
   const { DB } = openDb();
   const p = autoreviewPack();
   assert.deepEqual(p.manifest.requires, ["agents"]);
-  assert.deepEqual(p.writes!.map((w) => w.kind), ["review", "reply", "merge"]);
+  assert.deepEqual(p.writes!.map((w) => w.kind), ["review", "fix", "reply", "merge"]);
   const published: string[][] = [];
   let share: AutoShare | undefined;
   const ctx = testContext({ db: DB, publish: (t) => published.push(t), required: ((id: string, name: string) => (id === "agents" && name === "auto" ? share : undefined)) as PackContext["required"] }) as PackContext;
@@ -78,7 +81,7 @@ test("the pack: off without the agents pack's share, else keeps each new auto PR
 });
 
 test("the PR page's row: waiting for a first review, then the level, the round and the levels so far; hostile text inert", () => {
-  const base = { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, claim: null, head: null, cost: 0, at: 1, updated: 1 };
+  const base = { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, claim: null, head: null, review: null, fix: null, cost: 0, at: 1, updated: 1 };
   assert.equal(String(levelFact({ ...base, round: 0, level: null, levels: [], state: "reviewing", why: null })[1]), "Waiting for its first review · being reviewed");
   const out = String(levelFact({ ...base, round: 2, level: 4, levels: [1, 3, 4].map((level, round) => ({ round, head: "h", level, at: 1 })), state: "yours", why: H })[1]);
   assert.match(out, /^Level 4 of 5 · round 2 · handed to you: /);

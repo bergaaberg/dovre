@@ -9,6 +9,7 @@ const STATE: Record<PrState, string> = {
   "waiting-ci": "waiting for CI",
   merging: "merging",
   merged: "merged",
+  closed: "closed",
   yours: "handed to you",
 };
 

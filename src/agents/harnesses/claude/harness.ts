@@ -49,6 +49,7 @@ export function argsFor(o: HarnessOpts): string[] {
   if (o.model) args.push("--model", o.model);
   // A sandbox run's caps (#207): Claude Code stops itself at the budget.
   if (o.yolo && o.budget) args.push("--max-budget-usd", String(o.budget));
+  if (o.yolo && o.turns) args.push("--max-turns", String(o.turns));
   const effort = effortIn(CLAUDE_OPTIONS.efforts, o.effort);
   if (effort) args.push("--effort", effort);
   if (o.resume) args.push("--resume", o.resume);

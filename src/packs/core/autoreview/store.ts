@@ -5,7 +5,7 @@
  */
 import type { D1 } from "../../../db.ts";
 
-export type PrState = "reviewing" | "fixing" | "waiting-ci" | "merging" | "merged" | "yours";
+export type PrState = "reviewing" | "fixing" | "waiting-ci" | "merging" | "merged" | "closed" | "yours";
 
 /** One round's level, on the commit it reviewed. */
 export type LevelAt = { round: number; head: string; level: number; at: number };
@@ -21,8 +21,11 @@ export type PrRow = {
   run: string | null;
   author: string | null;
   round: number;
-  /** The head commit last reviewed. */
+  /** The head commit last reviewed, and the review posted on it (its comments are what a fix session answers). */
   head: string | null;
+  review: number | null;
+  /** The fix session working on it now (its run on the agents pack's machine), while fixing. */
+  fix: string | null;
   /** The level now, 1 to 5; null before the first review. */
   level: number | null;
   /** Every round's level, oldest first. */
@@ -39,7 +42,7 @@ export type PrRow = {
 };
 
 const SCHEMA = [
-  "CREATE TABLE IF NOT EXISTS autoreview_prs (pr TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, issue TEXT NOT NULL, run TEXT, author TEXT, round INTEGER NOT NULL DEFAULT 0, head TEXT, level INTEGER, levels TEXT NOT NULL DEFAULT '[]', cost REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, why TEXT, claim INTEGER, at INTEGER NOT NULL, updated INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS autoreview_prs (pr TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL, issue TEXT NOT NULL, run TEXT, author TEXT, round INTEGER NOT NULL DEFAULT 0, head TEXT, review INTEGER, fix TEXT, level INTEGER, levels TEXT NOT NULL DEFAULT '[]', cost REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, why TEXT, claim INTEGER, at INTEGER NOT NULL, updated INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS autoreview_prs_state ON autoreview_prs (state)",
 ];
 
@@ -89,15 +92,15 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       return Number(res.meta?.changes ?? 0) === 1;
     },
     /** A round's level on `head`: kept as the level now and added to the history, only from the state it was seen in. */
-    async level(pr: string, from: PrState, l: { head: string; level: number; cost?: number }): Promise<boolean> {
+    async level(pr: string, from: PrState, l: { head: string; level: number; cost?: number; review?: number }): Promise<boolean> {
       await ensureSchema(db);
       const row = await db.prepare("SELECT round, levels FROM autoreview_prs WHERE pr = ? AND state = ?").bind(pr, from).first<{ round: number; levels: string }>();
       if (!row) return false;
       const level = Math.min(5, Math.max(1, Math.trunc(l.level)));
       const levels = [...levelsOf(row.levels), { round: row.round, head: l.head, level, at: now() }];
       const res = await db
-        .prepare("UPDATE autoreview_prs SET head = ?, level = ?, levels = ?, cost = cost + ?, claim = NULL, updated = ? WHERE pr = ? AND state = ? AND round = ?")
-        .bind(l.head, level, JSON.stringify(levels), l.cost ?? 0, now(), pr, from, row.round)
+        .prepare("UPDATE autoreview_prs SET head = ?, review = ?, level = ?, levels = ?, cost = cost + ?, claim = NULL, updated = ? WHERE pr = ? AND state = ? AND round = ?")
+        .bind(l.head, l.review ?? null, level, JSON.stringify(levels), l.cost ?? 0, now(), pr, from, row.round)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
     },
@@ -121,12 +124,21 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       await ensureSchema(db);
       await db.prepare("UPDATE autoreview_prs SET author = ? WHERE pr = ? AND author IS NULL").bind(model, pr).run();
     },
-    /** Moves a row on, only from the state it was seen in: false when another pass moved it first. */
-    async move(pr: string, from: PrState, to: PrState, set: { why?: string | null; round?: number } = {}): Promise<boolean> {
+    /** The fix session started on it, while it's fixing. */
+    async fixing(pr: string, run: string): Promise<boolean> {
+      await ensureSchema(db);
+      const res = await db.prepare("UPDATE autoreview_prs SET fix = ?, updated = ? WHERE pr = ? AND state = 'fixing' AND fix IS NULL").bind(run, now(), pr).run();
+      return Number(res.meta?.changes ?? 0) === 1;
+    },
+    /**
+     * Moves a row on, only from the state it was seen in: false when another pass moved it first.
+     * Its fix session is let go (a row fixing has one only while it stays fixing); `cost` is added.
+     */
+    async move(pr: string, from: PrState, to: PrState, set: { why?: string | null; round?: number; cost?: number } = {}): Promise<boolean> {
       await ensureSchema(db);
       const res = await db
-        .prepare("UPDATE autoreview_prs SET state = ?, why = ?, round = COALESCE(?, round), claim = NULL, updated = ? WHERE pr = ? AND state = ?")
-        .bind(to, set.why ?? null, set.round ?? null, now(), pr, from)
+        .prepare("UPDATE autoreview_prs SET state = ?, why = ?, round = COALESCE(?, round), cost = cost + ?, fix = NULL, claim = NULL, updated = ? WHERE pr = ? AND state = ?")
+        .bind(to, set.why ?? null, set.round ?? null, set.cost ?? 0, now(), pr, from)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
     },

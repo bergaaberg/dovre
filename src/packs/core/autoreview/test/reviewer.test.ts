@@ -5,7 +5,7 @@ import { openDb } from "../../../../db.ts";
 import type { PrFile } from "../../../../sources/prview.ts";
 import type { AutoShare } from "../../../types.ts";
 import { capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, riskOf, verdictOf } from "../reviewer.ts";
-import { reviewPass, type ReviewDeps } from "../round.ts";
+import { CI_WAIT_MS, MAX_ROUNDS, reviewPass, type ReviewDeps } from "../round.ts";
 import { prsStore } from "../store.ts";
 
 const PR = "https://github.com/acme/web/pull/7";
@@ -88,18 +88,25 @@ function setup(o: { head?: string; merged?: boolean; model?: string; reply?: str
       gh.calls.push(`${init?.method ?? "GET"} ${path}`);
       if (init?.method === "POST" && path.endsWith("/reviews")) {
         gh.posted.push(init.body);
-        return { html_url: "https://github.com/acme/web/pull/7#r1" } as T;
+        return { html_url: "https://github.com/acme/web/pull/7#r1", id: 99 } as T;
       }
       if (path === "/repos/acme/web/pulls/7") return { state: o.merged ? "closed" : "open", merged: !!o.merged, title: "Fix", body: "", head: { sha: gh.head }, user: { login: "me" } } as T;
       if (path.startsWith("/repos/acme/web/pulls/7/files")) return [{ filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1,2 +1,3 @@\n a\n+b\n c", sha: "f" }] as T;
       if (path === "/repos/acme/web/issues/3") return { title: "Fix login", body: "It breaks." } as T;
-      if (path.includes("/check-runs")) return { check_runs: [{ status: "completed", conclusion: o.ci ?? "success" }] } as T;
+      if (path.includes("/check-runs")) return { check_runs: [o.ci === "pending" ? { status: "in_progress", conclusion: null } : { status: "completed", conclusion: o.ci ?? "success" }] } as T;
       if (path.endsWith("/status")) return { statuses: [] } as T;
       throw new Error(`unexpected ${path}`);
     },
   };
   const asked: { model?: string; user: string }[] = [];
-  const auto: AutoShare = { prs: async () => [], run: async (id) => (o.runModel === null ? undefined : { id, status: "done", cost: 1, model: o.runModel ?? "opus" }) };
+  let reply = o.reply;
+  const auto: AutoShare = {
+    prs: async () => [],
+    run: async (id) => (o.runModel === null ? undefined : { id, status: "done", cost: 1, model: o.runModel ?? "opus" }),
+    limits: async () => ({ on: true, runUsd: 5, dayUsd: 20, minutes: 60 }),
+    fix: async () => ({ wait: "" }),
+    land: async () => ({ wait: "" }),
+  };
   let clicks = new Map<string, "once" | "twice">();
   const deps: ReviewDeps = {
     db: DB,
@@ -111,14 +118,14 @@ function setup(o: { head?: string; merged?: boolean; model?: string; reply?: str
       model: o.model ?? "claude-opus-5-5",
       ask: async (p) => {
         asked.push({ model: p.model, user: p.user });
-        return { text: o.reply ?? block({ kind: "comment", tag: "nit", path: "src/a.ts", line: 2, side: "RIGHT", text: "Name it better." }, { ...LEVEL, level: 5 }), cost: 0.02 };
+        return { text: reply ?? block({ kind: "comment", tag: "nit", path: "src/a.ts", line: 2, side: "RIGHT", text: "Name it better." }, { ...LEVEL, level: 5 }), cost: 0.02 };
       },
     },
     clicks: async () => clicks,
     log: () => {},
   };
   const store = prsStore(DB);
-  return { DB, gh, asked, deps, store, setClicks: (c: Map<string, "once" | "twice">) => (clicks = c), add: () => store.add({ pr: PR, issue: "acme/web#3", run: "r1" }) };
+  return { DB, gh, asked, deps, store, setReply: (r: string) => (reply = r), setClicks: (c: Map<string, "once" | "twice">) => (clicks = c), add: () => store.add({ pr: PR, issue: "acme/web#3", run: "r1" }) };
 }
 
 test("a pass: one Comment review of the head commit by another model than the author's, its level kept; the same head isn't reviewed twice, a new one is", async () => {
@@ -133,11 +140,13 @@ test("a pass: one Comment review of the head commit by another model than the au
   assert.equal(s.gh.posted[0].commit_id, "sha1");
   assert.equal(s.gh.posted[0].comments[0].body, "nit: Name it better.");
   let [r] = await s.store.all();
-  assert.deepEqual([r!.level, r!.head, r!.author, r!.claim, r!.state, r!.cost], [5, "sha1", "opus", null, "reviewing", 0.02]);
-  assert.match(r!.why!, /^Level 5 from claude-sonnet-5-5: 1 nit\.$/);
+  // Level 5 is mine to merge, for now.
+  assert.deepEqual([r!.level, r!.head, r!.author, r!.claim, r!.state, r!.cost], [5, "sha1", "opus", null, "yours", 0.02]);
+  assert.match(r!.why!, /^Level 5 from claude-sonnet-5-5: 1 nit\. Mergeable as is/);
   const log = await s.DB.prepare("SELECT kind, target, ok FROM actions").all<{ kind: string }>();
   assert.deepEqual(log.results.map((x) => x.kind), ["autoreview.review"]);
 
+  await s.store.move(PR, "yours", "reviewing");
   assert.equal(await reviewPass(s.deps), false, "the same head");
   assert.equal(s.asked.length, 1);
   s.gh.head = "sha2";
@@ -206,4 +215,88 @@ test("a pass: a PR another pass is reviewing is left to it", async () => {
   assert.equal(await s.store.claim(PR, "reviewing", 60_000), true);
   await reviewPass(s.deps);
   assert.equal(s.asked.length, 0);
+});
+
+// ── The decide step (#326 step 4) ──
+
+const SHOULD = { kind: "comment", tag: "should-fix", path: "src/a.ts", line: 2, side: "RIGHT", text: "Check the token first." };
+const at = (level: number, ...comments: unknown[]) => block(...comments, { ...LEVEL, level });
+
+test("decide: a should-fix below 5 starts fix round 1 with the review's id kept; nothing but nits hands it to me", async () => {
+  const s = setup({ reply: at(3, SHOULD) });
+  await s.add();
+  await reviewPass(s.deps);
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.round, r!.review, r!.level], ["fixing", 1, 99, 3]);
+  assert.match(r!.why!, /Round 1: a fix session for 1 comment\.$/);
+
+  const t = setup({ reply: at(4, { ...SHOULD, tag: "nit" }) });
+  await t.add();
+  await reviewPass(t.deps);
+  [r] = await t.store.all();
+  assert.equal(r!.state, "yours");
+  assert.match(r!.why!, /Nothing for a fix session to do/);
+});
+
+test("decide: CI red is something to fix even without comments", async () => {
+  const s = setup({ ci: "failure", reply: at(4) });
+  await s.add();
+  await reviewPass(s.deps);
+  const [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.level], ["fixing", 2]);
+  assert.match(r!.why!, /a fix session for CI failing\.$/);
+});
+
+test("decide: the limits hand it to me: the last fix round, a level not up in two rounds, the PR's cost cap", async () => {
+  // Round after round at level 3: after two fix rounds, the third review sees no progress.
+  const s = setup({ reply: at(3, SHOULD) });
+  await s.add();
+  for (const head of ["sha1", "sha2", "sha3"]) {
+    s.gh.head = head;
+    await reviewPass(s.deps);
+    const [r] = await s.store.all();
+    if (r!.state === "fixing") await s.store.move(PR, "fixing", "reviewing");
+  }
+  let [r] = await s.store.all();
+  assert.equal(r!.state, "yours");
+  assert.match(r!.why!, /hasn't gone up in two rounds/);
+
+  // Rising each round, but the rounds run out.
+  const t = setup({ reply: at(1, SHOULD) });
+  await t.add();
+  for (let i = 0; i <= MAX_ROUNDS; i++) {
+    t.setReply(at(Math.min(4, i + 1), SHOULD));
+    t.gh.head = `sha${i}`;
+    await reviewPass(t.deps);
+    const [x] = await t.store.all();
+    if (x!.state === "fixing") await t.store.move(PR, "fixing", "reviewing");
+  }
+  [r] = await t.store.all();
+  assert.equal(r!.state, "yours");
+  assert.match(r!.why!, new RegExp(`${MAX_ROUNDS} fix rounds done`));
+
+  const u = setup({ reply: at(3, SHOULD) });
+  await u.add();
+  await u.store.release(PR, { cost: 15 });
+  await reviewPass(u.deps);
+  [r] = await u.store.all();
+  assert.equal(r!.state, "yours");
+  assert.match(r!.why!, /the cap for one PR \(\$15\.00\)/);
+});
+
+test("a review waits for CI still running, without a model call, then reviews anyway once it has waited long enough", async () => {
+  let t = 1_000_000;
+  const s = setup({ ci: "pending", reply: at(4) });
+  await s.add();
+  const deps = { ...s.deps, now: () => t };
+  await reviewPass(deps);
+  assert.equal(s.asked.length, 0);
+  assert.match((await s.store.all())[0]!.why!, /Waiting for CI on sha1/);
+  t += CI_WAIT_MS / 2;
+  await reviewPass(deps);
+  assert.equal(s.asked.length, 0);
+  t += CI_WAIT_MS;
+  await reviewPass(deps);
+  assert.equal(s.asked.length, 1);
+  assert.equal((await s.store.all())[0]!.level, 2, "capped: CI is still pending");
 });

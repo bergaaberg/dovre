@@ -90,7 +90,8 @@ export async function checkReplies(ghe: Ghe, repo: string, n: number, o: { revie
   }
 }
 
-export type Posted = { ok: boolean; message: string; url?: string; what?: string; partial?: boolean };
+/** `id`: the review's, when one posted. */
+export type Posted = { ok: boolean; message: string; url?: string; what?: string; partial?: boolean; id?: number };
 
 /** `kind`: what the actions log calls it (default pr.review; Auto review's is autoreview.review). */
 export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; me: string; draft: ReviewDraft; verdict: Verdict; by?: By; kind?: string }): Promise<Posted> {
@@ -99,9 +100,9 @@ export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: {
   if (!checked.ok) return { ok: false, message: checked.message };
   const what = draftCounts(checked.draft, o.verdict);
   try {
-    const r = await ghe.rest<{ html_url?: string }>(`/repos/${repo}/pulls/${n}/reviews`, { method: "POST", body: reviewRequest(checked.draft, o.verdict, checked.commit!) });
+    const r = await ghe.rest<{ html_url?: string; id?: number }>(`/repos/${repo}/pulls/${n}/reviews`, { method: "POST", body: reviewRequest(checked.draft, o.verdict, checked.commit!) });
     await logAction(db, { kind: o.kind ?? "pr.review", target, detail: what, ok: true });
-    return { ok: true, message: `Posted the review on ${target} (${what}).`, url: typeof r?.html_url === "string" ? r.html_url : undefined, what };
+    return { ok: true, message: `Posted the review on ${target} (${what}).`, url: typeof r?.html_url === "string" ? r.html_url : undefined, what, ...(Number.isInteger(r?.id) ? { id: r.id } : {}) };
   } catch (e) {
     const error = String((e as Error).message ?? e);
     await logAction(db, { kind: o.kind ?? "pr.review", target, detail: what, ok: false, error });
@@ -109,8 +110,8 @@ export async function postReview(ghe: Ghe, db: D1, repo: string, n: number, o: {
   }
 }
 
-/** Replies one by one; one that fails doesn't stop the rest, and the message says which. */
-export async function postReplies(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; draft: TriageDraft }): Promise<Posted> {
+/** Replies one by one; one that fails doesn't stop the rest, and the message says which. `kind`: what the actions log calls it (default pr.replies). */
+export async function postReplies(ghe: Ghe, db: D1, repo: string, n: number, o: { reviewed: string; draft: TriageDraft; kind?: string }): Promise<Posted> {
   const target = `${repo}#${n}`;
   const checked = await checkReplies(ghe, repo, n, o);
   if (!checked.ok) return { ok: false, message: checked.message };
@@ -135,7 +136,7 @@ export async function postReplies(ghe: Ghe, db: D1, repo: string, n: number, o: 
     }
   }
   const what = draftCounts({ kind: "triage", replies: d.replies.slice(0, sent), comment: general ? d.comment : "" }) || "nothing";
-  await logAction(db, { kind: "pr.replies", target, detail: what, ok: !failed.length, error: failed.slice(0, 5).join("; ") || undefined });
+  await logAction(db, { kind: o.kind ?? "pr.replies", target, detail: what, ok: !failed.length, error: failed.slice(0, 5).join("; ") || undefined });
   if (!failed.length) return { ok: true, message: `Posted ${what} on ${target}.`, what };
   return { ok: sent > 0 || general, partial: true, message: `Posted ${what} on ${target}; ${failed.length} failed, first ${failed[0]}`, what };
 }
