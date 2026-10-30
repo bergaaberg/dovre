@@ -276,9 +276,8 @@ export class DovreHub {
     const route = hostedBinoRoute(this.env, this.fetchFn, (l) => console.log(l));
     if (!this.env.DB || !route.ready || !route.ask) return false;
     this.checking++;
-    this.lastCheck = runCheck(this.env.DB, route.ask, job).finally(() => {
+    this.lastCheck = runCheck(this.env.DB, route.ask, job, () => this.publish([topic])).finally(() => {
       this.checking--;
-      this.publish([topic]);
     });
     const at = await this.state.storage.getAlarm?.();
     if (!at) await this.state.storage.setAlarm(Date.now() + AWAKE_MS);

@@ -88,9 +88,12 @@ Kinds of card:
 
 A few strong cards beat many; at most ${MAX_CARDS}. No praise, no restating what a comment says. When the review is fine, return no cards.
 
-Answer with one fenced block and nothing after it:
+Answer with one fenced block and nothing after it, one card per line as a JSON object (each shows as soon as its line ends), an empty block for none:
 \`\`\`${CHECK_FENCE}
-{"cards":[{"kind":"rewrite","on":"c12","why":"…","text":"…"},{"kind":"nit","on":"summary","why":"…"},{"kind":"contradiction","on":"c3","also":"c7","why":"…"},{"kind":"missed","path":"src/a.ts","line":42,"side":"RIGHT","why":"…","text":"…"}]}
+{"kind":"rewrite","on":"c12","why":"…","text":"…"}
+{"kind":"nit","on":"summary","why":"…"}
+{"kind":"contradiction","on":"c3","also":"c7","why":"…"}
+{"kind":"missed","path":"src/a.ts","line":42,"side":"RIGHT","why":"…","text":"…"}
 \`\`\`
 "why" is one or two sentences for the reviewer. Texts are Markdown.`;
 
@@ -104,9 +107,10 @@ Kinds of card:
 
 A few strong comments beat many; at most ${MAX_CARDS} cards. When the PR is fine, return just the summary saying so.
 
-Answer with one fenced block and nothing after it:
+Answer with one fenced block and nothing after it, one card per line as a JSON object (each shows as soon as its line ends), the summary last:
 \`\`\`${CHECK_FENCE}
-{"cards":[{"kind":"missed","path":"src/a.ts","line":42,"side":"RIGHT","why":"…","text":"…"},{"kind":"rewrite","on":"summary","why":"…","text":"…"}]}
+{"kind":"missed","path":"src/a.ts","line":42,"side":"RIGHT","why":"…","text":"…"}
+{"kind":"rewrite","on":"summary","why":"…","text":"…"}
 \`\`\`
 "why" is one sentence for the reviewer on why it matters. Texts are Markdown.`;
 
@@ -152,20 +156,46 @@ const targetOf = (v: unknown, ids: Set<number>): Target | undefined => {
 /**
  * The cards from the reply's last block, checked one by one: a target that isn't my summary or one
  * of my comments, a missed issue on a line GHE wouldn't take, a rewrite that changes nothing, are
- * left out. Null when there's no usable block at all (bad JSON, or none).
+ * left out. The block is one card per line, or (as before) {"cards":[…]}. Null when there's no
+ * usable block at all (no block, or not one line of JSON in it).
  */
 export function cardsOf(reply: string, review: MyReview, files: PrFile[]): Card[] | null {
   const re = new RegExp("```" + CHECK_FENCE + "[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n?```", "g");
   const blocks = [...reply.matchAll(re)];
   if (!blocks.length) return null;
-  let raw: unknown;
+  const body = blocks[blocks.length - 1]![1]!;
+  // The older form, a whole {"cards":[…]}; one line that's a card on its own is the newer.
+  const whole = jsonOf(body) as { cards?: unknown } | undefined;
+  if (whole && typeof whole === "object" && "cards" in whole) return Array.isArray(whole.cards) ? cleanCards(whole.cards, review, files) : null;
+  const lines = body.split(/\r?\n/).filter((l) => l.trim());
+  const list = lines.map(jsonOf).filter((x) => x !== undefined);
+  return lines.length && !list.length ? null : cleanCards(list, review, files);
+}
+
+/** The cards whose lines are done in a reply still being written: none before its block opens. */
+export function cardsSoFar(soFar: string, review: MyReview, files: PrFile[]): Card[] {
+  const open = "```" + CHECK_FENCE;
+  const at = soFar.lastIndexOf(open);
+  if (at < 0) return [];
+  const rest = soFar.slice(at + open.length);
+  const nl = rest.indexOf("\n");
+  if (nl < 0) return [];
+  const lines = rest.slice(nl + 1).split(/\r?\n/);
+  // The last line is still being written, unless the block has closed.
+  const close = lines.findIndex((l) => l.trim().startsWith("```"));
+  const done = close >= 0 ? lines.slice(0, close) : lines.slice(0, -1);
+  return cleanCards(done.map(jsonOf).filter((x) => x !== undefined), review, files);
+}
+
+function jsonOf(s: string): unknown {
   try {
-    raw = JSON.parse(blocks[blocks.length - 1]![1]!);
+    return JSON.parse(s);
   } catch {
-    return null;
+    return undefined;
   }
-  const list = raw && typeof raw === "object" && Array.isArray((raw as { cards?: unknown }).cards) ? ((raw as { cards: unknown[] }).cards) : null;
-  if (!list) return null;
+}
+
+function cleanCards(list: unknown[], review: MyReview, files: PrFile[]): Card[] {
   const ids = new Set(review.comments.map((c) => c.id));
   const current = (t: Target) => (t === "summary" ? review.summary : (review.comments.find((c) => c.id === t)?.body ?? ""));
   const out: Card[] = [];
@@ -237,22 +267,43 @@ export async function saveCheck(db: D1, who: string, pr: string, check: Check | 
  * Runs a check started by `startCheck`: the model's answer, its cards, kept on the review. Only
  * while that run is still the review's (not discarded, posted or started again). Never throws.
  */
-export async function runCheck(db: D1, ask: Complete, job: CheckJob): Promise<void> {
+export async function runCheck(db: D1, ask: Complete, job: CheckJob, told?: () => void): Promise<void> {
   const base = { sha: job.review.sha, at: job.at, model: job.model, cost: 0, cards: [] as Card[], ...(job.mode === "review" ? { mode: "review" as const } : {}) };
+  const ours = async () => {
+    const now = await checkOf(db, job.who, job.pr);
+    return !!now?.running && now.at === job.at;
+  };
+  // Streamed: each card that's done is kept as it comes (still running), and the page told. One save at a time.
+  let shown = 0;
+  let saving: Promise<void> = Promise.resolve();
+  const onText = (soFar: string) => {
+    const cards = cardsSoFar(soFar, job.review, job.files);
+    if (cards.length <= shown) return;
+    shown = cards.length;
+    saving = saving
+      .then(async () => {
+        if (shown !== cards.length || !(await ours())) return;
+        await saveCheck(db, job.who, job.pr, { ...base, cards, running: true });
+        told?.();
+      })
+      .catch((e) => console.error(`review check: ${(e as Error)?.message ?? e}`));
+  };
   let done: Check;
   try {
-    const reply = await ask({ system: job.mode === "review" ? REVIEW_SYSTEM : CHECK_SYSTEM, user: job.user, signal: AbortSignal.timeout(CHECK_MS) });
+    const reply = await ask({ system: job.mode === "review" ? REVIEW_SYSTEM : CHECK_SYSTEM, user: job.user, signal: AbortSignal.timeout(CHECK_MS), onText });
     const cards = cardsOf(reply.text, job.review, job.files);
     done = cards ? { ...base, cost: reply.cost, cards } : { ...base, cost: reply.cost, error: "The agent answered, but not with cards Dovre could read. Try again." };
   } catch (e) {
     done = { ...base, error: `The agent didn't answer: ${String((e as Error)?.message ?? e).slice(0, 200)}` };
   }
+  shown = Infinity;
+  await saving;
   try {
-    const now = await checkOf(db, job.who, job.pr);
-    if (now?.running && now.at === job.at) await saveCheck(db, job.who, job.pr, done);
+    if (await ours()) await saveCheck(db, job.who, job.pr, done);
   } catch (e) {
     console.error(`review check: ${(e as Error)?.message ?? e}`);
   }
+  told?.();
 }
 
 /** The job for my review as it is now, kept as running; the caller runs it (or hands it on). */
