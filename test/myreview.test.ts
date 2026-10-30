@@ -387,6 +387,40 @@ test("the agent still writing: its cards so far show, read-only, and can't be ke
   assert.equal((await checkOf(db.DB, "", key))?.cards.length, 1);
 });
 
+test("the agent's line cards on the Files tab (dovre#316): under their lines, kept or dismissed there, read-only while it writes; summary cards stay on Your review", async () => {
+  const { text, post, db } = setup();
+  const key = "ACME/shop-api#840";
+  const mine = await addComment(db.DB, "", key, SHA, { path: PATH, side: "RIGHT", line: 12, body: "mine" });
+  assert.ok(mine.ok);
+  const cards = [
+    { id: 1, kind: "missed" as const, why: `Wrong count ${H}`, text: `Divide by the week ${H}`, at: { path: PATH, line: 11, side: "RIGHT" as const } },
+    { id: 2, kind: "rewrite" as const, why: "Clearer", text: "mine, said better", on: mine.id },
+    { id: 3, kind: "rewrite" as const, why: "Overall", text: "Summary text", on: "summary" as const },
+    { id: 4, kind: "missed" as const, why: "Gone", text: "far away", at: { path: PATH, line: 99, side: "RIGHT" as const } },
+  ];
+  await saveCheck(db.DB, "", key, { sha: SHA, at: Date.now(), model: "m", cost: 0, cards, running: true, mode: "review" });
+  let files = await text(`${B}/files`);
+  assertInert("agent cards on the files, writing", files);
+  assert.match(files, /id="k-1"/);
+  assert.doesNotMatch(files, /review\/check\/1"/, "read-only while it writes");
+  await saveCheck(db.DB, "", key, { sha: SHA, at: Date.now(), model: "m", cost: 0, cards, mode: "review" });
+  files = await text(`${B}/files`);
+  assertInert("agent cards on the files", files);
+  assert.match(files, /class="d-drafts"><td colspan="3"><form method="post" action="\/prs\/ACME\/shop-api\/840\/review\/check\/1"/, "the new comment's card under line 11");
+  assert.match(files, /id="c-\d+"[\s\S]*id="k-2"/, "the rewrite under my comment on line 12");
+  assert.doesNotMatch(files, /id="k-3"|id="k-4"/, "the summary card and the one off the diff stay on Your review");
+  assert.match(files, /2 from the agent/);
+  const kept = await post(`${B}/review/check/1`, { do: "keep", body: "Edited here", back: "files" });
+  const r = (await myReview(db.DB, "", key))!;
+  const added = r.comments.find((c) => c.line === 11)!;
+  assert.equal(added.body, "Edited here");
+  assert.equal(kept.headers.get("location"), `${B}/files#c-${added.id}`, "back to the comment it made");
+  const dropped = await post(`${B}/review/check/2`, { do: "drop", back: "files" });
+  assert.match(dropped.headers.get("location")!, new RegExp(`^${B}/files#f-`), "back to the card's file");
+  assert.deepEqual((await checkOf(db.DB, "", key))!.cards.map((c) => c.id), [3, 4]);
+  assert.equal((await post(`${B}/review/check/3`, { do: "drop" })).headers.get("location"), `${B}/review#check`, "from Your review, back there");
+});
+
 test("no agent to check with: no button, and the route says so", async () => {
   const { post, text } = setup();
   assert.doesNotMatch(await text(`${B}/review`), /Check with an agent/);

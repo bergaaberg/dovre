@@ -87,8 +87,8 @@ export type ReviewPageView = {
   topic?: string;
 };
 
-/** One of the agent's cards: what it's about, why, and its text to keep (as I edit it) or dismiss. */
-function checkCard(card: Card, comments: Pending[], base: string, mode: CheckMode, writing = false): Html {
+/** One of the agent's cards: what it's about, why, and its text to keep (as I edit it) or dismiss. `files`: shown at its line on the Files tab, and goes back there. */
+export function checkCard(card: Card, comments: Pending[], base: string, mode: CheckMode, writing = false, files = false): Html {
   const about = card.at
     ? html`<code class="draft-where">${whereOf({ ...card.at, body: "" })}</code>`
     : html`<code class="draft-where">${targetLabel(card.on!, comments)}</code>${card.also !== undefined ? html` and <code class="draft-where">${targetLabel(card.also, comments)}</code>` : ""}`;
@@ -102,7 +102,7 @@ ${card.why ? html`<div class="draft-text">${markdown(card.why)}</div>` : ""}${ca
 <div class="draft-card-h">${Pill({ children: cardLabel(card, mode) })}${about}</div>
 ${card.why ? html`<div class="draft-text">${markdown(card.why)}</div>` : ""}
 ${keep ? html`<textarea name="body" rows="${rows(card.text!)}" maxlength="${card.on === "summary" ? MAX_SUMMARY : MAX_BODY}" aria-label="The agent's text">\n${card.text}</textarea>` : ""}
-<div class="buttons">${keep ? html`<button type="submit" name="do" value="keep" class="sm">${label}</button>` : ""}<button type="submit" name="do" value="drop" class="ghost sm">Dismiss</button></div>
+<div class="buttons">${files ? html`<input type="hidden" name="back" value="files">` : ""}${keep ? html`<button type="submit" name="do" value="keep" class="sm">${label}</button>` : ""}<button type="submit" name="do" value="drop" class="ghost sm">Dismiss</button></div>
 </form>`;
 }
 
