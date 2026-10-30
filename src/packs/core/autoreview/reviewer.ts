@@ -9,6 +9,7 @@ import { shownDiff } from "../../../reviews/check.ts";
 import { cleanPath, cleanText, type LineComment, MAX_BODY, placeComments, type ReviewDraft, type Side } from "../../../reviews/draft.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import type { PrFile } from "../../../sources/prview.ts";
+import { marked } from "./owner.ts";
 
 export const FENCE = "auto-review";
 export const TAGS = ["blocker", "should-fix", "nit"] as const;
@@ -115,7 +116,8 @@ export function riskOf(path: string): string | undefined {
   return RISKY_PATH.test(path) ? "deploy, secrets, migrations or dependencies" : undefined;
 }
 
-export type Facts = { ci: Ci; files: PrFile[]; blockers: number; sizeLimit?: number };
+/** `owner`: what owners said that no round has taken in yet (owner.ts `heardOpen`), empty for nothing. */
+export type Facts = { ci: Ci; files: PrFile[]; blockers: number; sizeLimit?: number; owner?: string };
 export type Capped = { level: number; was: number; why: string[] };
 
 /** The reviewer's level, capped by the facts on this commit; `why` says which caps bit. */
@@ -129,6 +131,8 @@ export function capLevel(level: number, f: Facts): Capped {
   if (f.ci === "red") at(2, "CI fails on this commit");
   if (f.ci === "pending") at(2, "CI hasn't finished on this commit");
   if (f.blockers) at(2, f.blockers === 1 ? "a blocker is open" : `${f.blockers} blockers are open`);
+  // An owner's open comment counts as a blocker; their Request changes holds it too.
+  if (f.owner) at(2, f.owner);
   const risky = f.files.map((x) => [x.path, riskOf(x.path)] as const).filter(([, r]) => r);
   if (risky.length) at(3, `it touches ${[...new Set(risky.map(([, r]) => r))].join(" and ")} (${risky.slice(0, 3).map(([p]) => p).join(", ")}${risky.length > 3 ? ", …" : ""}), so a person merges it`);
   const size = f.files.reduce((n, x) => n + x.additions + x.deletions, 0);
@@ -161,8 +165,8 @@ export function reviewDraft(v: Verdict, c: Capped, o: { model: string; head: str
   ];
   return {
     kind: "review",
-    summary: lines.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
-    comments: v.comments.map(({ tag, ...l }) => ({ ...l, body: `${TAG_LABEL[tag]} ${l.body}` })),
+    summary: marked(lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()),
+    comments: v.comments.map(({ tag, ...l }) => ({ ...l, body: marked(`${TAG_LABEL[tag]} ${l.body}`) })),
   };
 }
 

@@ -8,6 +8,7 @@ import { autoConfigOf } from "../config.ts";
 import { capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, riskOf, verdictOf } from "../reviewer.ts";
 import { CI_WAIT_MS, MAX_ROUNDS, reviewPass, type ReviewDeps } from "../round.ts";
 import { prsStore } from "../store.ts";
+import { editorsOf, iso, type Said, saidAt } from "./said.ts";
 
 const PR = "https://github.com/acme/web/pull/7";
 const file = (o: Partial<PrFile> = {}): PrFile => ({ path: "src/a.ts", status: "modified", additions: 1, deletions: 0, sha: "f", patch: "@@ -1,2 +1,3 @@\n a\n+b\n c", ...o });
@@ -53,7 +54,7 @@ test("the review as posted: level and reasons on top, the cap said, each comment
   assert.match(d.summary, /^\*\*Auto review: level 2 of 5\*\* \(Real problems\), on abcdef1\./);
   assert.match(d.summary, /The reviewer said 5; capped at 2 because CI hasn't finished/);
   assert.match(d.summary, /Reviewed by claude-sonnet-5-5, which didn't write this PR\. 1 should-fix/);
-  assert.deepEqual(d.comments, [{ path: "src/a.ts", line: 2, side: "RIGHT", body: "**Should fix:** Handle the error." }]);
+  assert.deepEqual(d.comments, [{ path: "src/a.ts", line: 2, side: "RIGHT", body: "**Should fix:** Handle the error.\n\n<!-- dovre:autoreview -->" }]);
 });
 
 test("the prompt: the issue and the diff, never more than that", () => {
@@ -81,9 +82,9 @@ test("ciOf: red if any failed, pending if any runs, green when all passed, none 
 
 // ── One pass, with a fake forge and model ──
 
-function setup(o: { head?: string; merged?: boolean; model?: string; reply?: string; runModel?: string | null; owners?: string; ci?: string; config?: string } = {}) {
+function setup(o: { head?: string; merged?: boolean; model?: string; reply?: string; runModel?: string | null; owners?: string; ci?: string; config?: string; said?: Said[] } = {}) {
   const { DB } = openDb();
-  const gh = { head: o.head ?? "sha1", calls: [] as string[], posted: [] as any[] };
+  const gh = { head: o.head ?? "sha1", calls: [] as string[], posted: [] as any[], said: o.said ?? [] };
   const ghe = {
     rest: async <T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> => {
       gh.calls.push(`${init?.method ?? "GET"} ${path}`);
@@ -97,8 +98,11 @@ function setup(o: { head?: string; merged?: boolean; model?: string; reply?: str
       if (path === "/repos/acme/web/issues/3") return { title: "Fix login", body: "It breaks." } as T;
       if (path.includes("/check-runs")) return { check_runs: [o.ci === "pending" ? { status: "in_progress", conclusion: null } : { status: "completed", conclusion: o.ci ?? "success" }] } as T;
       if (path.endsWith("/status")) return { statuses: [] } as T;
+      const said = saidAt(path, gh.said);
+      if (said) return said as T;
       throw new Error(`unexpected ${path}`);
     },
+    graphql: async <T>(q: string): Promise<T> => (gh.calls.push(`graphql ${q}`), editorsOf(q) as T),
   };
   const asked: { model?: string; user: string }[] = [];
   let reply = o.reply;
@@ -140,7 +144,7 @@ test("a pass: one Comment review of the head commit by another model than the au
   assert.equal(s.gh.posted.length, 1);
   assert.equal(s.gh.posted[0].event, "COMMENT");
   assert.equal(s.gh.posted[0].commit_id, "sha1");
-  assert.equal(s.gh.posted[0].comments[0].body, "nit: Name it better.");
+  assert.equal(s.gh.posted[0].comments[0].body, "nit: Name it better.\n\n<!-- dovre:autoreview -->");
   let [r] = await s.store.all();
   // Level 5 is mine to merge, for now.
   assert.deepEqual([r!.level, r!.head, r!.author, r!.claim, r!.state, r!.cost], [5, "sha1", "opus", null, "yours", 0.02]);
@@ -230,7 +234,7 @@ test("decide: a should-fix below 5 starts fix round 1 with the review's id kept;
   await reviewPass(s.deps);
   let [r] = await s.store.all();
   assert.deepEqual([r!.state, r!.round, r!.review, r!.level], ["fixing", 1, 99, 3]);
-  assert.match(r!.why!, /Round 1: a fix session for 1 comment\.$/);
+  assert.match(r!.why!, /Round 1: a fix session for 1 review comment\.$/);
 
   const t = setup({ reply: at(4, { ...SHOULD, tag: "nit" }) });
   await t.add();
@@ -336,4 +340,76 @@ test("capLevel: a repo's size limit replaces the default", () => {
   const c = capLevel(5, { ci: "green", files, blockers: 0, sizeLimit: 20 });
   assert.equal(c.level, 3);
   assert.match(c.why[0]!, /over the limit of 20/);
+});
+
+// ── What owners say (#326 step 6) ──
+
+test("capLevel: an owner's open comment or Request changes holds the level at 2", () => {
+  const c = capLevel(5, { ci: "green", files: [file()], blockers: 0, owner: "acme's Request changes is open" });
+  assert.deepEqual([c.level, c.why], [2, ["acme's Request changes is open"]]);
+});
+
+test("a review: an owner's comment since the loop started caps the level at 2 and starts a round, past the rounds' limit too; a stranger's and Dovre's own don't", async () => {
+  const later = Date.now() + 60_000;
+  const s = setup({ reply: at(5), said: [{ kind: "issue", login: "acme", at: later, body: "Use the new client." }, { kind: "issue", login: "stranger", at: later }, { kind: "line", login: "me", at: later, body: "Fixed.\n\n<!-- dovre:autoreview -->" }] });
+  await s.add();
+  await s.store.move(PR, "reviewing", "fixing", { round: MAX_ROUNDS });
+  await s.store.move(PR, "fixing", "reviewing");
+  await reviewPass(s.deps);
+  const [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.level, r!.round], ["fixing", 2, MAX_ROUNDS + 1]);
+  assert.match(r!.why!, new RegExp(`Round ${MAX_ROUNDS + 1}: a fix session for 1 owner comment\\.$`));
+  assert.match(s.gh.posted[0].body, /capped at 2 because 1 owner comment is open/);
+
+  // Before the loop started, it was said to the draft: not this loop's.
+  const t = setup({ reply: at(5), said: [{ kind: "issue", login: "acme", at: Date.now() - 60_000 }] });
+  await t.add();
+  await reviewPass(t.deps);
+  assert.equal((await t.store.all())[0]!.level, 5);
+});
+
+test("a review: an owner's Request changes counts until they approve", async () => {
+  const later = Date.now() + 60_000;
+  const s = setup({ reply: at(5), said: [{ kind: "review", login: "acme", at: later, review: 3, state: "CHANGES_REQUESTED", body: "" }] });
+  await s.add();
+  await reviewPass(s.deps);
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.level], ["fixing", 2]);
+  assert.match(r!.why!, /a fix session for acme's Request changes\.$/);
+
+  const t = setup({ reply: at(5), said: [{ kind: "review", login: "acme", at: later, review: 3, state: "CHANGES_REQUESTED", body: "" }, { kind: "review", login: "acme", at: later + 5, review: 4, state: "APPROVED", body: "" }] });
+  await t.add();
+  await reviewPass(t.deps);
+  [r] = await t.store.all();
+  assert.equal(r!.level, 5, "approved since");
+});
+
+test("a PR handed to me: my comment after the hand-over starts a round; what was said before it doesn't; one someone else edited is said once", async () => {
+  const s = setup({ reply: at(4, { ...SHOULD, tag: "nit" }) });
+  await s.add();
+  await reviewPass(s.deps);
+  let [r] = await s.store.all();
+  assert.equal(r!.state, "yours");
+  const handed = r!.heard;
+  const later = { ...s.deps, now: () => Date.now() + 11 * 60_000 };
+  // Said before it was handed over: taken in already.
+  s.gh.said = [{ kind: "issue", login: "me", at: handed - 1 }];
+  await reviewPass(later);
+  assert.equal((await s.store.all())[0]!.state, "yours");
+  s.gh.said = [{ kind: "line", login: "me", at: handed + 1000, body: "Call it fetchUser." }];
+  await reviewPass({ ...s.deps, now: () => Date.now() + 22 * 60_000 });
+  [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.round], ["fixing", 1]);
+  assert.match(r!.why!, /^Round 1: a fix session for 1 owner comment\.$/);
+
+  const t = setup({ reply: at(4, { ...SHOULD, tag: "nit" }) });
+  await t.add();
+  await reviewPass(t.deps);
+  t.gh.said = [{ kind: "issue", login: "me", at: (await t.store.all())[0]!.heard + 1000, edited: Date.now() + 5 * 60_000, id: 901 }];
+  t.deps.ghe.graphql = async <X>(q: string): Promise<X> => editorsOf(q, { N_901: "mallory" }) as X;
+  assert.equal(await reviewPass({ ...t.deps, now: () => Date.now() + 11 * 60_000 }), true);
+  [r] = await t.store.all();
+  assert.equal(r!.state, "yours");
+  assert.match(r!.why!, /mallory edited me's comment/);
+  assert.equal(await reviewPass({ ...t.deps, now: () => Date.now() + 22 * 60_000 }), false, "said once");
 });

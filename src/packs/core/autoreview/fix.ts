@@ -1,17 +1,18 @@
 /**
  * One fix pass (#326 step 4): each PR in a fix round gets a fix session from the review's open
- * comments, started through the agents pack's share (a sandbox run from the reviewed head commit,
+ * comments and what owners said since the last round (owner.ts), started through the agents pack's share (a sandbox run from the reviewed head commit,
  * within auto runs' limits). Once it ends, its commits go onto the PR's branch, it replies on each
  * thread (`autoreview.reply`) and the PR goes back to review, whose next pass reads the new head.
  * Nothing committed, or anything it can't do safely: the PR is handed to me.
  */
 import { postReplies } from "../../../actions/reviews.ts";
 import type { D1 } from "../../../db.ts";
-import { owns } from "../../../owners.ts";
+import { owns, ownersOf } from "../../../owners.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import type { Clicks } from "../../../writes.ts";
 import type { AutoShare } from "../../types.ts";
 import { fixPrompt, type OpenComment, repliesOf, taggedOf } from "./fixer.ts";
+import { MARK, marked, ownerSays } from "./owner.ts";
 import { CLAIM_MS, PR_ROUNDS_USD } from "./round.ts";
 import { type PrRow, prsStore } from "./store.ts";
 
@@ -22,8 +23,10 @@ const BRANCH = /^sandbox\/[\w-]{1,64}$/;
 
 export type FixDeps = {
   db: D1;
-  ghe: Pick<Ghe, "rest">;
+  ghe: Pick<Ghe, "rest" | "graphql">;
   owners: string;
+  /** Who I am on the forge: my comments start rounds too. */
+  login: string;
   auto: AutoShare;
   clicks: () => Promise<Map<string, Clicks>>;
   log: (line: string) => void;
@@ -31,7 +34,7 @@ export type FixDeps = {
 };
 
 type RawPr = { state: string; merged?: boolean; html_url?: string; head: { sha: string; ref: string } };
-type RawComment = { id: number; path?: string; line?: number | null; original_line?: number | null; body?: string };
+type RawComment = { id: number; path?: string; line?: number | null; original_line?: number | null; body?: string; user?: { login?: string } | null; pull_request_review_id?: number | null };
 
 const issueOf = (key: string) => {
   const m = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(key);
@@ -75,22 +78,25 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
     if (pr.head.sha !== row.head) return store.move(row.pr, "fixing", "reviewing", { why: "New commits since the review: reviewing those." });
     if (!BRANCH.test(pr.head.ref)) return hand(`its branch ${pr.head.ref.slice(0, 100)} isn't an auto run's, so no fix session pushes to it.`);
     if ((await d.clicks()).get("autoreview.fix") === "twice") return wait("Settings → Writes asks twice before a fix session pushes, so none starts on its own.");
-    if (!row.review || !row.head) return hand("its review's comments couldn't be found.");
+    if (!row.head) return hand("the commit it fixes isn't known.");
     const limits = await d.auto.limits(row.repo);
     const left = PR_ROUNDS_USD * limits.runUsd - row.cost;
     if (left < MIN_BUDGET) return hand(`it has cost $${row.cost.toFixed(2)}, nearly the cap for one PR.`);
     if (!(await store.claim(row.pr, "fixing", CLAIM_MS))) return false;
     const at = issueOf(row.issue);
-    const [raw, issue, runs] = await Promise.all([
-      d.ghe.rest<RawComment[]>(`/repos/${row.repo}/pulls/${row.number}/reviews/${row.review}/comments?per_page=100`),
+    const [raw, heard, issue, runs] = await Promise.all([
+      row.review ? d.ghe.rest<RawComment[]>(`/repos/${row.repo}/pulls/${row.number}/reviews/${row.review}/comments?per_page=100`) : Promise.resolve([]),
+      ownerSays(d, row, row.heard),
       at ? d.ghe.rest<{ title?: string; body?: string | null }>(`/repos/${at.repo}/issues/${at.number}`) : Promise.resolve(undefined),
       d.ghe.rest<{ check_runs?: { name?: string; status?: string; conclusion?: string | null }[] }>(`/repos/${row.repo}/commits/${row.head}/check-runs?per_page=100`).catch(() => undefined),
     ]);
     const comments: OpenComment[] = (Array.isArray(raw) ? raw : [])
       .filter((c) => Number.isInteger(c?.id) && typeof c.body === "string")
       .map((c) => ({ id: c.id, path: String(c.path ?? ""), line: c.line ?? c.original_line ?? null, ...taggedOf(c.body!) }));
+    if (heard.refused) return hand(heard.refused);
+    if (!row.review && !heard.said.length) return hand("its review's comments couldn't be found.");
     const failing = (runs?.check_runs ?? []).filter((r) => r.status === "completed" && !["success", "neutral", "skipped"].includes(r.conclusion ?? "")).map((r) => String(r.name ?? "a check").slice(0, 100));
-    const prompt = fixPrompt({ repo: row.repo, number: row.number, issue: { ref: row.issue, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" }, comments, failing, round: row.round });
+    const prompt = fixPrompt({ repo: row.repo, number: row.number, issue: { ref: row.issue, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" }, comments, owner: heard.said, failing, round: row.round });
     const r = await d.auto.fix({ key: row.issue, pr: row.pr, repo: row.repo, head: row.head, prompt, model: row.author ?? "", budget: Math.min(limits.runUsd, left) });
     if ("error" in r) return hand(`its fix session couldn't start: ${r.error}`);
     if ("wait" in r) {
@@ -98,6 +104,8 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
       return row.why !== `Round ${row.round}: ${r.wait}`;
     }
     await store.fixing(row.pr, r.run);
+    // What owners said up to the newest comment it was given is in this round now.
+    if (heard.said.length) await store.heard(row.pr, Math.max(...heard.said.map((s) => s.at)));
     await store.release(row.pr, { why: `Round ${row.round}: a fix session is working on it.` });
     return true;
   }
@@ -121,7 +129,7 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
   // Its replies on each thread, unless replies ask twice on Settings → Writes.
   let replied = "";
   const ids = await commentIds(d, row);
-  const replies = repliesOf(landed.said, ids);
+  const replies = repliesOf(landed.said, ids).map((x) => ({ ...x, body: marked(x.body) }));
   if (replies.length && (await d.clicks()).get("autoreview.reply") !== "twice") {
     const posted = await postReplies(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: landed.head, draft: { kind: "triage", replies, comment: "" }, kind: "autoreview.reply" });
     replied = posted.ok ? `, replied on ${replies.length} thread${replies.length === 1 ? "" : "s"}` : `; its replies didn't post (${posted.message.slice(0, 200)})`;
@@ -129,8 +137,12 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
   return store.move(row.pr, "fixing", "reviewing", { why: `Round ${row.round}: pushed ${landed.head.slice(0, 7)}${replied}; reviewing it.`, cost: landed.cost });
 }
 
-/** The ids of the review's comments: only those get replies. */
+/** The line comments a fix session may reply on: its review's and owners' own (never Dovre's other posts, nor anyone else's). */
 async function commentIds(d: FixDeps, row: PrRow): Promise<number[]> {
-  const raw = await d.ghe.rest<RawComment[]>(`/repos/${row.repo}/pulls/${row.number}/reviews/${row.review}/comments?per_page=100`).catch(() => []);
-  return (Array.isArray(raw) ? raw : []).map((c) => c.id).filter((id) => Number.isInteger(id));
+  const owners = new Set([d.login, ...ownersOf(d.owners)].map((o) => o.toLowerCase()));
+  const raw = await d.ghe.rest<RawComment[]>(`/repos/${row.repo}/pulls/${row.number}/comments?per_page=100`).catch(() => []);
+  return (Array.isArray(raw) ? raw : [])
+    .filter((c) => (row.review && c.pull_request_review_id === row.review) || (owners.has(String(c.user?.login ?? "").toLowerCase()) && !String(c.body ?? "").includes(MARK)))
+    .map((c) => c.id)
+    .filter((id) => Number.isInteger(id));
 }

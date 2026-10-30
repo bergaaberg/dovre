@@ -6,18 +6,19 @@
  * - the head is still the commit reviewed (and the merge is pinned to it: GitHub refuses it otherwise);
  * - CI is green on it (still running: `waiting-ci`, checked again on the next pass);
  * - GitHub says it can merge (no conflicts);
- * - no `dovre:hold` label (it waits while it's there), and no comment from me since the review
- *   (it's handed to me: I said something);
+ * - no `dovre:hold` label (it waits while it's there), and nothing an owner said since the last
+ *   round took it in (owner.ts): that starts a fix round instead;
  * - the repo still allows it, and Settings → Writes doesn't ask twice for it.
  *
  * Then: the draft marked ready, a squash merge, and a comment on the issue with the levels so far.
  */
 import { logAction } from "../../../actions/deploys.ts";
 import type { D1 } from "../../../db.ts";
-import { owns, ownersOf } from "../../../owners.ts";
+import { owns } from "../../../owners.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import type { Clicks } from "../../../writes.ts";
 import { loadAutoConfig } from "./config.ts";
+import { heardLine, ownerSays } from "./owner.ts";
 import { ciOf } from "./reviewer.ts";
 import { CLAIM_MS } from "./round.ts";
 import { type PrRow, type PrState, prsStore } from "./store.ts";
@@ -47,7 +48,6 @@ type RawPr = {
   head: { sha: string };
   base: { sha: string };
 };
-type Said = { id?: number; user?: { login?: string } | null; created_at?: string; submitted_at?: string; pull_request_review_id?: number | null };
 
 const issueOf = (key: string) => {
   const m = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(key);
@@ -68,26 +68,6 @@ export async function mergePass(d: MergeDeps): Promise<boolean> {
     }
   }
   return changed;
-}
-
-/** Whether an owner (me, or one of REPO_OWNERS) said anything on the PR after its last review, other than that review itself. */
-async function ownerSpoke(d: MergeDeps, row: PrRow, since: number): Promise<string | undefined> {
-  const owners = new Set([d.login, ...ownersOf(d.owners)].map((o) => o.toLowerCase()));
-  const iso = new Date(since).toISOString();
-  const base = `/repos/${row.repo}`;
-  const [comments, lines, reviews] = await Promise.all([
-    d.ghe.rest<Said[]>(`${base}/issues/${row.number}/comments?since=${iso}&per_page=100`),
-    d.ghe.rest<Said[]>(`${base}/pulls/${row.number}/comments?since=${iso}&per_page=100`),
-    d.ghe.rest<Said[]>(`${base}/pulls/${row.number}/reviews?per_page=100`),
-  ]);
-  const after = (at: string | undefined) => !!at && Date.parse(at) > since;
-  const mine = (s: Said) => owners.has(String(s.user?.login ?? "").toLowerCase());
-  const said = [
-    ...(Array.isArray(comments) ? comments : []).filter((c) => after(c.created_at)),
-    ...(Array.isArray(lines) ? lines : []).filter((c) => after(c.created_at) && c.pull_request_review_id !== row.review),
-    ...(Array.isArray(reviews) ? reviews : []).filter((r) => after(r.submitted_at) && r.id !== row.review),
-  ].find(mine);
-  return said ? String(said.user?.login) : undefined;
 }
 
 async function mergeOne(d: MergeDeps, row: PrRow): Promise<boolean> {
@@ -112,8 +92,10 @@ async function mergeOne(d: MergeDeps, row: PrRow): Promise<boolean> {
   if ((pr.labels ?? []).some((l) => l.name === HOLD_LABEL)) return wait(`Held: labelled ${HOLD_LABEL}. It merges once the label comes off.`);
   if (!(await loadAutoConfig(d.ghe, row.repo, pr.base.sha)).merge) return hand("automerge is off for this repo now.");
   if ((await d.clicks()).get("autoreview.merge") === "twice") return hand("Settings → Writes asks twice before Auto review merges.");
-  const spoke = await ownerSpoke(d, row, reviewed.at);
-  if (spoke) return hand(`${spoke} commented on it after its review, so it's yours.`);
+  const heard = await ownerSays(d, row, row.heard);
+  if (heard.refused) return hand(heard.refused);
+  // An owner said something: a fix round for it, past the rounds' limit too (I asked). Its new commits are reviewed afresh.
+  if (heard.said.length) return store.move(row.pr, from, "fixing", { round: row.round + 1, why: `Level 5, not merged: ${heardLine(heard)} since its review. Round ${row.round + 1}: a fix session for them.` });
   const ci = await ciOf(d.ghe, row.repo, row.head);
   if (ci === "pending") return wait(`Waiting for CI on ${row.head.slice(0, 7)} before merging.`, "waiting-ci");
   if (ci === "red") return hand("CI failed on it after its review.");
