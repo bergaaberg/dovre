@@ -11,6 +11,7 @@ import { createCalls, graphqlSiteOf, isLow, siteOf } from "../src/forge/calls.ts
 import { githubForge } from "../src/forge/github.ts";
 import { createGatherer } from "../src/gather.ts";
 import { callsPanels, topSites } from "../src/pages/calls.ts";
+import { d1Reads } from "../src/sources/files.ts";
 import { createGhe } from "../src/sources/ghe.ts";
 import { H, assertInert } from "./helpers.ts";
 
@@ -89,6 +90,39 @@ test("conditional GETs: the ETag goes back, a 304 returns the kept answer and co
     "not modified GET /repos/:repo/actions/runs (304) 1",
   ]);
   assert.deepEqual(v.quota.map((q) => q.bucket), ["core"], "a 304's quota is core's");
+});
+
+test("shared (D1): a cold client asks with the ETag another one kept; who a token is, asked once an hour per token, never stored as the token", async () => {
+  const db = openDb();
+  const shared = d1Reads(db.DB);
+  const sent: { url: string; auth: string; inm?: string }[] = [];
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    const h = init.headers as Record<string, string>;
+    sent.push({ url: String(url), auth: h.authorization!, inm: h["if-none-match"] });
+    if (String(url).endsWith("/user")) return new Response(JSON.stringify({ login: h.authorization === "Bearer secret-a" ? "ann" : "bob" }), { headers: limits(4990, { resource: "core" }) });
+    if (h["if-none-match"] === '"e1"') return new Response(null, { status: 304, headers: limits(4995, { resource: "core" }) });
+    return new Response(JSON.stringify({ events: [1] }), { headers: { ...Object.fromEntries(limits(4996, { resource: "core" })), etag: '"e1"' } });
+  }) as unknown as typeof fetch;
+  let t = Date.now();
+  const now = () => t;
+  const warm = createGhe({ host: "github.com", token: "secret-a", fetchFn, shared, now });
+  await warm.rest("/users/ann/events");
+  const cold = createGhe({ host: "github.com", token: "secret-a", fetchFn, shared, now });
+  assert.deepEqual(await cold.rest("/users/ann/events"), { events: [1] });
+  assert.equal(sent.at(-1)!.inm, '"e1"', "the cold client sent what the warm one kept");
+  assert.deepEqual((await cold.calls!.view()).counts.map((c) => c.bucket), ["not modified"]);
+
+  assert.equal((await warm.rest<{ login: string }>("/user")).login, "ann");
+  assert.equal((await cold.rest<{ login: string }>("/user")).login, "ann", "kept in D1 for the other client");
+  const other = createGhe({ host: "github.com", token: "secret-b", fetchFn, shared, now });
+  assert.equal((await other.rest<{ login: string }>("/user")).login, "bob", "another token is asked for itself");
+  assert.equal(sent.filter((x) => x.url.endsWith("/user")).length, 2);
+  t += 3600_000;
+  await cold.rest("/user");
+  assert.equal(sent.filter((x) => x.url.endsWith("/user")).length, 3, "an hour on, asked again");
+  const rows = (await db.DB.prepare("SELECT key, value FROM forge_reads").all<{ key: string; value: string }>()).results;
+  assert.ok(rows.length >= 3);
+  assert.ok(rows.every((r) => !r.key.includes("secret") && !r.value.includes("secret")), "no token in D1");
 });
 
 test("low: under a tenth of core or GraphQL, until the reset; search running out isn't", () => {

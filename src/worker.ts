@@ -17,6 +17,7 @@ import type { App, Env } from "./env.ts";
 import { createGatherer, type Gatherer, type Snapshot, type SnapshotStore, shownOf } from "./gather.ts";
 import { d1SnapshotStore } from "./hosted/snapshot.ts";
 import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
+import { d1Reads } from "./sources/files.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
 import type { Forge } from "./forge/types.ts";
@@ -116,9 +117,11 @@ const asInstance = <T>(fn: () => T): T => actingAs(undefined, fn);
  */
 export function createHostedGhe(bindings: WorkerBindings, provider?: GithubTokenProvider): Ghe {
   const host = hostOf(bindings);
-  if (provider) return createGhe({ host, token: () => provider(bindings, currentActor()) });
+  // GET answers are kept in D1 for every isolate, so a cold one's cron still gets free 304s (#294).
+  const shared = bindings.DB ? d1Reads(bindings.DB) : undefined;
+  if (provider) return createGhe({ host, token: () => provider(bindings, currentActor()), shared });
   const token = bindings.GITHUB_TOKEN?.trim();
-  if (token) return createGhe({ host, token });
+  if (token) return createGhe({ host, token, shared });
   return missingGhe(host, "No GITHUB_TOKEN: set it with `wrangler secret put GITHUB_TOKEN`.");
 }
 
