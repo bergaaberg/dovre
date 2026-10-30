@@ -49,6 +49,10 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 3. **Sorted** (`activePacks`). The first failed check keeps a pack off, shown on the Packs page:
    lowercase unique id; built for this `PACK_API`; `PACK_<ID>` isn't `off`; `execution` fits;
    `requiredBindings` (hosted) or `requiredBinaries` (local) exist; required settings are set.
+   Then `requires` (#326): a pack is off while any pack it requires is off or missing, and
+   comes back with it. `on` is ordered so each pack starts and refreshes after what it requires.
+   A pack switched off on the Packs page takes what requires it off too. A pack reaches what it
+   requires only through what that pack shares in its context, never by importing it.
 4. **Mounted** (`createApp`). Each pack gets its own `PackContext`. If `available` says no or
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or

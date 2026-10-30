@@ -12,7 +12,7 @@ import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
 import { buildAssets } from "../src/packs/assets.ts";
 import { sha16 } from "../src/packs/wasm.ts";
-import { activePacks, binoOf, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
+import { activePacks, binoOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -59,6 +59,72 @@ test("activePacks: each pack on or off, with why", () => {
   assert.match(hosted.off.find((o) => o.id === "edge")!.why, /missing binding QUILL/);
   assert.ok(activePacks(list, { env: {}, bindings: { QUILL: {} }, hosted: true }).on.some((c) => c.manifest.id === "edge"));
   assert.ok(hosted.on.some((c) => c.manifest.id === "keyed"));
+});
+
+test("requires (#326): a pack is off while a pack it requires is, starts after it, and comes back with it; a loop stays off", () => {
+  const ids = (xs: Pack[]) => xs.map((c) => c.manifest.id);
+  const list = [
+    pack({ id: "review", name: "Review", requires: ["agents", "agents", "review", 7 as unknown as string] }),
+    pack({ id: "agents", name: "Agents" }),
+    pack({ id: "chain", requires: ["review"] }),
+    pack({ id: "ghost", requires: ["nowhere"] }),
+    pack({ id: "ping", requires: ["pong"] }),
+    pack({ id: "pong", requires: ["ping"] }),
+  ];
+  const all = activePacks(list, { env: {}, hosted: false });
+  assert.deepEqual(ids(all.on), ["agents", "review", "chain"], "each after what it requires; a repeat, itself and junk ignored");
+  const why = Object.fromEntries(all.off.map((o) => [o.id, o.why]));
+  assert.match(why.ghost!, /needs the nowhere pack, which isn't installed/);
+  assert.match(why.ping!, /can't run either/);
+  assert.match(why.pong!, /can't run either/);
+
+  const off = activePacks(list, { env: { PACK_AGENTS: "off" }, hosted: false });
+  assert.deepEqual(ids(off.on), []);
+  assert.match(off.off.find((o) => o.id === "review")!.why, /needs Agents, which is off/);
+  assert.match(off.off.find((o) => o.id === "chain")!.why, /needs Review, which can't run either/, "a chain falls together");
+
+  // Agents comes on later (its settings saved): what was off only for want of it comes back, in order.
+  const agents = list[1]!;
+  off.off.splice(off.off.findIndex((o) => o.id === "agents"), 1);
+  off.on.push(agents);
+  const back = settleRequires(off);
+  assert.deepEqual(ids(back).sort(), ["chain", "review"]);
+  assert.deepEqual(ids(off.on), ["agents", "review", "chain"]);
+  assert.ok(off.off.some((o) => o.id === "ping"), "a loop stays off");
+});
+
+test("requires (#326): a required pack that fails to start takes what requires it off, unstarted", async () => {
+  const started: string[] = [];
+  const init = (id: string, fail = false) => async () => {
+    if (fail) throw new Error("no");
+    started.push(id);
+  };
+  const a = activePacks([pack({ id: "review", requires: ["agents"] }, { init: init("review") }), pack({ id: "agents" }, { init: init("agents", true) }), pack({ id: "other" }, { init: init("other") })], { env: {}, hosted: false });
+  await initAll(a, () => testContext(), () => {});
+  assert.deepEqual(started, ["other"]);
+  assert.deepEqual(a.on.map((c) => c.manifest.id), ["other"]);
+  assert.match(a.off.find((o) => o.id === "review")!.why, /needs agents, which is off/);
+});
+
+test("requires (#326): switched off on the Packs page, what requires it is off too: no refresh, its pages 404, and the page says why", async () => {
+  let refreshed = 0;
+  const agents = pack({ id: "helper", name: "Helper" }, { refresh: async () => {} });
+  const review = pack({ id: "review", name: "Review", requires: ["helper"] }, { refresh: async () => { refreshed++; }, routes: (r) => { r.get("/review", (c) => c.text("hi")); } });
+  assert.deepEqual([...heldOff([agents, review], ["helper"])], [["helper", "helper"], ["review", "helper"]]);
+  const { app, get, post } = signedIn(snapshot(), {}, { packs: [review, agents] });
+  const mounted = packsOf(app)!;
+  assert.equal((await get("/review")).status, 200);
+  let page = await (await get("/packs")).text();
+  assert.match(page, /<dt>Requires<\/dt><dd>Helper<\/dd>/);
+  await post("/packs/helper/switch", { on: "" });
+  assert.equal((await get("/review")).status, 404);
+  await refresher(mounted.on, mounted.ctxOf, () => {}, { skip: mounted.hidden }).due(true);
+  assert.equal(refreshed, 0);
+  page = await (await get("/packs")).text();
+  assert.match(page, /needs Helper, which is switched off here/);
+  assert.doesNotMatch(page, /action="\/packs\/review\/switch"/, "its own switch can't turn it on");
+  await post("/packs/helper/switch", { on: "1" });
+  assert.equal((await get("/review")).status, 200);
 });
 
 test("packs in the app: routes under their own path, nav, styles, search, Today; hostile text inert", async () => {
