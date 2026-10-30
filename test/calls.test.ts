@@ -125,6 +125,39 @@ test("shared (D1): a cold client asks with the ETag another one kept; who a toke
   assert.ok(rows.every((r) => !r.key.includes("secret") && !r.value.includes("secret")), "no token in D1");
 });
 
+test("shared (D1): a list read with shareMs serves every isolate for that long; unshared reads, errors and mutations always ask", async () => {
+  const db = openDb();
+  const shared = d1Reads(db.DB);
+  const asked: string[] = [];
+  let fail = false;
+  const fetchFn = (async (_url: string, init: RequestInit) => {
+    const q = JSON.parse(String(init.body)).query as string;
+    asked.push(q);
+    if (fail) return new Response(JSON.stringify({ errors: [{ message: "API rate limit already exceeded" }] }), { headers: limits(0, { resource: "graphql" }) });
+    return new Response(JSON.stringify({ data: { n: asked.length } }), { headers: limits(4000, { resource: "graphql" }) });
+  }) as unknown as typeof fetch;
+  let t = Date.now();
+  const now = () => t;
+  const a = createGhe({ host: "github.com", token: "secret-a", fetchFn, shared, now });
+  const b = createGhe({ host: "github.com", token: "secret-a", fetchFn, shared, now });
+  assert.deepEqual(await a.graphql("{ list }", { shareMs: 60_000 }), { n: 1 });
+  assert.deepEqual(await b.graphql("{ list }", { shareMs: 60_000 }), { n: 1 }, "the other isolate reuses it");
+  assert.deepEqual(await b.graphql("{ list }"), { n: 2 }, "not asked to share: asks");
+  assert.deepEqual(await b.graphql("{ other }", { shareMs: 60_000 }), { n: 3 }, "another query is its own");
+  await b.graphql("mutation { x }", { shareMs: 60_000 });
+  await b.graphql("mutation { x }", { shareMs: 60_000 });
+  assert.equal(asked.filter((q) => q.startsWith("mutation")).length, 2, "a write is never shared");
+  const c = createGhe({ host: "github.com", token: "secret-b", fetchFn, shared, now });
+  assert.deepEqual(await c.graphql("{ list }", { shareMs: 60_000 }), { n: 6 }, "another token asks for itself");
+  t += 61_000;
+  fail = true;
+  await assert.rejects(a.graphql("{ list }", { shareMs: 60_000 }), /rate limit/);
+  fail = false;
+  assert.deepEqual(await b.graphql("{ list }", { shareMs: 60_000 }), { n: 8 }, "stale, and an error isn't kept");
+  const rows = (await db.DB.prepare("SELECT key, value FROM forge_reads").all<{ key: string; value: string }>()).results;
+  assert.ok(rows.every((r) => !r.key.includes("secret") && !r.value.includes("secret")), "no token in D1");
+});
+
 test("low: under a tenth of core or GraphQL, until the reset; search running out isn't", () => {
   let t = 1_000_000;
   const c = createCalls(() => t);

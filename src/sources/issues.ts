@@ -102,14 +102,17 @@ export function issueSetsOf(d: Found, owners: string): IssueSets {
   return { assigned: set("assigned"), mentioned: set("mentioned"), authored: set("authored"), triage: set("triage") };
 }
 
+/** The issue lists every isolate shares (5 GraphQL points a read); a write shows at once anyway (withActs). */
+export const ISSUES_SHARE_MS = 2 * 60_000;
+
 export async function loadIssues(ghe: Ghe, login: string, owners: string, opts: { triage?: string[] } = {}): Promise<IssueSets> {
   const queries = issueQueries(login, owners, opts.triage);
   const query = (fields: string) =>
     `{\n${Object.entries(queries)
       .map(([k, q]) => `  ${k}: search(query:${JSON.stringify(q)}, type:ISSUE, first:${k === "triage" ? 30 : 50}){ nodes{ ... on Issue { ${fields} } } }`)
       .join("\n")}\n}`;
-  const d = await ghe.graphql<Found>(query(`${BASE} ${NEWER}`)).catch((e: Error) => {
-    if (/issueType|subIssuesSummary/.test(String(e?.message))) return ghe.graphql<Found>(query(BASE));
+  const d = await ghe.graphql<Found>(query(`${BASE} ${NEWER}`), { shareMs: ISSUES_SHARE_MS }).catch((e: Error) => {
+    if (/issueType|subIssuesSummary/.test(String(e?.message))) return ghe.graphql<Found>(query(BASE), { shareMs: ISSUES_SHARE_MS });
     throw e;
   });
   return issueSetsOf(d, owners);

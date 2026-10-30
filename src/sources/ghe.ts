@@ -10,7 +10,8 @@ export type Fetch = typeof fetch;
 export type Ghe = {
   host: string;
   rest<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T>;
-  graphql<T>(query: string): Promise<T>;
+  /** `shareMs`: a read every isolate may reuse for that long (hosted, through `shared`): list reads only, never a check before a write. */
+  graphql<T>(query: string, opts?: { shareMs?: number }): Promise<T>;
   /** Every call it made, counted, and the quota GitHub said is left (src/forge/calls.ts). */
   calls?: Calls;
 };
@@ -32,10 +33,13 @@ export type TokenSource = string | (() => Promise<string>);
 const KEEP_PATHS = 300;
 const KEEP_BYTES = 512 * 1024;
 
+/** List reads (my PRs, mentions, PR states) every isolate shares: each pays 1–5 GraphQL points. */
+export const LIST_SHARE_MS = 60_000;
+
 /** Who a token is (`GET /user`) is asked at most this often per token. */
 const WHO_MS = 3600_000;
 
-/** A short name for a token, so what's kept never holds the token itself. */
+/** A short name for a token (or a query), so what's kept never holds the token itself. */
 async function tokenKey(token: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return [...new Uint8Array(d).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -141,8 +145,19 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
       if (get) await keep(path, text, res.headers);
       return JSON.parse(text) as T;
     },
-    async graphql<T>(query: string) {
+    async graphql<T>(query: string, o: { shareMs?: number } = {}) {
       const headers = await headersOf();
+      // A list read several isolates make at about the same time: the first one's answer serves the rest.
+      const sharing = !!shared && !!o.shareMs && !/^\s*mutation\b/.test(query);
+      const key = sharing ? `gql:${opts.host}:${await tokenKey(headers.authorization ?? "")}:${await tokenKey(query)}` : "";
+      if (sharing) {
+        const row = await shared!.get(key).catch(() => undefined);
+        if (row && now() - row.at < o.shareMs!) {
+          try {
+            return JSON.parse(row.value) as T;
+          } catch {}
+        }
+      }
       const res = await f(endpoints.graphql, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ query }) });
       calls.record(graphqlSiteOf(query), res.headers);
       const text = await res.text();
@@ -153,6 +168,7 @@ export function createGhe(opts: { host: string; token: TokenSource; fetchFn?: Fe
         throw new Error(`GHE graphql: ${res.status} ${text.slice(0, 200)}`.trim());
       }
       if (!res.ok || body.errors?.length) throw new Error(`GHE graphql: ${res.status} ${body.errors?.map((e) => e.message).join("; ") ?? ""}`.trim());
+      if (sharing) await shared!.put(key, now(), JSON.stringify(body.data ?? null)).catch(() => {});
       return body.data as T;
     },
   };
@@ -283,7 +299,7 @@ export async function loadPrs(ghe: Ghe, login: string, org: string): Promise<{ m
   const d = await ghe.graphql<{ mine: { nodes: PrNode[] }; review: { nodes: PrNode[] } }>(`{
     mine: search(query:${q(`is:pr is:open author:${login} ${ownerQuery(org)} archived:false`)}, type:ISSUE, first:40){ nodes{ ... on PullRequest { ${PR_FIELDS} } } }
     review: search(query:${q(`is:pr is:open review-requested:${login} ${ownerQuery(org)} archived:false`)}, type:ISSUE, first:30){ nodes{ ... on PullRequest { ${PR_FIELDS} } } }
-  }`);
+  }`, { shareMs: LIST_SHARE_MS });
   const byNewest = (a: Pr, b: Pr) => b.updatedAt.localeCompare(a.updatedAt);
   return { mine: d.mine.nodes.filter((n) => n.repository).map(normalizePr).sort(byNewest), review: d.review.nodes.filter((n) => n.repository).map(normalizePr).sort(byNewest) };
 }
@@ -298,7 +314,7 @@ export async function loadPrRefs(ghe: Ghe, keys: Iterable<string>): Promise<Map<
   for (let i = 0; i < list.length; i += 50) {
     const chunk = list.slice(i, i + 50);
     const q = chunk.map(([, o, n, num], j) => `p${j}: repository(owner:${JSON.stringify(o)},name:${JSON.stringify(n)}){pullRequest(number:${Number(num)}){state title url}}`).join("\n");
-    const d = await ghe.graphql<Record<string, { pullRequest: PrRef | null } | null>>(`{${q}}`).catch(() => ({}) as Record<string, null>);
+    const d = await ghe.graphql<Record<string, { pullRequest: PrRef | null } | null>>(`{${q}}`, { shareMs: LIST_SHARE_MS }).catch(() => ({}) as Record<string, null>);
     chunk.forEach(([key], j) => {
       const pr = d[`p${j}`]?.pullRequest;
       if (pr) out.set(key!, pr);
@@ -362,7 +378,7 @@ export async function searchNotes(ghe: Ghe, now: number, days: number): Promise<
   const since = new Date(now - days * 86400e3).toISOString().slice(0, 10);
   const q = `mentions:@me updated:>=${since} sort:updated-desc`;
   const fields = "id url title updatedAt repository { nameWithOwner }";
-  const d = await ghe.graphql<{ s: { nodes: (Mentioned | null)[] } }>(`{ s: search(query:${JSON.stringify(q)}, type:ISSUE, first:30){ nodes{ __typename ... on Issue { ${fields} } ... on PullRequest { ${fields} } } } }`);
+  const d = await ghe.graphql<{ s: { nodes: (Mentioned | null)[] } }>(`{ s: search(query:${JSON.stringify(q)}, type:ISSUE, first:30){ nodes{ __typename ... on Issue { ${fields} } ... on PullRequest { ${fields} } } } }`, { shareMs: LIST_SHARE_MS });
   return (d.s?.nodes ?? [])
     .filter((n): n is Required<Mentioned> => !!n?.id && !!n.url && !!n.repository && !!n.updatedAt)
     .map((n) => ({ id: `search:${n.id}`, reason: "mention", type: n.__typename === "PullRequest" ? "PullRequest" : "Issue", title: n.title ?? "", repo: n.repository.nameWithOwner, updatedAt: n.updatedAt, url: n.url }));

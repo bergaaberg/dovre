@@ -374,7 +374,9 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
         // Then what the request and that work published, on its way to the hub. After it, not beside
         // it: a publish made once the hub was drained had nothing keeping the Worker alive for it.
         const hub = h.hub;
-        ctx.waitUntil(Promise.all(work).then(() => hub && capped(hub.drain(), DRAIN_MS)));
+        // The calls that work made are counted too (#253): the request's own flush went out before it.
+        const counted = () => capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
+        ctx.waitUntil(Promise.all(work).then(() => Promise.all([hub && capped(hub.drain(), DRAIN_MS), counted()])));
       }
       return res;
     },
