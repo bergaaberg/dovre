@@ -333,6 +333,16 @@ test("Apple container engine: the commits come home as sandbox/<id> (uncommitted
   assert.equal(git(repo, "branch", "--list", branch), "");
 });
 
+test("Apple container engine: a run doesn't start onto a nearly full disk", async () => {
+  const { root, repo } = checkout();
+  const tokenFile = join(root, "token");
+  writeFileSync(tokenFile, "t\n", { mode: 0o600 });
+  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: withNet(playContainer), egress: fakeEgress().egress, free: () => 3 * 2 ** 30 });
+  await tick();
+  assert.throws(() => engine.prepare({ id: "cccccccc-3333", repo }), /Only 3\.0 GB free/);
+  assert.deepEqual(readdirSync(join(root, "boxes")), [], "nothing cloned");
+});
+
 test("Apple container engine: no commits is 'none'; a failed bundle is 'failed' with why", async () => {
   const { root, repo } = checkout();
   const tokenFile = join(root, "token");

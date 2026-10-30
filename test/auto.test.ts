@@ -331,6 +331,18 @@ test("autoTick: limits hold: at once, the day's cost, quiet hours, a repo left o
   assert.equal(slow.writes.length, 0);
 });
 
+test("auto store: claim starts a queued row only while fewer than atOnce are busy, counted in the same statement", async () => {
+  const db = openDb();
+  const store = autoStore(db.DB, () => 1);
+  for (const n of [1, 2, 3]) await store.put({ repo: "acme/app", number: n, title: `t${n}`, state: "queued" });
+  // Another isolate's pass already has one running.
+  assert.ok(await store.move(autoKey("acme/app", 1), "queued", "running", { run: "r1" }));
+  assert.equal(await store.claim(autoKey("acme/app", 2), 2), true);
+  assert.equal(await store.claim(autoKey("acme/app", 3), 2), false, "two busy: no room");
+  assert.equal(await store.claim(autoKey("acme/app", 2), 5), false, "only from queued");
+  assert.equal((await store.get(autoKey("acme/app", 3)))!.state, "queued");
+});
+
 test("autoTick: two passes at once start an issue only once", async () => {
   const w = world();
   await on(w.db, { atOnce: 3 });
