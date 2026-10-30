@@ -80,7 +80,7 @@ test("capsOf and the harness: caps checked at the desk, and only a sandbox turn 
 
 const READY = (o: Partial<SandboxReady> = {}): SandboxReady => ({ state: "ready", branch: "sandbox/aaaa", base: "a".repeat(40), head: "b".repeat(40), repo: "acme/app", commits: [{ sha: "b".repeat(40), subject: "Blue" }], files: [{ path: "a.css", add: 1, del: 1 }], ci: false, ...o });
 
-function world(o: { labeller?: string; repos?: string[] } = {}) {
+function world(o: { labeller?: string; repos?: string[] | null } = {}) {
   const db = openDb();
   const writes: { method: string; path: string; body?: unknown }[] = [];
   let issueOpen = true;
@@ -108,7 +108,10 @@ function world(o: { labeller?: string; repos?: string[] } = {}) {
   const pushed: string[] = [];
   const desk = {
     view: () => ({ here: true, online: true, harnesses: ["claude"], runs: [...runs.values()], workDir: "/w" }),
-    repos: async () => o.repos ?? ["app", "other"],
+    repos: async () => {
+      if (o.repos === null) throw new Error("timed out");
+      return o.repos ?? ["app", "other"];
+    },
     run: async (id: string) => runs.get(id),
     async start(f: Parameters<Desk["start"]>[0]) {
       started.push(f);
@@ -317,6 +320,15 @@ test("autoTick: limits hold: at once, the day's cost, quiet hours, a repo left o
   const p3 = await none.tick();
   assert.equal(p3.rows[0]!.state, "stuck");
   assert.match(p3.rows[0]!.why!, /no checkout named app/);
+
+  // A machine that doesn't answer in time isn't one without the checkout: it stays queued.
+  const slow = world({ repos: null });
+  await on(slow.db);
+  const p4 = await slow.tick();
+  assert.equal(slow.started.length, 0);
+  assert.equal(p4.rows[0]!.state, "queued");
+  assert.match(p4.rows[0]!.why!, /didn't list its checkouts/);
+  assert.equal(slow.writes.length, 0);
 });
 
 test("autoTick: two passes at once start an issue only once", async () => {

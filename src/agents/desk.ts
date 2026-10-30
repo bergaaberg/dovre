@@ -70,7 +70,7 @@ export type Desk = {
   view(): DeskView;
   /** Hosted: reads what the Mac last said again, before a page is drawn (the app calls it after its guard). */
   refresh?(): Promise<void>;
-  /** The checkouts agents may start in: on `machine` (hosted), else all of them. */
+  /** The checkouts agents may start in: on `machine` (hosted; throws when it doesn't answer), else all of them. */
   repos(machine?: string): Promise<string[]>;
   /** Hosted: the machine a session or run is on. */
   machineOf?(id: string): MachineStatus | undefined;

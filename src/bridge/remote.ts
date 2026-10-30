@@ -126,9 +126,10 @@ export function remoteDesk(hub: Pick<HubClient, "mac" | "call">, o: { ttlMs?: nu
       return m ? { id: m.id, name: machineName(m), online: m.online, seen: m.seen } : undefined;
     },
     async repos(machine) {
-      const ask = (id: string) => call(id, { op: "repos" }, READ_MS).then((v) => (Array.isArray(v) ? v.filter((r): r is string => typeof r === "string") : []), () => [] as string[]);
+      const ask = (id: string) => call(id, { op: "repos" }, READ_MS).then((v) => (Array.isArray(v) ? v.filter((r): r is string => typeof r === "string") : []));
+      // One machine asked by name: not answering is an error, not an empty folder (auto runs tell them apart).
       if (machine) return ask(machine);
-      return [...new Set((await Promise.all(online().map((m) => ask(m.id)))).flat())].sort();
+      return [...new Set((await Promise.all(online().map((m) => ask(m.id).catch(() => [] as string[])))).flat())].sort();
     },
     run: (id) => {
       const m = whose(id);

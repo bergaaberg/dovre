@@ -370,12 +370,23 @@ async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoR
       const machines = d.desk.view().machines?.filter((m) => m.online) ?? [];
       let machine: string | undefined;
       let checkout: string | undefined;
+      let silent: string | undefined;
       for (const m of machines.length ? machines : [undefined]) {
-        checkout = (await d.desk.repos(m?.id)).find((r) => r.toLowerCase() === name);
+        const listed = await d.desk.repos(m?.id).catch(() => undefined);
+        if (!listed) {
+          silent ??= m?.name ?? m?.id ?? "The machine";
+          continue;
+        }
+        checkout = listed.find((r) => r.toLowerCase() === name);
         if (checkout) {
           machine = m?.id;
           break;
         }
+      }
+      // A machine that didn't answer (busy, or the bridge slow) may have it: ask again next pass.
+      if (!checkout && silent) {
+        await store.move(row.key, "starting", "queued", { why: `${silent} didn't list its checkouts in time; trying again.` });
+        return undefined;
       }
       if (!checkout) {
         await stuck(d, store, { ...row, state: "starting" }, `There's no checkout named ${name} in the code folder${machines.length ? " on a machine online" : ""}.`, undefined, true);
