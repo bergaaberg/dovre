@@ -23,7 +23,7 @@
  */
 import { execFile, execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { allowOf, type Egress, openEgress, PLACEHOLDER_TOKEN } from "./egress.ts";
@@ -268,7 +268,14 @@ export function readToken(file: string): string {
 /** A run's folder under the root: its id, a UUID. */
 const RUN_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export function appleContainer(o: { root: string; checkout?: (repo: string) => string | undefined; tokenFile?: string; image?: string; memory?: string; cpus?: number; maxMs?: number; bin?: string; exec?: Exec; git?: (args: string[], cwd: string) => string; hostGit?: HostGit; egress?: typeof openEgress }): SandboxEngine {
+/** Free space a run needs before it starts: its clone, its container, and what the agent builds. */
+export const MIN_FREE = 10 * 2 ** 30;
+const freeBytes = (dir: string): number => {
+  const st = statfsSync(dir);
+  return Number(st.bavail) * Number(st.bsize);
+};
+
+export function appleContainer(o: { root: string; /** Free bytes on the disk holding `dir` (tests). */ free?: (dir: string) => number; checkout?: (repo: string) => string | undefined; tokenFile?: string; image?: string; memory?: string; cpus?: number; maxMs?: number; bin?: string; exec?: Exec; git?: (args: string[], cwd: string) => string; hostGit?: HostGit; egress?: typeof openEgress }): SandboxEngine {
   const bin = o.bin ?? "container";
   const image = o.image ?? SANDBOX_IMAGE;
   const tokenFile = o.tokenFile ?? sandboxTokenFile();
@@ -381,6 +388,10 @@ export function appleContainer(o: { root: string; checkout?: (repo: string) => s
       return last;
     },
     prepare({ id, repo, base, onDeny }) {
+      // A full disk fails runs halfway (and everything else on the machine): don't start one into it.
+      mkdirSync(o.root, { recursive: true, mode: 0o700 });
+      const free = (o.free ?? (o.exec ? () => Infinity : freeBytes))(o.root);
+      if (free < MIN_FREE) throw new Error(`Only ${(free / 2 ** 30).toFixed(1)} GB free on this machine's disk; a sandbox run needs ${MIN_FREE / 2 ** 30} GB.`);
       const token = readToken(tokenFile);
       if (!net || !proxy) throw new Error("The sandbox network isn't ready yet.");
       const way = proxy;

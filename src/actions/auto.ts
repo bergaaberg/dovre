@@ -352,7 +352,7 @@ async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoR
   let busy = rows.filter((r) => BUSY.includes(r.state)).length;
   for (const row of queued) {
     if (busy >= s.atOnce) break;
-    if (!(await store.move(row.key, "queued", "starting", { why: null }))) continue;
+    if (!(await store.claim(row.key, s.atOnce))) continue;
     busy++;
     try {
       const c = await checkIssue(d.ghe, row.repo, row.number);

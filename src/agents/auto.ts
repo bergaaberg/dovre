@@ -196,6 +196,18 @@ export function autoStore(db: D1, now: () => number = Date.now) {
       if (moved && set.cost !== undefined) await setCost(key, set.cost);
       return moved;
     },
+    /**
+     * Queued → starting, only while fewer than `atOnce` are busy: one statement, so passes in
+     * several isolates at once can't each count room and start past the limit.
+     */
+    async claim(key: string, atOnce: number): Promise<boolean> {
+      const busy = BUSY.map(() => "?").join(", ");
+      const r = await db
+        .prepare(`UPDATE auto_runs SET state = 'starting', why = NULL, updated = ? WHERE key = ? AND state = 'queued' AND (SELECT COUNT(*) FROM auto_runs WHERE state IN (${busy})) < ?`)
+        .bind(now(), key, ...BUSY, atOnce)
+        .run();
+      return Number(r.meta?.changes ?? 0) === 1;
+    },
     /** What auto runs reported since `since` have cost (the day's cap is over the last 24 hours), every run counted. */
     async spent(since: number): Promise<number> {
       const row = await db.prepare("SELECT COALESCE(SUM(cost), 0) AS c FROM auto_spend WHERE at >= ?").bind(since).first<{ c: number }>();
