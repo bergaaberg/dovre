@@ -11,7 +11,7 @@ import { keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
 import { viewingAs } from "./viewer.ts";
 import { packsOf, createApp } from "./app.ts";
-import { activePacks, initAll, refresher } from "./packs/registry.ts";
+import { activePacks, beforePages, initAll, refresher } from "./packs/registry.ts";
 import type { Pack, Defer, ScheduledEvent } from "./packs/types.ts";
 import type { D1 } from "./db.ts";
 import type { App, Env } from "./env.ts";
@@ -334,6 +334,9 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     await capped(h.ready);
     const mounted = packsOf(h.app)!;
     const defer: Defer = (p) => ctx.waitUntil(p);
+    // What a page reads first, the cron reads too: the remote desk's paired machines, say, which
+    // Auto review asks for a run's model. Without it a fresh isolate's desk lists no machine.
+    await beforePages(h.packs, mounted.ctxOf, (id, line) => console.error(`pack ${id}: ${line}`));
     await Promise.all(
       h.packs
         .filter((c) => c.scheduled)

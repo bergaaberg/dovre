@@ -396,6 +396,7 @@ test("createWorker: hosted packs get the bindings; cron, email and stale refresh
     {
       init: (c) => void seen.push(`init ${typeof c.bindings.QUILL}`),
       refresh: async () => void seen.push("refresh"),
+      beforePage: async () => void seen.push("before"),
       scheduled: async (e) => void seen.push(`cron ${e.cron} as ${currentViewer()}`),
       email: async (msg) => (seen.push(`mail ${(msg as { to: string }).to}`), true),
     },
@@ -406,9 +407,12 @@ test("createWorker: hosted packs get the bindings; cron, email and stale refresh
   await Promise.all(pending);
   assert.ok(seen.includes("init object"), "init sees its bindings");
   assert.ok(seen.includes("refresh"), "a due refresh runs after the response");
+  seen.length = 0;
   await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: 0 }, bindings, ctx);
   // The cron acts as the instance's owner: it sees what their pages see (their paired machines).
   assert.ok(seen.includes("cron */5 * * * * as me@example.dev"), seen.join(" | "));
+  // And reads what a page reads first (the remote desk's machines), before the scheduled hooks.
+  assert.ok(seen.indexOf("before") >= 0 && seen.indexOf("before") < seen.indexOf("cron */5 * * * * as me@example.dev"), seen.join(" | "));
   let rejected = "";
   await worker.email({ to: "support@example.app", setReject: (r: string) => (rejected = r) } as never, bindings, ctx);
   assert.ok(seen.includes("mail support@example.app"));
