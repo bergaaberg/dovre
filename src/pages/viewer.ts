@@ -19,7 +19,7 @@ import { Confirm, ConfirmSubmit, type Child, Empty, Grid2, type Html, Item, KeyV
 import { markdown } from "../ui/markdown.ts";
 import type { PrSlotArg } from "../packs/types.ts";
 import { blob, commitOf, dirOf, type Entry, type Git, git as realGit, grep, safePath, safeRef, tree } from "../viewer/code.ts";
-import { type DiffLine, type FileView, fileViews, type Mark, parsePatch, placeMine } from "../viewer/diff.ts";
+import { type DiffLine, type FileView, fileViews, type Mark, parsePatch, placeDrafts, placeMine } from "../viewer/diff.ts";
 import { type Compared, canonicalJson, comparePatch, MAX_TEXT } from "../viewer/compare.ts";
 import { fileTree, type TreeNode } from "../viewer/tree.ts";
 import { type DiffAsk, type LocalDiff, localDiff, MAX_FILES, MAX_UNTRACKED } from "../viewer/localdiff.ts";
@@ -28,10 +28,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { checkReview, postReview } from "../actions/reviews.ts";
 import { replyToThread, resolveThread } from "../actions/threads.ts";
 import type { D1 } from "../db.ts";
-import { cleanText, MAX_BODY, postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
-import { type Card, type CheckJob, checkOf, lost, saveCheck, startCheck, takeCard } from "../reviews/check.ts";
+import { cleanText, type LineComment, MAX_BODY, postProblem, type ReviewDraft, type Side, verdictOf } from "../reviews/draft.ts";
+import { type Card, type Check, type CheckJob, checkOf, lost, saveCheck, startCheck, takeCard } from "../reviews/check.ts";
 import { addComment, anchorOf, asDraft, clearReview, dropComment, editComment, importDraft, moveReview, type MyReview, myReview, saveSummary } from "../reviews/mine.ts";
-import { commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
+import { checkCard, commentForm, commentHref, type Flash, offDiff, pendingCard, reviewBar, reviewPage } from "./myreview.ts";
 
 type Res<T> = { ok: true; value: T } | { ok: false; error: string };
 const settle = <T>(p: Promise<T>): Promise<Res<T>> =>
@@ -248,7 +248,16 @@ export function fileView(fv: FileView, o: { sha: string; dir?: string; present: 
 }
 
 /** My own review on the Files tab (dovre#106): pending comments, the form open at a line (no script), the agent's draft to start from. */
-export type MineOnFiles = { review?: MyReview; at?: { path: string; side: Side; line: number }; agent?: number; flash?: Flash; /** An agent can write a first review (Bino's route is ready). */ checker?: boolean };
+export type MineOnFiles = { review?: MyReview; at?: { path: string; side: Side; line: number }; agent?: number; flash?: Flash; /** An agent can write a first review (Bino's route is ready). */ checker?: boolean; /** The agent's last review or check: its line cards show at their lines (dovre#316). */ check?: Check };
+
+/** The agent's cards that sit on a line: a comment it would add there, or one about my comment on that line. */
+export function lineCards(k: Check | undefined, review: MyReview | undefined, moved: boolean): { card: Card; at: Omit<LineComment, "body"> }[] {
+  if (!k || !review || moved || k.sha !== review.sha || k.error || (k.running && lost(k))) return [];
+  return k.cards.flatMap((card) => {
+    const at = card.at ?? review.comments.find((c) => c.id === card.on);
+    return at ? [{ card, at }] : [];
+  });
+}
 
 export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string; mine?: MineOnFiles }): Html {
   const v = o.view;
@@ -262,16 +271,22 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
     const views = fileViews(o.files.value, v.threads);
     const pending = m?.review?.comments ?? [];
     const off = m && !moved ? placeMine(views, pending) : pending.map((_, i) => i);
+    // The agent's cards go on the Files tab's own "drafts" key (that key is for its older draft on the Reviews page).
+    const agent = lineCards(m?.check, m?.review, moved);
+    placeDrafts(views, agent.map((x) => x.at));
+    const writing = !!m?.check?.running;
+    const mode = m?.check?.mode === "review" ? "review" : "check";
     const extra: LineExtra = (l) => {
       if (l.kind === "hunk" || l.kind === "note") return "";
-      const cards = l.mine?.length ? html`<tr class="d-drafts"><td colspan="3">${l.mine.map((i) => pendingCard(pending[i]!, base))}</td></tr>` : "";
+      const mineHere = [...(l.mine ?? []).map((i) => pendingCard(pending[i]!, base)), ...(l.drafts ?? []).map((i) => checkCard(agent[i]!.card, pending, base, mode, writing, true))];
+      const cards = mineHere.length ? html`<tr class="d-drafts"><td colspan="3">${mineHere}</td></tr>` : "";
       const a = m?.at;
       const here = a && !moved && (a.side === "LEFT" ? l.kind !== "add" && l.old === a.line : l.kind !== "del" && l.new === a.line);
       return html`${cards}${here ? commentForm({ base, sha: v.headSha, path: a.path, side: a.side, line: a.line }) : ""}`;
     };
     const comment = m && !moved ? (path: string): CommentAt => (side, line) => commentHref(base, path, side, line) : undefined;
     // The no-script form opens in its own file only.
-    const fileExtra = (path: string): LineExtra => (l) => (m?.at && m.at.path !== path && !(l.kind !== "hunk" && l.kind !== "note" && l.mine?.length) ? "" : extra(l));
+    const fileExtra = (path: string): LineExtra => (l) => (m?.at && m.at.path !== path && !(l.kind !== "hunk" && l.kind !== "note" && (l.mine?.length || l.drafts?.length)) ? "" : extra(l));
     const fetch = o.dir && !o.present ? html`<p class="t3">${v.headSha.slice(0, 7)} isn't in your checkout yet: <code data-copy>git -C ${o.dir} fetch origin ${v.head}</code></p>` : "";
     const bar = m ? reviewBar({ base, review: m.review, head: v.headSha, agent: m.agent, flash: m.flash, checker: m.checker }) : "";
     const template = comment ? commentForm({ base, sha: v.headSha, template: true }) : "";
@@ -514,8 +529,10 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const m = /^(LEFT|RIGHT):(\d{1,6})$/.exec(c.req.query("c") ?? "");
     const a = m ? anchorOf({ side: m[1], line: m[2], path: c.req.query("p") }) : null;
     const d = await deps.agentDraft?.(at.repo, at.n).catch(() => undefined);
+    const review = await myReview(deps.db!, who, key);
     return {
-      review: await myReview(deps.db!, who, key),
+      review,
+      check: review ? await checkOf(deps.db!, who, key) : undefined,
       at: a ?? undefined,
       agent: d && sameSha(v.headSha, d.sha) && d.draft.comments.length ? d.draft.comments.length : undefined,
       flash: flashOf(`${who}|${key}`),
@@ -695,14 +712,15 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     });
 
     /** A card's text (as I edited it) into my pending review. False with a flash when it doesn't fit. */
-    const keepCard = async (x: NonNullable<Awaited<ReturnType<typeof ctxOf>>>, card: Card, body: string): Promise<boolean> => {
-      if (!x.review || card.text === undefined) return true;
+    const keepCard = async (x: NonNullable<Awaited<ReturnType<typeof ctxOf>>>, card: Card, body: string): Promise<false | { id?: number }> => {
+      if (!x.review || card.text === undefined) return {};
       if (card.at) {
         const r = await addComment(db, x.who, x.key, x.review.sha, { ...card.at, body });
         if (!r.ok) return (setFlash(x.flashKey, r), false);
+        return { id: r.id };
       } else if (card.on === "summary") await saveSummary(db, x.who, x.key, x.review.sha, body);
       else if (x.review.comments.some((k) => k.id === card.on)) await editComment(db, x.who, x.key, card.on as number, body);
-      return true;
+      return { id: typeof card.on === "number" ? card.on : undefined };
     };
 
     /** Every card with text kept as the agent wrote it (a first review taken whole, to edit on the diff). */
@@ -728,13 +746,21 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
       const id = Number(c.req.param("card"));
       if (!x || !Number.isSafeInteger(id) || id <= 0) return c.notFound();
       const form = await c.req.parseBody();
-      const back = `${x.base}/review#check`;
+      const files = form.back === "files";
       const k = await checkOf(db, x.who, x.key);
       // Still writing: its cards aren't final yet (they're kept again whole when it's done).
       const card = k?.running ? undefined : k?.cards.find((y) => y.id === id);
-      if (card && form.do === "keep" && card.text !== undefined && !(await keepCard(x, card, typeof form.body === "string" ? form.body : card.text))) return c.redirect(back, 303);
+      // From the Files tab: back to the comment it made, or to the card's file.
+      const path = card?.at?.path ?? x.review?.comments.find((y) => y.id === card?.on)?.path;
+      const back = (kept?: number) => (files ? `${x.base}/files${kept ? `#c-${kept}` : path ? `#${fileId(path)}` : ""}` : `${x.base}/review#check`);
+      if (card && form.do === "keep" && card.text !== undefined) {
+        const r = await keepCard(x, card, typeof form.body === "string" ? form.body : card.text);
+        if (!r) return c.redirect(back(), 303);
+        await takeCard(db, x.who, x.key, id);
+        return c.redirect(back(r.id), 303);
+      }
       if (card) await takeCard(db, x.who, x.key, id);
-      return c.redirect(back, 303);
+      return c.redirect(back(), 303);
     });
 
     app.post("/prs/:owner/:repo/:n/review/move", async (c) => {
