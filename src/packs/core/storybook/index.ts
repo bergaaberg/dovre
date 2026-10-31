@@ -73,8 +73,10 @@ export async function findStories(ghe: Ghe, repo: string, n: number): Promise<Fo
   const { stories, dirs } = touched(files);
   const seen = new Set(stories.map((s) => s.path));
   const nearby: Changed[] = [];
-  for (const dir of dirs.slice(0, MAX_DIRS))
-    for (const path of await storiesIn(ghe, repo, dir, sha))
+  // Folders are listed at once; their stories keep the folders' order.
+  const listed = await Promise.all(dirs.slice(0, MAX_DIRS).map((dir) => storiesIn(ghe, repo, dir, sha)));
+  for (const paths of listed)
+    for (const path of paths)
       if (!seen.has(path)) {
         seen.add(path);
         nearby.push({ path, status: "nearby" });
