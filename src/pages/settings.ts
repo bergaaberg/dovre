@@ -39,7 +39,7 @@ export type SetupLine = { name: string; on: boolean; what: string; fix?: string;
 export function setupLines(f: SetupFacts): SetupLine[] {
   const windows = (f.platform ?? process.platform) === "win32";
   return [
-    { name: forgeName(f.ghe.host), on: true, what: `${f.ghe.host}, org ${f.ghe.org}, signed in as ${f.ghe.login}` },
+    { name: forgeName(f.ghe.host), on: true, what: `${forgeName(f.ghe.host) === f.ghe.host ? "" : `${f.ghe.host}, `}org ${f.ghe.org}, signed in as ${f.ghe.login}` },
     f.claude ? { name: "Claude Code", on: true, what: `Agents can run in it: ${f.claude}` } : { name: "Claude Code", on: false, what: "Not found", fix: "Install it (`claude` on the PATH), or set CLAUDE_BIN in .dev.vars. Without it, Bino, summaries and reviews use Copilot through omp." },
     f.omp ? { name: "omp", on: true, what: `Agents can run in it (Copilot models): ${f.omp}` } : { name: "omp", on: false, what: "Not found", fix: "Install it (`omp` on the PATH), or set OMP_BIN in .dev.vars. Copilot models need it: Bino and summaries without Claude Code." },
     f.copilotCli
