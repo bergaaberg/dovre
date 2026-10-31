@@ -15,7 +15,7 @@ export type Kind = "pages" | "prs" | "issues" | "deploys" | "agents" | "apps" | 
 export const KINDS: { id: Kind; title: string; prefix?: string }[] = [
   { id: "pages", title: "Go to" },
   { id: "prs", title: "Pull requests", prefix: "pr" },
-  { id: "issues", title: "Issues and PRs on GHE", prefix: "i" },
+  { id: "issues", title: "Issues and PRs", prefix: "i" },
   { id: "deploys", title: "Deploys", prefix: "d" },
   { id: "agents", title: "Agents", prefix: "a" },
   { id: "apps", title: "In your apps", prefix: "x" },

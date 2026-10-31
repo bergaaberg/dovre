@@ -23,7 +23,7 @@ import { type DiffLine, type FileView, fileViews, type Mark, parsePatch, placeDr
 import { type Compared, canonicalJson, comparePatch, MAX_TEXT } from "../viewer/compare.ts";
 import { fileTree, type TreeNode } from "../viewer/tree.ts";
 import { type DiffAsk, type LocalDiff, localDiff, MAX_FILES, MAX_UNTRACKED } from "../viewer/localdiff.ts";
-import { Ago, Link } from "./parts.ts";
+import { Ago, forgeName, Link } from "./parts.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { checkReview, postReview } from "../actions/reviews.ts";
 import { replyToThread, resolveThread } from "../actions/threads.ts";
@@ -65,7 +65,7 @@ const RUN_TONE = { ok: "ok", bad: "bad", pending: "warn", skipped: undefined } a
 
 // ── PR: header and tabs ──────────────────────────────────────────────────────
 
-function header(v: PrView, current: "conversation" | "files" | "review", extra: { stack?: Child; /** The Review tab (dovre#106), with my pending comments' count. */ review?: { n: number } }) {
+function header(v: PrView, current: "conversation" | "files" | "review", extra: { stack?: Child; /** The Review tab (dovre#106), with my pending comments' count. */ review?: { n: number }; /** What the forge is called ("GitHub"). */ forge: string }) {
   const tabs = Tabs({
     label: "Pull request",
     items: [
@@ -83,7 +83,7 @@ function header(v: PrView, current: "conversation" | "files" | "review", extra: 
     title: html`#${v.number} ${v.title}`,
     sub,
     crumbs: [{ href: "/prs", label: "Pull requests" }, { label: v.repo }],
-    actions: Link(v.url, html`Open on GHE ↗`, "btn ghost"),
+    actions: Link(v.url, html`Open on ${extra.forge} ↗`, "btn ghost"),
     tabs,
   });
 }
@@ -144,7 +144,7 @@ ${Panel({
   children: v.timeline.length ? List([...v.timeline].reverse().slice(0, 30).map((t) => Item({ title: html`<strong>${t.who}</strong> ${TIMELINE_WORD[t.what] ?? t.what}${t.detail ? html` <code>${t.detail}</code>` : ""}`, trail: Ago(t.at), quiet: t.what === "commit" }))) : Empty({ title: "Nothing yet" }),
 })}
 </div>`;
-  return shell({ title: `#${v.number} ${v.title} · Dovre`, frame, current: "/prs", body: html`${header(v, "conversation", { stack: o.stack, review: o.review })}${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${body}`, head: html`<meta name="u-topics" content="snapshot ${o.topic}">` });
+  return shell({ title: `#${v.number} ${v.title} · Dovre`, frame, current: "/prs", body: html`${header(v, "conversation", { forge: forgeName(frame.host), stack: o.stack, review: o.review })}${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${body}`, head: html`<meta name="u-topics" content="snapshot ${o.topic}">` });
 }
 
 // ── PR: files ────────────────────────────────────────────────────────────────
@@ -265,7 +265,7 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
   const m = o.mine;
   const moved = !!m?.review && m.review.sha !== v.headSha;
   let inner: Html;
-  if (!o.files) inner = Reading({ text: "Reading the files from GHE…" });
+  if (!o.files) inner = Reading({ text: `Reading the files from ${forgeName(frame.host)}…` });
   else if (!o.files.ok) inner = Notice({ tone: "bad", children: html`<strong>The files didn't load.</strong> ${o.files.error}` });
   else {
     const views = fileViews(o.files.value, v.threads);
@@ -301,7 +301,7 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
     title: `Files · #${v.number} ${v.title} · Dovre`,
     frame,
     current: "/prs",
-    body: html`${header(v, "files", { review: m ? { n: m.review?.comments.length ?? 0 } : undefined })}<div data-live id="pr-files">${inner}</div>`,
+    body: html`${header(v, "files", { forge: forgeName(frame.host), review: m ? { n: m.review?.comments.length ?? 0 } : undefined })}<div data-live id="pr-files">${inner}</div>`,
     head: html`<meta name="u-topics" content="${o.topic}">`,
   });
 }
@@ -615,8 +615,9 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const page = async (x: NonNullable<Awaited<ReturnType<typeof ctxOf>>>, o: { summary?: string; verdict?: string; preview?: Parameters<typeof reviewPage>[1]["preview"]; review?: MyReview } = {}) => {
       const review = o.review ?? x.review;
       const mine = await own(x.v);
-      return reviewPage(await deps.frame(), {
-        header: header(x.v, "review", { review: { n: review?.comments.length ?? 0 } }),
+      const frame = await deps.frame();
+      return reviewPage(frame, {
+        header: header(x.v, "review", { forge: forgeName(frame.host), review: { n: review?.comments.length ?? 0 } }),
         title: `#${x.v.number} ${x.v.title}`,
         base: x.base,
         head: x.v.headSha,

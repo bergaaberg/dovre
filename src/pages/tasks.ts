@@ -4,7 +4,7 @@ import type { IssueType } from "../issues/templates.ts";
 import { type Checkout, inRepos, type Parent, type TaskCreated, refText } from "../issues/tasks.ts";
 import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
-import { Link, MyListBox, failed, safeUrl } from "./parts.ts";
+import { Link, MyListBox, failed, forgeName, safeUrl } from "./parts.ts";
 import { type Ctx, type Res, agentPanel, crumbs, hidden, page, rows, short, star, taskHref, wrap } from "./work.ts";
 
 export type TaskDraft = { repo: string; title: string; body: string; type: string; assign: boolean };
@@ -119,6 +119,6 @@ export function taskDonePage(ctx: Ctx, o: { repo: string; number: number; url: s
 ${Notice({ tone: "ok", children: html`Created ${Link(o.url, ref)}${o.result?.linked && parent ? html`, under ${parent}` : ""}.` })}
 ${(o.result?.warnings ?? []).map((w) => Notice({ tone: "warn", children: w }))}
 ${Panel({ title: "In the PR that does it", children: html`<p><code data-copy="${closes}">${closes}</code></p><p class="hint t3">Closing it counts toward the issue it hangs under.</p>` })}
-<div class="buttons">${Link(o.url, "Open it on GHE", "btn primary")}${agent}${more}</div>`,
+<div class="buttons">${Link(o.url, `Open it on ${forgeName(ctx.frame.host)}`, "btn primary")}${agent}${more}</div>`,
   );
 }

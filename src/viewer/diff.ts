@@ -150,7 +150,7 @@ export function fileViews(files: PrFile[], threads: Thread[]): FileView[] {
   return files.map((file) => {
     const mine = threads.filter((t) => t.path === file.path || (!!file.previous && t.path === file.previous));
     if (file.patch === undefined) {
-      const why = file.status === "removed" ? "Deleted." : file.additions + file.deletions === 0 ? "No text changes (binary, or only renamed or mode-changed)." : "Too large for GHE to show here.";
+      const why = file.status === "removed" ? "Deleted." : file.additions + file.deletions === 0 ? "No text changes (binary, or only renamed or mode-changed)." : "Too large to show here.";
       return { file, lines: [], folded: true, why, unplaced: mine, threads: mine };
     }
     const lines = parsePatch(file.patch);

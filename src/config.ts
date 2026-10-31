@@ -82,7 +82,7 @@ export const PANES: Pane[] = [
 export const GENERAL: Field[] = [
   { key: "REPO_OWNERS", label: "Owners to track", hint: "Orgs and users on the host, comma-separated; the first is where short names (repo#12) belong", kind: "text", pattern: LIST, placeholder: "my-org, my-user" },
   { key: "CODE_DIR", label: "Code folder", hint: "Your checkouts sit right in it (<folder>/<repo>)", kind: "text", pattern: /^[^"<>|?*\r\n]{1,260}$/ },
-  { key: "TEAM", label: "Your team on GHE", hint: "The team's slug, for grouping work by the people in it", kind: "text", pattern: /^[\w.\-]{1,100}$/, placeholder: "my-team" },
+  { key: "TEAM", label: "Your team", hint: "The team's slug, for grouping work by the people in it", kind: "text", pattern: /^[\w.\-]{1,100}$/, placeholder: "my-team" },
   { key: "FORM_REPOS", label: "Repos with their own issue forms", hint: "comma-separated", kind: "text", pattern: LIST, placeholder: "forms-repo" },
   {
     key: "AGENT_HARNESSES",

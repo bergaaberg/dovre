@@ -33,6 +33,9 @@ export function harnessTag(h: keyof typeof HARNESS_NAME | undefined, model?: str
 /** On a New work preview: also put what's created on My list (on unless unticked). */
 export const MyListBox = html`<label class="check mylist"><input type="checkbox" name="mylist" value="1" checked> Also put it on My list</label>`;
 
+/** What pages call the forge: "GitHub" for github.com, else the host itself ("ghe.example.com"). */
+export const forgeName = (host: string | undefined): string => (!host || host.toLowerCase() === "github.com" ? "GitHub" : host);
+
 /** Only http(s) links and this app's own paths reach an href: escaping doesn't stop `javascript:`. */
 export function safeUrl(url: string | undefined | null): string {
   if (!url) return "#";

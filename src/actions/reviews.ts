@@ -46,7 +46,7 @@ export async function checkReview(ghe: Ghe, repo: string, n: number, o: { review
     const me = currentActor() ? (await ghe.rest<{ login?: string }>("/user"))?.login ?? "" : o.me;
     if (me && at.pr.user.login.toLowerCase() === me.toLowerCase()) {
       if (by === "agent") return { ok: false, message: `${repo}#${n} is your own PR: an agent's review goes on someone else's.` };
-      if ((by === "auto" || o.verdict) && o.verdict !== "comment") return { ok: false, message: `${repo}#${n} is your own PR: GHE takes only a Comment on it, not ${o.verdict ? VERDICT_LABEL[o.verdict] : "no verdict"}.` };
+      if ((by === "auto" || o.verdict) && o.verdict !== "comment") return { ok: false, message: `${repo}#${n} is your own PR: the forge takes only a Comment on it, not ${o.verdict ? VERDICT_LABEL[o.verdict] : "no verdict"}.` };
     }
     const { inline, outside } = placeComments(o.draft.comments, await loadPrFiles(ghe, repo, n));
     const notes = outside.length ? [`${outside.length === 1 ? "One comment isn't" : `${outside.length} comments aren't`} on a line of the diff, so ${outside.length === 1 ? "it goes" : "they go"} at the end of the summary.`] : [];

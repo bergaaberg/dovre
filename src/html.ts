@@ -247,7 +247,7 @@ ${body}
 </main>
 <footer class="foot">
 <svg viewBox="0 0 1400 56" preserveAspectRatio="none" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><path d="M0 55 90 30 140 42 230 12 300 36 360 26 450 48 540 20 600 31 690 6 760 34 830 24 910 44 990 16 1050 30 1130 22 1210 46 1290 28 1400 50"/><path d="M0 55 60 46 160 52 260 40 380 50 470 38 600 52 720 42 860 52 980 40 1100 50 1240 42 1400 54" opacity=".6"/></svg>
-<p><span>Dovre · <kbd>?</kbd> for keys</span><span>${frame.host ?? "GHE"} as ${frame.operator}</span></p>
+<p><span>Dovre · <kbd>?</kbd> for keys</span><span>${frame.host ?? "github.com"} as ${frame.operator}</span></p>
 </footer>
 </div>
 </div>

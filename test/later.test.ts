@@ -95,7 +95,7 @@ const VIEW = {
 };
 const FILES = [{ filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, sha: "1", patch: "@@ -1,1 +1,2 @@\n ctx\n+new line\n" }];
 const ENV = { GHE_ORG: "ACME", CODE_DIR: "C:/code" } as unknown as Env;
-const frame = async () => ({ operator: "me", nav: [] });
+const frame = async () => ({ operator: "me", nav: [], host: "acme.ghe.com" });
 function ghe(files: () => Promise<unknown>): Ghe {
   return {
     host: "acme.ghe.com",
@@ -120,7 +120,7 @@ test("the PR's files: slow on GHE, the page answers within its budget reading, t
   const first = await timed(app, "/prs/ACME/web/9/files");
   assert.equal(first.res.status, 200);
   assert.match(first.out, /data-pending/);
-  assert.match(first.out, /Reading the files from GHE/);
+  assert.match(first.out, /Reading the files from acme\.ghe\.com/);
   assert.ok(first.ms < BUDGET_MS + 1000, `answered in ${Math.round(first.ms)} ms`);
   g.resolve(FILES);
   await sleep(0);

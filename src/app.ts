@@ -80,7 +80,7 @@ import { webUrl } from "./open-link.ts";
 import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } from "./layout.ts";
 import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
-import { safeUrl } from "./pages/parts.ts";
+import { forgeName, safeUrl } from "./pages/parts.ts";
 import type { Pack, PackContext, PackManifest, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
 import { fileWhy, isWasm, isWasmFile, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
@@ -763,7 +763,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     },
   };
   /** The agent-review block on each PR card: nothing while reviews are switched off. */
-  const reviewViews = (s: Snapshot) => (off("reviews") ? Promise.resolve(() => "" as const) : agentViews(reviewDeps, s));
+  const reviewViews = (s: Snapshot) => (off("reviews") ? Promise.resolve(() => "" as const) : agentViews(reviewDeps, s, forgeName(env.GHE_HOST)));
   /** What a live response showed isn't kept by the browser either. */
   const noStore = (res: Response) => (res.headers.set("Cache-Control", "no-store"), res);
 

@@ -14,7 +14,7 @@ import type { Clicks, WriteKind } from "../writes.ts";
 import { LOOK, STATS_RANGES, statsRange } from "./layout.ts";
 import type { Reg, ToolsHarness } from "../agents/mcpsetup.ts";
 import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
-import { Ago, quietFields } from "./parts.ts";
+import { Ago, forgeName, quietFields } from "./parts.ts";
 
 /** What this machine has, for the Setup panel: each a line saying what it does, and how to turn it on when it's off. Panes have their own panel. */
 export type SetupFacts = {
@@ -39,7 +39,7 @@ export type SetupLine = { name: string; on: boolean; what: string; fix?: string;
 export function setupLines(f: SetupFacts): SetupLine[] {
   const windows = (f.platform ?? process.platform) === "win32";
   return [
-    { name: "GHE", on: true, what: `${f.ghe.host}, org ${f.ghe.org}, signed in as ${f.ghe.login}` },
+    { name: forgeName(f.ghe.host), on: true, what: `${forgeName(f.ghe.host) === f.ghe.host ? "" : `${f.ghe.host}, `}org ${f.ghe.org}, signed in as ${f.ghe.login}` },
     f.claude ? { name: "Claude Code", on: true, what: `Agents can run in it: ${f.claude}` } : { name: "Claude Code", on: false, what: "Not found", fix: "Install it (`claude` on the PATH), or set CLAUDE_BIN in .dev.vars. Without it, Bino, summaries and reviews use Copilot through omp." },
     f.omp ? { name: "omp", on: true, what: `Agents can run in it (Copilot models): ${f.omp}` } : { name: "omp", on: false, what: "Not found", fix: "Install it (`omp` on the PATH), or set OMP_BIN in .dev.vars. Copilot models need it: Bino and summaries without Claude Code." },
     f.copilotCli
