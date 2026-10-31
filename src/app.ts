@@ -88,6 +88,7 @@ import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "
 import { quietOf } from "./quiet.ts";
 import { listRepos } from "./sources/claude.ts";
 import { SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
+import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
@@ -525,7 +526,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const packCss = packs.on.filter((c) => c.styles).map((c) => `/* ${c.manifest.id} */\n${c.styles}`).join("\n");
   const PACK_CSS = packCss ? { path: `/assets/packs.${hashOf(packCss)}.css`, body: packCss } : undefined;
   // Their scripts (`script`): one file after the core's, each pack's in a block of its own.
-  const packJs = packs.on.filter((c) => c.script).map((c) => `// ${c.manifest.id}\n{\n${c.script}\n}`).join("\n");
+  // One that listens to every change itself rather than through dovreOn isn't served: each change
+  // reaches every open tab, and a script asking the server on each one multiplied the Worker's requests.
+  const quiet = (c: Pack) => {
+    if (!RAW_CHANGE.test(c.script!)) return true;
+    console.log(`pack ${c.manifest.id}: its script listens to dovre:change itself; not served (use dovreOn)`);
+    return false;
+  };
+  const packJs = packs.on.filter((c) => c.script && quiet(c)).map((c) => `// ${c.manifest.id}\n{\n${c.script}\n}`).join("\n");
   const PACK_JS = packJs ? { path: `/assets/packs.${hashOf(packJs)}.js`, body: packJs } : undefined;
   const packNav = () => shown().flatMap((c) => (c.nav ? safely(() => c.nav!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`nav: ${(e as Error)?.message ?? e}`)) : []));
   const packFeed = () =>

@@ -526,9 +526,11 @@ export type Pack = {
   /**
    * Plain JS for its own pages and slots, served beside the core's script (CSP `script-src 'self'`)
    * and run on every page while the pack is on, in a block of its own. Like the core's, it's an
-   * enhancement: what it adds works without it. It hears the core on `document`: `dovre:change`
-   * (detail: what the hub said changed: topics, notes) and `dovre:swap` (detail: { from, to }, a
-   * live region about to be swapped for a fresh one, so it can carry over what it shows).
+   * enhancement: what it adds works without it. It hears what the hub said changed through
+   * `dovreOn(topics, fn, { notes })` (src/ui/on.js.ts: only those topics, merged while a call is out
+   * or the tab is hidden), never by listening to `dovre:change` itself: every open tab hears every
+   * change, and a script that does isn't served. On `document` it may hear `dovre:swap` (detail:
+   * { from, to }, a live region about to be swapped for a fresh one, so it can carry over what it shows).
    */
   script?: string;
   /**

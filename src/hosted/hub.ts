@@ -176,9 +176,20 @@ const json = (v: unknown, status = 200) => new Response(JSON.stringify(v ?? null
 const enc = new TextEncoder();
 /** An answer in flight keeps the object awake: an alarm a minute, while one is. */
 const AWAKE_MS = 60_000;
+/**
+ * Changes go out to pages at most one per this many ms: the first at once, those after it merged
+ * (their topics together, the newest synced) into one at the end. Every isolate publishes on its own,
+ * and every change reaches every open tab, so a burst would otherwise multiply into the Worker.
+ */
+export const CHANGE_GAP_MS = 250;
 
 export class DovreHub {
   private subs = new Set<WritableStreamDefaultWriter<Uint8Array>>();
+  /** Changes waiting for the gap (CHANGE_GAP_MS) to pass, and when the last went out. */
+  private held?: { topics: Set<string>; synced?: number; timer: ReturnType<typeof setTimeout> };
+  private sentAt = 0;
+  /** CHANGE_GAP_MS; a test about something else sets 0 to see each change on its own. */
+  changeGap = CHANGE_GAP_MS;
   private bino?: Promise<Engine>;
   private state: HubState;
   private env: HubEnv;
@@ -286,7 +297,25 @@ export class DovreHub {
 
   /** `synced`: a gather finished then (the sidebar's "Synced", as the local server's events say it). */
   publish(topics: string[], synced?: number): void {
-    const data = JSON.stringify({ topics, at: Date.now(), synced });
+    const now = Date.now();
+    if (!this.held && now - this.sentAt >= this.changeGap) return this.change(topics, synced);
+    if (this.held) {
+      for (const t of topics) this.held.topics.add(t);
+      if (synced !== undefined) this.held.synced = Math.max(this.held.synced ?? 0, synced);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const h = this.held!;
+      this.held = undefined;
+      this.change([...h.topics], h.synced);
+    }, this.changeGap - (now - this.sentAt));
+    this.held = { topics: new Set(topics), synced, timer };
+  }
+
+  /** One change, out to every page now. */
+  private change(topics: string[], synced?: number): void {
+    this.sentAt = Date.now();
+    const data = JSON.stringify({ topics, at: this.sentAt, synced });
     const line = enc.encode(`event: change\ndata: ${data}\n\n`);
     for (const w of this.subs) this.write(w, line);
     for (const ws of this.pages()) {
