@@ -66,7 +66,7 @@ test("the form: a switch, a route, options; bad values refused; fixed keys left 
   assert.equal(empty.config.TZ_NAME, undefined, "empty is the default");
   const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS", "on.lab": "on" }, {}, new Set(), { general: true });
   assert.deepEqual(work.config, { CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS" }, "the work form leaves the switches alone");
-  assert.deepEqual(configFromForm({ TEAM: "a/b" }, {}, new Set(), { general: true }).bad, ["Your team on GHE"]);
+  assert.deepEqual(configFromForm({ TEAM: "a/b" }, {}, new Set(), { general: true }).bad, ["Your team"]);
 });
 
 test("kept in the settings table: known keys only, as strings", async () => {
@@ -151,7 +151,7 @@ test("the first run: Today sends to the first-run page until it's answered or sk
   assert.match(page, /name="on\.lab"/);
   const bad = await post("/welcome", { TEAM: "no/slashes" });
   assert.equal(bad.headers.get("location"), "/welcome?go=1");
-  assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Your team on GHE/);
+  assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Your team/);
   const r = await post("/welcome", { TEAM: "my-team", "on.lab": "on", "on.jira": "on", "via.jira": "mcp" });
   assert.equal(r.headers.get("location"), "/", "no supervisor in a test: straight to Today");
   const kept = await loadConfig(db.DB);

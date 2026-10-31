@@ -16,6 +16,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { COOKIE, isLocal, isOwnOrigin, sameSecret, secureCookie } from "./access.ts";
 import type { AppEnv } from "./env.ts";
 import { ownersOf } from "./owners.ts";
+import { forgeName } from "./pages/parts.ts";
 import { mountPwa } from "./pwa.ts";
 
 export type SetupProblem = { kind: "org" | "login" | "unreachable"; host: string; error?: string };
@@ -96,7 +97,7 @@ REPO_OWNERS=your-org, your-user</code></pre></details>`
   <pre><code>gh auth login --hostname ${p.host}</code></pre>
   <p class="t3">Or put a token in <code>GHE_TOKEN</code> in <code>.dev.vars</code>.</p>
 </details>`
-      : html`<p>GHE at <strong>${p.host}</strong> didn't answer${p.error ? html`: <code>${p.error.slice(0, 200)}</code>` : ""}.</p><ul><li>Is the VPN on?</li><li>Has the login expired? <code>gh auth status --hostname ${p.host}</code>, then <code>gh auth login --hostname ${p.host}</code>.</li></ul>`;
+      : html`<p>${forgeName(p.host)} at <strong>${p.host}</strong> didn't answer${p.error ? html`: <code>${p.error.slice(0, 200)}</code>` : ""}.</p><ul><li>Is the VPN on?</li><li>Has the login expired? <code>gh auth status --hostname ${p.host}</code>, then <code>gh auth login --hostname ${p.host}</code>.</li></ul>`;
   return html`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="5">
 <title>Set up · Dovre</title>
@@ -120,10 +121,10 @@ details summary { cursor: pointer; color: var(--ink-3); font-size: 14px; }
 .notice { padding: 10px 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--code); margin: 8px 0; }
 a { color: var(--accent); }
 </style></head>
-<body><main><img src="/assets/icon-192.png" alt=""><h1>${p.kind === "org" ? "Which organisation?" : p.kind === "login" ? "Sign in to GHE first" : "Can't reach GHE"}</h1>
+<body><main><img src="/assets/icon-192.png" alt=""><h1>${p.kind === "org" ? "Which organisation?" : p.kind === "login" ? `Sign in to ${forgeName(p.host)} first` : `Can't reach ${forgeName(p.host)}`}</h1>
 ${state.notice ? html`<p class="ok">${state.notice}</p>` : ""}
 ${state.error ? html`<p class="bad">${state.error}</p>` : ""}
-${state.ready ? html`<p class="ok">GHE answers now. Restart Dovre (<code>dovre restart</code>) to carry on.</p>` : fix}
+${state.ready ? html`<p class="ok">${forgeName(p.host)} answers now. Restart Dovre (<code>dovre restart</code>) to carry on.</p>` : fix}
 <p class="t3">This page looks again every few seconds${state.lookedAt ? `; last at ${new Date(state.lookedAt).toLocaleTimeString("en-GB")}` : ""}, and goes on by itself once it works.</p>
 </main></body></html>`;
 }

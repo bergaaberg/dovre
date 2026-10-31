@@ -26,7 +26,7 @@ import { type Child, Confirm, type Html, KeyValues, Notice, PageHeader, Panel, P
 import { later, Reading } from "./later.ts";
 import { markdown } from "../ui/markdown.ts";
 import { modelSelect } from "./models.ts";
-import { Ago, harnessTag, HARNESS_NAME, Link, safeUrl } from "./parts.ts";
+import { Ago, forgeName, harnessTag, HARNESS_NAME, Link, safeUrl } from "./parts.ts";
 
 import type { AgentOf } from "./inline.ts";
 export type { AgentOf };
@@ -35,7 +35,7 @@ const startHref = (p: Pr, kind: ReviewKind) => safeUrl(`/prs/agent?pr=${encodeUR
 const sessionHref = (r: AgentReview) => safeUrl(r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.runId}`);
 
 /** The block on a PR card. `report`: the agent's last message, once it's done. */
-export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, report: string | undefined): Html {
+export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, report: string | undefined, forge = "GitHub"): Html {
   const start = (label: string) => html`<a class="btn" href="${startHref(p, kind)}">${label}</a>`;
   if (!r) return html`<div class="agent-review"><div class="buttons">${start(`${KIND_LABEL[kind]}…`)}</div></div>`;
   const what = kind === "review" ? "Agent review" : "Agent assessment";
@@ -48,7 +48,7 @@ export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, 
   const split = r.status === "done" && report?.trim() ? splitDraft(kind, report) : undefined;
   const body = split?.text ? html`<details class="agent-report"${older ? "" : html` open`}><summary>The ${kind === "review" ? "report" : "assessment"}</summary><div class="agent-report-body">${markdown(split.text, { headingOffset: 3 })}</div></details>` : "";
   const again = start(r.status === "done" ? (kind === "review" ? "Review again…" : "Assess again…") : "Try again…");
-  const posted = r.posted ? html`<p class="hint">Posted ${r.posted.what ? html`(${r.posted.what}) ` : ""}${Ago(r.posted.at)}${r.posted.url ? html` · ${Link(r.posted.url, "Open on GHE")}` : ""}</p>` : "";
+  const posted = r.posted ? html`<p class="hint">Posted ${r.posted.what ? html`(${r.posted.what}) ` : ""}${Ago(r.posted.at)}${r.posted.url ? html` · ${Link(r.posted.url, `Open on ${forge}`)}` : ""}</p>` : "";
   const draft = r.posted || !split ? "" : split.draft ? (older ? html`<span class="hint">The draft is for an older commit: review again to post one.</span>` : html`<a class="btn primary" href="${draftHref(r)}">Go through the draft…</a>`) : split.broken ? html`<span class="hint">The draft at the end of the ${kind === "review" ? "report" : "assessment"} couldn't be read.</span>` : "";
   return html`<div class="agent-review">${head}${body}${posted}<div class="buttons">${draft}${again}</div></div>`;
 }
@@ -87,11 +87,11 @@ type DraftView = {
 };
 
 /** The line comments as cards: in the diff at their lines when it's read, the rest apart (they go into the summary). */
-function lineCards(comments: LineComment[], card: (i: number, label: Html) => Html, diff: DraftDiff | undefined, sha: string): Html | "" {
+function lineCards(comments: LineComment[], card: (i: number, label: Html) => Html, diff: DraftDiff | undefined, sha: string, forge: string): Html | "" {
   const one = (i: number) => card(i, html`<code class="draft-where">${whereOf(comments[i]!)}</code>`);
   const all = comments.map((_, i) => i);
   const list = (title: string, idx: number[], hint?: Child) => (idx.length ? html`<p class="draft-h">${title}</p>${hint ? html`<p class="hint">${hint}</p>` : ""}${idx.map(one)}` : "");
-  if (diff === "reading") return html`${Reading({ text: "Reading the diff from GHE…" })}${list("Line comments", all)}`;
+  if (diff === "reading") return html`${Reading({ text: `Reading the diff from ${forge}…` })}${list("Line comments", all)}`;
   if (!diff || !diff.ok) return list("Line comments", all, diff?.why);
   const views = fileViews(diff.files, diff.threads);
   const off = placeDrafts(views, comments);
@@ -102,6 +102,7 @@ function lineCards(comments: LineComment[], card: (i: number, label: Html) => Ht
 /** The draft as cards I change or drop, and after Preview, exactly what goes with its Post. */
 export function draftPage(frame: Frame, v: DraftView): Html {
   const { r, pr, base } = v;
+  const forge = forgeName(frame.host);
   const review = base.kind === "review";
   const cards = cardsOf(base, v.form);
   const text = (name: string, was: string) => (v.form && typeof v.form[name] === "string" ? String(v.form[name]) : was);
@@ -112,10 +113,10 @@ export function draftPage(frame: Frame, v: DraftView): Html {
 ${review
   ? html`<div class="field"><fieldset><legend class="label">Verdict</legend>${VERDICTS.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset><span class="hint">Yours to pick: the agent doesn't choose it.</span></div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(text("summary", base.summary), 4)}" maxlength="${MAX_SUMMARY}">\n${text("summary", base.summary)}</textarea></label>
-${base.kind === "review" ? lineCards(base.comments, card, v.diff, r.headSha) : ""}`
+${base.kind === "review" ? lineCards(base.comments, card, v.diff, r.headSha, forge) : ""}`
   : html`${base.replies.length ? html`<p class="draft-h">Replies</p>${base.replies.map((x, i) => card(i, html`<span class="draft-where">Reply to ${Link(`${pr.url}#discussion_r${x.commentId}`, "this comment")}</span>`))}` : ""}
 <label class="field"><span class="label">A comment on the PR</span><span class="hint">Optional: for what was said outside a thread.</span><textarea name="comment" rows="${rows(text("comment", base.comment))}" maxlength="${MAX_SUMMARY}">\n${text("comment", base.comment)}</textarea></label>`}
-<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button><span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button><span class="hint">Nothing goes to ${forge} before Post on the preview.</span></div>
 </form>`;
   const p = v.preview;
   const preview = !p
@@ -123,7 +124,7 @@ ${base.kind === "review" ? lineCards(base.comments, card, v.diff, r.headSha) : "
     : "problem" in p
       ? Notice({ tone: "bad", children: p.problem })
       : Panel({
-          title: "What goes to GHE",
+          title: `What goes to ${forge}`,
           meta: review ? Pill({ children: VERDICT_LABEL[v.verdict] }) : undefined,
           children: html`${p.notes.map((n) => Notice({ tone: "warn", children: n }))}
 ${p.draft.kind === "review"
@@ -143,7 +144,7 @@ ${p.draft.kind === "review"
   })}
 ${v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: v.flash.message }) : ""}
 ${r.posted
-  ? Notice({ tone: "ok", children: html`Posted ${r.posted.what ? html`(${r.posted.what}) ` : ""}${Ago(r.posted.at)}.${r.posted.url ? html` ${Link(r.posted.url, "Open it on GHE")}` : ""}` })
+  ? Notice({ tone: "ok", children: html`Posted ${r.posted.what ? html`(${r.posted.what}) ` : ""}${Ago(r.posted.at)}.${r.posted.url ? html` ${Link(r.posted.url, `Open it on ${forge}`)}` : ""}` })
   : html`${Panel({ title: review ? "Go through it" : "Go through them", meta: html`<span class="t3">Change any text, untick what shouldn't go.</span>`, children: form })}${preview}`}`;
   return shell({ title: `${review ? "The agent's review" : "The agent's replies"} · Dovre`, frame, current: "/prs", body });
 }
@@ -206,7 +207,7 @@ const findPr = (s: Snapshot, key: string): Pr | undefined => (s.prs.ok ? [...s.p
 const first = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** The agent block for every PR card on a page, from what's stored and what's running. */
-export async function agentViews(deps: ReviewDeps, s: Snapshot): Promise<AgentOf> {
+export async function agentViews(deps: ReviewDeps, s: Snapshot, forge?: string): Promise<AgentOf> {
   // No agent CLI here: nothing to offer.
   if (!deps.runner?.harnesses().length) return () => "";
   const reviews = await latestReviews(deps.db);
@@ -215,7 +216,7 @@ export async function agentViews(deps: ReviewDeps, s: Snapshot): Promise<AgentOf
     const kind = kindFor(p, s.login);
     if (!kind) return "";
     const r = reviews.get(`${kind}:${prKey(p)}`);
-    return agentBlock(p, kind, r, r?.status === "done" ? deps.lastMessage(r) : undefined);
+    return agentBlock(p, kind, r, r?.status === "done" ? deps.lastMessage(r) : undefined, forge);
   };
 }
 

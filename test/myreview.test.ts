@@ -132,7 +132,7 @@ test("preview, then post: one review on GHE at the commit, with the verdict I pi
   assert.equal(pre.status, 200);
   const page = await pre.text();
   assertInert("review preview", page);
-  assert.match(page, /What goes to GHE/);
+  assert.match(page, /What goes to acme\.ghe\.com/);
   const nonce = /name="nonce" value="([^"]+)"/.exec(page)![1]!;
   const print = /name="print" value="([^"]+)"/.exec(page)![1]!;
   assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing posted by the preview");

@@ -43,7 +43,7 @@ import { createCatalog, type Field, type IssueType, type Kept, memoize, type Tem
 import type { Ghe } from "../sources/ghe.ts";
 import { type Child, Grid2, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
-import { failed, Link, MyListBox } from "./parts.ts";
+import { failed, forgeName, Link, MyListBox } from "./parts.ts";
 import { addTodo } from "../todo/store.ts";
 import { MAX_TASK_BODY, MAX_TASK_TITLE, type TaskDraft, type TaskErrors, taskDonePage, taskFormPage, taskPickPage, taskPreviewPage } from "./tasks.ts";
 import {
@@ -153,7 +153,7 @@ export function pickPage(ctx: Ctx, o: { repo: string; templates: Res<Templates>;
   return page(
     ctx,
     "Issue",
-    html`${PageHeader({ title: "Issue", sub: html`In <strong>${o.repo}</strong>, through its own forms. Forms, types and labels come live from GHE.`, crumbs: crumbs("Issue"), tabs: repoTabs(ctx, o.repo) })}
+    html`${PageHeader({ title: "Issue", sub: html`In <strong>${o.repo}</strong>, through its own forms. Forms, types and labels come live from ${forgeName(ctx.frame.host)}.`, crumbs: crumbs("Issue"), tabs: repoTabs(ctx, o.repo) })}
 ${o.notice ? Notice({ tone: "bad", children: o.notice }) : ""}
 ${failed("Templates", o.templates)}${failed("Issue Types", o.types)}
 ${broken.length ? Notice({ tone: "warn", children: html`<strong>Some templates didn't parse.</strong> ${broken.map((b) => html`${b.file}: ${b.error}. `)}` }) : ""}
@@ -236,7 +236,7 @@ export function donePage(ctx: Ctx, o: { repo: string; number: number; url: strin
     html`${PageHeader({ title: "Issue created", sub: o.result?.title, crumbs: [{ href: CURRENT, label: "New work" }, { href: newHref(o.repo), label: short(ctx.org, o.repo) }] })}
 ${Notice({ tone: "ok", children: html`Created ${Link(o.url, `${o.repo}#${o.number}`)}.` })}
 ${(o.result?.warnings ?? []).map((w) => Notice({ tone: "warn", children: w }))}
-<div class="buttons">${Link(o.url, "Open it on GHE", "btn primary")}<a class="btn" href="${newHref(o.repo)}">File another</a></div>`,
+<div class="buttons">${Link(o.url, `Open it on ${forgeName(ctx.frame.host)}`, "btn primary")}<a class="btn" href="${newHref(o.repo)}">File another</a></div>`,
   );
 }
 

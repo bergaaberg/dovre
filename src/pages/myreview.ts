@@ -11,7 +11,7 @@ import { type Card, cardLabel, type Check, type CheckMode, lost, targetLabel } f
 import type { MyReview, Pending } from "../reviews/mine.ts";
 import { Confirm, type Html, Notice, Panel, Pill, Post } from "../ui/kit.ts";
 import { markdown } from "../ui/markdown.ts";
-import { Link } from "./parts.ts";
+import { forgeName, Link } from "./parts.ts";
 
 export type Flash = { ok: boolean; message: string; url?: string };
 
@@ -145,7 +145,7 @@ ${list}
     : "problem" in p
       ? Notice({ tone: "bad", children: p.problem })
       : Panel({
-          title: "What goes to GHE",
+          title: `What goes to ${forgeName(frame.host)}`,
           meta: Pill({ children: VERDICT_LABEL[v.verdict] }),
           children: html`${p.notes.map((n) => Notice({ tone: "warn", children: n }))}${p.draft.summary ? html`<div class="draft-text">${markdown(p.draft.summary)}</div>` : ""}${p.draft.comments.map(
             (c) => html`<div class="draft-card"><code class="draft-where">${whereOf(c)}</code><div class="draft-text">${markdown(c.body)}</div></div>`,
@@ -157,7 +157,7 @@ ${list}
             question: html`Post this review as <strong>${VERDICT_LABEL[v.verdict]}</strong>?`,
           })}</div>`,
         });
-  const flash = v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: html`${v.flash.message}${v.flash.url ? html` ${Link(v.flash.url, "Open it on GHE")}` : ""}` }) : "";
+  const flash = v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: html`${v.flash.message}${v.flash.url ? html` ${Link(v.flash.url, `Open it on ${forgeName(frame.host)}`)}` : ""}` }) : "";
   const agent = v.agent && !moved ? html`<div class="buttons">${Post({ action: `${v.base}/review/import`, label: `Add the agent's ${v.agent} ${v.agent === 1 ? "comment" : "comments"}` })}<span class="hint">Its comments join yours, and its summary fills an empty one: change any of it before you post.</span></div>` : "";
   const movedNote = moved
     ? Notice({ tone: "warn", children: html`Your review is on ${r!.sha.slice(0, 7)}; the PR is now at ${v.head.slice(0, 7)}. ${Post({ action: `${v.base}/review/move`, fields: { sha: v.head }, label: `Move it to ${v.head.slice(0, 7)}` })}` })

@@ -140,7 +140,7 @@ look();
   if (done) return;
   const t = (Date.now() - started) / 1000;
   bar.style.transform = "scaleX(" + (0.92 * (1 - Math.exp(-t / 1.8))).toFixed(3) + ")";
-  if (t > 3 && t < 12) status.textContent = "Starting the server and reading GHE…";
+  if (t > 3 && t < 12) status.textContent = "Starting the server and reading your code host…";
   if (t >= 12 && help.hidden) { help.hidden = false; status.textContent = "This is taking longer than usual."; }
   requestAnimationFrame(grow);
 })();
