@@ -2,7 +2,9 @@
  * Page speed (#294): every page load, counted by route an hour at a time, as the server and the
  * page measured it. `server` is the app's time from request to response (hosted, a Worker's clock
  * only moves on I/O, so it's waiting on D1, the hub and APIs, not CPU); `page` is the browser's,
- * from the click to the page's load event, Access and the network included. Counts are kept in D1
+ * from the click to the page's load event, Access and the network included. `call` is every other
+ * request (JSON, scripts, POSTs, streams opening), the server's time, so a page script asking in a
+ * loop shows up by count. Counts are kept in D1
  * (`page_speed`), so every hosted isolate's add up; no URLs: a route is the pattern it matched.
  */
 import type { MiddlewareHandler } from "hono";
@@ -18,7 +20,7 @@ const FLUSH_MS = 30_000;
 /** The buckets' upper edges (ms); the last bucket is everything slower. */
 export const EDGES = [100, 250, 500, 1000, 2000, 4000] as const;
 
-export type Side = "server" | "page";
+export type Side = "server" | "page" | "call";
 export type SpeedRow = { hour: number; side: Side; route: string; n: number; /** Their total, ms. */ ms: number; /** Loads per bucket, EDGES.length + 1 of them. */ b: number[] };
 export type SpeedView = { rows: SpeedRow[]; now: number };
 
@@ -137,20 +139,21 @@ export const WAITED = "speedWaited" as const;
 /**
  * Counts each page's server time (a GET answered with HTML), and says it in `Server-Timing`: `app`
  * (the whole), `gather` (what it waited on the snapshot), and the route, which the page sends back
- * with its own time (POST /perf).
+ * with its own time (POST /perf). Every other request is counted as a `call`.
  */
 export function speedLog(speed: Speed): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const t0 = performance.now();
     await next();
-    if (c.req.method !== "GET" || !c.res.headers.get("content-type")?.startsWith("text/html")) return;
     const took = performance.now() - t0;
     let route = "";
     try {
       route = routePath(c);
     } catch {}
     if (!routeOk(route)) route = "/*";
-    speed.record("server", route, took);
+    const page = c.req.method === "GET" && !!c.res.headers.get("content-type")?.startsWith("text/html");
+    speed.record(page ? "server" : "call", route, took);
+    if (!page) return;
     const waited = Number(c.get(WAITED)) || 0;
     try {
       c.res.headers.append("Server-Timing", [`app;dur=${Math.round(took)}`, ...(waited ? [`gather;dur=${Math.round(waited)}`] : []), `route;desc=${JSON.stringify(route)}`].join(", "));

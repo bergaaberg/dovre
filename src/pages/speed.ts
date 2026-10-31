@@ -1,6 +1,7 @@
 /**
  * Settings → Page speed (#294): how long pages take, the whole and each route, in the last day
- * and the last week, as the browser and the server measured them (src/speed.ts).
+ * and the last week, as the browser and the server measured them, and the busiest other requests
+ * (src/speed.ts).
  */
 import { html } from "hono/html";
 import { count, duration } from "../format.ts";
@@ -31,7 +32,7 @@ const sum = (rows: (SpeedRow | undefined)[]) => {
 };
 
 function routesPanel(title: string, id: string, v: SpeedView, since: number): Html {
-  const routes = [...byRoute(v.rows, since)].map(([route, s]) => ({ route, page: s.page, server: s.server }));
+  const routes = [...byRoute(v.rows, since)].filter(([, s]) => s.page || s.server).map(([route, s]) => ({ route, page: s.page, server: s.server }));
   // Slowest first: the browser's p95, else the server's.
   const key = (r: (typeof routes)[number]) => {
     const p = r.page ?? r.server;
@@ -61,6 +62,31 @@ function routesPanel(title: string, id: string, v: SpeedView, since: number): Ht
   });
 }
 
+/** Requests other than page loads, the most first: a script asking in a loop is at the top. */
+function callsPanel(v: SpeedView, since: number, hours: number): Html {
+  const calls = [...byRoute(v.rows, since)].flatMap(([route, s]) => (s.call ? [{ route, c: s.call }] : []));
+  calls.sort((a, b) => b.c.n - a.c.n || a.route.localeCompare(b.route));
+  const n = calls.reduce((t, r) => t + r.c.n, 0);
+  return Panel({
+    title: "Busiest requests, last 24 hours",
+    id: "speed-calls",
+    meta: `${count(n)} request${n === 1 ? "" : "s"}`,
+    flush: true,
+    children: calls.length
+      ? List(
+          calls.slice(0, TOP).map((r) => {
+            const p95 = quantile(r.c.b, 0.95);
+            return Item({
+              title: html`<code>${r.route}</code>`,
+              line: html`${count(r.c.n)} request${r.c.n === 1 ? "" : "s"} · ${count(Math.round(r.c.n / hours))} an hour · half ${under(quantile(r.c.b, 0.5), true)}`,
+              trail: Pill({ tone: toneOf(p95, true), children: html`95% ${under(p95, true)}` }),
+            });
+          }),
+        )
+      : Empty({ title: "No requests counted", children: html`Requests other than page loads count here: JSON, scripts, forms.` }),
+  });
+}
+
 export function speedPanels(v: SpeedView): Html {
   const hour = Math.floor(v.now / HOUR) * HOUR;
   const day = hour - 23 * HOUR;
@@ -75,5 +101,5 @@ export function speedPanels(v: SpeedView): Html {
     title: "The last 24 hours",
     id: "speed",
     children: Stats(html`${stat("Half the pages", page, 0.5)}${stat("95% of pages", page, 0.95)}${stat("Server, 95%", server, 0.95)}`),
-  })}${routesPanel("Slowest pages, last 24 hours", "speed-day", v, day)}${routesPanel("Slowest pages, last 7 days", "speed-week", v, hour - (7 * 24 - 1) * HOUR)}`;
+  })}${routesPanel("Slowest pages, last 24 hours", "speed-day", v, day)}${routesPanel("Slowest pages, last 7 days", "speed-week", v, hour - (7 * 24 - 1) * HOUR)}${callsPanel(v, day, 24)}`;
 }

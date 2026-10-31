@@ -61,6 +61,7 @@ test("speed: a page says its time, the gather it waited on and its route in Serv
   const page = await (await get("/settings/speed")).text();
   assert.match(page, /<code>\/prs<\/code>/);
   assert.match(page, /1 load · half under 1 s · server under 100 ms/, "one page load counted: the back/forward one, the hostile route and the non-number weren't");
+  assert.match(page.slice(page.indexOf('id="speed-calls"')), /<code>\/healthz<\/code>/, "a request that isn't a page counts as a call");
   assertInert("settings/speed", page);
 });
 
@@ -81,4 +82,23 @@ test("speed: Settings → Page speed with nothing counted, and with a hostile ro
   assertInert("speedPanels", out);
   assert.ok(out.indexOf("/x") < out.indexOf("/fast"), "slowest first");
   assert.match(out, /pill bad[^>]*>95% over 4 s/);
+  assert.match(empty, /No requests counted/);
+});
+
+test("speed: every request that isn't a page load counts as a call, busiest first, and never among the pages", () => {
+  const out = String(
+    speedPanels({
+      rows: [
+        { hour: 10 * HOUR, side: "call", route: "/avatar/now", n: 480, ms: 4800, b: [480, 0, 0, 0, 0, 0, 0] },
+        { hour: 10 * HOUR, side: "call", route: `/q${H}`, n: 3, ms: 30, b: [3, 0, 0, 0, 0, 0, 0] },
+        { hour: 10 * HOUR, side: "page", route: "/prs", n: 2, ms: 200, b: [2, 0, 0, 0, 0, 0, 0] },
+      ],
+      now: 10 * HOUR + 60_000,
+    }),
+  );
+  assertInert("speedPanels calls", out);
+  const calls = out.slice(out.indexOf('id="speed-calls"'));
+  assert.ok(calls.indexOf("/avatar/now") < calls.indexOf("/q"), "the most first");
+  assert.match(calls, /480 requests · 20 an hour/);
+  assert.doesNotMatch(out.slice(0, out.indexOf('id="speed-calls"')), /avatar/, "a call isn't a page");
 });
