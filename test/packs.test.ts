@@ -767,7 +767,7 @@ test("script and pulse: the packs' scripts in one file after the core's, a block
   const glow = pack(
     { id: "glow" },
     {
-      script: `document.addEventListener("dovre:change", () => {});`,
+      script: `dovreOn(["glow"], () => {});`,
       routes: (app, ctx) => {
         app.get("/glow/dock", (c) => ctx.dockPage(c, { title: "Glow", body: "docked" }));
         app.get("/glow/pulse", (c) => c.json(ctx.pulse()));
@@ -776,14 +776,16 @@ test("script and pulse: the packs' scripts in one file after the core's, a block
     },
   );
   const busy = pack({ id: "busy" }, { pulse: () => ({ working: 1, trouble: { level: "storm", why: "1 red signal" } }), script: "let n = 1;" });
-  const { get } = signedIn(snapshot(), {}, { packs: [glow, busy] });
+  // One listening to every change itself isn't served: each change reaches every open tab.
+  const loud = pack({ id: "loud" }, { script: `document.addEventListener( 'dovre:change', () => fetch("/loud"));` });
+  const { get } = signedIn(snapshot(), {}, { packs: [glow, loud, busy] });
   const page = await (await get("/prs")).text();
   const src = page.match(/<script type="module" src="\/assets\/app\.[^"]+\.js"><\/script>\n<script type="module" src="(\/assets\/packs\.[0-9a-z]+\.js)"><\/script>/)?.[1];
   assert.ok(src, "linked right after the core's");
   const js = await get(src);
   assert.match(js.headers.get("content-type") ?? "", /text\/javascript/);
   assert.match(js.headers.get("cache-control") ?? "", /immutable/);
-  assert.equal(await js.text(), `// glow\n{\ndocument.addEventListener("dovre:change", () => {});\n}\n// busy\n{\nlet n = 1;\n}`);
+  assert.equal(await js.text(), `// glow\n{\ndovreOn(["glow"], () => {});\n}\n// busy\n{\nlet n = 1;\n}`);
   assert.match(await (await get("/glow/dock")).text(), new RegExp(`<script type="module" src="${src.replace(/\./g, "\\.")}">`), "dock pages too");
   assert.deepEqual(await (await get("/glow/pulse")).json(), { working: 1, asking: 2, trouble: [{ level: "storm", why: "1 red signal" }], busy: true });
   assert.deepEqual(seen.at(-1), { working: 0, asking: 0, trouble: [], busy: false }, "a pack reading the pulse from its own pulse gets nothing back");

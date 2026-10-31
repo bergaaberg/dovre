@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { channel, hello, helloOk, HELLO_SKEW_MS, keyOk, machineKey, parseDown, parseUp, sessionKey } from "../src/bridge/wire.ts";
-import { DovreHub, type HubSocket, type HubState } from "../src/hosted/hub.ts";
+import { CHANGE_GAP_MS, DovreHub, type HubSocket, type HubState } from "../src/hosted/hub.ts";
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -172,6 +172,7 @@ test("hub: no hello under the key, no socket; with one, the Mac is welcomed and 
 test("hub: the Mac's state is kept (and only it), topics reach open pages, calls go down and their answers back", async () => {
   const { state, db } = fakeState();
   const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  hub.changeGap = 0;
   assert.deepEqual(await hub.call({ op: "session", sid: "x" }), { ok: false, error: "No machine is online.", offline: true });
   const m = await mac(hub);
   await m.got();
@@ -534,6 +535,7 @@ test("bridge: the Mac's desk through the hub: started, watched, answered; what t
 test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, and says nothing back", async () => {
   const { state } = fakeState();
   const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  hub.changeGap = 0;
   const m = await mac(hub);
   await m.got();
 
@@ -552,6 +554,7 @@ test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, 
 
   await m.say({ t: "topics", topics: ["run:s1"] });
   hub.publish(["snapshot"], 42);
+  await until(() => page.out.length >= 2);
   const got = page.out.map((l) => JSON.parse(l) as { topics: string[]; synced?: number });
   assert.deepEqual(got.map((c) => c.topics), [["run:s1"], ["snapshot"]]);
   assert.equal(got[1]!.synced, 42);
@@ -712,4 +715,24 @@ test("found models (#238): the Mac reports what its CLIs' configs name, the hub 
   } finally {
     useFoundModels(undefined);
   }
+});
+
+test("hub: changes reach pages one per gap at most, the first at once and a burst after it merged into one", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  const page = new FakeSocket();
+  hub.acceptPage(page);
+  const got = () => page.out.map((l) => JSON.parse(l) as { topics: string[]; synced?: number });
+  hub.publish(["snapshot"], 1);
+  assert.deepEqual(got().map((c) => c.topics), [["snapshot"]], "the first at once");
+  // Every isolate's gathers and refreshes at once: one change to every tab, not one each.
+  for (let i = 0; i < 20; i++) hub.publish(i % 2 ? ["packs"] : ["snapshot"], 10 + i);
+  hub.publish([], 5);
+  assert.equal(page.out.length, 1);
+  await until(() => page.out.length >= 2);
+  await new Promise((r) => setTimeout(r, CHANGE_GAP_MS + 50));
+  assert.deepEqual(got().slice(1).map((c) => [c.topics, c.synced]), [[["snapshot", "packs"], 29]], "merged, the newest synced");
+  await new Promise((r) => setTimeout(r, CHANGE_GAP_MS));
+  hub.publish(["mac"]);
+  assert.deepEqual(got().at(-1)!.topics, ["mac"], "after a quiet gap, at once again");
 });

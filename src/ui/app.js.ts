@@ -5,6 +5,7 @@
  * textContent, and a live refresh moves nodes from a page this app served.
  */
 import { hashOf } from "./style.ts";
+import { ON_JS } from "./on.js.ts";
 
 /**
  * Hint labels the way Vimium makes them: all the same length, the shortest that gives every
@@ -25,7 +26,7 @@ function hintLabels(n, chars) {
 }
 `;
 
-export const SCRIPT = HINT_LABELS_JS + String.raw`
+export const SCRIPT = HINT_LABELS_JS + ON_JS + String.raw`
 const typing = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 // The phone's keyboard is up: a field has the focus and what's visible shrank well below the
 // tallest it's been in this orientation. The tab bar and docks step aside only then (style.ts html.kb).
@@ -668,7 +669,7 @@ function onChange(c) {
   if (c.notes && c.notes.length) notify(c.notes);
   const topics = c.topics || [];
   dockChange(topics);
-  // For the packs' scripts (Pack.script): what the hub said changed.
+  // For the packs' scripts (Pack.script), which hear it through dovreOn (src/ui/on.js.ts).
   document.dispatchEvent(new CustomEvent("dovre:change", { detail: c }));
   if (topics.some((t) => wanted.includes(t)) || document.querySelector("[data-pending]")) later(topics.some((t) => t.startsWith("run:") || t.startsWith("bino:")) ? 120 : 300);
 }
