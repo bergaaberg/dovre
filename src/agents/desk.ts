@@ -20,7 +20,7 @@ import { modelsOf, optionsOf } from "./harnesses/index.ts";
 import { effortIn } from "./harnesses/shared.ts";
 import { EFFORTS, type Effort, HARNESSES, type HarnessId, MODES, type Mode, type Run, type Runner, type StartOpts, repoDir } from "./runner.ts";
 import { WORK, ensureWorkDir, inWorkDir, workDirOf } from "./workdir.ts";
-import type { SandboxState } from "./sandbox.ts";
+import { isRepoError, type SandboxState } from "./sandbox.ts";
 import { pairId, pairWorktree } from "./pair.ts";
 
 export const SID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -81,7 +81,7 @@ export type Desk = {
   /** `caps`: a sandbox run's base, wall clock, budget and effort (#207, auto runs); checked here. `run`: the run's id. */
   /** `effort`: a level from the harness's own list (#236). */
   /** `also`: a second harness to give the same prompt (#242); each side then runs in a worktree of its own, and `to` is the pair's page. */
-  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; effort?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown; also?: unknown }): Promise<{ to: string; run?: string } | { error: string }>;
+  start(o: { repo?: unknown; prompt?: unknown; harness?: unknown; mode?: unknown; model?: unknown; effort?: unknown; machine?: unknown; sandbox?: unknown; caps?: unknown; also?: unknown }): Promise<{ to: string; run?: string } | { error: string; repo?: true }>;
   /** `copy`: ticked, the reply goes to a copy of the session (a harness that can fork), as it does on its own when a terminal has it open. */
   reply(sid: string, o: { prompt?: unknown; mode?: unknown; model?: unknown; effort?: unknown; copy?: unknown }): Promise<Done>;
   /** Answers to the agent's newest question (AskUserQuestion): the form as posted. */
@@ -320,7 +320,7 @@ export function localDesk(o: {
         run = runner.start({ harness, cwd, prompt, mode: modeOf(f.mode), model: modelOf(f.model, harness), effort: effortOf(f.effort, harness), sandbox, ...(sandbox ? capsOf(f.caps) : {}) });
       } catch (e) {
         if (!sandbox) throw e;
-        return { error: String((e as Error).message) };
+        return { error: String((e as Error).message), ...(isRepoError(e) ? { repo: true as const } : {}) };
       }
       // Straight to the run: its page turns into the session's once the agent says which (a second or two).
       const sid = await runner.sessionOf(run.id, 300);

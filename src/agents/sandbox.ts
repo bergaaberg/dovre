@@ -229,6 +229,10 @@ export function toolchainWhy(file: string, base = SANDBOX_IMAGE): string | undef
   return last === base || last === `${base}:latest` ? undefined : `${TOOLCHAIN_FILE} must end on \`FROM ${base}\` (its last stage is \`FROM ${last}\`).`;
 }
 
+/** A start that failed because of the repo (its clone, siblings, toolchain, base ref), not the machine: trying again won't help (#344). */
+export const repoError = (message: string): Error => Object.assign(new Error(message), { repo: true });
+export const isRepoError = (e: unknown): boolean => (e as { repo?: unknown } | null)?.repo === true;
+
 /** The toolchain image's tag: the repo's folder name, and a hash of the base image and the file, so either changing builds anew. */
 export function toolchainTag(repo: string, baseId: string, file: string): string {
   const name = (repo.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "repo";
@@ -346,12 +350,12 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
       return image;
     }
     const bad = toolchainWhy(file, image);
-    if (bad) throw new Error(bad);
+    if (bad) throw repoError(bad);
     if (!baseId) throw new Error(`The ${image} image isn't checked yet.`);
     const tag = toolchainTag(repo, baseId, file);
     const st = images.get(tag);
     if (st?.state === "ready") return tag;
-    if (st?.state === "failed" && Date.now() - st.at < 10 * 60_000) throw new Error(`This repo's toolchain image (${TOOLCHAIN_FILE}) didn't build: ${st.why}`);
+    if (st?.state === "failed" && Date.now() - st.at < 10 * 60_000) throw repoError(`This repo's toolchain image (${TOOLCHAIN_FILE}) didn't build: ${st.why}`);
     if (st?.state !== "building") void toolchain(tag, file);
     throw new Error(`This repo's toolchain image (${TOOLCHAIN_FILE}) is being built; the run can start once it's ready.`);
   };
@@ -413,7 +417,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
           sha = git(["rev-parse", "--verify", `${base}^{commit}`], repo);
         }
       } catch (e) {
-        throw new Error(`Couldn't find the run's base commit: ${String((e as Error).message).split("\n")[0]}`);
+        throw repoError(`Couldn't find the run's base commit: ${String((e as Error).message).split("\n")[0]}`);
       }
       // Read from the real checkout at the base, so the agent can't change it.
       const img = imageFor(repo, sha);
@@ -474,7 +478,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
         rmSync(dir, { recursive: true, force: true });
         // git's own reason is its last line on stderr; the first line only repeats the command.
         const why = String((e as { stderr?: unknown }).stderr ?? "").trim().split("\n").pop() || String((e as Error).message).split("\n")[0];
-        throw new Error(`Couldn't make the sandbox's clone: ${why}`);
+        throw repoError(`Couldn't make the sandbox's clone: ${why}`);
       }
     },
     command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET, siblings: (box.siblings ?? []).map((n) => ({ name: n, dir: join(box.dir, "siblings", n) })) }, inner) }),
