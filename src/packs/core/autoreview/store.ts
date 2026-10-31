@@ -154,4 +154,3 @@ export function prsStore(db: D1, now: () => number = Date.now) {
     },
   };
 }
-export type PrsStore = ReturnType<typeof prsStore>;
