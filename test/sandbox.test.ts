@@ -373,6 +373,24 @@ test("Apple container engine: a fix session (#326) starts from a PR head the che
   assert.equal(git(bare, "rev-parse", "sandbox/pr000001"), out.head);
 });
 
+test("Apple container engine: an Auto run's base `origin/main` ahead of a local main that's behind is still in the clone", async () => {
+  const { root, repo, git } = checkout();
+  const tokenFile = join(root, "token");
+  writeFileSync(tokenFile, "t\n", { mode: 0o600 });
+  const engine = appleContainer({ root: join(root, "boxes"), tokenFile, exec: withNet(playContainer), egress: fakeEgress().egress });
+  await tick();
+  // origin/main moved on (fetched here); the local main didn't follow.
+  git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "newer");
+  const newer = git(repo, "rev-parse", "HEAD");
+  git(repo, "update-ref", "refs/remotes/origin/main", newer);
+  git(repo, "reset", "-q", "--hard", "HEAD~1");
+  assert.equal(git(repo, "branch", "--contains", newer), "", "on no local branch");
+  const box = engine.prepare({ id: "ffffffff-6666", repo, base: "origin/main" });
+  assert.equal(box.base, newer);
+  assert.equal(git(join(box.dir, "work"), "rev-parse", "HEAD"), newer);
+  assert.equal(git(repo, "branch", "--list", "sandbox/base-*"), "", "the branch that held it while cloning is gone");
+});
+
 test("Apple container engine: a run doesn't start onto a nearly full disk", async () => {
   const { root, repo } = checkout();
   const tokenFile = join(root, "token");
