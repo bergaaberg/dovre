@@ -151,6 +151,37 @@ function reviewRoute(bindings: WorkerBindings) {
 }
 
 /** The real gatherer's remote half: PRs, notifications, movement, deploys. Agents and worktrees live on a machine. */
+/** How often an unchanged gather still tells pages its time, so their "Synced" stays roughly right. */
+export const SYNCED_EVERY_MS = 5 * 60_000;
+
+/**
+ * Which finished gathers open pages hear about: one that changed what's shown ("snapshot"), the
+ * first after stale() (a Refresh shows "Syncing…" until it hears), and otherwise one every
+ * SYNCED_EVERY_MS. Each isolate gathers every 45 s, and telling every one was most of the hub's traffic.
+ */
+export function syncTeller(tell: (at: number, changed: boolean) => void, everyMs = SYNCED_EVERY_MS) {
+  let sig = "";
+  let toldAt = 0;
+  let asked = false;
+  return {
+    /** What the kept snapshot showed, so the first gather that matches it isn't news. */
+    seed(shown: string) {
+      sig = shown;
+    },
+    asked() {
+      asked = true;
+    },
+    gathered(at: number, shown: string) {
+      const changed = shown !== sig;
+      sig = shown;
+      if (!changed && !asked && at - toldAt < everyMs) return;
+      asked = false;
+      toldAt = at;
+      tell(at, changed);
+    },
+  };
+}
+
 export function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Forge, store?: SnapshotStore, onGathered?: (s: Snapshot) => void, linked?: () => string[]): Gatherer {
   const g = createGatherer({
     env: { GHE_ORG: primaryOf(ownersOfBindings(bindings, login)), OWNERS: ownersOfBindings(bindings, login) },
@@ -241,16 +272,13 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const forge = pickForge(bindings.FORGE, instancePacks, () => githubForge(ghe), strings);
     // The last snapshot, kept in D1: a fresh isolate draws it at once and gathers behind it.
     const kept = d1SnapshotStore(bindings.DB, version);
-    // A finished gather goes to open pages: always its time (or "Syncing…" stays), "snapshot" when it changed something.
-    let sig = "";
-    const gathered = (s: Snapshot) => {
-      const next = shownOf(s);
-      hub?.gathered(s.at, next !== sig);
-      sig = next;
-    };
+    // A finished gather goes to open pages when it's worth telling them (syncTeller).
+    const sync = syncTeller((at, changed) => hub?.gathered(at, changed));
     // The PRs the packs' pages link (the Mac's agents' sessions): set once the app is built.
     let linked = (): string[] => [];
-    const gatherer = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => gathered(s), () => linked());
+    const plain = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => sync.gathered(s.at, shownOf(s)), () => linked());
+    // A Refresh or an action waits on the next gather's "Synced", changed or not.
+    const gatherer: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
 
     const env: Env = {
       DB: bindings.DB,
@@ -303,7 +331,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const seeded = kept.load().then((s) => {
       if (!s) return;
       gatherer.seed?.(s);
-      sig = shownOf(s);
+      sync.seed(shownOf(s));
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded]).then(() => {});
     const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: refresher(mounted.on, mounted.ctxOf, (l) => console.log(l), { maxMs: STUCK_MS, record: mounted.refreshes, skip: mounted.hidden }) };
