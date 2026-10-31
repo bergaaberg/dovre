@@ -4,7 +4,7 @@ import { type Frame, shell } from "../html.ts";
 import { type Problem, problemText, type Stack, type StackNode, type StackPr, waitText } from "../home/stacks.ts";
 import { Confirm, Empty, type Html, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
 import { Reading } from "./later.ts";
-import { Link, prTabs } from "./parts.ts";
+import { forgeName, Link, prTabs } from "./parts.ts";
 
 const short = (org: string, repo: string) => repo.replace(`${org}/`, "");
 /** A branch steps right; past three it stays there. */
@@ -23,23 +23,23 @@ function node(n: StackNode, total: number, me: string): Html {
   return html`<li class="stack-pr ${LANES[Math.min(n.lane, LANES.length - 1)]}"><span class="stack-pos" title="Merges ${n.position === 1 ? "first" : `after ${n.position - 1} before it`}">${n.position}/${total}</span><span class="stack-main"><span class="stack-title">${Link(p.url, html`<strong>#${p.number}</strong> ${p.title}`)}</span><span class="stack-line"><code>${p.head}</code> → <code>${p.base}</code>${p.author !== me ? html` · ${p.author}` : ""}${n.waits ? html` · <span class="stack-wait">${waitText(n.waits)}</span>` : ""}</span><span class="stack-pills">${pills(p)}</span></span></li>`;
 }
 
-function problemLine(s: Stack, x: Problem): Html {
+function problemLine(s: Stack, x: Problem, forge: string): Html {
   const text = problemText(x);
   if (x.kind !== "base-merged") return Notice({ tone: x.kind === "conflicts" ? "warn" : "bad", children: text });
   const pr = s.nodes.find((n) => n.pr.number === x.pr)?.pr;
   return Notice({
     tone: "warn",
-    children: html`${text} ${pr ? Confirm({ kind: "pr.retarget", action: "/prs/stacks/retarget", fields: { repo: s.repo, number: String(pr.number), from: pr.base }, label: `Retarget onto ${x.onto}`, question: html`Change #${pr.number}'s base from <code>${pr.base}</code> to <code>${x.onto}</code> on GHE?` }) : ""}`,
+    children: html`${text} ${pr ? Confirm({ kind: "pr.retarget", action: "/prs/stacks/retarget", fields: { repo: s.repo, number: String(pr.number), from: pr.base }, label: `Retarget onto ${x.onto}`, question: html`Change #${pr.number}'s base from <code>${pr.base}</code> to <code>${x.onto}</code> on ${forge}?` }) : ""}`,
   });
 }
 
-function stackPanel(s: Stack, org: string, me: string): Html {
+function stackPanel(s: Stack, org: string, me: string, forge: string): Html {
   const n = s.nodes.length;
   const meta = html`${s.approved}/${n} approved${s.red ? html` · <span class="stack-red">${s.red} red</span>` : ""}`;
   return Panel({
     title: html`${short(org, s.repo)} · ${n === 1 ? "1 PR" : `${n} PRs`}`,
     meta,
-    children: html`${s.problems.map((x) => problemLine(s, x))}${s.ready ? Notice({ tone: "ok", children: html`Ready: merge #${s.ready} first, then the next one up.` }) : ""}<p class="t3 stack-order">Bottom first: that's the order they merge in, onto <code>${s.defaultBranch}</code>.</p><ol class="stack">${s.nodes.map((x) => node(x, n, me))}</ol>`,
+    children: html`${s.problems.map((x) => problemLine(s, x, forge))}${s.ready ? Notice({ tone: "ok", children: html`Ready: merge #${s.ready} first, then the next one up.` }) : ""}<p class="t3 stack-order">Bottom first: that's the order they merge in, onto <code>${s.defaultBranch}</code>.</p><ol class="stack">${s.nodes.map((x) => node(x, n, me))}</ol>`,
   });
 }
 
@@ -49,7 +49,7 @@ export function stacksPage(frame: Frame, o: { org: string; me: string; stacks?: 
     : html`${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${o.error ? Notice({ tone: "bad", children: html`Stacks didn't load: ${o.error}` }) : ""}${
         o.stacks && !o.stacks.length
           ? Empty({ title: "No stacks", children: html`<p class="t2">None of your open PRs or review requests sit on another PR's branch.</p>` })
-          : (o.stacks ?? []).map((s) => stackPanel(s, o.org, o.me))
+          : (o.stacks ?? []).map((s) => stackPanel(s, o.org, o.me, forgeName(frame.host)))
       }`;
   return String(
     shell({

@@ -137,7 +137,7 @@ export function reviewPage(frame: Frame, v: ReviewPageView): Html {
 <div class="field"><fieldset><legend class="label">Verdict</legend>${verdicts.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset>${v.own ? html`<span class="hint">Your own PR: a Comment only.</span>` : ""}</div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(v.summary, 5)}" maxlength="${MAX_SUMMARY}" placeholder="Markdown">\n${v.summary}</textarea></label>
 ${list}
-<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" name="mode" value="review" data-busy="Starting">Review with an agent</button>${comments.length || v.summary ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}` : ""}<span class="hint">Nothing goes to GHE before Post on the preview.</span></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" name="mode" value="review" data-busy="Starting">Review with an agent</button>${comments.length || v.summary ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}` : ""}<span class="hint">Nothing goes to ${forgeName(frame.host)} before Post on the preview.</span></div>
 </form>`;
   const p = v.preview;
   const preview = !p

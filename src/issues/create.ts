@@ -50,7 +50,7 @@ export async function createIssue(ghe: Ghe, db: D1, org: string, i: NewIssue): P
   if (typeWarning) warnings.push(typeWarning);
   const got = new Set((issue.labels ?? []).map((l) => (typeof l === "string" ? l : l.name)));
   const dropped = i.labels.filter((l) => !got.has(l));
-  if (dropped.length) warnings.push(`GHE dropped the labels ${dropped.join(", ")} (they need push access).`);
+  if (dropped.length) warnings.push(`The forge dropped the labels ${dropped.join(", ")} (they need push access).`);
   for (const ref of i.projects) {
     const n = projectRef(org, ref);
     if (n === null) {

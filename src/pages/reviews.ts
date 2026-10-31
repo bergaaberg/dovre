@@ -35,7 +35,7 @@ const startHref = (p: Pr, kind: ReviewKind) => safeUrl(`/prs/agent?pr=${encodeUR
 const sessionHref = (r: AgentReview) => safeUrl(r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.runId}`);
 
 /** The block on a PR card. `report`: the agent's last message, once it's done. */
-export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, report: string | undefined, forge = "GitHub"): Html {
+export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, report: string | undefined, forge: string): Html {
   const start = (label: string) => html`<a class="btn" href="${startHref(p, kind)}">${label}</a>`;
   if (!r) return html`<div class="agent-review"><div class="buttons">${start(`${KIND_LABEL[kind]}…`)}</div></div>`;
   const what = kind === "review" ? "Agent review" : "Agent assessment";
@@ -207,7 +207,7 @@ const findPr = (s: Snapshot, key: string): Pr | undefined => (s.prs.ok ? [...s.p
 const first = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** The agent block for every PR card on a page, from what's stored and what's running. */
-export async function agentViews(deps: ReviewDeps, s: Snapshot, forge?: string): Promise<AgentOf> {
+export async function agentViews(deps: ReviewDeps, s: Snapshot, forge: string): Promise<AgentOf> {
   // No agent CLI here: nothing to offer.
   if (!deps.runner?.harnesses().length) return () => "";
   const reviews = await latestReviews(deps.db);

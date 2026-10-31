@@ -73,10 +73,10 @@ export function setupPage(p: SetupProblem, state: SetupState) {
 <details><summary>Or set in <code>.dev.vars</code></summary><pre><code>REPO_HOST=${p.host}
 REPO_OWNERS=your-org, your-user</code></pre></details>`
       : p.kind === "login"
-      ? html`<p>Dovre reads GitHub (<strong>${p.host}</strong>) as you. Sign in with one click using GitHub CLI, or paste a token:</p>
+      ? html`<p>Dovre reads <strong>${p.host}</strong> as you. Sign in with one click using GitHub CLI, or paste a token:</p>
 <div>
   <form method="post" action="/setup/gh-login">
-    <button type="submit">Sign in with GitHub in browser (<code>gh auth login --web</code>)</button>
+    <button type="submit">Sign in to ${forgeName(p.host)} in browser (<code>gh auth login --web</code>)</button>
   </form>
   ${
     state.deviceCode
@@ -95,7 +95,7 @@ REPO_OWNERS=your-org, your-user</code></pre></details>`
   </form>
   <p class="t3">Or sign in once in a terminal:</p>
   <pre><code>gh auth login --hostname ${p.host}</code></pre>
-  <p class="t3">Or put a token in <code>GHE_TOKEN</code> in <code>.dev.vars</code>.</p>
+  <p class="t3">Or put a token in <code>${p.host === "github.com" ? "GITHUB_TOKEN" : "GHE_TOKEN"}</code> in <code>.dev.vars</code>.</p>
 </details>`
       : html`<p>${forgeName(p.host)} at <strong>${p.host}</strong> didn't answer${p.error ? html`: <code>${p.error.slice(0, 200)}</code>` : ""}.</p><ul><li>Is the VPN on?</li><li>Has the login expired? <code>gh auth status --hostname ${p.host}</code>, then <code>gh auth login --hostname ${p.host}</code>.</li></ul>`;
   return html`<!doctype html>

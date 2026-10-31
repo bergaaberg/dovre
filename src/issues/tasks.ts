@@ -130,7 +130,7 @@ export async function createTask(ghe: Ghe, db: D1, org: string, t: NewTask): Pro
   if (typeWarning) warnings.push(typeWarning);
   const got = new Set((issue.assignees ?? []).map((a) => a.login));
   const dropped = t.assignees.filter((a) => !got.has(a));
-  if (dropped.length) warnings.push(`Not assigned to ${dropped.join(", ")} (GHE dropped it: no push access to ${t.repo}?).`);
+  if (dropped.length) warnings.push(`Not assigned to ${dropped.join(", ")} (the forge dropped it: no push access to ${t.repo}?).`);
   let linked = true;
   try {
     await ghe.rest(`/repos/${t.parent.repo}/issues/${t.parent.number}/sub_issues`, { method: "POST", body: { sub_issue_id: issue.id } });
