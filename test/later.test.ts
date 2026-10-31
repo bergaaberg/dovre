@@ -95,7 +95,7 @@ const VIEW = {
 };
 const FILES = [{ filename: "src/a.ts", status: "modified", additions: 1, deletions: 0, sha: "1", patch: "@@ -1,1 +1,2 @@\n ctx\n+new line\n" }];
 const ENV = { GHE_ORG: "ACME", CODE_DIR: "C:/code" } as unknown as Env;
-const frame = async () => ({ operator: "me", nav: [] });
+const frame = async () => ({ operator: "me", nav: [], host: "acme.ghe.com" });
 function ghe(files: () => Promise<unknown>): Ghe {
   return {
     host: "acme.ghe.com",

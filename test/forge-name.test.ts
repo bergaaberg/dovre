@@ -16,10 +16,10 @@ test("setup page names github.com as GitHub and an Enterprise host by itself", (
   for (const kind of ["login", "unreachable"] as const) {
     const gh = String(setupPage({ kind, host: "github.com" }, {}));
     assert.doesNotMatch(gh, /GHE\b(?!_)/);
-    assert.match(gh, kind === "login" ? /Sign in to GitHub first/ : /Can't reach GitHub/);
+    assert.match(gh, kind === "login" ? /Sign in to GitHub first/ : /Can&#39;t reach GitHub/);
     const ent = String(setupPage({ kind, host: "acme.ghe.com" }, {}));
     assert.doesNotMatch(ent, /GHE\b(?!_)/);
-    assert.match(ent, kind === "login" ? /Sign in to acme\.ghe\.com first/ : /Can't reach acme\.ghe\.com/);
+    assert.match(ent, kind === "login" ? /Sign in to acme\.ghe\.com first/ : /Can&#39;t reach acme\.ghe\.com/);
   }
   assert.match(String(setupPage({ kind: "unreachable", host: "acme.ghe.com" }, { ready: true })), /acme\.ghe\.com answers now/);
 });

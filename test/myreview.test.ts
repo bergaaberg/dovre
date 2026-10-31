@@ -59,7 +59,7 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
   const runs: { done: Promise<void>; topic: string }[] = [];
   const app = createViewerRoutes({ GHE_ORG: "ACME", CODE_DIR: "C:/code" } as unknown as Env, {
     ghe,
-    frame: async () => ({ operator: "me", nav: [] }),
+    frame: async () => ({ operator: "me", nav: [], host: "acme.ghe.com" }),
     checkouts: () => [],
     db: db.DB,
     login: async () => o.me ?? "me",

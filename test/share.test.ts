@@ -182,7 +182,7 @@ test("only the harnesses found are offered and run; with none, the pages say so 
 test("Settings → Setup says what's on, and how to turn on what's off", async () => {
   const lines = setupLines({ ghe: { host: "acme.ghe.com", org: "ACME", login: "me" }, claude: undefined, omp: "C:\\bin\\omp.exe", codeDir: "C:\\Code", repos: 0, platform: "win32" });
   const by = Object.fromEntries(lines.map((l) => [l.name, l]));
-  assert.equal(by.GHE!.on, true);
+  assert.equal(by["acme.ghe.com"]!.on, true);
   assert.match(by["Claude Code"]!.fix ?? "", /CLAUDE_BIN/);
   assert.equal(by["PowerShell 7"], undefined, "PowerShell is the Teams pack's business, not core's");
   assert.equal(by.db, undefined, "db is the Data pack's business, not core's");
