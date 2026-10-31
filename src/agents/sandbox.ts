@@ -420,9 +420,9 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
       const dir = join(o.root, id);
       const work = join(dir, "work");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
-      // A commit given by its id may be on no branch here (fetched, or only origin's): a branch
-      // points at it while the clone is made, so the clone has it, and goes right after.
-      const pin = base && SHA.test(base) ? `refs/heads/sandbox/base-${id.slice(0, 8)}` : undefined;
+      // The base may be on no branch here (a fetched id, or `origin/main` ahead of a local main that's
+      // behind): a branch points at it while the clone is made, so the clone has it, and goes right after.
+      const pin = base ? `refs/heads/sandbox/base-${id.slice(0, 8)}` : undefined;
       try {
         try {
           if (pin) git(["update-ref", pin, sha], repo);
@@ -472,7 +472,9 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
         return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}), ...(siblings.length ? { siblings } : {}) };
       } catch (e) {
         rmSync(dir, { recursive: true, force: true });
-        throw new Error(`Couldn't make the sandbox's clone: ${String((e as Error).message).split("\n")[0]}`);
+        // git's own reason is its last line on stderr; the first line only repeats the command.
+        const why = String((e as { stderr?: unknown }).stderr ?? "").trim().split("\n").pop() || String((e as Error).message).split("\n")[0];
+        throw new Error(`Couldn't make the sandbox's clone: ${why}`);
       }
     },
     command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET, siblings: (box.siblings ?? []).map((n) => ({ name: n, dir: join(box.dir, "siblings", n) })) }, inner) }),
