@@ -580,7 +580,11 @@ export type Refreshes = {
 
 const why = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
 
-/** `changed`: told after each refresh or cron run ends (the app publishes "packs"). */
+/**
+ * `changed`: told when a refresh or cron run ends differently from the one before it (its first, or
+ * failing ↔ ok, or a new error), and the app publishes "packs". Not on every end: hosted, every
+ * isolate refreshes every pack, and each publish reaches every open tab, which asks again.
+ */
 export function refreshLog(changed: () => void = () => {}): Refreshes {
   const m = new Map<string, RefreshState>();
   const of = (id: string) => m.get(id) ?? (m.set(id, {}), m.get(id)!);
@@ -594,14 +598,16 @@ export function refreshLog(changed: () => void = () => {}): Refreshes {
       s.ms = s.since === undefined ? undefined : at - s.since;
       s.since = undefined;
       s.at = at;
+      const news = !("error" in s) || s.error !== error;
       s.error = error;
-      changed();
+      if (news) changed();
     },
     cron(id, at, error) {
       const s = of(id);
+      const news = s.cronAt === undefined || s.cronError !== error;
       s.cronAt = at;
       s.cronError = error;
-      changed();
+      if (news) changed();
     },
   };
 }

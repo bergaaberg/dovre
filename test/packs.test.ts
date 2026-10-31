@@ -561,7 +561,7 @@ test("the Packs page: each pack on or off and why, what it answers, its refreshe
   assert.match(await (await get("/search?q=packs")).text(), /href="\/packs"/);
 });
 
-test("refreshLog: a refresh's start, end, time and failure, and a cron run; each end tells the page", () => {
+test("refreshLog: a refresh's start, end, time and failure, and a cron run; an end tells the page only when its outcome changed", () => {
   let told = 0;
   const log = refreshLog(() => told++);
   log.started("a", 1000);
@@ -573,6 +573,14 @@ test("refreshLog: a refresh's start, end, time and failure, and a cron run; each
   log.cron("a", 3000);
   assert.equal(log.get("a")?.cronAt, 3000);
   assert.equal(told, 3);
+  // The same outcome again is no news: hosted, every isolate's refreshes would reach every open tab.
+  log.ended("a", 4000, "boom");
+  log.cron("a", 5000);
+  assert.equal(log.get("a")?.at, 4000);
+  assert.equal(told, 3);
+  log.ended("a", 6000);
+  log.cron("a", 7000, "cron boom");
+  assert.equal(told, 5);
 });
 
 test("Dovre's own packs (src/packs/core/) are reached only through the registry: nothing else in core imports them but the entry points", () => {
