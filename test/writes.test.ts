@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
-import { Confirm, html } from "../src/ui/kit.ts";
+import { Confirm, ConfirmSubmit, html } from "../src/ui/kit.ts";
 import { WRITES, writeKinds } from "../src/writes.ts";
 import { signedIn, snapshot } from "./helpers.ts";
 
@@ -49,6 +49,12 @@ test("writes: one click by default; ticked kinds ask twice; unnamed writes take 
 test("writes: outside a request (no choices), Confirm is one click", () => {
   assert.match(String(Confirm({ kind: "deploy.approve", action: "/a", label: "A", question: "Q" })), /<form class="post"/);
   assert.equal(new Set(WRITES.map((w) => w.kind)).size, WRITES.length, "kinds are unique");
+});
+
+test("writes: ConfirmSubmit posts its own name and value, so a form can have two", () => {
+  assert.equal(String(ConfirmSubmit({ kind: "x.send", label: "Send", question: "Q", name: "then", value: "stay", primary: true })), '<button type="submit" name="then" value="stay" class="primary">Send</button>');
+  assert.equal(String(ConfirmSubmit({ label: "Go", question: "Q" })), '<button type="submit">Go</button>');
+  assert.match(String(ConfirmSubmit({ label: "Go", question: "Q", name: "a", value: '"><x>' })), /value="&quot;&gt;&lt;x&gt;"/);
 });
 
 const shop: Pack = {
