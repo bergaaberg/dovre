@@ -86,7 +86,7 @@ test("capsOf and the harness: caps checked at the desk, and only a sandbox turn 
 
 const READY = (o: Partial<SandboxReady> = {}): SandboxReady => ({ state: "ready", branch: "sandbox/aaaa", base: "a".repeat(40), head: "b".repeat(40), repo: "acme/app", commits: [{ sha: "b".repeat(40), subject: "Blue" }], files: [{ path: "a.css", add: 1, del: 1 }], ci: false, ...o });
 
-function world(o: { labeller?: string; repos?: string[] | null } = {}) {
+function world(o: { labeller?: string; repos?: string[] | null; fail?: () => { error: string; repo?: true } } = {}) {
   const db = openDb();
   const writes: { method: string; path: string; body?: unknown }[] = [];
   let issueOpen = true;
@@ -121,6 +121,8 @@ function world(o: { labeller?: string; repos?: string[] | null } = {}) {
     run: async (id: string) => runs.get(id),
     async start(f: Parameters<Desk["start"]>[0]) {
       started.push(f);
+      const bad = o.fail?.();
+      if (bad) return bad;
       const id = `run-${started.length}`;
       runs.set(id, { id, status: "running", prompt: String(f.prompt), events: [], cost: 0, sandbox: { dir: "/d", name: "n", base: "a".repeat(40) } } as unknown as Run);
       return { to: `/agents/r/${id}`, run: id };
@@ -451,4 +453,35 @@ test("autoStore: a run's cost still counts for the day after its issue is relabe
   await store.setCost(key, 1);
   assert.equal(await store.spent(0), 3.5);
   assert.equal(await store.spent(1_500), 1);
+});
+
+test("autoTick: a start that fails because of the repo counts a try, and the third goes stuck with its reason (#344)", async () => {
+  const w = world({ fail: () => ({ error: "Couldn't make the sandbox's clone: fatal: nope", repo: true }) });
+  await on(w.db);
+  let p = await w.tick();
+  assert.equal(p.rows[0]!.state, "queued");
+  assert.equal(p.rows[0]!.tries, 1);
+  assert.match(p.rows[0]!.why!, /Stuck 1 of 3 times; trying again\. Couldn't start: Couldn't make the sandbox's clone/);
+  assert.equal(w.writes.length, 0);
+  p = await w.tick();
+  assert.equal(p.rows[0]!.tries, 2);
+  p = await w.tick();
+  assert.equal(p.rows[0]!.state, "stuck");
+  assert.equal(p.rows[0]!.tries, 3);
+  assert.match(p.rows[0]!.why!, /Couldn't make the sandbox's clone/);
+  assert.deepEqual(w.writes.map((x) => x.method), ["POST", "DELETE", "POST"], "comment, label swapped");
+});
+
+test("autoTick: a start that fails because of the machine, or throws with no kind, stays queued and counts no try (#344)", async () => {
+  for (const fail of [() => ({ error: "Apple container isn't running." }), () => { throw new Error("boom"); }]) {
+    const w = world({ fail });
+    await on(w.db);
+    for (let i = 0; i < 4; i++) {
+      const p = await w.tick();
+      assert.equal(p.rows[0]!.state, "queued");
+      assert.ok(!p.rows[0]!.tries);
+      assert.match(p.rows[0]!.why!, /^Couldn't start: /);
+    }
+    assert.equal(w.writes.length, 0);
+  }
 });

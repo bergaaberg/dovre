@@ -410,6 +410,12 @@ async function start(d: AutoDeps, s: AutoSettings, store: AutoStore, rows: AutoR
         caps: { base: `origin/${options.base ?? info.default_branch}`, maxMs: caps.maxMs, budget: caps.budget, ...(caps.effort ? { effort: caps.effort } : {}) },
       });
       const run = "run" in r ? r.run : undefined;
+      if ("error" in r && r.repo) {
+        // The repo is why it can't start (clone, sibling, toolchain, base ref): a try, like a run that got stuck (#344).
+        await stuck(d, store, { ...row, state: "starting" }, `Couldn't start: ${r.error.slice(0, 300)}`, undefined);
+        busy--;
+        continue;
+      }
       if ("error" in r || !run) {
         // The machine or the sandbox isn't ready: it stays queued, and says why.
         await store.move(row.key, "starting", "queued", { why: "error" in r ? `Couldn't start: ${r.error.slice(0, 300)}` : "The machine didn't say which run it started." });

@@ -10,7 +10,7 @@ import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { createRunner, type Run, type StartOpts } from "../src/agents/runner.ts";
 import { claudeHarness, argsFor, SANDBOX_NOTE } from "../src/agents/harnesses/claude/harness.ts";
-import { appleContainer, boxEnv, imageIdOf, siblingsOf, staleToolchains, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
+import { appleContainer, boxEnv, isRepoError, imageIdOf, siblingsOf, staleToolchains, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
 import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { WORK } from "../src/agents/workdir.ts";
@@ -742,7 +742,7 @@ test("Apple container engine: a sibling is a fresh clone of its checkout here at
   // Listed but not here: the run doesn't start, and says which.
   writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ siblings: ["acme/gone"] }));
   g(repo, "commit", "-q", "-am", "gone");
-  assert.throws(() => engine.prepare({ id: "bbbbbbbb-2222", repo }), /acme\/gone \(a sibling in \.dovre\/sandbox\.json\) has no checkout here/);
+  assert.throws(() => engine.prepare({ id: "bbbbbbbb-2222", repo }), (e) => /acme\/gone \(a sibling in \.dovre\/sandbox\.json\) has no checkout here/.test(String(e)) && isRepoError(e), "a repo failure: Auto counts it as a try (#344)");
   assert.ok(!existsSync(join(root, "boxes", "bbbbbbbb-2222")), "its folder goes");
 });
 
