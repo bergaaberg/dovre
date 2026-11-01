@@ -110,9 +110,13 @@ export function Confirm(opts: { action: string; fields?: Record<string, string>;
   )}<button type="submit"${opts.danger ? html` class="danger"` : ""}>${opts.label}</button></form></div></details>`;
 }
 
-/** The submit of a form with fields to fill (a reply): asks twice like Confirm unless its `kind` is set to one click. */
-export function ConfirmSubmit(opts: { label: string; question: Child; kind?: string; danger?: boolean }): Html {
-  const press = html`<button type="submit"${opts.danger ? html` class="danger"` : ""}>${opts.label}</button>`;
+/**
+ * The submit of a form with fields to fill (a reply): asks twice like Confirm unless its `kind` is set to one click.
+ * `name`/`value`: what this button posts, when a form has more than one (Send, Send and archive).
+ */
+export function ConfirmSubmit(opts: { label: string; question: Child; kind?: string; danger?: boolean; primary?: boolean; name?: string; value?: string }): Html {
+  const cls = opts.danger ? "danger" : opts.primary ? "primary" : "";
+  const press = html`<button type="submit"${opts.name ? html` name="${opts.name}" value="${opts.value ?? ""}"` : ""}${cls ? html` class="${cls}"` : ""}>${opts.label}</button>`;
   return oneClickNow(opts.kind) ? press : html`<details class="confirm"><summary>${opts.label}…</summary><div class="confirm-body"><p>${opts.question}</p>${press}</div></details>`;
 }
 
