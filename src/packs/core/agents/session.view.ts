@@ -94,6 +94,12 @@ function turnView(t: Turn, ask: { sid: string; answerable: boolean; mode?: strin
  * ones (each exactly as refused, for the next turn only) and the agent goes on. "No" says so.
  */
 function permissionCard(all: Extract<Run["events"][number], { t: "denied" }>[], run: Run, sessionId: string) {
+  // A sandbox run skips permissions, so a refusal is Claude Code's own limit, and its container is gone: nothing to allow.
+  if (run.sandbox)
+    return html`<li class="turn-row">${Notice({
+      tone: "warn",
+      children: html`<p><strong>Refused inside the sandbox.</strong> The sandbox skips permissions, so this is a limit of Claude Code itself, most often a command that reaches outside the clone. The run has ended and takes no reply: start a new one that works inside the repo.</p>${all.map((d) => html`<pre class="output">${d.detail || d.spec}</pre>`)}`,
+    })}</li>`;
   // Refused though this turn had it allowed: Claude Code refuses it whatever Dovre allows, so no Allow for it (#163).
   const again = all.filter((d) => run.allowed.includes(d.spec));
   const denied = all.filter((d) => !run.allowed.includes(d.spec));

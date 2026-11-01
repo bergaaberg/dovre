@@ -129,6 +129,11 @@ ul.hbars li { display: grid; grid-template-columns: minmax(8rem, 15rem) 1fr auto
 ul.hbars .track { display: block; height: 0.65rem; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 ul.hbars .fill { display: block; height: 100%; background: linear-gradient(90deg, var(--s1), color-mix(in srgb, var(--s1) 80%, var(--accent))); border-radius: 4px; min-width: 2px; }
 ul.hbars .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* On the phone a row stacks (label, bar, number): a note beside a fixed-width label pushed the page wider than the screen. */
+@media (max-width: 40rem) {
+  ul.hbars li { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; padding: 0.35rem 0; }
+  ul.hbars .num { text-align: left; white-space: normal; overflow-wrap: anywhere; }
+}
 .stack-wrap { padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--surface-2) 35%, var(--surface)); }
 .panel-body:not(.flush) > .stack-wrap { padding: 0 0 0.65rem; margin-bottom: 0.65rem; background: transparent; }
 .stack-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--surface-2); gap: 2px; margin-bottom: 0.4rem; }

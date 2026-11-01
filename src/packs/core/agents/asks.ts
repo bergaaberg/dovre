@@ -13,7 +13,8 @@ export function agentAsksOf(runs: Run[], hidden: (sid: string) => boolean = () =
   const answered = (r: Run) => runs.some((s) => s !== r && s.startedAt > r.startedAt && (s.sessionId === r.sessionId || s.resumed === r.sessionId));
   const out: AgentAsk[] = [];
   for (const r of runs) {
-    if (r.status === "running" || !r.sessionId || hidden(r.sessionId) || answered(r)) continue;
+    // A sandbox run takes no second turn (its container is gone), so there is nothing to allow.
+    if (r.status === "running" || r.sandbox || !r.sessionId || hidden(r.sessionId) || answered(r)) continue;
     // A call refused though it was allowed isn't asked again: Allow wouldn't help (the session page says why).
     const denied = r.events.filter((e): e is Extract<Run["events"][number], { t: "denied" }> => e.t === "denied" && !r.allowed.includes(e.spec));
     if (!denied.length) continue;
