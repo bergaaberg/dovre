@@ -454,7 +454,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
         const siblings: string[] = [];
         for (const s of siblingsOf(config)) {
           const from = o.checkout?.(s);
-          if (!from) throw new Error(`${s} (a sibling in ${SANDBOX_CONFIG}) has no checkout here`);
+          if (!from) throw repoError(`${s} (a sibling in ${SANDBOX_CONFIG}) has no checkout here`);
           const name = s.split("/")[1]!;
           const to = join(dir, "siblings", name);
           git(["clone", "-q", "--no-local", "--no-checkout", from, to], dir);
