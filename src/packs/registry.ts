@@ -6,6 +6,7 @@
 import type { Need } from "../home/needs.ts";
 import { safeUrl } from "../pages/parts.ts";
 import type { Html } from "../ui/kit.ts";
+import { boxed, guardHtml } from "./guard.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
@@ -161,13 +162,24 @@ export function fillOf(on: () => Pack[], ctxOf: (c: Pack) => PackContext, log: (
       const out = safely(
         () => {
           const f = c.slots!(ctxOf(c))[name];
-          return f ? [f(arg)] : [];
+          return f ? [guardSlot(name, f(arg), c, (line) => log(c.manifest.id, line))] : [];
         },
         [],
         (e) => log(c.manifest.id, `slot ${name}: ${(e as Error)?.message ?? e}`),
       );
       return out;
     });
+}
+
+/** Slots that take a block of their own: what a pack puts there goes in its box (src/packs/guard.ts). The rest sit in a line or a row of buttons, and are only checked. */
+const BLOCK_SLOTS = new Set<SlotName>(["today.hero", "agents.panel", "todo.proposals", "pr.lead", "work.new"]);
+
+/** A pack's answer to a slot, its markup checked (and boxed where the slot is a block). */
+function guardSlot<K extends SlotName>(name: K, out: SlotMap[K]["out"], c: Pack, log: (line: string) => void): SlotMap[K]["out"] {
+  const where = `slot ${name}`;
+  if (name === "pr.facts" && Array.isArray(out)) return (out as [string, Html][]).map(([k, v]) => [k, guardHtml(v, c.manifest.name, where, log)]) as SlotMap[K]["out"];
+  if (out && BLOCK_SLOTS.has(name)) return boxed(out as Html, c.manifest.id, c.manifest.name, where, log) as SlotMap[K]["out"];
+  return guardHtml(out, c.manifest.name, where, log) as SlotMap[K]["out"];
 }
 
 const RING = /^[a-z][a-z0-9-]{0,31}$/;
@@ -327,7 +339,7 @@ export function bannersFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, path: s
   return on.flatMap((c) => {
     if (!c.banner) return [];
     const b = safely(() => c.banner!(ctxOf(c), { path }), "" as const, (e) => log(c.manifest.id, `banner: ${(e as Error)?.message ?? e}`));
-    return b ? [b] : [];
+    return b ? [guardHtml(b, c.manifest.name, "banner", (line) => log(c.manifest.id, line)) as Html] : [];
   });
 }
 
@@ -336,7 +348,7 @@ export function settingsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (
   return on.flatMap((c) => {
     if (!c.settings) return [];
     const body = safely<Html | "">(() => c.settings!(ctxOf(c)), "", (e) => log(c.manifest.id, `settings: ${(e as Error)?.message ?? e}`));
-    return body ? [{ id: c.manifest.id, name: c.manifest.name, body }] : [];
+    return body ? [{ id: c.manifest.id, name: c.manifest.name, body: boxed(body, c.manifest.id, c.manifest.name, "settings", (line) => log(c.manifest.id, line)) }] : [];
   });
 }
 
@@ -558,12 +570,12 @@ export function briefingFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (
 }
 
 /** Today's cards from every pack, each within the budget; a pack that fails or is slow is named. */
-export async function todayCards(on: Pack[], ctxOf: (c: Pack) => PackContext, budgetMs: number): Promise<{ cards: TodayCard[]; failed: Off[] }> {
+export async function todayCards(on: Pack[], ctxOf: (c: Pack) => PackContext, budgetMs: number, log: (id: string, line: string) => void = () => {}): Promise<{ cards: TodayCard[]; failed: Off[] }> {
   const results = await Promise.all(on.filter((c) => c.today).map(async (c) => ({ c, r: await within(budgetMs, () => c.today!(ctxOf(c))) })));
   const cards: TodayCard[] = [];
   const failed: Off[] = [];
   for (const { c, r } of results) {
-    if (r.ok) cards.push(...r.value.map((card) => ({ ...card, id: `${c.manifest.id}-${card.id}` })));
+    if (r.ok) cards.push(...r.value.map((card) => ({ ...card, id: `${c.manifest.id}-${card.id}`, render: boxed(card.render, c.manifest.id, c.manifest.name, `today card ${card.id}`, (line) => log(c.manifest.id, line)) })));
     else failed.push({ id: c.manifest.id, name: c.manifest.name, why: r.why });
   }
   return { cards: cards.sort((a, b) => (a.order ?? 100) - (b.order ?? 100)), failed };

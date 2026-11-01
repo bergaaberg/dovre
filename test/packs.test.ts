@@ -618,7 +618,7 @@ test("slots: each pack fills a core page's place; one that throws fills nothing,
   const ok: Pack = { manifest: m("ok"), slots: () => ({ "work.new": () => html`<p class="t3">from ok</p>`, "pr.lead": ({ repo }) => html`<span>${repo}</span>` }) };
   const logged: string[] = [];
   const fill = fillOf(() => [boom, half, ok], () => ({}) as never, (id, line) => logged.push(`${id}: ${line}`));
-  assert.deepEqual(fill("pr.lead", { repo: H, number: 1, branch: "b", title: "t", url: "https://x" }).map(String), [`<span>${html`${H}`}</span>`]);
+  assert.deepEqual(fill("pr.lead", { repo: H, number: 1, branch: "b", title: "t", url: "https://x" }).map(String), [`<div class="pack-box" data-pack="ok"><span>${html`${H}`}</span></div>`], "a block slot: in the pack's box");
   assert.deepEqual(fill("pr.facts", { repo: "x", number: 1, branch: "b", title: "t", url: "https://x" }), []);
   assert.deepEqual(logged, ["boom: slot pr.lead: no slots today", "half: slot pr.lead: lead broke", "boom: slot pr.facts: no slots today"]);
 
@@ -762,7 +762,7 @@ test("pulse and linked: summed and kept to size across the packs; troubles a lin
   assert.equal(pulseFrom([a, maybe], () => ({}) as never, log).onDuty, undefined);
 });
 
-test("script and pulse: the packs' scripts in one file after the core's, a block each, on pages and dock pages; none without one; ctx.pulse sums the shown packs", async () => {
+test("script and pulse: each pack's script in a file of its own after the core's, in a try, on pages and dock pages; none without one; ctx.pulse sums the shown packs", async () => {
   const seen: unknown[] = [];
   const glow = pack(
     { id: "glow" },
@@ -780,16 +780,19 @@ test("script and pulse: the packs' scripts in one file after the core's, a block
   const loud = pack({ id: "loud" }, { script: `document.addEventListener( 'dovre:change', () => fetch("/loud"));` });
   const { get } = signedIn(snapshot(), {}, { packs: [glow, loud, busy] });
   const page = await (await get("/prs")).text();
-  const src = page.match(/<script type="module" src="\/assets\/app\.[^"]+\.js"><\/script>\n<script type="module" src="(\/assets\/packs\.[0-9a-z]+\.js)"><\/script>/)?.[1];
-  assert.ok(src, "linked right after the core's");
+  const srcs = page.match(/<script type="module" src="\/assets\/app\.[^"]+\.js"><\/script>\n<script type="module" src="(\/assets\/pack\.glow\.[0-9a-z]+\.js)"><\/script>\n?<script type="module" src="(\/assets\/pack\.busy\.[0-9a-z]+\.js)"><\/script>/)?.slice(1);
+  assert.ok(srcs, "linked right after the core's, one each");
+  const [src, other] = srcs as [string, string];
   const js = await get(src);
   assert.match(js.headers.get("content-type") ?? "", /text\/javascript/);
   assert.match(js.headers.get("cache-control") ?? "", /immutable/);
-  assert.equal(await js.text(), `// glow\n{\ndovreOn(["glow"], () => {});\n}\n// busy\n{\nlet n = 1;\n}`);
+  assert.equal(await js.text(), `// glow\ntry {\ndovreOn(["glow"], () => {});\n} catch (e) { console.error("pack glow:", e); }\n`);
+  assert.match(await (await get(other)).text(), /^\/\/ busy\ntry \{\nlet n = 1;\n\}/, "a syntax error in one stops only its own file");
+  assert.doesNotMatch(page, /assets\/pack\.loud\./);
   assert.match(await (await get("/glow/dock")).text(), new RegExp(`<script type="module" src="${src.replace(/\./g, "\\.")}">`), "dock pages too");
   assert.deepEqual(await (await get("/glow/pulse")).json(), { working: 1, asking: 2, trouble: [{ level: "storm", why: "1 red signal" }], busy: true });
   assert.deepEqual(seen.at(-1), { working: 0, asking: 0, trouble: [], busy: false }, "a pack reading the pulse from its own pulse gets nothing back");
-  assert.doesNotMatch(await (await signedIn(snapshot(), {}, { packs: [pack({ id: "plain" })] }).get("/prs")).text(), /assets\/packs\.[^"]+\.js/, "no pack script: none linked");
+  assert.doesNotMatch(await (await signedIn(snapshot(), {}, { packs: [pack({ id: "plain" })] }).get("/prs")).text(), /assets\/pack\.[^"]+\.js/, "no pack script: none linked");
 });
 
 test("forge and startPicture: a pack reads the forge as me, in the owners' repos; its picture goes to the starting page, if it's an SVG and not too big", async () => {

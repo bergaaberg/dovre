@@ -66,7 +66,7 @@ import { type Choice, type Config, configFromForm, type PaneId, type PanesOn, ty
 import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
-import { type Html, Notice, Panel } from "./ui/kit.ts";
+import { type Html, Notice, PageHeader, Panel } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
@@ -90,6 +90,7 @@ import { listRepos } from "./sources/claude.ts";
 import { SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
 import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
+import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./packs/guard.ts";
 import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
@@ -123,6 +124,8 @@ const FORGE_PATHS: [ForgeCan, RegExp][] = [
 
 /** Thrown by a page when nothing has been gathered yet; it answers with a page that fills itself in. */
 class Pending extends Error {}
+/** How long a pack's page may take before it shows as broken (a long job redirects to a page that fills itself in). */
+const PACK_ROUTE_MS = 30_000;
 
 /** The first start's page: the same frame as every page (menu, tab bar, styles), and a note that swaps out for the real page when the gather lands. */
 function pendingPage(path: string, frame: Frame): string {
@@ -164,7 +167,7 @@ function hashBytes(b: Uint8Array): string {
   return (h >>> 0).toString(36);
 }
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; /** Hosted: runs the agent's check of my review in the Durable Object (src/hosted/hub.ts), which publishes `topic` when it's done. */ reviewCheck?: (job: CheckJob, topic: string) => Promise<void>; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; summaries?: Summaries; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns. */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: adds the bumps a combined Dependabot PR left out, lockfiles made again in a checkout (src/actions/relock.ts). */ relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; /** Hosted: runs the agent's check of my review in the Durable Object (src/hosted/hub.ts), which publishes `topic` when it's done. */ reviewCheck?: (job: CheckJob, topic: string) => Promise<void>; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** The Stats page's numbers, gathered in the background (src/stats/stats.ts). */ stats?: Stats; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
@@ -480,9 +483,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           },
           page: async (cx, o) => {
             const { frame } = await page({ path: cx.req.path });
-            return cx.html(shell({ title: o.title, frame, current: o.current ?? cx.req.path, body: o.body, head: o.head }));
+            return cx.html(shell({ title: o.title, frame, current: o.current ?? cx.req.path, body: boxed(o.body, c.manifest.id, c.manifest.name, "page", packLog(c.manifest.id)), head: guardHtml(o.head, c.manifest.name, "page head", packLog(c.manifest.id)) }));
           },
-          dockPage: (cx, o) => cx.html(dockShell({ title: o.title, body: o.body, head: o.head, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined })),
+          dockPage: (cx, o) => cx.html(dockShell({ title: o.title, body: boxed(o.body, c.manifest.id, c.manifest.name, "dock", packLog(c.manifest.id)), head: guardHtml(o.head, c.manifest.name, "dock head", packLog(c.manifest.id)), styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts })),
           log: packLog(c.manifest.id),
           ring: (n) => {
             const note = noteFrom(c.manifest.id, n, packRings);
@@ -523,7 +526,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const held = () => heldOff(packs.on, layout.get().packsOff ?? []);
   const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
-  const packCss = packs.on.filter((c) => c.styles).map((c) => `/* ${c.manifest.id} */\n${c.styles}`).join("\n");
+  // Each pack's styles keep only the rules for its own markup (src/packs/guard.ts): none restyles core.
+  const coreClasses = classesOf(STYLE);
+  const packCss = packs.on
+    .filter((c) => c.styles)
+    .map((c) => {
+      const { css, dropped } = scopeCss(c.styles!, coreClasses);
+      if (dropped.length) packLog(c.manifest.id)(`styles: ${dropped.length} selector${dropped.length === 1 ? "" : "s"} restyle core, left out: ${dropped.slice(0, 5).join(" | ")}`);
+      return `/* ${c.manifest.id} */\n${css}`;
+    })
+    .join("\n");
   const PACK_CSS = packCss ? { path: `/assets/packs.${hashOf(packCss)}.css`, body: packCss } : undefined;
   // Their scripts (`script`): one file after the core's, each pack's in a block of its own.
   // One that listens to every change itself rather than through dovreOn isn't served: each change
@@ -533,8 +545,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     console.log(`pack ${c.manifest.id}: its script listens to dovre:change itself; not served (use dovreOn)`);
     return false;
   };
-  const packJs = packs.on.filter((c) => c.script && quiet(c)).map((c) => `// ${c.manifest.id}\n{\n${c.script}\n}`).join("\n");
-  const PACK_JS = packJs ? { path: `/assets/packs.${hashOf(packJs)}.js`, body: packJs } : undefined;
+  // A file each, its body in a try: one pack's syntax error or throw stops only that pack's script.
+  const PACK_JS = packs.on
+    .filter((c) => c.script && quiet(c))
+    .map((c) => {
+      const body = scriptOf(c.manifest.id, c.script!);
+      return { path: `/assets/pack.${c.manifest.id}.${hashOf(body)}.js`, body };
+    });
+  const packScripts = PACK_JS.length ? PACK_JS.map((j) => j.path) : undefined;
   const packNav = () => shown().flatMap((c) => (c.nav ? safely(() => c.nav!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`nav: ${(e as Error)?.message ?? e}`)) : []));
   const packFeed = () =>
     packFeedOf(
@@ -600,7 +618,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   };
   /** The packs' kinds of reference (a ticket key…), for links in My list and deploys. */
   const packRefs = () => shown().flatMap((c) => (c.refs ? safely(() => c.refs!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`refs: ${(e as Error)?.message ?? e}`)) : []));
-  const packCards = (): Promise<{ cards: TodayCard[]; failed: Off[] }> => todayCards(shown(), ctxOf, packs.budgetMs ?? 250);
+  const packCards = (): Promise<{ cards: TodayCard[]; failed: Off[] }> => todayCards(shown(), ctxOf, packs.budgetMs ?? 250, (id, line) => packLog(id)(line));
   /** The packs' kinds of notification (Settings), and what they say needs me (rung once per key by the composition root). */
   const packRings = ringsOf(packs.on, RING_KINDS.map((k) => k.kind), (id, line) => packLog(id)(line));
   /** The packs' kinds that are off until I switch them on. */
@@ -657,11 +675,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       return c.body(b as Uint8Array<ArrayBuffer>);
     });
   }
-  if (PACK_JS)
-    app.get(PACK_JS.path, (c) => {
+  for (const js of PACK_JS)
+    app.get(js.path, (c) => {
       c.header("Content-Type", "text/javascript; charset=utf-8");
       c.header("Cache-Control", "private, max-age=31536000, immutable");
-      return c.body(PACK_JS.body);
+      return c.body(js.body);
     });
 
   /**
@@ -671,7 +689,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
   const binoOn = () => !!bino?.route.ready && !hidden("assistant");
-  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: PACK_JS ? [PACK_JS.path] : undefined, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: binoOn(), stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const frameOf = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: binoOn(), stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const t0 = performance.now();
@@ -1676,8 +1694,30 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     }
     for (const p of owned) claimed.add(p);
     mountedIds.add(id);
+    // A page of its that throws, or doesn't answer in time, is that pack's broken page in the shell, not Dovre's.
+    const brokePage = async (cx: Context<AppEnv>, why: string) => {
+      packLog(id)(`${cx.req.method} ${cx.req.path}: ${why}`);
+      const body = html`${PageHeader({ title: c.manifest.name })}${Notice({ tone: "bad", children: html`<p><strong>${c.manifest.name} broke on this page.</strong> The rest of Dovre is fine. The pack's log on the <a href="/packs">Packs</a> page says what happened.</p><p class="mono t3">${why.slice(0, 300)}</p>` })}`;
+      try {
+        const res = await ctxOf(c).page(cx, { title: c.manifest.name, body });
+        return new Response(res.body, { status: 500, headers: res.headers });
+      } catch {
+        return cx.text(`${c.manifest.name} broke on this page: ${why.slice(0, 300)}`, 500);
+      }
+    };
+    sub.onError((err, cx) => (err instanceof Pending ? Promise.reject(err) : brokePage(cx, String((err as Error)?.message ?? err))));
     // Hidden in Settings → Layout or switched off: its pages answer 404 until it's on and shown again.
-    const gate = async (cx: Context<AppEnv>, next: () => Promise<void>) => (hidden(id) || !packs.on.includes(c) ? cx.notFound() : next());
+    const gate = async (cx: Context<AppEnv>, next: () => Promise<void>) => {
+      if (hidden(id) || !packs.on.includes(c)) return cx.notFound();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const ms = packs.routeMs ?? PACK_ROUTE_MS;
+      const late = new Promise<"late">((res) => (timer = setTimeout(() => res("late"), ms)));
+      try {
+        if ((await Promise.race([next(), late])) === "late") cx.res = await brokePage(cx, `didn't answer in ${ms / 1000} s`);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
     for (const p of owned) {
       app.use(`/${p}`, gate);
       app.use(`/${p}/*`, gate);

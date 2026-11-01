@@ -88,20 +88,22 @@ export const ${c}Card = (k: Kept) => Card({ id: "${id}-now", title: ${n}, childr
     [`packs/${id}/test/${id}.test.ts`]: `/** ${name}: its page from what it read, and hostile text inert. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { testContext } from "dovre/packs/testing.ts";
+import { assertFragment, assertScoped, testContext } from "dovre/packs/testing.ts";
 import { ${c}Pack } from "../index.ts";
 import { ${c}Page } from "../view.ts";
 
 const H = \`<script>alert(1)</script><img src=x onerror=alert(1)>\`;
 
-test("${id}: a manifest the core takes", () => {
+test("${id}: a manifest the core takes, and styles only for its own markup", () => {
   assert.equal(${c}Pack.manifest.id, ${JSON.stringify(id)});
+  assertScoped(${c}Pack);
 });
 
 test("${id}: the page draws what it read; hostile text stays text, a javascript: link goes nowhere", async () => {
   const out = String(await ${c}Page({ at: 0, items: [{ title: H, href: "javascript:alert(1)" }] }));
   assert.ok(!out.includes("<script>") && !out.includes("<img"), "markup got through");
   assert.ok(!out.includes('href="javascript:'), "a javascript: link got through");
+  assertFragment("page", out);
   assert.match(String(await ${c}Page(undefined)), /Not read yet/);
 });
 

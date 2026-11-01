@@ -57,8 +57,9 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 4. **Mounted** (`createApp`). Each pack gets its own `PackContext`. If `available` says no or
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
-   another pack owns, or a `routes` that throws. Pack `styles` and `script`s are served as one
-   hashed file each, and each `wasm` module (lowercase name, real WebAssembly) at a hashed path;
+   another pack owns, or a `routes` that throws. Pack `styles` are served as one hashed file,
+   each pack's rules scoped to its own markup (see Containment); each pack's `script` as a hashed
+   file of its own, inside a `try`; and each `wasm` module (lowercase name, real WebAssembly) at a hashed path;
    while any pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. A module is either
    bytes (8 MB at most, carried in the Worker bundle: keep them small) or a `WasmFile`
    (`{ sha256, load }`, 25 MB at most) kept out of the bundle: locally core calls `load` on the
@@ -119,6 +120,24 @@ and `publish`es on change. The only waits are Today's cards (250 ms for all) and
 **Isolation.** Every hook call goes through `safely` (sync) or `within` (async, time-boxed). A
 throw adds nothing and is logged. A failed Today card shows "Didn't answer".
 
+**Containment** (`src/packs/guard.ts`). A pack's slip breaks only the pack:
+- **Pages.** A pack route that throws, or takes longer than 30 s, answers 500 with the pack's
+  broken page inside the shell, naming the pack, and logs to its line on the Packs page.
+- **Markup.** Every fragment a pack hands core (its pages and docks, Today cards, slots, banners,
+  Settings panel) is checked: a tag closed that wasn't opened, a container left open, `<html>`,
+  `<head>`, `<body>`, `<base>` or `<style>` swaps the fragment for "<Pack> couldn't draw this part"
+  and logs why. A fragment that's a failed promise does the same instead of failing the page.
+- **Size.** Pages, docks, Today cards, Settings panels and block slots (`today.hero`,
+  `agents.panel`, `todo.proposals`, `pr.lead`, `work.new`) sit in a `.pack-box`: its width is
+  clipped at the box, media and `<pre>` fit it, long words wrap. Nothing a pack draws makes the page
+  wider than the screen. Inline slots (buttons, facts) are checked, not boxed.
+- **Styles.** A selector is kept only when the element it styles, or an ancestor, carries a class
+  of the pack's own (one core's stylesheet doesn't use). `body`, `:root`, `.panel`, `.item .x` and
+  `.mine ~ .panel` restyle core and are left out (logged); so is `@import`.
+- **Scripts.** A file per pack, its body in a `try`: one pack's syntax error or throw stops only it.
+
+These guard against mistakes, not malice: a pack is code its owner chose to run.
+
 **Sanitising.**
 - Text is truncated, and single-line where a line is drawn.
 - Every `href` goes through `safeUrl`; anything but a local path or http(s) is dropped.
@@ -163,8 +182,11 @@ Also:
 - `Investigate({ prompt, repo })` (kit) puts an Investigate button on a pack's card. It opens
   `/investigate`, which hands the prompt to Bino or to a new agent session in plan mode. The
   prompt follows the same rule as `bino`.
+- Styles: give every rule a class of the pack's own (`.<id>-…`); restyle a kit component only
+  inside it (`.mypack .item`). Tables go in `.table-wrap`; wide content scrolls inside the pack.
 - Tests live in `packs/<id>/test/`, with a hostile-input case per page. `testContext()`
-  (`dovre/packs/testing.ts`) gives safe defaults.
+  (`dovre/packs/testing.ts`) gives safe defaults; `assertScoped(pack)` fails on a selector that
+  would be left out, `assertFragment(name, html)` on markup core would refuse.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).
   `pnpm packs new <id> --into <instance>` scaffolds it.
 - A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, `PACK_API`,
