@@ -102,3 +102,14 @@ test("the bar on every page: Allow runs the refused calls, exactly, and comes ba
   const elsewhere = await post(`/agents/s/${SID}/allow`, [["spec", "Bash(x)"], ["back", "1"]], "https://evil.example/");
   assert.equal(elsewhere.headers.get("location"), `/agents/s/${SID}`, "a foreign referer isn't followed");
 });
+
+test("sandbox run: a refusal is Claude Code's own limit, so no ask bar and no Allow or No on its page", () => {
+  const r = run({ sandbox: { image: "dovre-sandbox" } as Run["sandbox"], events: [denied(`Bash(ln -s /siblings/dovre /dovre ${H})`, `ln -s /siblings/dovre /dovre ${H}`)] });
+  assert.equal(agentAsksOf([r]).length, 0, "nothing to allow");
+  const p = agentPage({ sessionId: SID, turns: [], run: r });
+  const out = `${p.head ?? ""}${p.body}`;
+  assertInert("sandbox refusal", out);
+  assert.match(out, /Refused inside the sandbox/);
+  assert.doesNotMatch(out, /\/allow"/, "no Allow form");
+  assert.doesNotMatch(out, /id="deny-/, "no No form");
+});
