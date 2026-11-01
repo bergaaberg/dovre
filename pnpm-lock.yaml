@@ -193,8 +193,8 @@ importers:
         version: 7.0.2
     optionalDependencies:
       memlet:
-        specifier: github:bergaaberg/memlet#v0.1.0
-        version: git+https://github.com/bergaaberg/memlet.git#cfd1c53db638259c39431d611caed52562cac534
+        specifier: https://codeload.github.com/bergaaberg/memlet/tar.gz/cfd1c53db638259c39431d611caed52562cac534
+        version: https://codeload.github.com/bergaaberg/memlet/tar.gz/cfd1c53db638259c39431d611caed52562cac534
 
 packages:
 
@@ -500,8 +500,8 @@ packages:
     resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
 
-  memlet@git+https://github.com/bergaaberg/memlet.git#cfd1c53db638259c39431d611caed52562cac534:
-    resolution: {commit: cfd1c53db638259c39431d611caed52562cac534, repo: https://github.com/bergaaberg/memlet.git, type: git}
+  memlet@https://codeload.github.com/bergaaberg/memlet/tar.gz/cfd1c53db638259c39431d611caed52562cac534:
+    resolution: {gitHosted: true, integrity: sha512-7DgJq976sFkh0YBs1camAIMfetyNgU7/JBUlpgcuUz5BIt219LdHq25Jc8rekb3kQmpKcFaoN+nFgmt56lo2jA==, tarball: https://codeload.github.com/bergaaberg/memlet/tar.gz/cfd1c53db638259c39431d611caed52562cac534}
     version: 0.1.0
     engines: {node: '>=24'}
 
@@ -703,7 +703,7 @@ snapshots:
 
   hono@4.13.13: {}
 
-  memlet@git+https://github.com/bergaaberg/memlet.git#cfd1c53db638259c39431d611caed52562cac534:
+  memlet@https://codeload.github.com/bergaaberg/memlet/tar.gz/cfd1c53db638259c39431d611caed52562cac534:
     optional: true
 
   typescript@7.0.2:

@@ -37,6 +37,6 @@
     "typescript": "^7.0.2"
   },
   "optionalDependencies": {
-    "memlet": "github:bergaaberg/memlet#v0.1.0"
+    "memlet": "https://codeload.github.com/bergaaberg/memlet/tar.gz/cfd1c53db638259c39431d611caed52562cac534"
   }
 }
