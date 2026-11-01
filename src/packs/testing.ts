@@ -14,6 +14,8 @@ import type { Deploy, Ghe, Pr } from "../sources/ghe.ts";
 import { noMemory } from "./core/assistant/bino/memory.ts";
 import { routeOf } from "./core/assistant/bino/route.ts";
 import { activePacks } from "./registry.ts";
+import { checkHtml, classesOf, scopeCss } from "./guard.ts";
+import { STYLE } from "../ui/style.ts";
 import type { Pack, PackContext } from "./types.ts";
 
 export function testContext(over: Partial<PackContext> = {}): PackContext {
@@ -49,6 +51,24 @@ export const HOSTILE = `<script>x</script>"'><img src=x onerror=1>`;
 /** Fails when hostile text (HOSTILE) reached the page as markup. */
 export function assertInert(name: string, out: string) {
   for (const live of ["<script>x", "<img src=x", "onerror=1>"]) assert.ok(!out.includes(live), `${name}: ${live} reached the page as markup`);
+}
+
+/**
+ * Fails when the core would refuse a view's fragment (src/packs/guard.ts): a tag closed that wasn't
+ * opened, one left open, a <style> or <base>. On a page from `packApp`, when it already did.
+ */
+export function assertFragment(name: string, out: string) {
+  assert.ok(!out.includes("pack-broke"), `${name}: the core refused part of the pack's markup (the pack's log says why)`);
+  if (/<html[\s>]/i.test(out)) return;
+  const why = checkHtml(out);
+  assert.equal(why, undefined, `${name}: ${why}`);
+}
+
+/** Fails when the pack's styles would restyle core: each such selector is left out when it's served. */
+export function assertScoped(pack: Pack) {
+  if (!pack.styles) return;
+  const { dropped } = scopeCss(pack.styles, classesOf(STYLE));
+  assert.deepEqual(dropped, [], `${pack.manifest.id}: these selectors style core's markup, not the pack's own (give each a class of the pack's)`);
 }
 
 export const testPr = (o: Partial<Pr> = {}): Pr => ({

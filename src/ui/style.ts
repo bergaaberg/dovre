@@ -67,8 +67,6 @@ svg.pulse .pulse-mark rect { fill: var(--accent); }
 }
 .item.bare > .main > form, .item.bare > .end > form { margin: 0; }
 .panel-head svg.sparkline, .panel-head .meta svg.sparkline { display: inline-block; width: 120px; height: 24px; vertical-align: middle; }
-td.pulse-cell svg.pulse { height: 22px; }
-.health-card svg.pulse { height: 26px; }
 .item .line svg.pulse { height: 18px; margin-top: 0.35rem; }
 /* Issues (src/packs/core/issues/): labels are neutral pills; the trail holds linked PRs, sub-issue progress and stale. */
 .issue-ref { font: 600 var(--fs-xs)/1.4 var(--mono); color: var(--text-2); white-space: nowrap; }
@@ -685,6 +683,14 @@ code.secret { user-select: all; overflow-wrap: anywhere; }
 .tabs a[aria-current] { color: var(--ink); border-bottom-color: var(--accent); }
 .tabs .n { color: var(--ink-3); font-weight: 600; margin-left: 4px; }
 .tabs .sep { flex: none; width: 1px; background: var(--line); }
+/* What a pack draws sits in a box of its own (src/packs/guard.ts): nothing in it can push the page wider than the
+   screen. Its width is clipped at the box (with room for shadows and focus rings), media and code fit it, long words wrap. */
+.pack-box { min-width: 0; max-width: 100%; overflow-x: clip; overflow-clip-margin: 16px; overflow-wrap: break-word; }
+/* Zero specificity: a pack's own sizes win. */
+:where(.pack-box) :where(img, video, canvas, iframe, svg) { max-width: 100%; }
+:where(.pack-box) :where(img, video) { height: auto; }
+:where(.pack-box) :where(pre) { max-width: 100%; overflow-x: auto; }
+.pack-broke { margin: 0.25rem 0; font-size: var(--fs-s); }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 18px 22px 10px; margin: 0 0 22px; min-width: 0; }
 .panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding-bottom: 10px; }
 .panel-head h2 { font: 400 var(--fs-xl)/1.1 var(--serif); }

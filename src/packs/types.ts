@@ -521,10 +521,14 @@ export type Pack = {
   writes?: PackWrite[];
   /** What it shares with the packs that require it (#326): read through their `ctx.required`. */
   shares?(ctx: PackContext): PackShares;
-  /** CSS for its own classes, served beside the core's and linked from every page. */
+  /**
+   * CSS for its own classes, served beside the core's and linked from every page. A selector is
+   * kept only when the element it styles, or an ancestor, has a class of the pack's own: one that
+   * restyles core (`body`, `:root`, `.panel`) is left out and logged (src/packs/guard.ts).
+   */
   styles?: string;
   /**
-   * Plain JS for its own pages and slots, served beside the core's script (CSP `script-src 'self'`)
+   * Plain JS for its own pages and slots, served as a file of its own (in a try, so a throw stops only it) beside the core's script (CSP `script-src 'self'`)
    * and run on every page while the pack is on, in a block of its own. Like the core's, it's an
    * enhancement: what it adds works without it. It hears what the hub said changed through
    * `dovreOn(topics, fn, { notes })` (src/ui/on.js.ts: only those topics, merged while a call is out
