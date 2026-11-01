@@ -10,7 +10,7 @@ import { test } from "node:test";
 import type { ChildProcess } from "node:child_process";
 import { createRunner, type Run, type StartOpts } from "../src/agents/runner.ts";
 import { claudeHarness, argsFor, SANDBOX_NOTE } from "../src/agents/harnesses/claude/harness.ts";
-import { appleContainer, boxEnv, isRepoError, imageIdOf, siblingsOf, staleToolchains, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
+import { appleContainer, boxEnv, isRepoError, imageIdOf, SETUP_LOG, SETUP_SCRIPT, setupOf, siblingsOf, staleToolchains, toolchainTag, toolchainWhy, TOOLCHAIN_FILE, BUNDLE_SCRIPT, containerArgs, numstat, originRepo, readToken, sandboxBranch, type SandboxBox, type SandboxEngine, type SandboxOut, type SandboxState } from "../src/agents/sandbox.ts";
 import { localDesk } from "../src/agents/desk.ts";
 import { createQueue } from "../src/agents/queue.ts";
 import { WORK } from "../src/agents/workdir.ts";
@@ -704,6 +704,23 @@ test("siblings: plain owner/name only, each name once, at most five; mounted rea
   assert.deepEqual(args.slice(args.indexOf("/b/1/work:/work") - 1, args.indexOf("-w")), ["-v", "/b/1/work:/work", "-v", "/b/1/siblings/packs:/siblings/packs:ro"]);
 });
 
+test("setup: one line from sandbox.json, run in the box before the agent; its output stays out of the stream and the prompt still reaches the agent", () => {
+  assert.equal(setupOf(JSON.stringify({ setup: "  cp -a /siblings/dovre/. /dovre/ && pnpm install " })), "cp -a /siblings/dovre/. /dovre/ && pnpm install");
+  for (const bad of [JSON.stringify({ setup: "a\nb" }), JSON.stringify({ setup: "x".repeat(2001) }), JSON.stringify({ setup: 7 }), JSON.stringify({ setup: "  " }), "{", undefined]) assert.equal(setupOf(bad), undefined, String(bad));
+  const args = containerArgs({ name: "dovre-1", work: "/b/1/work", envFile: "/b/1/env", image: "dovre-sandbox", memory: "4g", cpus: 4, network: "dovre-sandbox", setup: "make deps" }, ["claude", "-p"]);
+  assert.deepEqual(args.slice(args.indexOf("dovre-sandbox", args.indexOf("-w"))), ["dovre-sandbox", "sh", "-c", SETUP_SCRIPT, "sh", "make deps", "claude", "-p"]);
+  const plain = containerArgs({ name: "dovre-1", work: "/b/1/work", envFile: "/b/1/env", image: "dovre-sandbox", memory: "4g", cpus: 4, network: "dovre-sandbox" }, ["claude"]);
+  assert.equal(plain.at(-1), "claude");
+  // The wrapper itself, in a real shell, with the log somewhere writable.
+  const dir = mkdtempSync(join(tmpdir(), "dovre-setup-"));
+  const log = join(dir, "setup.log");
+  const script = SETUP_SCRIPT.replaceAll(SETUP_LOG, log);
+  const out = execFileSync("sh", ["-c", script, "sh", "echo noisy; read x && echo ate-stdin; exit 3", "sh", "-c", "echo agent; cat"], { input: "the prompt", encoding: "utf8" });
+  assert.equal(out, "agent\nthe prompt", "only the agent writes the stream, and it gets the prompt");
+  assert.equal(readFileSync(log, "utf8"), "noisy\n");
+  assert.equal(readFileSync(`${log}.exit`, "utf8").trim(), "3", "a failed setup is noted, and the agent runs anyway");
+});
+
 test("Apple container engine: a sibling is a fresh clone of its checkout here at origin's default branch, origin gone; one with no checkout refuses the run", async () => {
   const root = mkdtempSync(join(tmpdir(), "dovre-box-"));
   const g = (cwd: string, ...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd, encoding: "utf8" }).trim();
@@ -722,7 +739,7 @@ test("Apple container engine: a sibling is a fresh clone of its checkout here at
   const repo = join(root, "repo");
   mkdirSync(join(repo, ".dovre"), { recursive: true });
   g(repo, "init", "-q");
-  writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ siblings: ["acme/packs"] }));
+  writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ siblings: ["acme/packs"], setup: "pnpm install" }));
   g(repo, "add", "-A");
   g(repo, "commit", "-q", "-m", "siblings");
   const tokenFile = join(root, "token");
@@ -738,6 +755,8 @@ test("Apple container engine: a sibling is a fresh clone of its checkout here at
   assert.equal(g(sib, "remote"), "");
   const args = engine.command(box, ["claude"]).args;
   assert.ok(args.includes(`${sib}:/siblings/packs:ro`));
+  assert.equal(box.setup, "pnpm install", "read at the base, like the allow list");
+  assert.deepEqual(args.slice(-3), ["sh", "pnpm install", "claude"], "the setup runs before the agent");
   engine.remove(box);
   // Listed but not here: the run doesn't start, and says which.
   writeFileSync(join(repo, ".dovre", "sandbox.json"), JSON.stringify({ siblings: ["acme/gone"] }));

@@ -40,7 +40,7 @@ export const TOOLCHAIN_FILE = ".dovre/sandbox.Containerfile";
 export const sandboxTokenFile = (v: string | undefined = process.env.SANDBOX_TOKEN_FILE, home = homedir()) => v?.trim() || join(home, ".dovre", "sandbox-token");
 
 /** A sandbox run as the runner keeps it: its folder (the clone is `work/` in it), its container, the commit it started from, and the hosts it may reach. */
-export type SandboxBox = { dir: string; name: string; base: string; allow?: string[]; image?: string; siblings?: string[] };
+export type SandboxBox = { dir: string; name: string; base: string; allow?: string[]; image?: string; siblings?: string[]; setup?: string };
 
 /** What a sandbox run needs from where it runs. */
 export type SandboxEngine = {
@@ -147,10 +147,22 @@ const hostGit: HostGit = (args, cwd, ms = 60_000) =>
     ),
   );
 
-/** The `container run` arguments for one run. `-i` so the prompt reaches the agent on stdin. Each sibling's clone goes in read-only at `/siblings/<name>`. */
-export function containerArgs(o: { name: string; work: string; envFile: string; image: string; memory: string; cpus: number; network: string; siblings?: { name: string; dir: string }[] }, inner: string[]): string[] {
+/**
+ * Runs the repo's `setup` before the agent, in the box: its output goes to SETUP_LOG (never the
+ * agent's stream), it can't read the prompt off stdin, and the agent starts whether it worked or not
+ * (the log says, and SETUP_LOG.exit holds its exit code). `$1` is the setup, the rest the agent.
+ */
+export const SETUP_LOG = "/tmp/dovre-setup.log";
+export const SETUP_SCRIPT = `sh -c "$1" >${SETUP_LOG} 2>&1 </dev/null; echo $? >${SETUP_LOG}.exit; shift; exec "$@"`;
+
+/**
+ * The `container run` arguments for one run. `-i` so the prompt reaches the agent on stdin. Each
+ * sibling's clone goes in read-only at `/siblings/<name>`. With `setup`, that runs first (SETUP_SCRIPT).
+ */
+export function containerArgs(o: { name: string; work: string; envFile: string; image: string; memory: string; cpus: number; network: string; siblings?: { name: string; dir: string }[]; setup?: string }, inner: string[]): string[] {
   const sibs = (o.siblings ?? []).flatMap((s) => ["-v", `${s.dir}:/siblings/${s.name}:ro`]);
-  return ["run", "--progress", "none", "--rm", "-i", "--name", o.name, "--network", o.network, "-m", o.memory, "-c", String(o.cpus), "--env-file", o.envFile, "-v", `${o.work}:/work`, ...sibs, "-w", "/work", o.image, ...inner];
+  const run = o.setup ? ["sh", "-c", SETUP_SCRIPT, "sh", o.setup, ...inner] : inner;
+  return ["run", "--progress", "none", "--rm", "-i", "--name", o.name, "--network", o.network, "-m", o.memory, "-c", String(o.cpus), "--env-file", o.envFile, "-v", `${o.work}:/work`, ...sibs, "-w", "/work", o.image, ...run];
 }
 
 const SIBLING = /^([\w.-]{1,100})\/([\w.-]{1,100})$/;
@@ -177,6 +189,25 @@ export function siblingsOf(text: string | undefined): string[] {
     out.push(`${m[1]}/${m[2]}`);
   }
   return out.slice(0, 5);
+}
+
+/**
+ * The repo's setup from `.dovre/sandbox.json` (`"setup": "<shell command>"`): what the box runs in
+ * `/work` before the agent starts, as the agent, on the box's network (to make a sibling usable,
+ * say). One line of at most 2000 characters; anything else is no setup.
+ */
+export function setupOf(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const raw = v && typeof v === "object" ? (v as { setup?: unknown }).setup : undefined;
+  if (typeof raw !== "string") return undefined;
+  const cmd = raw.trim();
+  return cmd && cmd.length <= 2000 && !/[\0\r\n]/.test(cmd) ? cmd : undefined;
 }
 
 /** The box's environment: the model API and every other host through the proxy under its run's key, and a placeholder for the token. */
@@ -449,6 +480,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
           }
         })();
         const allow = allowOf(config);
+        const setup = setupOf(config);
         // Siblings: a fresh clone of each from its checkout here (one of your repos), at origin's
         // default branch when the checkout knows it, else its HEAD. Mounted read-only.
         const siblings: string[] = [];
@@ -473,7 +505,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
         way.add(key, { token, allow, ...(onDeny ? { onDeny } : {}) });
         keys.set(name, key);
         if (img !== image) using.set(name, img);
-        return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}), ...(siblings.length ? { siblings } : {}) };
+        return { dir, name, base: sha, allow, ...(img !== image ? { image: img } : {}), ...(siblings.length ? { siblings } : {}), ...(setup ? { setup } : {}) };
       } catch (e) {
         rmSync(dir, { recursive: true, force: true });
         // git's own reason is its last line on stderr; the first line only repeats the command.
@@ -481,7 +513,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
         throw repoError(`Couldn't make the sandbox's clone: ${why}`);
       }
     },
-    command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET, siblings: (box.siblings ?? []).map((n) => ({ name: n, dir: join(box.dir, "siblings", n) })) }, inner) }),
+    command: (box, inner) => ({ bin, args: containerArgs({ name: box.name, work: join(box.dir, "work"), envFile: envFile(box), image: box.image ?? image, memory: o.memory ?? "4g", cpus: o.cpus ?? 4, network: SANDBOX_NET, siblings: (box.siblings ?? []).map((n) => ({ name: n, dir: join(box.dir, "siblings", n) })), ...(box.setup ? { setup: box.setup } : {}) }, inner) }),
     kill: (box) => void run(bin, ["kill", box.name]),
     ended: (box) => {
       const key = keys.get(box.name);
