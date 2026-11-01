@@ -119,3 +119,10 @@ test("pack pages and cards: broken markup becomes a note in the pack's box, the 
   assert.match(css, /\.sloppy-x \{ color: red \}/);
   assert.doesNotMatch(css, /body/);
 });
+
+test("the pack box is its overlays' frame: clipped width, layout contained", () => {
+  const rule = /\.pack-box \{([^}]*)\}/.exec(STYLE)?.[1] ?? "";
+  for (const want of ["overflow-x: clip", "max-width: 100%", "contain: layout"]) assert.ok(rule.includes(want), want);
+  // Not size containment: that collapses flex and shrink-to-fit parents around the box.
+  assert.doesNotMatch(rule, /contain:[^;]*\b(size|inline-size|strict|content)\b/);
+});

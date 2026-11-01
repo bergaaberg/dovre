@@ -130,7 +130,10 @@ throw adds nothing and is logged. A failed Today card shows "Didn't answer".
 - **Size.** Pages, docks, Today cards, Settings panels and block slots (`today.hero`,
   `agents.panel`, `todo.proposals`, `pr.lead`, `work.new`) sit in a `.pack-box`: its width is
   clipped at the box, media and `<pre>` fit it, long words wrap. Nothing a pack draws makes the page
-  wider than the screen. Inline slots (buttons, facts) are checked, not boxed.
+  wider than the screen. The box is also its frame (`contain: layout`): something `position: fixed`
+  or `absolute` inside it is placed in the box and stacks under core's bars, so a pack's overlay
+  can't cover the page. A real dialog (`<dialog>` with `showModal()`, a popover) still opens on
+  top of everything. Inline slots (buttons, facts) are checked, not boxed.
 - **Styles.** A selector is kept only when the element it styles, or an ancestor, carries a class
   of the pack's own (one core's stylesheet doesn't use). `body`, `:root`, `.panel`, `.item .x` and
   `.mine ~ .panel` restyle core and are left out (logged); so is `@import`.
