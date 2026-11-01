@@ -65,7 +65,7 @@ const shop: Pack = {
     { kind: "Bad Kind", label: "Dropped" },
     { kind: "refund", label: "A repeat, dropped" },
   ],
-  routes: (app, ctx) =>
+  routes: (app, ctx) => {
     app.get("/shop", (c) =>
       ctx.page(c, {
         title: "Shop",
@@ -74,7 +74,10 @@ const shop: Pack = {
           Confirm({ kind: "shop.wipe", action: "/shop/w", label: "Wipe", question: "Wipe?" }),
         ]}`,
       }),
-    ),
+    );
+    // A preview: a POST that answers with a page whose submit is a write.
+    app.post("/shop/preview", (c) => ctx.page(c, { title: "Preview", body: html`<form method="post" action="/shop/w">${ConfirmSubmit({ kind: "shop.wipe", label: "Wipe it", question: "Wipe?" })}</form>` }));
+  },
 };
 
 test("writes: a pack's own kinds (dovre#104) are on Settings under its name and ask twice when ticked; an old floor is ignored", async () => {
@@ -93,4 +96,6 @@ test("writes: a pack's own kinds (dovre#104) are on Settings under its name and 
   const page = await (await get("/shop")).text();
   assert.match(page, /<form class="post" method="post" action="\/shop\/r">/, "refund: one click");
   assert.match(page, /<details class="confirm"><summary>Wipe/, "wipe: ticked, asks twice");
+  const preview = await (await app.request("http://localhost/shop/preview", { method: "POST", headers: { cookie: "u_tk=test-token", origin: "http://localhost" } })).text();
+  assert.match(preview, /<details class="confirm"><summary>Wipe it…/, "a page a POST answers with asks twice too");
 });

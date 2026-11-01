@@ -413,11 +413,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   });
 
   // Which writes take one click (dovre#104), for the page being drawn: Confirm reads it (src/writes.ts).
+  // Every method, not just GET: a POST can answer with a page (a preview, a form redrawn after a 409).
   // The packs' kinds join once they're known (below); a hidden pack's stay listed, so its choice keeps.
   const clicks = writeClicksStore(env.DB, Date.now, () => writeKinds(packs.on));
   const keyPrefs = keyPrefsStore(env.DB);
   app.use(async (c, next) => {
-    if (c.req.method === "GET") c.set("clicks", await clicks.get().catch(() => new Map()));
+    c.set("clicks", await clicks.get().catch(() => new Map()));
     await next();
   });
   app.get(STYLE_PATH, (c) => {
