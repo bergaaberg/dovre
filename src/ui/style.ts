@@ -684,8 +684,10 @@ code.secret { user-select: all; overflow-wrap: anywhere; }
 .tabs .n { color: var(--ink-3); font-weight: 600; margin-left: 4px; }
 .tabs .sep { flex: none; width: 1px; background: var(--line); }
 /* What a pack draws sits in a box of its own (src/packs/guard.ts): nothing in it can push the page wider than the
-   screen. Its width is clipped at the box (with room for shadows and focus rings), media and code fit it, long words wrap. */
-.pack-box { min-width: 0; max-width: 100%; overflow-x: clip; overflow-clip-margin: 16px; overflow-wrap: break-word; }
+   screen. Its width is clipped at the box (with room for shadows and focus rings), media and code fit it, long words wrap.
+   Layout containment makes it the frame for anything fixed or absolute inside, and its own stacking context: a pack's overlay
+   covers its box, never the page or core's bars (a <dialog> or popover still opens in the top layer). */
+.pack-box { min-width: 0; max-width: 100%; overflow-x: clip; overflow-clip-margin: 16px; overflow-wrap: break-word; contain: layout; }
 /* Zero specificity: a pack's own sizes win. */
 :where(.pack-box) :where(img, video, canvas, iframe, svg) { max-width: 100%; }
 :where(.pack-box) :where(img, video) { height: auto; }
