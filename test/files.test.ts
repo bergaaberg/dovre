@@ -40,6 +40,21 @@ test("files: a file's text decoded (UTF-8); none, a folder, or one too big is un
   assert.equal(await loadFile(g, "acme/site", "big"), undefined);
   await assert.rejects(loadFile(g, "acme/site", "down"), /502/);
   assert.equal(g.paths[0], "/repos/acme/site/contents/peak.yaml");
+  await loadFile(g, "acme/site", "peak.yaml", "a".repeat(40));
+  assert.equal(g.paths.at(-1), `/repos/acme/site/contents/peak.yaml?ref=${"a".repeat(40)}`);
+});
+
+test("files: a pack reads a file at a commit only by its full SHA, kept apart from the default branch's and for longer", async () => {
+  let t = 0;
+  const calls: string[] = [];
+  const reads = packReads({ file: async (r, p, at) => (calls.push(`${r} ${p} ${at ?? "-"}`), at ? "then" : "now") }, () => "acme", { ttlMs: 1000, now: () => t });
+  const sha = "AB".repeat(20);
+  assert.equal(await reads.file!("acme/site", "README.md", sha), "then");
+  assert.equal(await reads.file!("acme/site", "README.md"), "now");
+  t = 5000;
+  assert.equal(await reads.file!("acme/site", "README.md", sha.toLowerCase()), "then", "a commit's file is still kept");
+  for (const bad of ["main", "abc123", `${sha}0`, "../x", `${"g".repeat(40)}`]) await assert.rejects(reads.file!("acme/site", "README.md", bad), /Not a commit/, bad);
+  assert.deepEqual(calls, [`acme/site README.md ${sha.toLowerCase()}`, "acme/site README.md -"]);
 });
 
 test("files: the repos of each owner, archived ones left out by the query, anything outside the owners dropped", async () => {

@@ -235,14 +235,14 @@ function withTree(views: FileView[], list: Html): Html {
 }
 
 /** One file of a diff. `extra` adds rows under lines; a file with draft comments starts open. */
-export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt; acts?: ThreadActs; /** Side by side: no comments or threads on lines (the local diff has none). */ split?: boolean }): Html {
+export function fileView(fv: FileView, o: { sha: string; dir?: string; present: boolean; extra?: LineExtra; /** The "+" on each line, for this file. */ comment?: (path: string) => CommentAt; acts?: ThreadActs; /** Side by side: no comments or threads on lines (the local diff has none). */ split?: boolean; /** Pack buttons for this file ("pr.file" slot). */ more?: Html | "" }): Html {
   const f = fv.file;
   const name = f.previous && f.previous !== f.path ? html`<code>${f.previous}</code> → <code>${f.path}</code>` : html`<code>${f.path}</code>`;
   const view = o.dir && f.status !== "removed" ? (o.present ? html`<a class="btn sm ghost" href="${codeHref(o.dir, { ref: o.sha, path: f.path })}">View file</a>` : "") : "";
   const at = o.comment && f.patch !== undefined ? o.comment(f.path) : undefined;
   return html`<details class="dfile" id="${fileId(f.path)}" data-stop="1" data-stop-label="${f.path}"${at ? html` data-path="${f.path}"` : ""}${fv.folded && !fv.drafts && !fv.mine ? "" : html` open`}><summary><span class="dfile-name">${Pill({ tone: STATUS_TONE[f.status], children: f.status })} ${name}</span><span class="dfile-meta"><span class="add">+${f.additions}</span> <span class="del">−${f.deletions}</span>${
     fv.threads.length ? html` · ${fv.threads.length} ${fv.threads.length === 1 ? "thread" : "threads"}` : ""
-  }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""}${fv.mine ? html` · <span class="spark">${fv.mine} pending</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
+  }${fv.drafts ? html` · <span class="spark">${fv.drafts} from the agent</span>` : ""}${fv.mine ? html` · <span class="spark">${fv.mine} pending</span>` : ""} <label class="viewed-label"><input type="checkbox" class="viewed" data-key="${o.sha}:${f.path}"> Viewed</label>${o.more ?? ""}${view}</span></summary>${fv.why ? html`<p class="dfile-why t3">${fv.why}</p>` : ""}${
     fv.unplaced.length ? html`<div class="dfile-threads">${fv.unplaced.map((t) => threadView(t, { showPath: true, acts: o.acts }))}</div>` : ""
   }${fv.lines.length ? diffTable(fv.lines, { split: o.split, extra: o.extra, at, acts: o.acts }) : ""}</details>`;
 }
@@ -259,7 +259,7 @@ export function lineCards(k: Check | undefined, review: MyReview | undefined, mo
   });
 }
 
-export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string; mine?: MineOnFiles }): Html {
+export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> | undefined; dir?: string; present: boolean; topic: string; mine?: MineOnFiles; /** Pack buttons for a file ("pr.file" slot). */ fileSlot?: (f: PrSlotArg & { path: string; status: string; sha: string }) => Html | "" }): Html {
   const v = o.view;
   const base = prHref(v.repo, v.number);
   const m = o.mine;
@@ -290,9 +290,10 @@ export function filesPage(frame: Frame, o: { view: PrView; files: Res<PrFile[]> 
     const fetch = o.dir && !o.present ? html`<p class="t3">${v.headSha.slice(0, 7)} isn't in your checkout yet: <code data-copy>git -C ${o.dir} fetch origin ${v.head}</code></p>` : "";
     const bar = m ? reviewBar({ base, review: m.review, head: v.headSha, agent: m.agent, flash: m.flash, checker: m.checker }) : "";
     const template = comment ? commentForm({ base, sha: v.headSha, template: true }) : "";
+    const pr: PrSlotArg = { repo: v.repo, number: v.number, branch: v.head, title: v.title, url: v.url };
     inner = html`${bar}${withTree(
       views,
-      html`${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment, acts: m && v.state === "OPEN" ? { base, back: "files" } : undefined }))}${
+      html`${fetch}${o.files.value.length >= 300 ? Notice({ tone: "warn", children: "Showing the first 300 files." }) : ""}${views.map((fv) => fileView(fv, { sha: v.headSha, dir: o.dir, present: o.present, extra: m ? fileExtra(fv.file.path) : undefined, comment, acts: m && v.state === "OPEN" ? { base, back: "files" } : undefined, more: o.fileSlot?.({ ...pr, path: fv.file.path, status: fv.file.status, sha: v.headSha }) }))}${
         m ? offDiff(off.map((i) => pending[i]!), base, moved ? "Your review is on an older commit." : "These go at the end of the summary when you post.") : ""
       }`,
     )}${template}`;
@@ -466,6 +467,8 @@ export type ViewerDeps = {
   stackFor?: (repo: string, n: number) => Promise<Child | undefined>;
   /** Pack facts for the PR ("pr.facts" slot), keyed by the PR itself. */
   facts?: (pr: PrSlotArg) => [Child, Child][];
+  /** Pack buttons for a file on the Files tab ("pr.file" slot). */
+  fileSlot?: (f: PrSlotArg & { path: string; status: string; sha: string }) => Html | "";
   checkouts?: () => Checkout[];
   git?: Git;
   /** My own reviews (dovre#106): where they're kept. Without it, the viewer stays read-only. */
@@ -581,7 +584,7 @@ export function createViewerRoutes(env: Env, deps: ViewerDeps): Hono<AppEnv> {
     const co = checkoutOf(list(), at.repo);
     // The files and the checkout's git in the same budget: neither holds the page. Still checking git: no "fetch" hint yet.
     const [fs, mine, present] = await Promise.all([within(loading), deps.db ? mineOn(c, at, v) : undefined, co ? within(hasCommit(co.dir, v.headSha), 500) : false]);
-    return c.html(filesPage(frame, { view: v, files: fs, dir: co?.dir, present: present ?? true, topic, mine }));
+    return c.html(filesPage(frame, { view: v, files: fs, dir: co?.dir, present: present ?? true, topic, mine, fileSlot: deps.fileSlot }));
   });
 
   // ── My own review (dovre#106): kept per person until posted ──

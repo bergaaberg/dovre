@@ -192,6 +192,8 @@ export type SlotMap = {
   "pr.lead": { arg: PrSlotArg; out: Html | "" };
   /** A PR opened in place (the /prs list or the viewer): rows for its facts (label, value). */
   "pr.facts": { arg: PrSlotArg; out: [string, Html][] };
+  /** A file on a PR's Files tab, in its header beside "Viewed": a button or two (markdown: read it rendered). `sha` is the PR's head commit. */
+  "pr.file": { arg: PrSlotArg & { path: string; status: string; sha: string }; out: Html | "" };
   /** New work (/issues/new): a panel above "What is it?". */
   "work.new": { arg: Record<string, never>; out: Html | "" };
   /** /agents, after "Started here": a panel (terminal: the terminals open here). */
@@ -365,10 +367,11 @@ export type PackForge = {
   repos?(): Promise<string[]>;
   /**
    * One file's text on a repo's default branch (a peak.yaml, say), kept a few minutes; undefined
-   * when there's none. Only the owners' repos and plain relative paths: anything else throws.
+   * when there's none. With `at`, a full commit SHA (a PR's head), the file at that commit
+   * instead. Only the owners' repos and plain relative paths: anything else throws.
    * Absent: this forge doesn't say.
    */
-  file?(repo: string, path: string): Promise<string | undefined>;
+  file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   /**
    * Every one of the owners' repos (not archived, 100 per owner) with its files at `paths` (1 to 6
    * plain relative paths) on the default branch, in one call per owner, where `file` is one per

@@ -34,7 +34,7 @@ export function githubForge(ghe: Ghe): Forge {
     work: (login, owners, since) => loadWork(ghe, login, owners, since),
     merged: (login, owners, since) => loadMerged(ghe, login, owners, since),
     repos: (owners) => loadRepos(ghe, owners),
-    file: (repo, path) => loadFile(ghe, repo, path),
+    file: (repo, path, at) => loadFile(ghe, repo, path, at),
     everyRepo: (owners, paths) => loadEveryRepo(ghe, owners, paths),
     propose: (p) => proposeFile(ghe, p),
   };
