@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { addPack } from "../src/packs/cli.ts";
+import { PACK_API } from "../src/packs/types.ts";
 import { describe, outdated, readMeta, sourceAllowed, sourceOfUrl, trackPack, updatePack } from "../src/packs/update.ts";
 
 const git = (dir: string, ...args: string[]) => {
@@ -49,7 +50,7 @@ test("add writes .pack.json: source, commit, version, api, a hash per file", () 
     assert.equal(m.source, "bergaaberg/dovre-packs");
     assert.equal(m.commit, git(s.repo, "rev-parse", "HEAD"));
     assert.equal(m.version, "0.2.0");
-    assert.equal(m.api, 1);
+    assert.equal(m.api, PACK_API);
     assert.deepEqual(Object.keys(m.files).sort(), ["data.ts", "index.ts", "test/foo.test.ts"]);
     assert.match(m.files["index.ts"]!, /^[0-9a-f]{64}$/);
     assert.deepEqual(outdated(s.into, s.repo).map(describe), ["foo: up to date"]);
@@ -146,7 +147,10 @@ test("update refuses a newer PACK_API, uncommitted upstream changes, and a sourc
     assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /uncommitted changes/);
     writeFileSync(join(s.up, "index.ts"), INDEX.replace("PACK_API", "99"));
     s.commit("api 99");
-    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /needs PACK_API 99/);
+    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /needs PACK_API 99\.0/);
+    writeFileSync(join(s.up, "index.ts"), INDEX.replace("PACK_API", '"1.999"'));
+    s.commit("api 1.999");
+    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /needs PACK_API 1\.999; this core has/, "a newer minor is refused too");
     assert.equal(readFileSync(join(s.pack, "index.ts"), "utf8"), INDEX);
   } finally {
     s.done();

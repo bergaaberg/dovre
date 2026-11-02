@@ -10,7 +10,8 @@ import { boxed, guardHtml } from "./guard.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
-import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, PACK_API, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
+import { apiGap } from "./api.ts";
+import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /**
  * A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page
@@ -43,7 +44,7 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
     const no = (why: string) => off.push({ id: m?.id ?? "?", name: m?.name ?? m?.id ?? "?", why, ...(m && typeof m === "object" ? { manifest: m } : {}) });
     if (!m || !ID.test(m.id)) no("its id isn't lowercase letters, digits and dashes");
     else if (seen.has(m.id)) no("another pack has the same id");
-    else if (m.api !== PACK_API) no(`written for pack contract ${m.api ?? "?"}, this Dovre speaks ${PACK_API}`);
+    else if (apiGap(m.api)) no(apiGap(m.api)!);
     else if (OFF.test((opts.env[`PACK_${envId(m.id)}`] ?? opts.env[`CRATE_${envId(m.id)}`] ?? "").trim())) no(`switched off in .dev.vars or the environment (PACK_${envId(m.id)}=off)`);
     else if (opts.hosted && m.execution === "local-only") no("runs only on a machine, not hosted");
     else if (!opts.hosted && m.execution === "hosted-only") no("runs only hosted (it needs the Worker's bindings)");

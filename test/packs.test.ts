@@ -17,6 +17,7 @@ import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
 import { packApp, testContext } from "../src/packs/testing.ts";
+import { apiCompare, apiGap, parseApi } from "../src/packs/api.ts";
 import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
 import type { D1 } from "../src/db.ts";
 import { Card } from "../src/ui/kit.ts";
@@ -32,12 +33,30 @@ import { currentViewer } from "../src/viewer.ts";
 const m = (o: Partial<PackManifest> & { id: string }): PackManifest => ({ api: PACK_API, name: o.id, description: "", domain: "personal", ...o });
 const pack = (o: Partial<PackManifest> & { id: string }, hooks: Partial<Pack> = {}): Pack => ({ manifest: m(o), ...hooks });
 
+test("PACK_API is major.minor; a pack runs on its major at its minor or newer, and 1 reads as 1.0", () => {
+  assert.match(PACK_API, /^\d+\.\d+$/);
+  assert.deepEqual(parseApi(1), { major: 1, minor: 0 });
+  assert.deepEqual(parseApi("1.6"), { major: 1, minor: 6 });
+  for (const bad of ["1.6.0", "v1", "", 1.5, -1, null, undefined, {}]) assert.equal(parseApi(bad), null, String(bad));
+  assert.equal(apiGap("1.0", "1.5"), null);
+  assert.equal(apiGap(1, "1.5"), null);
+  assert.equal(apiGap("1.5", "1.5"), null);
+  assert.equal(apiGap("1.6", "1.5"), "needs core API 1.6, this is 1.5");
+  assert.match(apiGap("2.0", "1.5")!, /contract 2, this Dovre speaks 1/);
+  assert.match(apiGap("0.9", "1.5")!, /contract 0/);
+  assert.equal(apiCompare("1.10", "1.9"), 1);
+  assert.equal(apiCompare(1, "1.0"), 0);
+});
+
 test("activePacks: each pack on or off, with why", () => {
   const list = [
     pack({ id: "fine" }),
     pack({ id: "Bad_Id" }),
     pack({ id: "fine" }),
     { manifest: { ...m({ id: "old" }), api: 0 } },
+    { manifest: { ...m({ id: "ahead" }), api: "1.99" } },
+    { manifest: { ...m({ id: "plain" }), api: 1 } },
+    { manifest: { ...m({ id: "garbled" }), api: "one" } },
     pack({ id: "switched" }),
     pack({ id: "machine", execution: "local-only" }),
     pack({ id: "edge", execution: "hosted-only", requiredBindings: ["QUILL"] }),
@@ -45,11 +64,13 @@ test("activePacks: each pack on or off, with why", () => {
     pack({ id: "keyed", settings: [{ key: "CF_API_TOKEN", label: "token", required: true }] }),
   ];
   const local = activePacks(list, { env: { PACK_SWITCHED: "off" }, hosted: false, which: () => undefined });
-  assert.deepEqual(local.on.map((c) => c.manifest.id), ["fine", "machine"]);
+  assert.deepEqual(local.on.map((c) => c.manifest.id), ["fine", "plain", "machine"]);
   const why = Object.fromEntries(local.off.map((o) => [o.id, o.why]));
   assert.match(why.Bad_Id!, /lowercase/);
   assert.match(why.fine!, /same id/);
   assert.match(why.old!, /contract 0/);
+  assert.equal(why.ahead, `needs core API 1.99, this is ${PACK_API}`);
+  assert.match(why.garbled!, /isn't a version/);
   assert.match(why.switched!, /switched off/);
   assert.match(why.edge!, /only hosted/);
   assert.match(why.cli!, /wrangler isn't on PATH/);
