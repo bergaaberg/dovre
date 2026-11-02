@@ -268,6 +268,18 @@ test("the hosted assets build: Dovre's own files plus each pack's WebAssembly fi
   await assert.rejects(buildAssets({ packs: [good, stale], out, core }), /pack old: wasm tree has SHA-256 [0-9a-f]{16}, not the 0123456789abcdef it declares \(rebuild the pack\)/);
 });
 
+test("a Pack.files script marked wasm (WebAssembly inside it) turns on wasm-unsafe-eval; a stylesheet marked so doesn't", async () => {
+  const JS = new TextEncoder().encode("export const x = 1;");
+  const sha = await sha16(JS);
+  const csp = async (files: Record<string, { sha256: string; load: () => Uint8Array; wasm?: boolean }>) => {
+    const p = pack({ id: "lib", execution: "any" }, { files, routes: (app) => app.get("/lib", (c) => c.text("ok")) });
+    return (await signedIn(snapshot(), {}, { packs: [p] }).get("/lib")).headers.get("Content-Security-Policy") ?? "";
+  };
+  assert.match(await csp({ "gv.js": { sha256: sha, load: () => JS, wasm: true } }), /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.doesNotMatch(await csp({ "gv.css": { sha256: sha, load: () => JS, wasm: true } }), /wasm-unsafe-eval/);
+  assert.doesNotMatch(await csp({ "gv.js": { sha256: "<bad>", load: () => JS, wasm: true } }), /wasm-unsafe-eval/, "not served: no WebAssembly either");
+});
+
 test("a pack's big files (Pack.files): a script or stylesheet served at a hashed path, read once and checked locally, from the static assets hosted; no wasm-unsafe-eval", async () => {
   const JS = new TextEncoder().encode("export const x = 1;");
   const CSS = new TextEncoder().encode(".lib-x { color: red }");

@@ -503,8 +503,12 @@ export type WasmFile = {
   load(): Uint8Array | Promise<Uint8Array>;
 };
 
-/** A script or stylesheet kept out of the Worker bundle (Pack.files): checked and served like a WasmFile. */
-export type PackFile = WasmFile;
+/**
+ * A script or stylesheet kept out of the Worker bundle (Pack.files): checked and served like a
+ * WasmFile. `wasm`: a script that compiles WebAssembly it carries inside (Graphviz's build has no
+ * separate .wasm), so pages' CSP adds `'wasm-unsafe-eval'` as for Pack.wasm.
+ */
+export type PackFile = WasmFile & { wasm?: boolean };
 
 export type Pack = {
   manifest: PackManifest;
@@ -560,7 +564,8 @@ export type Pack = {
    * name says its kind: lowercase, 32 characters at most before `.js` or `.css` (`mermaid.js`).
    * 25 MB at most; locally `load` is called on the first request and the bytes are served only if
    * their SHA-256 matches; hosted, the wrangler `build` step writes them into the static assets.
-   * Only the pack's own script loads them (`import()` or a `<script src>`): CSP stays `'self'`.
+   * Only the pack's own script loads them (`import()` or a `<script src>`): CSP stays `'self'`
+   * (plus `'wasm-unsafe-eval'` for a file marked `wasm`).
    */
   files?: Record<string, PackFile>;
   nav?(ctx: PackContext): NavItem[];

@@ -68,7 +68,8 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    Worker's static assets, and the Worker serves it from `ASSETS` without calling `load`. A stale
    `sha256` fails the build, naming the pack. A pack's `files` (a browser library too big for the
    bundle: `mermaid.js`, `katex.css`; lowercase, `.js` or `.css`) go the same way as a `WasmFile`,
-   at `/assets/files/<id>.<name>.<sha>.<ext>`, and never widen the CSP: its own script loads them. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
+   at `/assets/files/<id>.<name>.<sha>.<ext>`, and widen the CSP only for a script marked `wasm`
+   (it carries WebAssembly inside, like Graphviz's build), which counts as shipping WebAssembly: its own script loads them. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
    A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
    `data-motion="always"` (Settings → Look → Motion): scope those rules under
    `:root:not([data-motion="always"])`, and check the attribute in scripts too.
