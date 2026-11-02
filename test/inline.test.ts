@@ -33,6 +33,19 @@ test("markdown: a closed fence names its language for a pack's script; an open o
   assertInert("markdown fence", odd);
 });
 
+test("markdown: math is marked for a pack's script; money and open blocks stay text", async () => {
+  const out = await render(markdown("Euler $e^{i\\pi}+1=0$, $x$ and $`a<b`$, not `$c$`.\ntext\n$$\n\\sum <i>\n$$\n\n$$ y^2 $$"));
+  assert.match(out, /<code data-tex>e\^\{i\\pi\}\+1=0<\/code>/);
+  assert.match(out, /<code data-tex>x<\/code>/);
+  assert.match(out, /<code data-tex>a&lt;b<\/code>/);
+  assert.match(out, /<code>\$c\$<\/code>/);
+  assert.match(out, /<p>Euler .* text<\/p><pre class="code" data-lang="math">\\sum &lt;i&gt;<\/pre>/);
+  assert.match(out, /<pre class="code" data-lang="math">y\^2<\/pre>/);
+  const money = await render(markdown("It costs $5 and $6, US$7 or a$b$; \\$x$ and $ y$.\n\ndraft\n$$\nx ="));
+  assert.ok(!money.includes("data-tex") && !money.includes("data-lang"), money);
+  assertInert("markdown math", await render(markdown('$<script>alert(1)</script>$\n\n$$\n<img src=x onerror=alert(1)>\n$$')));
+});
+
 test("markdown: hostile input stays text, and only http(s) links survive", async () => {
   const out = await render(markdown(`${H}\n\n[click](javascript:alert(1)) **${H}** \`${H}\`\n\n- ${H}\n\n> ${H}\n\n| ${H} |\n|---|\n| ${H} |`));
   assertInert("markdown", out);
