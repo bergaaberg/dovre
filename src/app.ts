@@ -82,7 +82,7 @@ import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layo
 import { packFeedOf } from "./home/feed.ts";
 import { forgeName, safeUrl } from "./pages/parts.ts";
 import type { Pack, PackContext, PackManifest, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
-import { fileWhy, isWasm, isWasmFile, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
+import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
 import { quietOf } from "./quiet.ts";
@@ -253,11 +253,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   };
   const hasLab = () => env.IS_HOSTED !== "1" && !off("lab") && existsSync(resolve(labDir, "index.html"));
 
-  // Packs' WebAssembly (Pack.wasm): checked, hashed, served below. Bytes are served from memory; a
-  // file locally from its `load` (checked on first use), hosted from the static assets the build
-  // wrote (src/packs/assets.ts). Pages may compile WebAssembly only while a pack ships some.
-  const wasmServed = new Map<string, Uint8Array | { pack: string; name: string; file: WasmFile }>();
+  // Packs' WebAssembly (Pack.wasm) and big files (Pack.files): checked, hashed, served below. Bytes
+  // are served from memory; a file locally from its `load` (checked on first use), hosted from the
+  // static assets the build wrote (src/packs/assets.ts). Pages may compile WebAssembly only while a
+  // pack ships some.
+  type Served = { type: string; bytes: Uint8Array } | { type: string; pack: string; what: string; file: WasmFile; why: (b: unknown, sha: string) => Promise<string> };
+  const served = new Map<string, Served>();
   const wasmPaths = new Map<string, Map<string, string>>();
+  const filePaths = new Map<string, Map<string, string>>();
+  const pathsOf = (m: Map<string, Map<string, string>>, id: string) => m.get(id) ?? m.set(id, new Map()).get(id)!;
+  let shipsWasm = false;
   for (const p of deps.packs?.on ?? []) {
     for (const [name, mod] of Object.entries(p.wasm ?? {})) {
       const file = isWasmFile(mod);
@@ -271,11 +276,22 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         continue;
       }
       const path = file ? `/assets/${wasmFileAt(p.manifest.id, name, mod.sha256)}` : `/assets/wasm/${p.manifest.id}.${name}.${hashBytes(mod as Uint8Array)}.wasm`;
-      wasmServed.set(path, file ? { pack: p.manifest.id, name, file: mod } : (mod as Uint8Array));
-      (wasmPaths.get(p.manifest.id) ?? wasmPaths.set(p.manifest.id, new Map()).get(p.manifest.id)!).set(name, path);
+      served.set(path, file ? { type: "application/wasm", pack: p.manifest.id, what: `wasm ${name}`, file: mod, why: fileWhy } : { type: "application/wasm", bytes: mod as Uint8Array });
+      pathsOf(wasmPaths, p.manifest.id).set(name, path);
+      shipsWasm = true;
+    }
+    for (const [name, f] of Object.entries(p.files ?? {})) {
+      const why = !packFileNameOk(name) ? "isn't a lowercase name ending .js or .css" : !isWasmFile(f) || !shaOk(f.sha256) ? "has no 16-digit hex sha256 or load" : "";
+      if (why) {
+        console.log(`pack ${p.manifest.id}: file ${name.slice(0, 40)} ${why}; not served`);
+        continue;
+      }
+      const path = `/assets/${packFileAt(p.manifest.id, name, f.sha256)}`;
+      served.set(path, { type: packFileType(name), pack: p.manifest.id, what: `file ${name}`, file: f, why: packFileWhy });
+      pathsOf(filePaths, p.manifest.id).set(name, path);
     }
   }
-  const scriptSrc = wasmServed.size ? ["'self'", "'wasm-unsafe-eval'"] : ["'self'"];
+  const scriptSrc = shipsWasm ? ["'self'", "'wasm-unsafe-eval'"] : ["'self'"];
   const appPolicy = (frames: string[] = []) =>
     secureHeaders({
       referrerPolicy: "same-origin",
@@ -474,6 +490,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
             return { id: f.id, name: f.name, host: f.host ?? env.GHE_HOST, login, owners, ...(f.work ? { work: (since: string) => f.work!(login, owners, since) } : {}), ...(f.merged ? { merged: (since: string) => f.merged!(login, owners, since) } : {}), ...reads, ...(f.propose ? { propose: proposals(c) } : {}) };
           },
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
+          file: (name) => filePaths.get(c.manifest.id)?.get(name),
           // Only from a pack it requires, while that one is on and shown (#326).
           required: (id, name) => {
             const from = requiresOf(c.manifest).includes(id) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;
@@ -647,11 +664,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       return c.body(PACK_CSS.body);
     });
   const assets = deps.packs?.bindings?.ASSETS as { fetch(req: Request): Promise<Response> } | undefined;
-  for (const [path, mod] of wasmServed) {
+  for (const [path, mod] of served) {
     // A file's bytes, once: locally from its load (checked), hosted from the static assets.
     let read: Promise<Uint8Array | ReadableStream | null> | undefined;
     const bytes = (url: string): Promise<Uint8Array | ReadableStream | null> => {
-      if (mod instanceof Uint8Array) return Promise.resolve(mod);
+      if ("bytes" in mod) return Promise.resolve(mod.bytes);
       if (env.IS_HOSTED === "1") {
         if (!assets) return Promise.resolve(null);
         return assets.fetch(new Request(new URL(path.slice("/assets".length), url))).then((r) => (r.ok ? r.body : null));
@@ -659,11 +676,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       return (read ??= (async () => {
         try {
           const b = await mod.file.load();
-          const why = await fileWhy(b, mod.file.sha256);
+          const why = await mod.why(b, mod.file.sha256);
           if (!why) return b as Uint8Array;
-          console.log(`pack ${mod.pack}: wasm ${mod.name} ${why}; not served`);
+          console.log(`pack ${mod.pack}: ${mod.what} ${why}; not served`);
         } catch (e) {
-          console.log(`pack ${mod.pack}: wasm ${mod.name} didn't load: ${String((e as Error).message ?? e).slice(0, 200)}`);
+          console.log(`pack ${mod.pack}: ${mod.what} didn't load: ${String((e as Error).message ?? e).slice(0, 200)}`);
         }
         return null;
       })());
@@ -671,7 +688,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     app.get(path, async (c) => {
       const b = await bytes(c.req.url);
       if (!b) return c.notFound();
-      c.header("Content-Type", "application/wasm");
+      c.header("Content-Type", mod.type);
       c.header("Cache-Control", "private, max-age=31536000, immutable");
       return c.body(b as Uint8Array<ArrayBuffer>);
     });

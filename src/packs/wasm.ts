@@ -1,5 +1,5 @@
 /**
- * Packs' WebAssembly (Pack.wasm): the rules the app (src/app.ts) and the hosted assets build
+ * Packs' WebAssembly (Pack.wasm) and big files (Pack.files): the rules the app (src/app.ts) and the hosted assets build
  * (src/packs/assets.ts) share, so a module is checked the same way wherever it's served from.
  */
 import type { WasmFile } from "./types.ts";
@@ -27,7 +27,30 @@ export async function sha16(b: Uint8Array): Promise<string> {
 /** Why a file module's bytes can't be served ("" when they can). */
 export async function fileWhy(bytes: unknown, sha: string): Promise<string> {
   if (!(bytes instanceof Uint8Array) || !isWasm(bytes)) return "isn't WebAssembly";
+  return sizeShaWhy(bytes, sha);
+}
+
+async function sizeShaWhy(bytes: Uint8Array, sha: string): Promise<string> {
   if (bytes.length > WASM_FILE_MAX) return "is over 25 MB";
   const got = await sha16(bytes);
   return got === sha ? "" : `has SHA-256 ${got}, not the ${sha} it declares (rebuild the pack)`;
+}
+
+/**
+ * Packs' other big files (Pack.files): a browser library's script or stylesheet, kept out of the
+ * Worker bundle the same way. The name says its kind: `mermaid.js`, `katex.css`.
+ */
+export const PACK_FILE_TYPES: Record<string, string> = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" };
+export const packFileNameOk = (name: string) => /^[a-z][a-z0-9-]{0,31}\.(js|css)$/.test(name);
+export const packFileType = (name: string) => PACK_FILE_TYPES[name.slice(name.lastIndexOf(".") + 1)]!;
+/** Where a pack file sits in the static assets, and is served at under `/assets/`. */
+export const packFileAt = (pack: string, name: string, sha: string) => {
+  const dot = name.lastIndexOf(".");
+  return `files/${pack}.${name.slice(0, dot)}.${sha}${name.slice(dot)}`;
+};
+
+/** Why a pack file's bytes can't be served ("" when they can). */
+export async function packFileWhy(bytes: unknown, sha: string): Promise<string> {
+  if (!(bytes instanceof Uint8Array)) return "isn't bytes";
+  return sizeShaWhy(bytes, sha);
 }
