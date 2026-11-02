@@ -63,6 +63,14 @@ Each pack in dovre-packs has its own version and changelog, released as a tag `<
 
 A pack can also replace GitHub as the forge (`FORGE=<its id>`). How packs work: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+One pack on its own, in a throw-away session (prototype, [#353](https://github.com/bergaaberg/dovre/issues/353)):
+
+```sh
+node src/run.ts http ../my-repo   # the pack's pages only, on a random port; Ctrl+C and it's gone
+```
+
+The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack's settings come from the shell's environment (only the keys its manifest names).
+
 ## Topo
 
 Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of a checkout to say what the repo is, how much care it gets, who owns which files and what to read first. The `topo` pack (local) shows it on `/topo`, gives it to Bino and agents, and shows the tier on pull requests. Add it with `pnpm packs add topo`.
