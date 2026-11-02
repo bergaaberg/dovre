@@ -9,6 +9,7 @@
 //	dovre relay -- cmd   an MCP server between a client that can't ask its user and the real one (relay.go)
 //	dovre agent-host     runs one agent turn apart from the server, keeping only what Dovre shows (agenthost.go)
 //	dovre pty-host       one terminal (ConPTY) for Dovre's terminal page, over stdio frames (pty.go)
+//	dovre run <pack> …   one pack in a throw-away session: src/run.ts on the pinned Node (runpack.go)
 //	dovre version        this build's version (set at release, scripts/release.sh)
 //	dovre bridge …       this machine's agents in hosted Dovre: login, run, install, uninstall, status, restart, logout (bridge.go)
 //
@@ -91,11 +92,13 @@ func run(p Paths, verb, arg string) error {
 		return ptyHost(os.Args[2:])
 	case "bridge":
 		return bridge(p, os.Args[2:])
+	case "run":
+		return runPack(p, os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("dovre", version)
 		return nil
 	default:
-		fmt.Println("dovre [open [path]|status|restart|stop|logs|bridge|version]")
+		fmt.Println("dovre [open [path]|status|restart|stop|logs|bridge|run <pack> [checkout]|version]")
 		return nil
 	}
 }
