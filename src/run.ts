@@ -9,8 +9,11 @@
  * the pack's paths, sign-in, assets and the event stream answer, and the menu holds the pack's entries. A checkout given is the one repo the pack sees,
  * as a checkout directly under CODE_DIR. Its settings: see settingsOf; its Settings page keeps what's
  * saved there in memory only (#369).
+ *
+ * Its tools (Pack.tools) answer an agent on /mcp (#371), with a token of their own, made for this
+ * session and never the launch token: src/mcp.ts's checks, the session's token in place of a turn's.
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -45,6 +48,20 @@ export function firstPage(pack: Pack): string {
     href = (pack.nav as ((ctx: unknown) => { href: string }[]) | undefined)?.({})?.[0]?.href;
   } catch {}
   return href && /^\/(?![/\\])[\w\-/?=&.%]*$/.test(href) ? href : `/${pack.manifest.id}`;
+}
+
+/** The session's turn for /mcp: only its own token, compared in constant time (#371). */
+export function sessionTurn(token: string, turn: { id: string; repo: string; cwd: string }): (given: string) => typeof turn | undefined {
+  const want = Buffer.from(token);
+  return (given) => {
+    const g = Buffer.from(String(given));
+    return g.length === want.length && timingSafeEqual(g, want) ? turn : undefined;
+  };
+}
+
+/** The line that gives a Claude Code session this pack's tools; the port is new each session, so is the line. */
+export function mcpAddLine(id: string, port: number, token: string): string {
+  return `claude mcp add --transport http dovre-${id} http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`;
 }
 
 /** Where a session's setting came from (#369). */
@@ -146,6 +163,7 @@ async function main(args: string[]) {
   // Before API 1.7 a pack lists the code folder itself, so it sees the checkout's neighbours too.
   if (dir && apiCompare(pack.manifest.api, "1.7") < 0) console.warn(`${id} is on pack API ${String(pack.manifest.api)}: it may see every checkout beside ${basename(dir)}, not only it`);
   const token = randomBytes(24).toString("base64url");
+  const mcpToken = randomBytes(24).toString("base64url");
   const db = openDb();
   const env = { LAUNCH_TOKEN: token, CODE_DIR: dir ? dirname(dir) : "", CLAUDE_DIR: "", GHE_HOST: "github.com", GHE_ORG: "", DB: db.DB } as Env;
   const { values: settings, from } = settingsOf(pack, { flags: flagsOf(pack, sets), env: process.env, instance: instanceVars() });
@@ -164,6 +182,7 @@ async function main(args: string[]) {
     bino: { route: routeOf({ via: "off" }), memory: noMemory("off in a pack session") },
     packs: { ...packs, env: settings },
     session: { pack: id, checkout: dir ? basename(dir) : "" },
+    mcpTurns: sessionTurn(mcpToken, { id: `session-${id}`, repo: dir ? basename(dir) : id, cwd: dir ?? process.cwd() }),
   });
   const start = waiting ? `/settings/packs/${encodeURIComponent(id)}` : firstPage(pack);
   // / goes to the pack (createApp's session gate answers 404 for every other core page).
@@ -171,7 +190,9 @@ async function main(args: string[]) {
 
   const server = serve({ fetch, hostname: "127.0.0.1", port: 0 }, (info) => {
     const url = `http://127.0.0.1:${info.port}/login?tk=${token}&next=${encodeURIComponent(start)}`;
-    console.log(`${pack.manifest.name}${dir ? ` on ${basename(dir)}` : ""}: ${url}${waiting ? `\n${packs.off[0]!.why}: set it on the page that opens.` : ""}\nCtrl+C ends the session; nothing is kept.`);
+    console.log(`${pack.manifest.name}${dir ? ` on ${basename(dir)}` : ""}: ${url}${waiting ? `\n${packs.off[0]!.why}: set it on the page that opens.` : ""}`);
+    if (pack.tools) console.log(`Its tools for Claude Code, while this session runs:\n  ${mcpAddLine(id, info.port, mcpToken)}\n  (claude mcp remove dovre-${id} once it's over)`);
+    console.log("Ctrl+C ends the session; nothing is kept.");
     if (process.env.DOVRE_NO_OPEN !== "1") systemOpener()(url);
   });
   const end = () => {

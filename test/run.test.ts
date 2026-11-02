@@ -7,7 +7,7 @@ import { html } from "hono/html";
 import { checkoutIn, checkoutsIn } from "../src/packs/checkouts.ts";
 import { sessionPath } from "../src/app.ts";
 import { assertInert, HOSTILE, packApp } from "../src/packs/testing.ts";
-import { argsOf, firstPage, flagsOf, packIn, settingsOf } from "../src/run.ts";
+import { argsOf, firstPage, flagsOf, mcpAddLine, packIn, sessionTurn, settingsOf } from "../src/run.ts";
 import type { Pack } from "../src/packs/types.ts";
 
 const pack = { manifest: { id: "http", name: "HTTP", settings: [{ key: "HTTP_ENVS", label: "x" }] }, nav: () => [{ href: "/http/quick", title: "HTTP" }] } as unknown as Pack;
@@ -145,4 +145,41 @@ test("a session's packs see only its checkout through ctx", async (t) => {
   } as Pack;
   assert.equal(await (await packApp([lister], { codeDir: dir, session: { pack: "tool", checkout: "a" } }).get("/tool")).text(), "a|none");
   assert.equal(await (await packApp([lister], { codeDir: dir }).get("/tool")).text(), `a,b|${join(dir, "b")}`);
+});
+
+const TOKEN = "t".repeat(32);
+const withTools = {
+  ...tool("Tool"),
+  tools: () => [{ name: "echo", description: "says it back", input: { type: "object" }, run: async (a: Record<string, unknown>, _ctx: unknown, call: { repo: string }) => ({ text: `${String(a.x)} in ${call.repo}` }) }],
+} as unknown as Pack;
+const rpc = (app: { request: (u: string, i: RequestInit) => Response | Promise<Response> }, body: unknown, headers: Record<string, string> = {}) =>
+  app.request("http://127.0.0.1/mcp", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}`, ...headers }, body: JSON.stringify(body) });
+
+test("sessionTurn: only the session's own token", () => {
+  const turn = { id: "session-tool", repo: "a", cwd: "/c/a" };
+  const of = sessionTurn(TOKEN, turn);
+  assert.equal(of(TOKEN), turn);
+  for (const bad of ["", "t".repeat(31), "t".repeat(33), "u".repeat(32), "test-token"]) assert.equal(of(bad), undefined, bad);
+});
+
+test("a session's tools answer on /mcp with its own token, never the launch token or a browser", async () => {
+  const { app, get } = packApp([withTools], { session: { pack: "tool", checkout: "a" }, mcpTurns: sessionTurn(TOKEN, { id: "session-tool", repo: "a", cwd: "/c/a" }) });
+  const list = await (await rpc(app, { jsonrpc: "2.0", id: 1, method: "tools/list" })).json();
+  assert.deepEqual(list.result.tools.map((t: { name: string }) => t.name), ["tool_echo"]);
+  const call = await (await rpc(app, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tool_echo", arguments: { x: "hi" } } })).json();
+  assert.equal(call.result.content[0].text, "hi in a");
+  assert.equal((await rpc(app, { jsonrpc: "2.0", id: 3, method: "tools/list" }, { authorization: "Bearer test-token" })).status, 401);
+  assert.equal((await rpc(app, { jsonrpc: "2.0", id: 3, method: "tools/list" }, { authorization: `Bearer ${"x".repeat(32)}` })).status, 401);
+  assert.equal((await rpc(app, { jsonrpc: "2.0", id: 3, method: "tools/list" }, { origin: "https://evil.example" })).status, 403);
+  // The page doors are unchanged: still no cockpit.
+  assert.equal((await get("/settings")).status, 404);
+});
+
+test("without a session token, /mcp isn't there in a session", async () => {
+  const { app } = packApp([withTools], { session: { pack: "tool" } });
+  assert.equal((await rpc(app, { jsonrpc: "2.0", id: 1, method: "tools/list" })).status, 404);
+});
+
+test("mcpAddLine names the pack, the session's port and its token", () => {
+  assert.equal(mcpAddLine("http", 5123, TOKEN), `claude mcp add --transport http dovre-http http://127.0.0.1:5123/mcp --header "Authorization: Bearer ${TOKEN}"`);
 });
