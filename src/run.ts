@@ -5,7 +5,8 @@
  * memory, and it's all gone when the process ends.
  *
  * The same doors as local mode: the launch-token cookie on a localhost Host header, and the exact
- * Origin on every write (createApp's own checks). A checkout given is the one repo the pack sees,
+ * Origin on every write (createApp's own checks). createApp's `session` keeps the cockpit out: only
+ * the pack's paths, sign-in, assets and the event stream answer, and the menu holds the pack's entries. A checkout given is the one repo the pack sees,
  * as a checkout directly under CODE_DIR.
  */
 import { randomBytes } from "node:crypto";
@@ -95,9 +96,10 @@ async function main(args: string[]) {
     hub: createHub(),
     bino: { route: routeOf({ via: "off" }), memory: noMemory("off in a pack session") },
     packs: { ...packs, env: settings },
+    session: { pack: id },
   });
   const start = firstPage(pack);
-  // The cockpit's own pages aren't part of a session: / goes to the pack.
+  // / goes to the pack (createApp's session gate answers 404 for every other core page).
   const fetch = (req: Request) => (new URL(req.url).pathname === "/" ? Response.redirect(new URL(start, req.url), 302) : app.fetch(req));
 
   const server = serve({ fetch, hostname: "127.0.0.1", port: 0 }, (info) => {
