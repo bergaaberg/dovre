@@ -72,6 +72,7 @@ import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards } from "./packs/registry.ts";
+import { createReleases } from "./packs/releases.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies } from "./packs/copies.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
@@ -644,6 +645,21 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const startsOff = new Set(packRings.filter((r) => r.off).map((r) => r.kind));
   const packNeeds = () => needsFrom(shown(), ctxOf, packRings, (id, line) => packLog(id)(line));
   const refreshes = refreshLog(() => deps.hub?.publish(["packs"]));
+  // Hosted (#362): newer releases of the packs bundled here, from dovre-packs' tags on GitHub.
+  // github.com goes through the forge's token; a forge on another host reads anonymously (dovre-packs is public).
+  const releases = hosted
+    ? createReleases({
+        get: /^(api\.)?github\.com$/i.test(ghe.host.trim())
+          ? (path) => ghe.rest(path)
+          : async (path) => {
+              const r = await fetch(`https://api.github.com${path}`, { headers: { accept: "application/vnd.github+json", "user-agent": "dovre" } });
+              if (!r.ok) throw new Error(`GitHub ${r.status} for ${path.split("?")[0]}`);
+              return r.json();
+            },
+        packs: () => [...packs.on.map((p) => ({ id: p.manifest.id, version: p.manifest.version })), ...packs.off.map((o) => ({ id: o.id, version: o.manifest?.version }))].filter((p) => !packs.core?.includes(p.id)),
+        onChange: () => deps.hub?.publish(["packs"]),
+      })
+    : undefined;
   const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), { record: refreshes, skip: hidden });
   /** How things are across the shown packs (`pulse`); a pack reading it from its own `pulse` gets nothing back. */
   let pulsing = false;
@@ -1226,7 +1242,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.get("/packs", async (c) => {
     const { frame } = await page();
     const copies = hosted ? undefined : deps.packs?.copies?.get();
-    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held() }));
+    const reading = releases?.refresh();
+    if (reading)
+      try {
+        c.executionCtx.waitUntil(reading);
+      } catch {}
+    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held() }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
   app.post("/packs/:id/switch", strictOrigin, async (c) => {
