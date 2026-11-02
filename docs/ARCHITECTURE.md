@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = 1)
+   src/packs/types.ts     the contract (PACK_API = "1.5")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -47,7 +47,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 2. **Loaded.** `loadPacks` imports each `PACKS` folder. One that fails to import shows as off
    with the error; the rest still load.
 3. **Sorted** (`activePacks`). The first failed check keeps a pack off, shown on the Packs page:
-   lowercase unique id; built for this `PACK_API`; `PACK_<ID>` isn't `off`; `execution` fits;
+   lowercase unique id; its `api` fits this `PACK_API` (same major, minor no newer); `PACK_<ID>` isn't `off`; `execution` fits;
    `requiredBindings` (hosted) or `requiredBinaries` (local) exist; required settings are set.
    Then `requires` (#326): a pack is off while any pack it requires is off or missing, and
    comes back with it. `on` is ordered so each pack starts and refreshes after what it requires.
@@ -196,10 +196,10 @@ Also:
   would be left out, `assertFragment(name, html)` on markup core would refuse.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).
   `pnpm packs new <id> --into <instance>` scaffolds it.
-- A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, `PACK_API`,
-  file hashes). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare it with
+- A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, the `PACK_API`
+  it needs, file hashes). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare it with
   the local dovre-packs checkout. `update` takes upstream for untouched files, `git merge-file`s
-  the rest, writes nothing on a conflict, and refuses a newer `PACK_API` or a source outside
+  the rest, writes nothing on a conflict, and refuses a `PACK_API` this core lacks or a source outside
   `REPO_OWNERS`. Locally the Packs page has an **Update** (`packs.update`, always asks twice)
   that runs the instance's typecheck and tests and rolls back on failure. New code loads on restart.
 
@@ -222,9 +222,22 @@ Also:
   3. Call it from app.ts or the entry point, for `shown()` packs only.
   4. Add its label to `hooksOf` and document it in types.ts.
   5. Test it in test/packs.test.ts: hostile answer, throwing pack, hidden pack.
-- **Changing the contract:** a new optional hook or slot is additive. Removing or changing a
-  hook, a field's meaning or a slot's `arg` is breaking: bump `PACK_API`, and older packs show as
-  off until updated. Every change so far has been additive.
+- **Changing the contract:** `PACK_API` is `"major.minor"` (#360, `src/packs/api.ts`). A new
+  optional hook, slot, field or markup contract is additive: bump the minor and add a row below. A
+  pack's manifest names the oldest API it works with (`api: "1.4"`; a plain `1` reads as `1.0`),
+  so on an older core it shows as off ("needs core API 1.4, this is 1.3") instead of quietly doing
+  nothing, and `packs update` refuses it. Removing or changing a hook, a field's meaning or a
+  slot's `arg` is breaking: bump the major, and older packs show as off until updated. A pack
+  written `api: PACK_API` claims whatever core it links, so only a literal protects it.
+
+  | API | Added |
+  | --- | --- |
+  | 1.0 | Everything through pack containment (#347, 2026-11-01) |
+  | 1.1 | `Pack.files`: big scripts and stylesheets served outside the bundle (#354) |
+  | 1.2 | The `pr.file` slot; `forge.file` at a commit (#355) |
+  | 1.3 | A `Pack.files` script can carry WebAssembly (`wasm: true`) (#356) |
+  | 1.4 | Closed fences in core Markdown name their language (`data-lang`); pack scripts get `dovreFiles` (#357) |
+  | 1.5 | Math in core Markdown is marked for a pack to draw (`code[data-tex]`, `pre.code[data-lang=math]`) (#358) |
 
 ## Open questions
 

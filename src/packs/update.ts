@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { owns } from "../owners.ts";
+import { apiCompare, apiGap, apiText, parseApi } from "./api.ts";
 import { PACK_API } from "./types.ts";
 
 export const META = ".pack.json";
@@ -30,8 +31,8 @@ export type PackMeta = {
   commit: string | null;
   /** dovre-packs' package.json version. */
   version: string | null;
-  /** The PACK_API the pack was written for. */
-  api: number;
+  /** The oldest PACK_API the pack works with, "major.minor" (older copies say 1, meaning 1.0). */
+  api: string | number;
   /** SHA-256 per file as copied, by path inside the pack. */
   files: Record<string, string>;
 };
@@ -94,13 +95,21 @@ export function instancePath(into: string, id: string): string {
   return join(into, crates ? "crates" : "packs", id);
 }
 
-/** The PACK_API a pack needs: a literal `api: 2` in its index.ts, else the core its checkout links. */
-export function apiOf(repo: string, packDir: string): number {
-  const own = readFileSync(join(packDir, "index.ts"), "utf8").match(/\bapi:\s*(\d+)/);
-  if (own) return Number(own[1]);
+/** A literal `api: "1.6"` (or `api: 1`) in a pack's index.ts, as "major.minor". */
+function literalApi(index: string): string | null {
+  const m = index.match(/\bapi:\s*(?:"(\d+(?:\.\d+)?)"|'(\d+(?:\.\d+)?)'|(\d+)\b)/);
+  const v = m && parseApi(m[1] ?? m[2] ?? Number(m[3]));
+  return v ? apiText(v) : null;
+}
+
+/** The PACK_API a pack needs: a literal `api: "1.6"` in its index.ts, else the core its checkout links. */
+export function apiOf(repo: string, packDir: string): string {
+  const own = literalApi(readFileSync(join(packDir, "index.ts"), "utf8"));
+  if (own) return own;
   const linked = join(repo, "node_modules", "dovre", "src", "packs", "types.ts");
-  const m = existsSync(linked) ? readFileSync(linked, "utf8").match(/PACK_API\s*=\s*(\d+)/) : null;
-  return m ? Number(m[1]) : PACK_API;
+  const m = existsSync(linked) ? readFileSync(linked, "utf8").match(/PACK_API\s*=\s*"?(\d+(?:\.\d+)?)"?/) : null;
+  const v = m && parseApi(m[1].includes(".") ? m[1] : Number(m[1]));
+  return v ? apiText(v) : PACK_API;
 }
 
 function versionOf(repo: string): string | null {
@@ -228,7 +237,9 @@ export function updatePack(o: { id: string; into: string; repo: string; env?: Re
   if (git(o.repo, ["status", "--porcelain", "--", at])?.trim()) throw new Error(`${o.repo} has uncommitted changes in ${at}: commit or stash them first`);
   const upDir = join(o.repo, at);
   const api = apiOf(o.repo, upDir);
-  if (api > PACK_API) throw new Error(`${o.id} upstream needs PACK_API ${api}; this core has ${PACK_API}. Update Dovre first.`);
+  if (apiCompare(api, PACK_API) > 0) throw new Error(`${o.id} upstream needs PACK_API ${api}; this core has ${PACK_API}. Update Dovre first.`);
+  const gap = apiGap(api);
+  if (gap) throw new Error(`${o.id} upstream: ${gap}`);
 
   const local = hashes(dir);
   const up = hashes(upDir);
@@ -318,8 +329,7 @@ export function trackPack(o: { id: string; into: string; repo: string; at?: stri
     if (body) files[f] = sha(body);
   }
   const index = gitShow(o.repo, commit, `${at}/index.ts`)?.toString("utf8") ?? "";
-  const literal = index.match(/\bapi:\s*(\d+)/);
-  const meta: PackMeta = { source: sourceOf(o.repo), commit, version: versionOf(o.repo), api: literal ? Number(literal[1]) : PACK_API, files };
+  const meta: PackMeta = { source: sourceOf(o.repo), commit, version: versionOf(o.repo), api: literalApi(index) ?? PACK_API, files };
   writeMeta(dir, meta);
   return meta;
 }

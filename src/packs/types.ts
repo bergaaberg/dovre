@@ -17,8 +17,12 @@ import type { EveryRepo } from "../sources/files.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Answer } from "../relay/asks.ts";
 
-/** The contract's version: a pack built for another is off, saying so. Bump on a breaking change. */
-export const PACK_API = 1;
+/**
+ * The contract's version, "major.minor" (#360): a breaking change bumps major (older packs are off
+ * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
+ * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
+ */
+export const PACK_API = "1.5";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -32,8 +36,8 @@ export type ExecutionAffinity = "any" | "local-only" | "hosted-only";
 export type PackSetting = { key: string; label: string; secret?: boolean; required?: boolean; help?: string };
 
 export type PackManifest = {
-  /** The PACK_API it was written for. */
-  api: number;
+  /** The oldest PACK_API it works with, "major.minor" ("1.5"); a plain 1 means "1.0". */
+  api: string | number;
   /** Unique id: lowercase, used for its routes' prefix check, its styles' path and PACK_<ID>=off. */
   id: string;
   name: string;
