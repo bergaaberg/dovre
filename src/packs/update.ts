@@ -22,10 +22,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { owns } from "../owners.ts";
 import { apiCompare, apiGap, apiText, parseApi } from "./api.ts";
+import { HOME_SOURCE, literalApi, literalVersion, newer, notesOf, semver } from "./releases.ts";
 import { PACK_API } from "./types.ts";
 
+export { notesOf };
+
 export const META = ".pack.json";
-const HOME_SOURCE = "bergaaberg/dovre-packs";
 
 export type PackMeta = {
   /** `owner/repo` on GitHub, from the checkout's origin; null when it has none. */
@@ -100,13 +102,6 @@ export function instancePath(into: string, id: string): string {
   return join(into, crates ? "crates" : "packs", id);
 }
 
-/** A literal `api: "1.6"` (or `api: 1`) in a pack's index.ts, as "major.minor". */
-function literalApi(index: string): string | null {
-  const m = index.match(/\bapi:\s*(?:"(\d+(?:\.\d+)?)"|'(\d+(?:\.\d+)?)'|(\d+)\b)/);
-  const v = m && parseApi(m[1] ?? m[2] ?? Number(m[3]));
-  return v ? apiText(v) : null;
-}
-
 /** The PACK_API a pack needs: a literal `api: "1.6"` in its index.ts, else the core its checkout links. */
 export function apiOf(repo: string, packDir: string): string {
   const own = literalApi(readFileSync(join(packDir, "index.ts"), "utf8"));
@@ -117,18 +112,8 @@ export function apiOf(repo: string, packDir: string): string {
   return v ? apiText(v) : PACK_API;
 }
 
-/** A literal `version: "1.2.0"` in a pack's index.ts. */
-const literalVersion = (index: string) => index.match(/\bversion:\s*["'](\d+\.\d+\.\d+)["']/)?.[1] ?? null;
-
 const sourceOf = (repo: string) => sourceOfUrl(git(repo, ["remote", "get-url", "origin"]) ?? "");
 const headOf = (repo: string) => git(repo, ["rev-parse", "HEAD"])?.trim() || null;
-
-type Semver = [number, number, number];
-const semver = (v: string | null | undefined): Semver | null => {
-  const m = v?.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-};
-const newer = (a: Semver, b: Semver) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 /** Pack `<id>`'s releases in the checkout, tags `<id>@x.y.z`, newest first. */
 export function releasesOf(repo: string, id: string): { tag: string; version: string }[] {
@@ -194,19 +179,6 @@ const hashOf = (files: Map<string, Buffer>): Record<string, string> => Object.fr
 
 /** The API a pack at a commit needs: its literal, else the core the checkout links. */
 const apiAt = (repo: string, files: Map<string, Buffer>, at: string) => literalApi(files.get("index.ts")?.toString("utf8") ?? "") ?? apiOf(repo, join(repo, at));
-
-/** A changelog's releases newer than `since` (all of them when null), newest first, each with its lines. */
-export function notesOf(changelog: string, since: string | null): { version: string; lines: string[] }[] {
-  const from = semver(since);
-  const out: { version: string; lines: string[] }[] = [];
-  for (const part of changelog.split(/^## /m).slice(1)) {
-    const version = part.match(/^(\d+\.\d+\.\d+)\b/)?.[1];
-    const v = semver(version);
-    if (!v || (from && newer(v, from) <= 0)) continue;
-    out.push({ version: version!, lines: part.split("\n").slice(1).map((l) => l.trim().replace(/^[-*]\s+/, "")).filter(Boolean).slice(0, 20) });
-  }
-  return out.slice(0, 10);
-}
 
 /** The `.pack.json` for pack `<id>` at its newest release (or `to`), and the files to copy. */
 export function provenance(repo: string, id: string, to?: string): { meta: PackMeta; files: Map<string, Buffer> } {

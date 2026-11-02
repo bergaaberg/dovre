@@ -6,6 +6,7 @@ import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
 import type { Copy } from "../packs/copies.ts";
+import type { Available } from "../packs/releases.ts";
 import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
@@ -14,7 +15,7 @@ import { apiText, parseApi } from "../packs/api.ts";
 /** A pack's own version, as dovre-packs releases it (x.y.z). */
 const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 
-export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string> };
+export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string } };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -82,6 +83,14 @@ function copyJob(c: Copy, v: PacksView) {
   return html`${notes}${job}${button}`;
 }
 
+/** Hosted: a newer release of a bundled pack, and whether this core can run it. */
+const releaseLine = (a: Available) =>
+  html`${Pill({ tone: "accent", children: `${a.version} available` })}${a.needsCore ? html` <span class="t2">needs core API ${a.api}: update Dovre first</span>` : ""}`;
+
+/** What it changed, and how to take it: in the instance repo, then a deploy (the Worker can't rewrite itself). */
+const releaseNotes = (id: string, a: Available) =>
+  html`${a.notes.length ? html`<details><summary class="t2">What changed in ${a.version}</summary>${List(a.notes.flatMap((n) => n.lines.map((l) => Item({ title: l, trail: n.version }))))}</details>` : ""}<p class="t3">Take it in the instance repo with <code>pnpm packs update ${id}</code>, then deploy.</p>`;
+
 /** A setting: its label and key, set or missing; a non-secret one's value beside it. */
 function settingItem(s: PackSetting, env: PacksView["env"]) {
   const v = env[s.key]?.trim();
@@ -144,12 +153,14 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (requires.length) pairs.push(["Requires", requires.map((r) => v.on.find((c) => c.manifest.id === r)?.manifest.name ?? v.off.find((x) => x.id === r)?.name ?? r).join(", ")]);
   const copy = v.copies?.get(id);
   if (copy) pairs.push(["Copy", copyLine(copy)]);
+  const out = v.releases?.available.get(id);
+  if (out) pairs.push(["Release", releaseLine(out)]);
   return Panel({
     id: `pack-${id}`,
     title: name,
     meta: id,
     actions: html`${on ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" })}${o.pack && !heldBy ? Post({ action: `/packs/${encodeURIComponent(id)}/switch`, fields: { on: on ? "" : "1" }, label: on ? "Turn off" : "Turn on" }) : ""}`,
-    children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
+    children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${out ? releaseNotes(id, out) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
   });
 }
 
@@ -161,6 +172,7 @@ export function packsPage(frame: Frame, v: PacksView) {
   const hidden = v.on.filter((c) => v.hidden?.includes(c.manifest.id) || v.held?.has(c.manifest.id)).length;
   const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length - hidden} on, ${v.off.length + hidden} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
 <div data-live id="packs">
+${v.hosted && v.releases ? html`<p class="t3">${v.releases.error ? html`Couldn't read dovre-packs' releases: ${v.releases.error}` : html`Checked dovre-packs for newer releases ${Ago(v.releases.at)}${v.releases.available.size ? "" : ": none"}.`}</p>` : ""}
 ${v.on.length || v.off.length
   ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these.</p>${panels(v, true)}` : ""}`
   : Panel({ children: Empty({ title: "No packs here", children: html`<p class="t2">${v.hosted ? "This Worker bundles none." : "PACKS lists none on this machine."}</p>` }) })}

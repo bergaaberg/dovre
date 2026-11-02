@@ -160,7 +160,8 @@ if (import.meta.main) {
   }
   if (rest[0] === "outdated" || rest[0] === "update" || rest[0] === "track") {
     try {
-      const repo = resolvePacksRepo(from, undefined, false);
+      // A checkout of yours: its tags are fetched, its branch left alone. None: the CLI's own clone, made or synced.
+      const repo = resolvePacksRepo(from);
       if (rest[0] !== "track") fetchTags(repo);
       const states = outdated(into, repo);
       if (rest[0] === "outdated") {

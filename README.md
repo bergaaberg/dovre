@@ -59,7 +59,7 @@ pnpm packs outdated --into ../my-dovre        # each copy's version, the newest 
 pnpm packs update cf-health --into ../my-dovre # to the newest release; merges your edits
 ```
 
-Each pack in dovre-packs has its own version and changelog, released as a tag `<id>@x.y.z`.
+Each pack in dovre-packs has its own version and changelog, released as a tag `<id>@x.y.z`. No checkout of dovre-packs? The CLI keeps its own clone in `~/.cache/dovre/dovre-packs`. Hosted, the Packs page says when a newer release is out and what changed; take it with `pnpm packs update` in the instance repo, then deploy.
 
 A pack can also replace GitHub as the forge (`FORGE=<its id>`). How packs work: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

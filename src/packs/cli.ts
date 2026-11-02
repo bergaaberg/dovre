@@ -5,6 +5,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { META, provenance, writeMeta } from "./update.ts";
 
@@ -51,28 +52,45 @@ export function wirePackIntoFile(sourceText: string, relImport: string, exportNa
   return next;
 }
 
-/** Resolves the local `dovre-packs` checkout directory, cloning from GitHub if needed and allowed. */
-export function resolvePacksRepo(from?: string, coreDir = resolve(import.meta.dirname, "..", ".."), allowClone = true): string {
+/** Where the CLI keeps its own clone of dovre-packs when there's no checkout (#362). */
+export function packsCache(env: Record<string, string | undefined> = process.env): string {
+  if (env.DOVRE_PACKS_CACHE) return resolve(env.DOVRE_PACKS_CACHE);
+  return join(env.XDG_CACHE_HOME || join(env.HOME ?? homedir(), ".cache"), "dovre", "dovre-packs");
+}
+
+const isPacksRepo = (dir: string) => existsSync(join(dir, "packs")) || existsSync(join(dir, "crates"));
+
+/**
+ * The `dovre-packs` checkout: `from`, DOVRE_PACKS_DIR, one beside dovre, else the CLI's own clone
+ * in the cache (#362). With `allowClone`, that clone is made when missing (blob-less: every commit
+ * and tag, files fetched as needed, so releases and 3-way merges work) and brought up to date with
+ * GitHub when there; it's the CLI's alone, so it simply follows origin.
+ */
+export function resolvePacksRepo(from?: string, coreDir = resolve(import.meta.dirname, "..", ".."), allowClone = true, cache = packsCache()): string {
   const candidates = [
     from ? resolve(from) : undefined,
     process.env.DOVRE_PACKS_DIR ? resolve(process.env.DOVRE_PACKS_DIR) : undefined,
     resolve(coreDir, "..", "dovre-packs"),
   ].filter((x): x is string => !!x);
 
-  for (const dir of candidates) {
-    if (existsSync(join(dir, "packs")) || existsSync(join(dir, "crates"))) return dir;
+  for (const dir of candidates) if (isPacksRepo(dir)) return dir;
+  if (isPacksRepo(cache)) {
+    if (allowClone) {
+      const sync = spawnSync("git", ["-C", cache, "fetch", "--tags", "--force", "--quiet", "origin"], { timeout: 60_000, stdio: "ignore" });
+      if (sync.status === 0) spawnSync("git", ["-C", cache, "reset", "--hard", "--quiet", "origin/HEAD"], { stdio: "ignore" });
+    }
+    return cache;
   }
 
   if (allowClone) {
-    const target = from ? resolve(from) : resolve(coreDir, "..", "dovre-packs");
+    const target = from ? resolve(from) : cache;
     const repoUrl = process.env.DOVRE_PACKS_REPO || "https://github.com/bergaaberg/dovre-packs.git";
-    const r = spawnSync("git", ["clone", "--depth", "1", repoUrl, target], { encoding: "utf8" });
-    if (r.status === 0 && (existsSync(join(target, "packs")) || existsSync(join(target, "crates")))) {
-      return target;
-    }
+    mkdirSync(dirname(target), { recursive: true });
+    const r = spawnSync("git", ["clone", "--filter=blob:none", "--quiet", repoUrl, target], { encoding: "utf8" });
+    if (r.status === 0 && isPacksRepo(target)) return target;
   }
   throw new Error(
-    `Could not find dovre-packs repository (looked in ${candidates.join(", ")}). Clone https://github.com/bergaaberg/dovre-packs beside dovre or pass --from <path>.`,
+    `Could not find dovre-packs (looked in ${[...candidates, cache].join(", ")}). Clone https://github.com/bergaaberg/dovre-packs beside dovre or pass --from <path>.`,
   );
 }
 

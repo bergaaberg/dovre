@@ -209,6 +209,14 @@ Also:
   Packs page shows each copy's version, the newest release and what changed, with **Update to
   x.y.z** (`packs.update`, always asks twice), which runs the instance's typecheck and tests and
   rolls back on failure. New code loads on restart.
+- Without a dovre-packs checkout (`--from`, `DOVRE_PACKS_DIR`, or one beside dovre), the CLI keeps
+  its own blob-less clone in `~/.cache/dovre/dovre-packs` (`DOVRE_PACKS_CACHE`), made on first use
+  and synced to origin on each `add` / `outdated` / `update`, so every tag and merge base is there.
+- Hosted (`src/packs/releases.ts`), the Packs page reads dovre-packs' tags through the GitHub API
+  at most once an hour (in the background, the page shows the kept answer): a bundled pack behind
+  its newest release shows **x.y.z available**, whether this core can run it, and what changed.
+  Taking it stays in the instance repo (`pnpm packs update <id>`, then deploy); a Worker can't
+  rewrite itself.
 
 ## Extending
 
