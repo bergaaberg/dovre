@@ -23,6 +23,16 @@ test("markdown: the usual shapes render, comments vanish", async () => {
   assert.match(out, /code &lt;b&gt;/);
 });
 
+test("markdown: a closed fence names its language for a pack's script; an open one doesn't yet", async () => {
+  const out = await render(markdown("```Mermaid\ngraph LR; A --> B\n```\n\n~~~\nplain\n~~~\n\n```dot\ndigraph { a"));
+  assert.match(out, /<pre class="code" data-lang="mermaid">graph LR; A --&gt; B<\/pre>/);
+  assert.match(out, /<pre class="code">plain<\/pre>/);
+  assert.match(out, /<pre class="code">digraph \{ a<\/pre>/, "still being written: no language yet");
+  const odd = await render(markdown('```x"><script>\nhi\n```'));
+  assert.match(odd, /data-lang="x"/, "only the word before anything odd");
+  assertInert("markdown fence", odd);
+});
+
 test("markdown: hostile input stays text, and only http(s) links survive", async () => {
   const out = await render(markdown(`${H}\n\n[click](javascript:alert(1)) **${H}** \`${H}\`\n\n- ${H}\n\n> ${H}\n\n| ${H} |\n|---|\n| ${H} |`));
   assertInert("markdown", out);

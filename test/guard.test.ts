@@ -74,7 +74,8 @@ body { display: none }
 });
 
 test("scriptOf: a pack's script in a try of its own", () => {
-  assert.equal(scriptOf("pk", "boom();"), `// pk\ntry {\nboom();\n} catch (e) { console.error("pack pk:", e); }\n`);
+  assert.equal(scriptOf("pk", "boom();"), `// pk\ntry {\nconst dovreFiles = Object.freeze({});\nboom();\n} catch (e) { console.error("pack pk:", e); }\n`);
+  assert.match(scriptOf("pk", "", { "lib.js": "/assets/files/pk.lib.0123456789abcdef.js" }), /const dovreFiles = Object\.freeze\(\{"lib\.js":"\/assets\/files\/pk\.lib\.0123456789abcdef\.js"\}\);/, "its files' paths, which it reads wherever it runs");
 });
 
 test("pack pages: one that throws or hangs is that pack's broken page in the shell; the rest of Dovre still answers", async () => {

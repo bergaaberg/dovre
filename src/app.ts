@@ -568,7 +568,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const PACK_JS = packs.on
     .filter((c) => c.script && quiet(c))
     .map((c) => {
-      const body = scriptOf(c.manifest.id, c.script!);
+      const body = scriptOf(c.manifest.id, c.script!, Object.fromEntries(filePaths.get(c.manifest.id) ?? []));
       return { path: `/assets/pack.${c.manifest.id}.${hashOf(body)}.js`, body };
     });
   const packScripts = PACK_JS.length ? PACK_JS.map((j) => j.path) : undefined;
