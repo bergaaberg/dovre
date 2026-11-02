@@ -154,7 +154,7 @@ test("the page shows the answer as it's written, inert, without Bino's blocks", 
   await until(w.wrote);
   for (const path of [at, `/bino/dock/c/${at.split("/").pop()}`]) {
     const page = await (await req(path)).text();
-    assert.match(page, /<li class="bino-msg bino writing" id="bino-draft" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…<\/span>/, path);
+    assert.match(page, /<li class="bino-msg bino writing" id="bino-draft" data-stop="2"><div class="bino-text">/, path);
     assert.match(page, /<form method="post" action="\/bino\/c\/[0-9a-f-]{36}\/stop" class="bino-thinking writing" id="bino-status"/, "the dots go once it writes");
     assert.doesNotMatch(page, /SECRET-PLAN|bino-plan/);
     assertInert(path, page);

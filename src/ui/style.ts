@@ -1077,23 +1077,26 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 
 /* ── Bino, the assistant: a conversation, a plan card, what it remembers ── */
 .bino-msgs { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
-.bino-msg { padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); max-width: min(52rem, 88%); justify-self: start; }
-.bino-msg.you { background: var(--surface-2); justify-self: end; border-bottom-right-radius: 4px; }
-.bino-msg.bino { border-color: var(--accent-line); border-bottom-left-radius: 4px; }
-/* The same speaker again: closer, and the name said once. */
-.bino-msg.cont { margin-top: -10px; }
+/* What I said is a tinted bubble on the right; Bino's answer is prose across the column, unboxed. */
+.bino-msg { max-width: min(52rem, 100%); justify-self: start; }
+.bino-msg.you { padding: 10px 16px; max-width: min(40rem, 82%); justify-self: end; background: var(--accent-soft); border-radius: 18px 18px 4px 18px; }
+.bino-msg.bino { width: 100%; padding: 2px 0; }
+/* The same speaker again: closer. */
+.bino-msg.cont { margin-top: -8px; }
 .bino-msg.pending { opacity: .6; }
 .bino-msg.writing .bino-text > :last-child::after { content: ""; display: inline-block; width: .45em; height: 1em; background: var(--accent); margin-left: 2px; vertical-align: -.14em; animation: blink 1.05s steps(1) infinite; }
-.bino-who { margin: 0 0 4px; font: 600 var(--fs-s)/1.4 var(--sans); color: var(--ink-2); }
-.bino-who .t3 { font-weight: 400; font-size: var(--fs-xs); }
 .bino-gap { justify-self: center; font-size: var(--fs-xs); color: var(--ink-3); }
+.bino-msg .bino-text ul.md-list { padding-left: 1.6em; } .bino-msg .bino-text ol.md-list { padding-left: 2.4em; }
 .bino-text > :first-child { margin-top: 0; } .bino-text > :last-child { margin-bottom: 0; }
-.bino-msg-f { display: flex; gap: 4px; margin: 6px -8px -6px; opacity: 0; transition: opacity .12s; }
-.bino-msg:hover .bino-msg-f, .bino-msg:focus-within .bino-msg-f, .bino-msgs > .bino-msg:last-child .bino-msg-f { opacity: 1; }
-.bino-msg-f form { display: contents; }
-.bino-msg-f button { padding: 2px 8px; font-size: var(--fs-xs); color: var(--ink-3); }
-.bino-msg-f button:hover { color: var(--ink); }
-@media (hover: none) { .bino-msg-f { opacity: 1; } }
+/* Under an answer, quiet: when, what it cost and looked up; Copy and Retry show on hover (and under the last). */
+.bino-msg-f { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 8px 0 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.bino-meta { overflow-wrap: anywhere; }
+.bino-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.bino-msg:hover .bino-tools, .bino-msg:focus-within .bino-tools, .bino-msgs > .bino-msg:last-child .bino-tools { opacity: 1; }
+.bino-tools form { display: contents; }
+.bino-tools button { padding: 1px 6px; border: 0; background: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.bino-tools button:hover { color: var(--ink); background: var(--surface-2); }
+@media (hover: none) { .bino-tools { opacity: 1; } }
 .bino-thinking { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--ink-3); }
 .bino-thinking.writing { margin-top: 6px; font-size: var(--fs-s); }
 .bino-after { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
@@ -1217,6 +1220,8 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 .bino-compose-f .hint { color: var(--ink-3); font-size: var(--fs-xs); margin-right: auto; }
 .bino-compose.dock-compose { display: block; padding: 0; border-width: 1px 0 0; border-radius: 0; box-shadow: none; }
 .dock-b > .bino-compose.dock-compose { margin: 10px 0 0; border-width: 1px; border-radius: var(--r); }
+.dock-compose .bino-compose-f .hint { display: none; }
+.dock-b .bino-chips { margin: 0 0 6px; }
 .bino-compose.dock-compose textarea { min-height: 2.4em; max-height: 40vh; padding: 10px 12px 4px; font-size: var(--fs-s); }
 .dock-recent { position: relative; }
 .dock-recent > summary { list-style: none; cursor: pointer; }
