@@ -106,12 +106,13 @@ const clockOf = (at: number) => new Date(at).toISOString().slice(0, 16).replace(
 
 function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx, prev?: Msg): Html {
   const grouped = prev?.role === m.role && m.at - prev.at < GROUP;
-  if (m.role === "user") return html`<li class="bino-msg you${grouped ? " cont" : ""}" data-stop="1" data-stop-label="${m.text.slice(0, 120)}">${grouped ? "" : html`<p class="bino-who">You <span class="t3">${Ago(m.at)}</span></p>`}<div class="bino-text">${markdown(m.text)}</div></li>`;
+  if (m.role === "user") return html`<li class="bino-msg you${grouped ? " cont" : ""}" data-stop="1" data-stop-label="${m.text.slice(0, 120)}" title="${clockOf(m.at)} UTC"><div class="bino-text">${markdown(m.text)}</div></li>`;
   const last = i === c.msgs.length - 1;
   // Asking again for an answer whose plan was added, or whose act went out, would leave those behind.
   const redo = last && !c.thinking && m.added === undefined && !(m.acts ?? []).some((a) => a.done || a.sending);
-  const tools = html`<div class="bino-msg-f"><button type="button" class="ghost" data-copy-msg title="Copy this answer">Copy</button>${redo ? html`<form method="post" action="/bino/c/${c.id}/retry" data-inplace>${ax?.dock ? html`<input type="hidden" name="dock" value="1">` : ""}<button type="submit" class="ghost" title="Ask for this answer again">Retry</button></form>` : ""}</div>`;
-  return html`<li class="bino-msg bino" data-stop="2"><p class="bino-who">Bino <span class="t3">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span></p><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}${tools}</li>`;
+  const tools = html`<span class="bino-tools"><button type="button" class="ghost" data-copy-msg title="Copy this answer">Copy</button>${redo ? html`<form method="post" action="/bino/c/${c.id}/retry" data-inplace>${ax?.dock ? html`<input type="hidden" name="dock" value="1">` : ""}<button type="submit" class="ghost" title="Ask for this answer again">Retry</button></form>` : ""}</span>`;
+  const meta = html`<span class="bino-meta">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span>`;
+  return html`<li class="bino-msg bino" data-stop="2"><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}<div class="bino-msg-f">${meta}${tools}</div></li>`;
 }
 
 const OPENS = [PLAN_FENCE, ACT_FENCE, LOOKUP_FENCE].map((f) => "```" + f);
@@ -147,7 +148,7 @@ function thread(c: Conv, target?: Todo, ax?: ActCtx): Html {
 /** Bino's answer so far, while it writes (empty otherwise): the page swaps only this as it grows (GET /bino/c/:id/draft). */
 function draftItem(c: Conv): Html | "" {
   const draft = c.thinking && c.draft ? draftShown(c.draft) : "";
-  return draft ? html`<li class="bino-msg bino writing" id="bino-draft" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…</span></p><div class="bino-text">${markdown(draft)}</div></li>` : "";
+  return draft ? html`<li class="bino-msg bino writing" id="bino-draft" data-stop="2"><div class="bino-text">${markdown(draft)}</div></li>` : "";
 }
 
 /** What the page swaps while Bino writes: the answer so far and the line with Stop. Nothing once it's done (the page then swaps whole). */
@@ -156,8 +157,8 @@ export function draftFragment(c: Conv, dock: boolean): Html | "" {
 }
 
 /** The box Bino is talked to in: one field, the send button in its own footer. Enter sends, Shift+Enter is a new line, ↑ in an empty box brings back what I last sent (src/ui/app.js.ts). */
-function composer(o: { action: string; label: string; placeholder: string; button: string; busy: string; extra?: Html; dock?: boolean }): Html {
-  return html`<form method="post" action="${o.action}" class="bino-compose${o.dock ? " dock-compose" : ""}" data-ctrl-enter data-chat>${o.dock ? DOCK_FIELD : ""}<textarea name="text" rows="${o.dock ? 1 : 3}" maxlength="${MAX_SAY}" required aria-label="${o.label}" placeholder="${o.placeholder}"></textarea>
+function composer(o: { action: string; label: string; placeholder: string; button: string; busy: string; extra?: Html; dock?: boolean; id?: string }): Html {
+  return html`<form method="post" action="${o.action}"${o.id ? html` id="${o.id}"` : ""} class="bino-compose${o.dock ? " dock-compose" : ""}" data-ctrl-enter data-chat>${o.dock ? DOCK_FIELD : ""}<textarea name="text" rows="${o.dock ? 1 : 3}" maxlength="${MAX_SAY}" required aria-label="${o.label}" placeholder="${o.placeholder}"></textarea>
 <div class="bino-compose-f"><span class="hint">Enter sends · Shift+Enter new line · ↑ last message</span><button type="submit" class="primary" data-busy="${o.busy}">${o.button}</button></div>${o.extra ?? ""}</form>`;
 }
 
@@ -290,6 +291,8 @@ ${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }, c.id), main, await binoSid
 
 /** Ready-made openings: whole questions about what Bino can see. */
 const STARTERS = ["What should I do first today?", "Group and tidy what's on my list", "What's waiting on me?"];
+/** In the pane, where it opens beside a page: that page first. */
+const DOCK_STARTERS = ["What matters on this page?", ...STARTERS.slice(0, 2)];
 
 /** A new chat: a box for anything and the openings, beside the conversations and what Bino sees. */
 export async function binoPage(frame: Frame, b: Bino, ws: Ws): Promise<Html> {
@@ -323,8 +326,8 @@ export async function binoDockPage(b: Bino, assets: DockAssets = {}): Promise<Ht
     convs.length
       ? html`<p class="bino-starts-h">Recent</p><ul class="bino-convs">${convs.map((c) => html`<li><a href="/bino/dock/c/${c.id}"><span class="bino-conv-t">${c.title}</span><span class="t3">${Ago(c.at)}${c.thinking ? " · thinking" : ""}</span></a></li>`)}</ul>`
       : html`<p class="notes">Ask about the page you're on, or anything. Bino sees names and states, and changes nothing by itself.</p>`
-  }</div></div>
-${b.route.ready ? composer({ action: "/bino/new", label: "Ask Bino", placeholder: "Ask about this page, or anything", button: "Ask", busy: "Asking", dock: true }) : html`<div class="dock-b">${cantAnswer(b)}</div>`}`;
+  }</div>${b.route.ready ? html`<p class="bino-starts-h">Start from</p><div class="bino-chips">${DOCK_STARTERS.map((q) => html`<button type="submit" class="bino-chip" form="dock-new" name="q" value="${q}" formnovalidate>${q}</button>`)}</div>` : ""}</div>
+${b.route.ready ? composer({ action: "/bino/new", label: "Ask Bino", placeholder: "Ask about this page, or anything", button: "Ask", busy: "Asking", dock: true, id: "dock-new" }) : html`<div class="dock-b">${cantAnswer(b)}</div>`}`;
   return dockShell({ title: "Bino", body, head: html`<meta name="u-topics" content="bino">`, ...assets });
 }
 
