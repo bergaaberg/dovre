@@ -1,6 +1,6 @@
 package main
 
-// The Node runtime the bridge runs on (dovre-site#9): one pinned release, downloaded from
+// The Node runtime the bridge and `dovre run` run on (dovre-site#9): one pinned release, downloaded from
 // nodejs.org on first use and checked against the sha256 written here, so the customer installs
 // nothing else and a tampered download never runs. Only the node binary is kept, in
 // <config>/runtime/node-<version>/. DOVRE_NODE names another node to use instead (a checkout).
@@ -38,7 +38,7 @@ func NodeArchive(goos, goarch string) (archive, member string, err error) {
 	osName := map[string]string{"darwin": "darwin", "linux": "linux", "windows": "win"}[goos]
 	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
 	if osName == "" || arch == "" {
-		return "", "", fmt.Errorf("the bridge doesn't run on %s/%s", goos, goarch)
+		return "", "", fmt.Errorf("Dovre's pinned Node isn't built for %s/%s", goos, goarch)
 	}
 	stem := fmt.Sprintf("node-%s-%s-%s", nodeVersion, osName, arch)
 	if goos == "windows" {
