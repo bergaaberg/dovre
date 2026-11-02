@@ -1131,15 +1131,22 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .tdock-btn:hover, .tdock.open .tdock-btn { border-color: var(--accent); color: var(--accent); }
 .tdock-btn b { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); }
 .tdock-btn b.hot { background: var(--warn-soft); color: var(--warn); }
-.tdock-panel { width: min(400px, calc(100vw - 36px)); height: min(620px, calc(100vh - 96px)); border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; background: var(--bg); box-shadow: var(--shadow), 0 18px 50px -20px rgb(0 0 0 / .35); }
+/* Its size: the default, what I dragged its corner to (--dock-w/--dock-h), or wide (src/ui/app.js.ts). */
+.tdock-panel { position: relative; width: min(var(--dock-w, 400px), calc(100vw - 36px)); height: min(var(--dock-h, 620px), calc(100vh - 96px)); border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; background: var(--bg); box-shadow: var(--shadow), 0 18px 50px -20px rgb(0 0 0 / .35); }
 .tdock-panel[hidden] { display: none; }
 .tdock-panel iframe { display: block; width: 100%; height: 100%; border: 0; }
+.tdock.wide .tdock-panel { width: min(760px, calc(100vw - 36px)); height: calc(100vh - 96px); }
+.tdock-grip { position: absolute; top: 0; left: 0; z-index: 1; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
+.tdock-grip::before { content: ""; position: absolute; top: 4px; left: 4px; width: 7px; height: 7px; border: solid var(--line-2); border-width: 2px 0 0 2px; border-top-left-radius: 3px; }
+.tdock-grip:hover::before, .tdock.resizing .tdock-grip::before { border-color: var(--accent); }
+.tdock.resizing iframe { pointer-events: none; }
 body:has(.docks) .foot p { margin-bottom: 64px; }
 @media (max-width: 560px) {
   .docks { right: 10px; bottom: 10px; }
   /* On the phone an open pane is a sheet over the whole page, tab bar too; its own header closes it.
      It fits what's visible, keyboard or not (interactive-widget=resizes-content in the viewport meta). */
   .tdock-panel { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; bottom: calc(8px + var(--sab)); width: auto; height: auto; }
+  .tdock-grip { display: none; }
   .docks:has(.tdock.open) .tdock-btn { display: none; }
   body:has(.tdock.open) { overflow: hidden; }
 }
