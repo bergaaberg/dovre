@@ -7,6 +7,10 @@
  * A closed fence names its language as `data-lang` (lowercase; `mermaid`, `dot`), so a pack's
  * script may draw it in place, the source staying as it is without one. A fence still open at
  * the end (an answer being written) gets none: it isn't finished.
+ *
+ * Math is marked the same way, for a pack to draw: `$…$` and `` $`…`$ `` as `<code data-tex>`, a
+ * `$$` block as a `math` fence. A `$` after a space doesn't close (`$5 and $6` is money), nor one
+ * before a digit; a `$$` block still open at the end stays as text.
  */
 import { html } from "hono/html";
 import type { Child, Html } from "./kit.ts";
@@ -26,15 +30,16 @@ const link = (href: string, children: Child) => {
   return html`<a href="${h}"${newTab(h)}>${children}</a>`;
 };
 
-const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*|__[^_\n]+__)|(~~[^~\n]+~~)|(\[[^\]\n]+\]\([^)\s]+\))|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*\n]*\*|\b_[^_\s][^_\n]*_\b)/g;
+const INLINE = /(\$`[^`\n]+`\$|(?<![\\\w$])\$(?:[^\s$\\]|[^\s$][^$\n]*?[^\s\\])\$(?![\d$]))|(`[^`\n]+`)|(\*\*[^*\n]+\*\*|__[^_\n]+__)|(~~[^~\n]+~~)|(\[[^\]\n]+\]\([^)\s]+\))|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*\n]*\*|\b_[^_\s][^_\n]*_\b)/g;
 
 export function inline(text: string): Child[] {
   const out: Child[] = [];
   let at = 0;
   for (const m of text.matchAll(INLINE)) {
     if (m.index! > at) out.push(text.slice(at, m.index));
-    const [all, code, bold, strike, mdLink, url, em] = m;
-    if (code) out.push(html`<code>${code.slice(1, -1)}</code>`);
+    const [all, math, code, bold, strike, mdLink, url, em] = m;
+    if (math) out.push(html`<code data-tex>${math.startsWith("$`") ? math.slice(2, -2) : math.slice(1, -1)}</code>`);
+    else if (code) out.push(html`<code>${code.slice(1, -1)}</code>`);
     else if (bold) out.push(html`<strong>${inline(bold.slice(2, -2))}</strong>`);
     else if (strike) out.push(html`<s>${inline(strike.slice(2, -2))}</s>`);
     else if (mdLink) {
@@ -72,6 +77,18 @@ export function markdown(source: string, opts: { headingOffset?: number } = {}):
       i++;
       blocks.push(lang ? html`<pre class="code" data-lang="${lang}">${body.join("\n")}</pre>` : html`<pre class="code">${body.join("\n")}</pre>`);
       continue;
+    }
+    const tex = line.match(/^\s*\$\$(.*)$/);
+    if (tex) {
+      const one = tex[1]!.trim().match(/^(.+?)\$\$$/);
+      let end = i + 1;
+      if (!one && !tex[1]!.trim()) while (end < lines.length && lines[end]!.trim() !== "$$") end++;
+      if (one || (!tex[1]!.trim() && end < lines.length)) {
+        const body = one ? one[1]!.trim() : lines.slice(i + 1, end).join("\n");
+        blocks.push(html`<pre class="code" data-lang="math">${body}</pre>`);
+        i = one ? i + 1 : end + 1;
+        continue;
+      }
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
@@ -122,7 +139,7 @@ export function markdown(source: string, opts: { headingOffset?: number } = {}):
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i]!.trim() && !/^(#{1,6}\s|\s*```|\s*~~~|\s*>|\s*([-*+]|\d+[.)])\s+)/.test(lines[i]!)) para.push(lines[i++]!.trim());
+    while (i < lines.length && lines[i]!.trim() && !/^(#{1,6}\s|\s*\$\$|\s*```|\s*~~~|\s*>|\s*([-*+]|\d+[.)])\s+)/.test(lines[i]!)) para.push(lines[i++]!.trim());
     if (!para.length) {
       blocks.push(html`<p>${inline(line)}</p>`);
       i++;

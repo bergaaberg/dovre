@@ -69,7 +69,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    `sha256` fails the build, naming the pack. A pack's `files` (a browser library too big for the
    bundle: `mermaid.js`, `katex.css`; lowercase, `.js` or `.css`) go the same way as a `WasmFile`,
    at `/assets/files/<id>.<name>.<sha>.<ext>`, and widen the CSP only for a script marked `wasm`
-   (it carries WebAssembly inside, like Graphviz's build), which counts as shipping WebAssembly: its own script loads them, finding their paths in `dovreFiles` on any page. Core's Markdown marks a closed fence's language (`pre.code[data-lang]`), so a pack's script may draw it in place (mermaid in Bino's answers); without one, the source shows. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
+   (it carries WebAssembly inside, like Graphviz's build), which counts as shipping WebAssembly: its own script loads them, finding their paths in `dovreFiles` on any page. Core's Markdown marks a closed fence's language (`pre.code[data-lang]`), so a pack's script may draw it in place (mermaid in Bino's answers), and its math (`code[data-tex]`, a `$$` block as a `math` fence); without one, the source shows. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
    A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
    `data-motion="always"` (Settings → Look → Motion): scope those rules under
    `:root:not([data-motion="always"])`, and check the attribute in scripts too.

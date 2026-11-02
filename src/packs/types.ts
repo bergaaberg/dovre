@@ -548,7 +548,7 @@ export type Pack = {
    * change, and a script that does isn't served. On `document` it may hear `dovre:swap` (detail:
    * { from, to }, a live region about to be swapped for a fresh one, so it can carry over what it shows).
    * `dovreFiles` holds its `files`' paths (name → path, as `ctx.file` gives) on every page. It may
-   * draw core's Markdown fences in place (`pre.code[data-lang]`, src/ui/markdown.ts: Bino's answers,
+   * draw core's Markdown fences and math in place (`pre.code[data-lang]`, `code[data-tex]`, src/ui/markdown.ts: Bino's answers,
    * PR and issue bodies), the source staying as it is where it doesn't.
    */
   script?: string;
