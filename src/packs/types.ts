@@ -22,7 +22,7 @@ import type { Answer } from "../relay/asks.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.5";
+export const PACK_API = "1.6";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -38,6 +38,8 @@ export type PackSetting = { key: string; label: string; secret?: boolean; requir
 export type PackManifest = {
   /** The oldest PACK_API it works with, "major.minor" ("1.5"); a plain 1 means "1.0". */
   api: string | number;
+  /** Its own release, semver ("1.2.0"; API 1.6): dovre-packs tags it `<id>@1.2.0`. Shown on the Packs page. */
+  version?: string;
   /** Unique id: lowercase, used for its routes' prefix check, its styles' path and PACK_<ID>=off. */
   id: string;
   name: string;
