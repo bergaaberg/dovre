@@ -47,11 +47,12 @@ const files = (f: string[]) => (f.length > 4 ? `${f.slice(0, 4).join(", ")} and 
 function copyLine(c: Copy) {
   const s = c.state;
   if (!s.tracked) return html`<span class="t3">copied before .pack.json; <code>pnpm packs track ${c.id}</code> to follow it</span>`;
-  const from = html`${c.source ?? "unknown source"} @ <code>${short(c.commit)}</code>`;
+  const from = html`${s.version ? html`${s.version} from ` : ""}${c.source ?? "unknown source"} @ <code>${short(c.commit)}</code>`;
   const parts: Child[] = [];
   if (s.gone) parts.push(Pill({ tone: "warn", children: "gone upstream" }));
-  else if (s.upstream.length) parts.push(html`${Pill({ tone: "accent", children: "newer upstream" })}${s.behind ? ` ${s.behind} commit${s.behind === 1 ? "" : "s"}` : ""} <span class="t2">${files(s.upstream)}</span>`);
+  else if (s.upstream.length) parts.push(html`${Pill({ tone: "accent", children: s.newest ? `${s.newest} out` : "newer upstream" })}${s.behind ? ` ${s.behind} commit${s.behind === 1 ? "" : "s"}` : ""} <span class="t2">${files(s.upstream)}</span>`);
   else parts.push(Pill({ tone: "ok", children: "up to date" }));
+  if (s.tag && !s.version && !s.upstream.length) parts.push(html`<span class="t3">version not recorded; an update records it</span>`);
   if (s.edited.length) parts.push(html`<span class="t2">edited here: ${files(s.edited)}</span>`);
   return html`${from} · ${parts.map((p, i) => html`${i ? " · " : ""}${p}`)}`;
 }
@@ -66,16 +67,19 @@ function copyJob(c: Copy, v: PacksView) {
       : j.state === "done"
         ? html`<p>${Pill({ tone: "ok", children: "updated" })} ${j.step}${j.changes?.length ? html` <span class="t3">(${j.changes.map((x) => `${x.how} ${x.file}`).join(", ")})</span>` : ""}</p>${v.canRestart ? Post({ action: "/settings/restart", label: "Restart Dovre" }) : ""}`
         : html`<p>${Pill({ tone: "bad", children: "not updated" })} <span class="t2">${j.step}</span></p>${j.out ? html`<details><summary class="t2">Output</summary><pre>${j.out}</pre></details>` : ""}`;
+  const notes = c.state.notes?.length && c.state.upstream.length
+    ? html`<details><summary class="t2">What changed${c.state.version ? ` since ${c.state.version}` : ` in ${c.state.newest}`}</summary>${List(c.state.notes.flatMap((n) => n.lines.map((l) => Item({ title: l, trail: n.version }))))}</details>`
+    : "";
   const can = !v.hosted && c.state.tracked && !c.state.gone && c.state.upstream.length > 0 && j?.state !== "running";
   const button = can
     ? Confirm({
         action: `/packs/${encodeURIComponent(c.id)}/update`,
-        label: "Update",
+        label: c.state.newest ? `Update to ${c.state.newest}` : "Update",
         kind: "packs.update",
-        question: html`Take dovre-packs' newer ${c.id} into <code>${c.into}</code>? ${c.state.edited.length ? "Your edits are merged in; a conflict changes nothing. " : ""}Then the instance's typecheck and tests run, and the files go back as they were if either fails.`,
+        question: html`Take ${c.state.newest ? html`${c.id} ${c.state.newest}` : html`dovre-packs' newer ${c.id}`} into <code>${c.into}</code>? ${c.state.edited.length ? "Your edits are merged in; a conflict changes nothing. " : ""}Then the instance's typecheck and tests run, and the files go back as they were if either fails.`,
       })
     : "";
-  return html`${job}${button}`;
+  return html`${notes}${job}${button}`;
 }
 
 /** A setting: its label and key, set or missing; a non-secret one's value beside it. */

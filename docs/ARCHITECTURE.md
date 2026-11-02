@@ -196,12 +196,19 @@ Also:
   would be left out, `assertFragment(name, html)` on markup core would refuse.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).
   `pnpm packs new <id> --into <instance>` scaffolds it.
-- A pack from dovre-packs is a copy with a `.pack.json` (source, commit, version, the `PACK_API`
-  it needs, file hashes). `pnpm packs outdated` / `update` / `track` (`src/packs/update.ts`) compare it with
-  the local dovre-packs checkout. `update` takes upstream for untouched files, `git merge-file`s
-  the rest, writes nothing on a conflict, and refuses a `PACK_API` this core lacks or a source outside
-  `REPO_OWNERS`. Locally the Packs page has an **Update** (`packs.update`, always asks twice)
-  that runs the instance's typecheck and tests and rolls back on failure. New code loads on restart.
+- A pack from dovre-packs is a copy with a `.pack.json` (source, the commit and release tag it
+  came from, the pack's own version, the `PACK_API` it needs, file hashes). Each pack is released
+  on its own: a semver `version` in its manifest, `packs/<id>/CHANGELOG.md`, and a tag
+  `<id>@x.y.z` in dovre-packs. `pnpm packs add` copies the newest release; `outdated` / `update
+  [--to x.y.z]` / `track` (`src/packs/update.ts`) fetch the checkout's tags and compare the copy
+  with the newest release, listing the changelog lines in between. A pack with no tags yet follows
+  the checkout's HEAD. `update` reads the release from git, takes it for untouched files,
+  `git merge-file`s the rest (base = the recorded commit), writes nothing on a conflict, and
+  refuses a release needing a `PACK_API` this core lacks or a source outside `REPO_OWNERS`. A
+  `.pack.json` from before releases has no version; its next update records one. Locally the
+  Packs page shows each copy's version, the newest release and what changed, with **Update to
+  x.y.z** (`packs.update`, always asks twice), which runs the instance's typecheck and tests and
+  rolls back on failure. New code loads on restart.
 
 ## Extending
 

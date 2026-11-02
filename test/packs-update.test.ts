@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { addPack } from "../src/packs/cli.ts";
 import { PACK_API } from "../src/packs/types.ts";
-import { describe, outdated, readMeta, sourceAllowed, sourceOfUrl, trackPack, updatePack } from "../src/packs/update.ts";
+import { describe, notesOf, outdated, readMeta, sourceAllowed, sourceOfUrl, trackPack, updatePack, writeMeta } from "../src/packs/update.ts";
 
 const git = (dir: string, ...args: string[]) => {
   const r = spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" });
@@ -49,7 +49,8 @@ test("add writes .pack.json: source, commit, version, api, a hash per file", () 
     const m = readMeta(s.pack)!;
     assert.equal(m.source, "bergaaberg/dovre-packs");
     assert.equal(m.commit, git(s.repo, "rev-parse", "HEAD"));
-    assert.equal(m.version, "0.2.0");
+    assert.equal(m.version, null, "no release, no version: it followed HEAD");
+    assert.equal(m.tag, null);
     assert.equal(m.api, PACK_API);
     assert.deepEqual(Object.keys(m.files).sort(), ["data.ts", "index.ts", "test/foo.test.ts"]);
     assert.match(m.files["index.ts"]!, /^[0-9a-f]{64}$/);
@@ -197,4 +198,83 @@ test("sources: GitHub remotes parse; only dovre-packs and REPO_OWNERS are allowe
   assert.ok(!sourceAllowed("me/my-packs", {}));
   assert.ok(sourceAllowed("me/my-packs", { GITHUB_USER: "me" }));
   assert.ok(!sourceAllowed(null, { REPO_OWNERS: "me" }));
+});
+
+const released = (version: string, api = "1.0") => `export const fooPack = {\n  id: "foo",\n  api: "${api}",\n  version: "${version}",\n};\n`;
+
+test("releases: add takes the newest tag; outdated names the next release and its changelog; update takes it, not HEAD; --to picks one", () => {
+  const s = setup();
+  try {
+    writeFileSync(join(s.up, "index.ts"), released("1.0.0"));
+    writeFileSync(join(s.up, "CHANGELOG.md"), "# foo\n\n## 1.0.0 — 2026-11-01\n\n- First.\n");
+    s.commit("foo 1.0.0");
+    git(s.repo, "tag", "foo@1.0.0");
+    writeFileSync(join(s.up, "data.ts"), DATA.replace("two", "TWO"));
+    s.commit("unreleased work");
+
+    const added = addPack({ id: "foo", into: s.into, from: s.repo, allowClone: false });
+    assert.equal(added.version, "1.0.0");
+    assert.equal(readFileSync(join(s.pack, "data.ts"), "utf8"), DATA, "the release, not HEAD's unreleased work");
+    const m = readMeta(s.pack)!;
+    assert.equal(m.tag, "foo@1.0.0");
+    assert.equal(m.commit, git(s.repo, "rev-parse", "foo@1.0.0"));
+    assert.deepEqual(outdated(s.into, s.repo).map(describe), ["foo 1.0.0: up to date"], "HEAD past the tag isn't a release");
+
+    writeFileSync(join(s.up, "index.ts"), released("1.1.0"));
+    writeFileSync(join(s.up, "CHANGELOG.md"), "# foo\n\n## 1.1.0 — 2026-11-02\n\n- Shouts <b>two</b>.\n\n## 1.0.0 — 2026-11-01\n\n- First.\n");
+    s.commit("foo 1.1.0");
+    git(s.repo, "tag", "foo@1.1.0");
+    writeFileSync(join(s.up, "data.ts"), DATA.replace("three", "THREE"));
+    s.commit("more unreleased work");
+
+    const [st] = outdated(s.into, s.repo);
+    assert.equal(st!.newest, "1.1.0");
+    assert.deepEqual(st!.notes, [{ version: "1.1.0", lines: ["Shouts <b>two</b>."] }]);
+    assert.match(describe(st!), /^foo 1\.0\.0: newer release 1\.1\.0 \(2 commits\): CHANGELOG\.md, data\.ts, index\.ts$/);
+
+    const r = updatePack({ id: "foo", into: s.into, repo: s.repo });
+    assert.equal(r.fromVersion, "1.0.0");
+    assert.equal(r.toVersion, "1.1.0");
+    assert.equal(readFileSync(join(s.pack, "data.ts"), "utf8"), DATA.replace("two", "TWO"), "1.1.0's data, not HEAD's");
+    assert.equal(readMeta(s.pack)!.tag, "foo@1.1.0");
+
+    updatePack({ id: "foo", into: s.into, repo: s.repo, to: "1.0.0" });
+    assert.equal(readMeta(s.pack)!.version, "1.0.0", "--to goes back as well");
+    assert.equal(readFileSync(join(s.pack, "data.ts"), "utf8"), DATA);
+    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo, to: "9.9.9" }), /no release 9\.9\.9 .*\(it has 1\.1\.0, 1\.0\.0\)/);
+
+    writeFileSync(join(s.up, "index.ts"), released("2.0.0", "1.999"));
+    s.commit("foo 2.0.0 needs a newer core");
+    git(s.repo, "tag", "foo@2.0.0");
+    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /foo@2\.0\.0 needs PACK_API 1\.999; this core has/);
+    assert.equal(readMeta(s.pack)!.version, "1.0.0", "nothing written");
+  } finally {
+    s.done();
+  }
+});
+
+test("a copy recorded before releases has no version; at the newest release it says so, and an update records it", () => {
+  const s = setup();
+  try {
+    writeFileSync(join(s.up, "index.ts"), released("1.0.0"));
+    s.commit("foo 1.0.0");
+    git(s.repo, "tag", "foo@1.0.0");
+    addPack({ id: "foo", into: s.into, from: s.repo, allowClone: false });
+    const { tag: _, ...old } = readMeta(s.pack)!;
+    writeMeta(s.pack, { ...old, version: "0.2.0" });
+    const [st] = outdated(s.into, s.repo);
+    assert.equal(st!.version, null, "an old record's version is the repo's, not the pack's");
+    assert.match(describe(st!), /^foo: at 1\.0\.0, not recorded yet/);
+    updatePack({ id: "foo", into: s.into, repo: s.repo });
+    assert.deepEqual(outdated(s.into, s.repo).map(describe), ["foo 1.0.0: up to date"]);
+  } finally {
+    s.done();
+  }
+});
+
+test("notesOf: releases newer than a version, newest first; all of them without one", () => {
+  const log = "# foo\n\n## 1.2.0 — 2026-11-03\n\n- C.\n* D.\n\n## 1.1.0\n\n- B.\n\n## 1.0.0\n\n- A.\n";
+  assert.deepEqual(notesOf(log, "1.0.0"), [{ version: "1.2.0", lines: ["C.", "D."] }, { version: "1.1.0", lines: ["B."] }]);
+  assert.deepEqual(notesOf(log, "1.2.0"), []);
+  assert.equal(notesOf(log, null).length, 3);
 });

@@ -118,12 +118,15 @@ test("the Packs page keeps a copied pack's state, job output and Update inert; U
   const { PACK_API } = await import("../src/packs/types.ts");
   const manifest = { api: PACK_API, id: "copied", name: H, description: H, domain: "personal" as const };
   const started: string[] = [];
-  const copy = { id: "copied", into: H, source: H, commit: H, state: { id: "copied", tracked: true, behind: 2, upstream: [H, "view.ts"], edited: [H] }, job: { at: 0, state: "failed" as const, step: H, out: H } };
+  const copy = { id: "copied", into: H, source: H, commit: H, state: { id: "copied", tracked: true, behind: 2, upstream: [H, "view.ts"], edited: [H], version: H, tag: H, newest: H, notes: [{ version: H, lines: [H, "Fixes the &lt;thing&gt;"] }] }, job: { at: 0, state: "failed" as const, step: H, out: H } };
   const copies = { get: () => new Map([["copied", copy]]), refresh: () => new Map(), update: (id: string) => (started.push(id), { ok: true as const }) };
   const { get, post } = signedIn(snapshot(), {}, { packs: [{ manifest }], copies });
   const out = await (await get("/packs")).text();
   assertInert("/packs", out);
-  assert.match(out, /newer upstream/);
+  assert.match(out, / out</, "the newest release");
+  assert.match(out, /Update to /);
+  assert.match(out, /<summary class="t2">What changed since /);
+  assert.match(out, /Fixes the &amp;lt;thing&amp;gt;/, "changelog lines are text, not markup");
   assert.match(out, /action="\/packs\/copied\/update"/);
   assert.equal((await post("/packs/copied/update", {}, { origin: "http://evil.example" })).status, 403);
   assert.deepEqual(started, []);

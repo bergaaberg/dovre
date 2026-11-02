@@ -50,7 +50,7 @@ test("Update takes upstream, runs the checks, and says to restart", async () => 
     const ran: string[] = [];
     const logged: [boolean, string][] = [];
     const check: Check = async (into) => (ran.push(into), { ok: true, step: "checked", out: "" });
-    const copies = createCopies({ packs: s.into, repo: () => s.repo, check });
+    const copies = createCopies({ packs: s.into, repo: () => s.repo, fetch: false, check });
     const before = copies.refresh().get("foo")!;
     assert.deepEqual(before.state.upstream, ["index.ts", "view.ts"]);
     assert.equal(before.source, "bergaaberg/dovre-packs");
@@ -73,7 +73,7 @@ test("a failing check puts every file back, .pack.json too", async () => {
   const s = setup();
   try {
     const meta = readFileSync(join(s.pack, ".pack.json"), "utf8");
-    const copies = createCopies({ packs: s.into, repo: () => s.repo, check: async () => ({ ok: false, step: "test", out: "1 failing" }) });
+    const copies = createCopies({ packs: s.into, repo: () => s.repo, fetch: false, check: async () => ({ ok: false, step: "test", out: "1 failing" }) });
     copies.update("foo");
     const after = await settle(copies, "foo");
     assert.equal(after.job?.state, "failed");
