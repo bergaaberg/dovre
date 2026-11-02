@@ -289,6 +289,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const path = `/assets/${packFileAt(p.manifest.id, name, f.sha256)}`;
       served.set(path, { type: packFileType(name), pack: p.manifest.id, what: `file ${name}`, file: f, why: packFileWhy });
       pathsOf(filePaths, p.manifest.id).set(name, path);
+      if (f.wasm === true && name.endsWith(".js")) shipsWasm = true;
     }
   }
   const scriptSrc = shipsWasm ? ["'self'", "'wasm-unsafe-eval'"] : ["'self'"];
