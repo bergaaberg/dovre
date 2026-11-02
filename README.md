@@ -53,10 +53,13 @@ More in [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs). A
 
 ```sh
 pnpm packs list
-pnpm packs add cf-health --into ../my-dovre
+pnpm packs add cf-health --into ../my-dovre   # its newest release (or --to x.y.z)
 pnpm packs new my-app --into ../my-dovre
-pnpm packs outdated --into ../my-dovre   # then: packs update <id> (merges your edits)
+pnpm packs outdated --into ../my-dovre        # each copy's version, the newest release, what changed
+pnpm packs update cf-health --into ../my-dovre # to the newest release; merges your edits
 ```
+
+Each pack in dovre-packs has its own version and changelog, released as a tag `<id>@x.y.z`.
 
 A pack can also replace GitHub as the forge (`FORGE=<its id>`). How packs work: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

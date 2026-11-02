@@ -5,8 +5,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { filesOf, META, provenance, writeMeta } from "./update.ts";
+import { dirname, join, resolve } from "node:path";
+import { META, provenance, writeMeta } from "./update.ts";
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const camel = (id: string) => id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
@@ -85,8 +85,11 @@ export function listAvailablePacks(packsRepoDir: string): string[] {
     .sort();
 }
 
-/** Copies a pre-built pack `<id>` from `packsRepoDir` into `into` and wires it into `crates.ts` / `packs.ts`. */
-export function addPack(o: { id: string; into: string; from?: string; allowClone?: boolean }): { wrote: string[]; wired?: string; exportName: string } {
+/**
+ * Copies pack `<id>`'s newest release (or `to`; HEAD when it has none) from the dovre-packs checkout
+ * into `into` and wires it into `crates.ts` / `packs.ts`.
+ */
+export function addPack(o: { id: string; into: string; from?: string; to?: string; allowClone?: boolean }): { wrote: string[]; wired?: string; exportName: string; version: string | null } {
   if (!ID.test(o.id)) throw new Error(`"${o.id}" isn't a pack id: lowercase letters, digits and dashes`);
   const repoDir = resolvePacksRepo(o.from, undefined, o.allowClone ?? true);
   const srcRoot = existsSync(join(repoDir, "packs", o.id))
@@ -102,23 +105,20 @@ export function addPack(o: { id: string; into: string; from?: string; allowClone
   const usesPacksDir = existsSync(join(o.into, "packs.ts")) && !existsSync(join(o.into, "crates.ts"));
   const subDir = usesPacksDir ? "packs" : "crates";
   const destRoot = join(o.into, subDir, o.id);
-  const srcFiles = filesOf(srcRoot).map((f) => join(srcRoot, f));
-  const existing = srcFiles
-    .map((f) => relative(srcRoot, f))
-    .filter((rel) => existsSync(join(destRoot, rel)));
+  const { meta, files } = provenance(repoDir, o.id, o.to);
+  const existing = [...files.keys()].filter((rel) => existsSync(join(destRoot, rel)));
   if (existing.length) {
     throw new Error(`already there in ${destRoot}: ${existing.join(", ")}`);
   }
 
   const wrote: string[] = [];
-  for (const f of srcFiles) {
-    const rel = relative(srcRoot, f);
+  for (const [rel, body] of files) {
     const dest = join(destRoot, rel);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, readFileSync(f), { flag: "wx" });
+    writeFileSync(dest, body, { flag: "wx" });
     wrote.push(join(subDir, o.id, rel));
   }
-  writeMeta(destRoot, provenance(repoDir, o.id));
+  writeMeta(destRoot, meta);
   wrote.push(join(subDir, o.id, META));
 
   const indexText = readFileSync(join(destRoot, "index.ts"), "utf8");
@@ -137,5 +137,5 @@ export function addPack(o: { id: string; into: string; from?: string; allowClone
       wired = entryFile;
     }
   }
-  return { wrote, wired, exportName };
+  return { wrote, wired, exportName, version: meta.version };
 }

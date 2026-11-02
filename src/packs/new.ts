@@ -12,7 +12,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { addPack, listAvailablePacks, resolvePacksRepo } from "./cli.ts";
-import { describe, outdated, trackPack, updatePack } from "./update.ts";
+import { PACK_API } from "./types.ts";
+import { describe, fetchTags, outdated, trackPack, updatePack } from "./update.ts";
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -29,7 +30,7 @@ export function scaffold(id: string, named?: string): Record<string, string> {
     [`packs/${id}/index.ts`]: `/**
  * ${name}: what this app is, in a line. Its page is /${id}; Today gets a card once it has read something.
  */
-import { type Pack, PACK_API } from "dovre/packs/types.ts";
+import type { Pack } from "dovre/packs/types.ts";
 import { type Kept, read } from "./data.ts";
 import { ${c}Card, ${c}Page } from "./view.ts";
 
@@ -37,7 +38,9 @@ let kept: Kept | undefined;
 
 export const ${c}Pack: Pack = {
   manifest: {
-    api: PACK_API,
+    // The oldest core API it works with (docs/ARCHITECTURE.md lists each minor) and its own release.
+    api: "${PACK_API}",
+    version: "0.1.0",
     id: ${JSON.stringify(id)},
     name: ${n},
     description: "What it shows, in a sentence.",
@@ -144,8 +147,9 @@ if (import.meta.main) {
   }
   if (rest[0] === "add" && rest[1]) {
     try {
-      const res = addPack({ id: rest[1], into, from });
+      const res = addPack({ id: rest[1], into, from, to: flag("--to") });
       for (const p of res.wrote) console.log(`wrote ${join(into, p)}`);
+      console.log(`${rest[1]} ${res.version ?? "(no release yet: HEAD)"}`);
       if (res.wired) console.log(`wired ${res.exportName} into ${res.wired}`);
       else console.log(`\nAdd ${res.exportName} to ${join(into, "packs.ts")}.`);
       process.exit(0);
@@ -157,9 +161,13 @@ if (import.meta.main) {
   if (rest[0] === "outdated" || rest[0] === "update" || rest[0] === "track") {
     try {
       const repo = resolvePacksRepo(from, undefined, false);
+      if (rest[0] !== "track") fetchTags(repo);
       const states = outdated(into, repo);
       if (rest[0] === "outdated") {
-        for (const st of states) console.log(describe(st));
+        for (const st of states) {
+          console.log(describe(st));
+          for (const n of st.notes ?? []) for (const l of n.lines) console.log(`  ${n.version}  ${l}`);
+        }
         if (!states.length) console.log("No packs from dovre-packs here.");
       } else if (rest[0] === "track" && rest[1]) {
         const m = trackPack({ id: rest[1], into, repo, at: flag("--at") });
@@ -168,8 +176,9 @@ if (import.meta.main) {
         const ids = rest[1] ? [rest[1]] : states.filter((st) => st.tracked && !st.gone && st.upstream.length).map((st) => st.id);
         if (!ids.length) console.log("Every tracked pack is up to date.");
         for (const id of ids) {
-          const r = updatePack({ id, into, repo });
-          console.log(`${id}: ${r.from?.slice(0, 7) ?? "?"} → ${r.to?.slice(0, 7) ?? "?"}${r.changes.length ? "" : " (no file changes)"}`);
+          const r = updatePack({ id, into, repo, to: rest[1] ? flag("--to") : undefined });
+          const at = (v: string | null, c: string | null) => v ?? c?.slice(0, 7) ?? "?";
+          console.log(`${id}: ${at(r.fromVersion, r.from)} → ${at(r.toVersion, r.to)}${r.changes.length ? "" : " (no file changes)"}`);
           for (const c of r.changes) console.log(`  ${c.how.padEnd(7)} ${c.file}`);
           if (r.kept.length) console.log(`  kept your edits to ${r.kept.join(", ")}`);
         }
@@ -183,7 +192,7 @@ if (import.meta.main) {
   }
   if (rest[0] !== "new" || !rest[1]) {
     console.error(
-      "usage:\n  pnpm packs new <id> [--into <instance folder>]\n  pnpm packs add <id> [--into <instance folder>] [--from <dovre-packs folder>]\n  pnpm packs list [--from <dovre-packs folder>]\n  pnpm packs outdated [--into …] [--from …]\n  pnpm packs update <id>|--all [--into …] [--from …]\n  pnpm packs track <id> [--at <commit>] [--into …] [--from …]",
+      "usage:\n  pnpm packs new <id> [--into <instance folder>]\n  pnpm packs add <id> [--to x.y.z] [--into <instance folder>] [--from <dovre-packs folder>]\n  pnpm packs list [--from <dovre-packs folder>]\n  pnpm packs outdated [--into …] [--from …]\n  pnpm packs update <id> [--to x.y.z]|--all [--into …] [--from …]\n  pnpm packs track <id> [--at <commit>] [--into …] [--from …]",
     );
     process.exit(2);
   }

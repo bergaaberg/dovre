@@ -40,6 +40,8 @@ git switch -c <type>/<N>-<short-slug>     # e.g. feat/4-pack-settings-editor
   - **Core stays generic:** core never names, imports or defaults to a specific instance repo, or to the site repo.
   - **TypeScript is type-stripped:** imports use `.ts` extensions. No enums and no parameter properties.
 - Add tests for the behaviour you add. Pack tests go in `packs/<id>/test/`.
+- **Changing the Pack contract** (core): an additive change (a hook, slot, field or markup contract a pack can rely on) bumps the minor of `PACK_API` in `src/packs/types.ts` and adds a row to the table under "Changing the contract" in docs/ARCHITECTURE.md. A breaking change bumps the major; ask on the issue first.
+- **Changing a pack** (dovre-packs): every change outside its `test/` folder is a release. Add a line under `## Unreleased` in `packs/<id>/CHANGELOG.md` and run `pnpm release <id> patch|minor|major`; `pnpm check` fails without it. If the pack now relies on a newer core, raise its `api: "1.x"`. Tags are the arbiter's, after the merge (see dovre-packs CONTRIBUTING.md).
 - Never put secrets, tokens or real personal data in code, tests, commits or PR text.
 
 ## 4. Check

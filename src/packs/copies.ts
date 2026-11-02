@@ -1,6 +1,7 @@
 /**
  * Local only (#152 step 2): the packs this machine's PACKS folders copied from dovre-packs, their
- * state against the local checkout (src/packs/update.ts, no network), and Update as a job. The
+ * state against the local checkout's releases (src/packs/update.ts; tags fetched in the background
+ * at most every 10 minutes), and Update to the newest release as a job. The
  * Packs page reads `get()`, the newest kept answer, worked out again in the background. An update
  * re-checks the state, rewrites the pack (all or nothing), then runs the instance's typecheck and
  * test; if either fails, the pack's files go back as they were. The new code loads on a restart.
@@ -47,7 +48,7 @@ export const instanceCheck: Check = async (into) => {
   return { ok: true, step: "checked", out: "" };
 };
 
-export function createCopies(o: { packs: string | undefined; home?: string; repo?: () => string; check?: Check; onChange?: () => void; env?: Record<string, string | undefined>; now?: () => number }) {
+export function createCopies(o: { packs: string | undefined; home?: string; repo?: () => string; check?: Check; onChange?: () => void; env?: Record<string, string | undefined>; now?: () => number; /** false: never fetch tags (tests). */ fetch?: boolean }) {
   const now = o.now ?? Date.now;
   const repoOf = o.repo ?? (() => resolvePacksRepo(undefined, undefined, false));
   const check = o.check ?? instanceCheck;
@@ -55,6 +56,20 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
   const jobs = new Map<string, CopyJob>();
   let kept: { at: number; copies: Map<string, Copy> } | undefined;
   let pending = false;
+  let fetchedAt = -Infinity;
+  /** Fetches the checkout's tags without blocking, at most every 10 minutes; offline is fine. */
+  const fetchTags = () =>
+    new Promise<void>((done) => {
+      if (now() - fetchedAt < 600_000 || o.fetch === false) return done();
+      fetchedAt = now();
+      let repo: string;
+      try {
+        repo = repoOf();
+      } catch {
+        return done();
+      }
+      execFile("git", ["-C", repo, "fetch", "--tags", "--quiet", "origin"], { timeout: 20_000 }, () => done());
+    });
 
   function compute(): Map<string, Copy> {
     const out = new Map<string, Copy>();
@@ -96,8 +111,10 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
       if ((!kept || now() - kept.at > 60_000) && !pending) {
         pending = true;
         setTimeout(() => {
-          pending = false;
-          changed();
+          void fetchTags().then(() => {
+            pending = false;
+            changed();
+          });
         }, 0);
       }
       const out = new Map<string, Copy>();
@@ -106,7 +123,8 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
     },
     refresh,
     /**
-     * Starts updating pack `id` if, checked again now, it's tracked and upstream has something new.
+     * Starts updating pack `id` to its newest release if, checked again now, it's tracked and that
+     * release has something new.
      * `done` hears how it ended (for the actions log).
      */
     update(id: string, done?: (ok: boolean, detail: string) => void): { ok: true } | { ok: false; why: string } {
@@ -134,7 +152,7 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
         .catch((e: unknown) => ({ ok: false, step: "check", out: String((e as Error)?.message ?? e) }))
         .then((r) => {
           if (r.ok) {
-            jobs.set(id, { at: now(), state: "done", step: "updated; restart Dovre to load it", changes });
+            jobs.set(id, { at: now(), state: "done", step: `updated${c.state.newest ? ` to ${c.state.newest}` : ""}; restart Dovre to load it`, changes });
             done?.(true, `${changes.length} file${changes.length === 1 ? "" : "s"}`);
           } else {
             for (const f of filesOf(dir)) if (!before.has(f)) rmSync(join(dir, f), { force: true });
