@@ -78,8 +78,8 @@ export type Forge = {
   merged?(login: string, owners: string, since: string): Promise<number>;
   /** The owners' repos that aren't archived (`owner/name`). Absent: packs read none. */
   repos?(owners: string): Promise<string[]>;
-  /** One file's text on a repo's default branch; undefined when there's none. Absent: packs read none. */
-  file?(repo: string, path: string): Promise<string | undefined>;
+  /** One file's text on a repo's default branch, or at commit `at`; undefined when there's none. Absent: packs read none. */
+  file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   /** Each of the owners' repos with its files at these paths, in as few calls as it can (#294). Absent: packs read them a file at a time. */
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
   /** A PR changing one file (src/actions/propose.ts), checked already: throws why not. Absent: packs propose none. */

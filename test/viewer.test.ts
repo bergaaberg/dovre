@@ -169,6 +169,15 @@ test("the PR page draws the pack's facts for that PR, not just its repo", async 
   assert.match(out, /href="https:\/\/example.net\/840"/, "the fact row is this PR's");
 });
 
+test("the Files tab draws each file's pack buttons, told the file, its status and the head commit", async () => {
+  const { ghe } = fakeGhe();
+  const fileSlot = (f: { number: number; path: string; status: string; sha: string }) => (f.path.endsWith(".ts") ? html`<a class="btn sm ghost" href="/x/${f.number}/${f.status}/${f.sha}/${f.path}">Read</a>` : "");
+  const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [], fileSlot });
+  const out = await (await app.request("/prs/ACME/shop-api/840/files")).text();
+  assert.match(out, new RegExp(`href="/x/840/modified/${SHA}/src/a.ts">Read</a>`));
+  assert.equal(out.match(/>Read</g)?.length, 1, "only where the pack answers");
+});
+
 test("only the org's PRs; odd numbers and other owners are a 404 without asking GHE", async () => {
   const { ghe, calls } = fakeGhe();
   const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [] });

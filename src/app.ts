@@ -877,6 +877,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       frame: async () => (await page()).frame,
       hub: deps.hub,
       facts: (p) => fill("pr.facts", p).flat(),
+      fileSlot: (f) => html`${fill("pr.file", f)}`,
       kept: deps.kept,
       agentFor: async (repo, n) => {
         const { s } = await page();

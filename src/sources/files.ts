@@ -41,10 +41,10 @@ export async function loadRepos(ghe: Ghe, owners: string): Promise<string[]> {
 const decode = (b64: string) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, "")), (c) => c.charCodeAt(0)));
 
 /** One file's text on the default branch; undefined when there's none (or it's a folder, or too big). */
-export async function loadFile(ghe: Ghe, repo: string, path: string): Promise<string | undefined> {
+export async function loadFile(ghe: Ghe, repo: string, path: string, at?: string): Promise<string | undefined> {
   let j: { type?: string; encoding?: string; content?: string; size?: number };
   try {
-    j = await ghe.rest(`/repos/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`);
+    j = await ghe.rest(`/repos/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}${at ? `?ref=${at}` : ""}`);
   } catch (e) {
     if (/: 404 /.test(String((e as Error)?.message ?? e))) return undefined;
     throw e;
@@ -115,12 +115,15 @@ export function d1Reads(db: D1, now: () => number = Date.now): SharedReads {
   };
 }
 
+/** A full commit SHA, the only ref a pack reads a file at. */
+const SHA = /^[0-9a-fA-F]{40}$/;
+
 /** The longest a pack may take an every-repo read to be. */
 export const MAX_AGE = 24 * 3600_000;
 
 type Source = {
   repos?(owners: string): Promise<string[]>;
-  file?(repo: string, path: string): Promise<string | undefined>;
+  file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
 };
 
@@ -162,11 +165,14 @@ export function packReads(f: Source, owners: () => string, o: { ttlMs?: number; 
     ...(f.repos ? { repos: async () => (await cached(`repos:${owners()}`, () => f.repos!(owners()))).value } : {}),
     ...(f.file
       ? {
-          file: async (repo: string, path: string) => {
+          file: async (repo: string, path: string, at?: string) => {
             const r = ownedRepo(owners(), repo);
             const p = repoPath(path);
             if (!r || !p) throw new Error(`Not a file in your repos: ${String(repo).slice(0, 100)}/${String(path).slice(0, 100)}`);
-            return (await cached(`file:${r.toLowerCase()}:${p}`, () => f.file!(r, p))).value;
+            if (at !== undefined && !SHA.test(at)) throw new Error("Not a commit: a full SHA (40 hex)");
+            const sha = at?.toLowerCase();
+            // A file at a commit never changes: kept as long as the cache keeps anything.
+            return (await cached(`file:${r.toLowerCase()}:${p}${sha ? `@${sha}` : ""}`, () => f.file!(r, p, sha), sha ? MAX_AGE : undefined)).value;
           },
         }
       : {}),
