@@ -3,8 +3,9 @@
  * changed, over Server-Sent Events (GET /events). A page then swaps its live regions in place
  * (src/ui/app.js.ts); nothing reloads.
  *
- * Topics: "snapshot" (anything on the pages), "run:<sessionId>" (an agent turn running here), and
- * each pack's id. The refresher gathers everything every `remoteMs` (GHE) and publishes only when
+ * Topics: "snapshot" (anything on the pages), "run:<sessionId>" (an agent turn running here),
+ * "bino" and "bino:<id>" (Bino's conversations), "bino-draft:<id>" (an answer being written grew: the
+ * page fetches only that answer, GET /bino/c/<id>/draft, not itself), and each pack's id. The refresher gathers everything every `remoteMs` (GHE) and publishes only when
  * what the pages show actually changed. What's on this machine (agents' sessions, worktrees) the
  * agents pack reads and publishes itself (src/packs/core/agents/here.ts).
  */

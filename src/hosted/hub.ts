@@ -389,7 +389,7 @@ export class DovreHub {
         // Hosted, the Worker always sends what Bino knows with the message.
         context: async (_c, given) => given ?? "",
         onChange: (c) => this.publish([`bino:${c.id}`, "bino"]),
-        onDraft: (c) => this.publish([`bino:${c.id}`]),
+        onDraft: (c) => this.publish([`bino-draft:${c.id}`]),
         log: (l) => console.log(l),
       });
     })();

@@ -252,7 +252,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           log: binoDeps.log,
           context: async (_c, given) => given ?? binoContext(),
           onChange: (c) => deps.hub?.publish([`bino:${c.id}`, "bino"]),
-          onDraft: (c) => deps.hub?.publish([`bino:${c.id}`]),
+          onDraft: (c) => deps.hub?.publish([`bino-draft:${c.id}`]),
           kinds: () => packActs(),
           lookups: { specs: () => packLookups(), run: (l) => runLookup(l) },
         })

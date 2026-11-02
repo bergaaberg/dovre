@@ -558,7 +558,8 @@ function motion(region, copy) {
   }
   const counts = badges(region);
   for (const [k, b] of badges(copy)) if (counts.get(k)?.textContent !== b.textContent) b.classList.add("bump");
-  const going = outermost([...before].filter(([k]) => k && !after.has(k)).map(([, el]) => el)).filter((el) => !el.closest(".live"));
+  // Bino's answer so far (#bino-draft) doesn't leave: the finished answer takes its place.
+  const going = outermost([...before].filter(([k]) => k && !after.has(k)).map(([, el]) => el)).filter((el) => !el.closest(".live") && el.id !== "bino-draft");
   return going.length <= 8 ? going : [];
 }
 
@@ -671,6 +672,7 @@ function onChange(c) {
   dockChange(topics);
   // For the packs' scripts (Pack.script), which hear it through dovreOn (src/ui/on.js.ts).
   document.dispatchEvent(new CustomEvent("dovre:change", { detail: c }));
+  draftNote(topics);
   if (topics.some((t) => wanted.includes(t)) || document.querySelector("[data-pending]")) later(topics.some((t) => t.startsWith("run:") || t.startsWith("bino:")) ? 120 : 300);
 }
 // Hosted (H5): the hub's socket, which lets the hub sleep while the tab is idle. Its keep-alive
@@ -1643,6 +1645,11 @@ async function postInPlace(e, form) {
     if (!(res.headers.get("content-type") || "").startsWith("text/html")) throw new Error(String(res.status));
     // Refused (the demo's read-only page, a conversation that's gone): what the server says, here.
     takePage(new DOMParser().parseFromString(await res.text(), "text/html"), res);
+    // Still on screen (the same page took only its regions): ready for the next one.
+    if (form.isConnected) {
+      delete form.dataset.posting;
+      if (b) { b.disabled = false; b.classList.remove("busy"); }
+    }
     const f = followEl();
     if (f) toLatest(f, {});
     if (box && !matchMedia("(pointer: coarse)").matches) document.querySelector("form[data-chat] textarea")?.focus({ preventScroll: true });
@@ -1654,9 +1661,20 @@ async function postInPlace(e, form) {
     flash(box ? "Couldn't send: your message is back in the box" : "That didn't go through: try again");
   }
 }
-/** The page the server answered with, in place of this one: as a moved page swaps (above). */
+/** The page the server answered with, in place of this one: as a moved page swaps (above). The same
+ * page again (a message in this conversation) swaps only its live regions, so the box, the header and
+ * the scroll stay as they are. */
 function takePage(next, res) {
   const to = new URL(res.url);
+  if (to.origin === location.origin && to.pathname === location.pathname && sameRegions(next)) {
+    for (const region of document.querySelectorAll("[data-live][id]")) {
+      const copy = document.importNode(next.getElementById(region.id), true);
+      region.replaceWith(copy);
+      enhance(copy);
+    }
+    wanted = topicsOf(next);
+    return;
+  }
   if (res.redirected && to.origin === location.origin && to.pathname !== location.pathname) {
     history.replaceState(null, "", to.pathname + to.search);
     const d = framed && DOCKS.find((x) => location.pathname.startsWith(x.home));
@@ -1674,6 +1692,54 @@ function takePage(next, res) {
   const t = next.querySelector("title");
   if (t) document.title = t.textContent;
 }
+/** Whether the answer has every live region this page has (else the page changed shape: swap it whole). */
+const sameRegions = (next) => {
+  const ids = [...document.querySelectorAll("[data-live][id]")].map((r) => r.id);
+  return ids.length > 0 && ids.every((id) => next.getElementById(id));
+};
+
+// ── While Bino writes (topic bino-draft:<id>): only its answer so far and the Stop line are fetched
+// (GET /bino/c/<id>/draft) and swapped, not the whole page. One fetch at a time, the newest wins. ──
+let draftBusy = false, draftAgain = false;
+function draftNote(topics) {
+  const t = topics.find((x) => x.startsWith("bino-draft:") && wanted.includes("bino:" + x.slice(11)));
+  if (t) draftSwap(t.slice(11));
+}
+async function draftSwap(id) {
+  if (draftBusy) { draftAgain = true; return; }
+  draftBusy = true;
+  try {
+    const res = await fetch("/bino/c/" + encodeURIComponent(id) + "/draft" + (framed ? "?dock=1" : ""), { credentials: "same-origin", cache: "no-store" });
+    const text = res.ok ? await res.text() : "";
+    const doc = new DOMParser().parseFromString("<ol>" + text + "</ol>", "text/html");
+    const item = doc.getElementById("bino-draft");
+    const status = doc.getElementById("bino-status");
+    const list = followEl();
+    // Done already, or not this page's shape: the whole page catches up.
+    if (!status || !list) { later(0); return; }
+    const followed = followState();
+    const had = $("bino-draft");
+    if (item) {
+      const el = document.importNode(item, true);
+      if (had) had.replaceWith(el);
+      else {
+        for (const p of list.querySelectorAll(".bino-msg.pending")) p.classList.remove("pending");
+        list.append(el);
+      }
+      enhance(el);
+    }
+    const line = document.querySelector("#bino-status, .bino-thinking");
+    const st = document.importNode(status, true);
+    if (line) line.replaceWith(st);
+    else list.after(st);
+    followAfter(followed);
+  } catch {
+  } finally {
+    draftBusy = false;
+    if (draftAgain) { draftAgain = false; draftSwap(id); }
+  }
+}
+
 /** What I just sent, dimmed at the end of the conversation (a new one: where it will be), and Bino's dots under it. */
 function chatPending(form, text) {
   let list = followEl();
@@ -2020,6 +2086,7 @@ if (framed) {
   addEventListener("u-change", (e) => {
     lastEvent = Date.now();
     const topics = Array.isArray(e.detail) ? e.detail : [];
+    draftNote(topics);
     if (topics.some((t) => wanted.includes(t))) later(150);
   });
   document.addEventListener("click", (e) => {
