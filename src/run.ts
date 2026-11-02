@@ -22,6 +22,7 @@ import { createHub } from "./live.ts";
 import { systemOpener } from "./open-link.ts";
 import { noMemory } from "./packs/core/assistant/bino/memory.ts";
 import { routeOf } from "./packs/core/assistant/bino/route.ts";
+import { apiCompare } from "./packs/api.ts";
 import { resolvePacksRepo } from "./packs/cli.ts";
 import { activePacks } from "./packs/registry.ts";
 import type { Pack } from "./packs/types.ts";
@@ -81,6 +82,8 @@ async function main(args: string[]) {
   const dir = checkout ? resolve(checkout) : undefined;
   if (dir && !(existsSync(dir) && statSync(dir).isDirectory())) throw new Error(`${checkout} isn't a folder`);
 
+  // Before API 1.7 a pack lists the code folder itself, so it sees the checkout's neighbours too.
+  if (dir && apiCompare(pack.manifest.api, "1.7") < 0) console.warn(`${id} is on pack API ${String(pack.manifest.api)}: it may see every checkout beside ${basename(dir)}, not only it`);
   const token = randomBytes(24).toString("base64url");
   const db = openDb();
   const env = { LAUNCH_TOKEN: token, CODE_DIR: dir ? dirname(dir) : "", CLAUDE_DIR: "", GHE_HOST: "github.com", GHE_ORG: "", DB: db.DB } as Env;
@@ -96,7 +99,7 @@ async function main(args: string[]) {
     hub: createHub(),
     bino: { route: routeOf({ via: "off" }), memory: noMemory("off in a pack session") },
     packs: { ...packs, env: settings },
-    session: { pack: id },
+    session: { pack: id, checkout: dir ? basename(dir) : "" },
   });
   const start = firstPage(pack);
   // / goes to the pack (createApp's session gate answers 404 for every other core page).

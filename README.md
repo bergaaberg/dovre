@@ -69,7 +69,7 @@ One pack on its own, in a throw-away session (prototype, [#353](https://github.c
 node src/run.ts http ../my-repo   # the pack's pages only, on a random port; Ctrl+C and it's gone
 ```
 
-The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack's settings come from the shell's environment (only the keys its manifest names).
+The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack sees only the checkout it was started on (packs on API 1.7 and up). The pack's settings come from the shell's environment (only the keys its manifest names).
 
 ## Topo
 
