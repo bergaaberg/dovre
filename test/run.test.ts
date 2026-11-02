@@ -7,7 +7,7 @@ import { html } from "hono/html";
 import { checkoutIn, checkoutsIn } from "../src/packs/checkouts.ts";
 import { sessionPath } from "../src/app.ts";
 import { assertInert, HOSTILE, packApp } from "../src/packs/testing.ts";
-import { firstPage, packIn, settingsOf } from "../src/run.ts";
+import { argsOf, firstPage, flagsOf, packIn, settingsOf } from "../src/run.ts";
 import type { Pack } from "../src/packs/types.ts";
 
 const pack = { manifest: { id: "http", name: "HTTP", settings: [{ key: "HTTP_ENVS", label: "x" }] }, nav: () => [{ href: "/http/quick", title: "HTTP" }] } as unknown as Pack;
@@ -23,8 +23,25 @@ test("firstPage is the first nav entry, and never another site", () => {
   assert.equal(firstPage({ ...pack, nav: () => { throw new Error("x"); } } as unknown as Pack), "/http");
 });
 
-test("settingsOf takes only the pack's own keys from the environment", () => {
-  assert.deepEqual(settingsOf(pack, { HTTP_ENVS: "{}", GHE_TOKEN: "secret" }), { HTTP_ENVS: "{}" });
+test("settingsOf takes only the pack's own keys: --set, then the environment, then the local instance", () => {
+  assert.deepEqual(settingsOf(pack, { env: { HTTP_ENVS: "{}", GHE_TOKEN: "secret" } }), { values: { HTTP_ENVS: "{}" }, from: { HTTP_ENVS: "environment" } });
+  assert.deepEqual(settingsOf(pack, { env: {}, instance: { HTTP_ENVS: "i", GHE_TOKEN: "t" } }), { values: { HTTP_ENVS: "i" }, from: { HTTP_ENVS: "local instance" } });
+  assert.deepEqual(settingsOf(pack, { flags: { HTTP_ENVS: "f" }, env: { HTTP_ENVS: "e" }, instance: { HTTP_ENVS: "i" } }).from, { HTTP_ENVS: "--set" });
+  assert.deepEqual(settingsOf(pack, { env: { HTTP_ENVS: " " }, instance: { HTTP_ENVS: "i" } }).values, { HTTP_ENVS: "i" });
+});
+
+test("argsOf reads the pack, the checkout and each --set", () => {
+  assert.deepEqual(argsOf(["http", "--set", "A=1", "repo", "--set=B=x=y"]), { id: "http", checkout: "repo", sets: [["A", "1"], ["B", "x=y"]] });
+  assert.throws(() => argsOf(["http", "--set", "novalue"]), /KEY=value/);
+  assert.throws(() => argsOf(["http", "--set"]), /KEY=value/);
+  assert.throws(() => argsOf(["http", "--verbose"]), /unknown option/);
+});
+
+test("flagsOf takes the pack's own keys, and never a secret on the command line", () => {
+  const p = { manifest: { id: "x", settings: [{ key: "URL", label: "u" }, { key: "TOKEN", label: "t", secret: true }] } } as unknown as Pack;
+  assert.deepEqual(flagsOf(p, [["URL", "https://a"]]), { URL: "https://a" });
+  assert.throws(() => flagsOf(p, [["TOKEN", "s3cret"]]), /secret/);
+  assert.throws(() => flagsOf(p, [["GHE_TOKEN", "s"]]), /no setting GHE_TOKEN/);
 });
 
 
@@ -53,6 +70,42 @@ test("a session serves the pack in a shell without the cockpit, and 404s the coc
   assert.ok(!page.includes('action="/refresh"'));
   for (const p of ["/prs", "/settings", "/packs", "/bino", "/code", "/todo", "/search"]) assert.equal((await get(p)).status, 404, p);
   assert.equal((await post("/refresh", {})).status, 404);
+});
+
+const needy = (name: string) => ({ ...tool(name), manifest: { ...tool(name).manifest, settings: [{ key: "TOOL_URL", label: "Its address", required: true }, { key: "TOOL_KEY", label: "Its key", secret: true }] } }) as Pack;
+
+test("a session waiting for a setting: its Settings page, kept in memory, then the pack turns on", async () => {
+  const env: Record<string, string> = {};
+  const { get, post } = packApp([needy("Tool")], { session: { pack: "tool" }, env });
+  assert.equal((await get("/tool")).status, 404);
+  const page = await (await get("/settings/packs/tool")).text();
+  assert.match(page, /TOOL_URL isn&#39;t set/);
+  assert.match(page, /for this session only/);
+  assert.match(page, /action="\/packs\/tool\/settings"/);
+  assert.ok(!page.includes('href="/settings"'), "no other settings areas");
+  assert.ok(!page.includes('href="/packs'), "no Packs page link");
+  const saved = await post("/packs/tool/settings", { TOOL_URL: "https://tool.test", TOOL_KEY: "s3cret" });
+  assert.equal(saved.status, 303);
+  assert.equal(env.TOOL_URL, "https://tool.test");
+  assert.equal(env.TOOL_KEY, "s3cret");
+  assert.equal((await get("/tool")).status, 200);
+  const after = await (await get("/settings/packs/tool")).text();
+  assert.ok(!after.includes("s3cret"), "a secret isn't drawn back");
+  assert.match(after, /Saved/);
+  assert.match(await (await get("/tool")).text(), /href="\/settings\/packs\/tool"/);
+});
+
+test("a session's settings answer only for its pack, and only from this app's origin", async () => {
+  const { get, post } = packApp([needy("Tool")], { session: { pack: "tool" } });
+  for (const p of ["/settings/packs/other", "/settings/packs", "/settings", "/settings/writes"]) assert.equal((await get(p)).status, 404, p);
+  assert.equal((await post("/packs/other/settings", {})).status, 404);
+  assert.equal((await post("/packs/tool/switch", { on: "1" })).status, 404);
+  assert.notEqual((await post("/packs/tool/settings", { TOOL_URL: "x" }, { origin: "https://evil.example" })).status, 303);
+});
+
+test("a session's Settings page escapes the pack's name", async () => {
+  const { get } = packApp([needy(HOSTILE)], { session: { pack: "tool" } });
+  assertInert("session settings", await (await get("/settings/packs/tool")).text());
 });
 
 test("a session's shell escapes the pack's name", async () => {

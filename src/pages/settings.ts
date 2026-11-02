@@ -439,6 +439,14 @@ ${o.body}`;
   return shell({ title: `${o.title ?? a.title} · Settings · Dovre`, frame, current: "/settings", body });
 }
 
+/** A pack session's one Settings page (#369): the pack's settings, no other areas or crumbs. */
+export function sessionSettings(frame: Frame, o: { name: string; notes?: SettingsNotes; body: Html }) {
+  const body = html`${PageHeader({ title: "Settings", sub: `${o.name}, for this session only: nothing is written to disk, and it's gone when the session ends.` })}
+${notes(o.notes ?? {})}
+${o.body}`;
+  return shell({ title: `Settings · ${o.name}`, frame, current: "/settings", body });
+}
+
 /** /settings/packs: the packs that have settings, each to its own page. */
 export function packsList(packs: PackSettings[]): Html {
   return Panel({

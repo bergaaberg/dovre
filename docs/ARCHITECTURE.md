@@ -39,7 +39,10 @@ with `session: { pack }`. Only the pack's paths, `/login`, `/assets/*` and `/eve
 (`sessionPath`); the frame holds the pack's own menu entries and no Bino, docks or questions. The
 launch token is made for the session and the database is in memory. Started on a checkout,
 the code folder is its parent and `ctx.checkouts()` / `ctx.checkout()` hold only that one; a pack
-on an API before 1.7 lists the folder itself, and the session warns that it may see the rest.
+on an API before 1.7 lists the folder itself, and the session warns that it may see the rest. Its
+settings (#369) come from `--set`, the environment, then the core folder's `.dev.vars` (read only);
+`GET /settings/packs/<id>` and `POST /packs/<id>/settings` also answer in a session, without a
+`varsFile`, so what's saved there stays in `packs.env` and dies with the process.
 
 The public demo uses a third entry, `createDemoWorker` (`dovre/demo/worker.ts`), from its own
 repo. It has no secrets, no D1 (reads return nothing, writes are dropped), no Access and no
