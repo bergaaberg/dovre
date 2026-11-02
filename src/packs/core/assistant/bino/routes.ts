@@ -137,12 +137,22 @@ export function draftShown(t: string): string {
 
 /** The messages: grouped by speaker, a line with the time after a long quiet; while Bino writes, its answer so far. */
 function thread(c: Conv, target?: Todo, ax?: ActCtx): Html {
-  const draft = c.thinking && c.draft ? draftShown(c.draft) : "";
   return html`<ol class="bino-msgs" data-follow>${c.msgs.map((m, i) => {
     const prev = c.msgs[i - 1];
     const gap = prev && m.at - prev.at >= QUIET ? html`<li class="bino-gap" aria-hidden="true"><span data-at="${m.at}" data-ago title="${clockOf(m.at)} UTC">${clockOf(m.at)}</span></li>` : "";
     return html`${gap}${message(c, m, i, target, ax, prev)}`;
-  })}${draft ? html`<li class="bino-msg bino writing" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…</span></p><div class="bino-text">${markdown(draft)}</div></li>` : ""}</ol>`;
+  })}${draftItem(c)}</ol>`;
+}
+
+/** Bino's answer so far, while it writes (empty otherwise): the page swaps only this as it grows (GET /bino/c/:id/draft). */
+function draftItem(c: Conv): Html | "" {
+  const draft = c.thinking && c.draft ? draftShown(c.draft) : "";
+  return draft ? html`<li class="bino-msg bino writing" id="bino-draft" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…</span></p><div class="bino-text">${markdown(draft)}</div></li>` : "";
+}
+
+/** What the page swaps while Bino writes: the answer so far and the line with Stop. Nothing once it's done (the page then swaps whole). */
+export function draftFragment(c: Conv, dock: boolean): Html | "" {
+  return c.thinking ? html`${draftItem(c)}${answering(c, dock)}` : "";
 }
 
 /** The box Bino is talked to in: one field, the send button in its own footer. Enter sends, Shift+Enter is a new line, ↑ in an empty box brings back what I last sent (src/ui/app.js.ts). */
@@ -158,7 +168,9 @@ function answering(c: Conv, dock: boolean): Html {
   const asked = c.msgs.at(-1)?.role === "user";
   if (c.stopped && !c.thinking) return html`<div class="bino-after"><p class="notes">You stopped this answer. Ask again, or say something else.</p>${asked ? again : ""}</div>`;
   if (!c.thinking) return c.error && asked ? html`<div class="bino-after">${again}</div>` : html``;
-  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking" aria-live="polite" data-inplace>${dockField}<span class="typing" aria-hidden="true"><i></i><i></i><i></i></span> <span>${c.looking ? `Bino is looking up ${c.looking}…` : c.draft ? "Bino is writing…" : "Bino is thinking…"}</span> <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
+  // Once the answer shows, the dots go: the line keeps only Stop.
+  const writing = !c.looking && !!c.draft;
+  return html`<form method="post" action="/bino/c/${c.id}/stop" class="bino-thinking${writing ? " writing" : ""}" id="bino-status" aria-live="polite" data-inplace>${dockField}${writing ? "" : html`<span class="typing" aria-hidden="true"><i></i><i></i><i></i></span> `}<span>${c.looking ? `Bino is looking up ${c.looking}…` : writing ? "Writing…" : "Bino is thinking…"}</span> <button type="submit" class="ghost" data-bino-stop title="Stop (Esc or s)">Stop</button></form>`;
 }
 
 const cantAnswer = (b: Bino) => Notice({ tone: "warn", children: b.route.why ?? "Bino can't answer here." });
@@ -439,6 +451,13 @@ export function createBinoRoutes(env: Env, deps: {
     const form = await c.req.parseBody();
     await bino.retry(id, await known());
     return c.redirect(convHref(id, first(form.dock) === "1"), 303);
+  });
+  // While Bino writes: only the answer so far and its Stop line, for the open page to swap in (src/ui/app.js.ts draftSwap).
+  app.get("/bino/c/:id/draft", async (c) => {
+    const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
+    if (!conv) return c.body(null, 404);
+    c.header("cache-control", "no-store");
+    return c.html(draftFragment(conv, c.req.query("dock") === "1"));
   });
   app.get("/bino/dock", async (c) => c.html(await binoDockPage(bino, deps.assets)));
   app.get("/bino/dock/c/:id", async (c) => {

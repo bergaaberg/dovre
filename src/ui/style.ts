@@ -1095,6 +1095,7 @@ a.ref { font-family: var(--mono); font-size: .92em; }
 .bino-msg-f button:hover { color: var(--ink); }
 @media (hover: none) { .bino-msg-f { opacity: 1; } }
 .bino-thinking { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--ink-3); }
+.bino-thinking.writing { margin-top: 6px; font-size: var(--fs-s); }
 .bino-after { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
 .bino-after .notes { margin: 0; }
 /* Bino writing: three dots in a bubble. */

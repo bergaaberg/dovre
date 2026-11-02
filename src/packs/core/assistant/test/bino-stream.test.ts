@@ -154,12 +154,26 @@ test("the page shows the answer as it's written, inert, without Bino's blocks", 
   await until(w.wrote);
   for (const path of [at, `/bino/dock/c/${at.split("/").pop()}`]) {
     const page = await (await req(path)).text();
-    assert.match(page, /<li class="bino-msg bino writing" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…<\/span>/, path);
-    assert.match(page, /Bino is writing…/);
+    assert.match(page, /<li class="bino-msg bino writing" id="bino-draft" data-stop="2"><p class="bino-who">Bino <span class="t3">writing…<\/span>/, path);
+    assert.match(page, /<form method="post" action="\/bino\/c\/[0-9a-f-]{36}\/stop" class="bino-thinking writing" id="bino-status"/, "the dots go once it writes");
     assert.doesNotMatch(page, /SECRET-PLAN|bino-plan/);
     assertInert(path, page);
   }
+  // Only the answer so far and its Stop line, for the page to swap in: nothing of the page around them.
+  for (const dock of ["", "?dock=1"]) {
+    const path = `${at}/draft${dock}`;
+    const part = await (await req(path)).text();
+    assert.match(part, /^<li class="bino-msg bino writing" id="bino-draft"/, path);
+    assert.match(part, /Tenker på/, "the hostile text is there, escaped");
+    assert.match(part, /id="bino-status"/);
+    assert.equal(/name="dock" value="1"/.test(part), dock !== "", "Stop stays in the pane");
+    assert.doesNotMatch(part, /<html|<nav|SECRET-PLAN|bino-plan/);
+    assertInert(path, part);
+  }
+  assert.equal((await req("/bino/c/00000000-0000-4000-8000-000000000000/draft")).status, 404);
+  assert.equal((await req("/bino/c/not-an-id/draft")).status, 404);
   w.done();
   for (let i = 0; i < 100 && /bino-thinking/.test(await (await req(at)).text()); i++) await new Promise((r) => setTimeout(r, 10));
   assert.match(await (await req(at)).text(), /SECRET-PLAN|<li class="bino-msg bino" data-stop="2">/, "then the answer itself");
+  assert.equal(await (await req(`${at}/draft`)).text(), "", "done: nothing to swap, the page catches up whole");
 });
