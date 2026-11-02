@@ -306,13 +306,13 @@ ${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }), start, await binoSide(b, 
 /** In the pane: back to the conversation there, and the page I'm on, filled in as I send (src/ui/app.js.ts). */
 const DOCK_FIELD = html`<input type="hidden" name="dock" value="1"><input type="hidden" name="view" value="" data-view>`;
 
-/** The pane's header: the conversation's title, the other recent ones, a new one, out to the full page, and minimise. */
+/** The pane's header: the conversation's title, the other recent ones, a new one, bigger or smaller, out to the full page, and minimise. */
 function dockBar(title: string, o: { full: string; fresh?: boolean; others?: Conv[] }): Html {
   const others = o.others ?? [];
   const recent = others.length
     ? html`<details class="dock-recent"><summary class="dock-i" title="Other chats" aria-label="Other chats">▾</summary><ul class="dock-menu">${others.map((x) => html`<li><a href="/bino/dock/c/${x.id}"><span class="bino-conv-t">${x.title}</span><span class="t3">${Ago(x.at)}${x.thinking ? " · thinking" : ""}</span></a></li>`)}</ul></details>`
     : "";
-  return html`<header class="dock-h"><h1 title="${title}">${title}</h1>${recent}${o.fresh ? html`<a class="dock-i" href="/bino/dock" title="New chat" aria-label="New chat">+</a>` : ""}<a class="dock-l" href="${o.full}" target="_top" title="Open as a page">Page ↗</a><button type="button" class="dock-i ghost" data-dock-close title="Minimise (Esc)" aria-label="Minimise">–</button></header>`;
+  return html`<header class="dock-h"><h1 title="${title}">${title}</h1>${recent}${o.fresh ? html`<a class="dock-i" href="/bino/dock" title="New chat" aria-label="New chat">+</a>` : ""}<button type="button" class="dock-i ghost" data-dock-wide title="Bigger or smaller" aria-label="Bigger or smaller">⤢</button><a class="dock-i" href="${o.full}" target="_top" title="Open as a page" aria-label="Open as a page">↗</a><button type="button" class="dock-i ghost" data-dock-close title="Minimise (Esc)" aria-label="Minimise">–</button></header>`;
 }
 
 /** The pane's first view: the last few conversations, and the box to ask in (about the page I'm on, or anything) at the bottom. */

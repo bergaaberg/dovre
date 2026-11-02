@@ -2041,6 +2041,56 @@ function dockSave(d, change) {
   try { sessionStorage.setItem(d.key, JSON.stringify({ ...dockState(d), ...change })); } catch {}
 }
 const dockFrame = (d) => $(d.id + "-panel")?.querySelector("iframe");
+/** How big the docks are, on this browser: the corner dragged to a size, or wide (the pane's ⤢). */
+const DOCK_SIZE = "u-dock-size";
+function dockSize() {
+  try { return JSON.parse(localStorage.getItem(DOCK_SIZE) || "{}") || {}; } catch { return {}; }
+}
+function dockSizeSave(s) {
+  try { localStorage.setItem(DOCK_SIZE, JSON.stringify(s)); } catch {}
+  dockSizeShow();
+}
+function dockSizeShow() {
+  const s = dockSize();
+  for (const d of DOCKS) {
+    const panel = $(d.id + "-panel");
+    if (!panel) continue;
+    $(d.id)?.classList.toggle("wide", !!s.wide);
+    for (const [k, v] of [["--dock-w", s.w], ["--dock-h", s.h]]) v ? panel.style.setProperty(k, Math.round(v) + "px") : panel.style.removeProperty(k);
+  }
+}
+/** The panel's top-left corner: drag it to resize (the panel stays put at the bottom right); a double click sets it back. */
+function dockGrip(d, panel) {
+  const grip = document.createElement("div");
+  grip.className = "tdock-grip";
+  grip.title = "Drag to resize · double-click for the usual size";
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    const r = panel.getBoundingClientRect();
+    const from = { x: e.clientX, y: e.clientY, w: r.width, h: r.height };
+    $(d.id)?.classList.add("resizing");
+    const move = (m) => {
+      const w = Math.max(320, Math.min(innerWidth - 36, from.w + from.x - m.clientX));
+      const h = Math.max(320, Math.min(innerHeight - 96, from.h + from.y - m.clientY));
+      $(d.id)?.classList.remove("wide");
+      panel.style.setProperty("--dock-w", Math.round(w) + "px");
+      panel.style.setProperty("--dock-h", Math.round(h) + "px");
+    };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      $(d.id)?.classList.remove("resizing");
+      const now = panel.getBoundingClientRect();
+      dockSizeSave({ w: now.width, h: now.height });
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up, { once: true });
+    grip.addEventListener("pointercancel", up, { once: true });
+  });
+  grip.addEventListener("dblclick", () => dockSizeSave({}));
+  return grip;
+}
 const dockIsOpen = (d) => !framed && !!$(d.id + "-panel") && !$(d.id + "-panel").hidden;
 const openDock = () => DOCKS.find(dockIsOpen);
 /** Into a dock: its writing box when it has one, else the frame. */
@@ -2067,7 +2117,7 @@ function dockOpen(d, open, focus) {
     const src = dockState(d).src || "";
     frame.src = d.ok.test(src) ? src : d.home;
     if (focus) frame.addEventListener("load", () => dockFocus(frame), { once: true });
-    panel.append(frame);
+    panel.append(dockGrip(d, panel), frame);
   } else if (open && panel.hidden && frame) {
     // It missed what changed while it was closed.
     try { frame.contentWindow.dispatchEvent(new CustomEvent("u-change", { detail: ["snapshot", "bino", ...(d.topic ? [d.topic] : [])] })); } catch {}
@@ -2110,6 +2160,7 @@ if (framed) {
   });
   document.addEventListener("click", (e) => {
     if (e.target.closest?.("[data-dock-close]")) return dockOpen(mine, false, true);
+    if (e.target.closest?.("[data-dock-wide]")) return parent.postMessage({ dock: "wide" }, location.origin);
     // Out to a full page: the dock closes behind it.
     if (mine && e.target.closest?.('a[target="_top"]')) dockSave(mine, { open: false });
   });
@@ -2133,9 +2184,12 @@ if (framed) {
     const from = DOCKS.find((x) => e.source === dockFrame(x)?.contentWindow);
     if (!from) return;
     if (e.data?.dock === "close") dockOpen(from, false, true);
+    // Bigger or smaller: wide, or back to the size it had.
+    else if (e.data?.dock === "wide") dockSizeSave({ ...dockSize(), wide: !dockSize().wide });
     // Its own key from inside a dock closes it; another dock's opens that one.
     else if (e.data?.dock === "key" && DOCK_KEYS[e.data.key]) DOCK_KEYS[e.data.key] === from.id ? dockOpen(from, false, true) : dockKey(e.data.key);
   });
+  dockSizeShow();
   dockRestore();
 }
 
