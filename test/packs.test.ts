@@ -868,6 +868,7 @@ test("script and pulse: each pack's script in a file of its own after the core's
   assert.match(await (await get(other)).text(), /^\/\/ busy\ntry \{\nconst dovreFiles = Object\.freeze\(\{\}\);\nlet n = 1;\n\}/, "a syntax error in one stops only its own file");
   assert.doesNotMatch(page, /assets\/pack\.loud\./);
   assert.match(await (await get("/glow/dock")).text(), new RegExp(`<script type="module" src="${src.replace(/\./g, "\\.")}">`), "dock pages too");
+  assert.match(await (await get("/bino/dock")).text(), new RegExp(`<script type="module" src="${src.replace(/\./g, "\\.")}">`), "and Bino's pane, so a pack draws in its answers");
   assert.deepEqual(await (await get("/glow/pulse")).json(), { working: 1, asking: 2, trouble: [{ level: "storm", why: "1 red signal" }], busy: true });
   assert.deepEqual(seen.at(-1), { working: 0, asking: 0, trouble: [], busy: false }, "a pack reading the pulse from its own pulse gets nothing back");
   assert.doesNotMatch(await (await signedIn(snapshot(), {}, { packs: [pack({ id: "plain" })] }).get("/prs")).text(), /assets\/pack\.[^"]+\.js/, "no pack script: none linked");

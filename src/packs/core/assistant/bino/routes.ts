@@ -298,7 +298,10 @@ function dockBar(title: string, o: { full: string; fresh?: boolean; others?: Con
 }
 
 /** The pane's first view: the last few conversations, and the box to ask in (about the page I'm on, or anything) at the bottom. */
-export async function binoDockPage(b: Bino): Promise<Html> {
+/** The packs' stylesheet and scripts, for a pane to draw what a pack draws on a page (math, diagrams in an answer). */
+export type DockAssets = { styles?: string[]; scripts?: string[] };
+
+export async function binoDockPage(b: Bino, assets: DockAssets = {}): Promise<Html> {
   const convs = (await b.list()).slice(0, 8);
   const body = html`${dockBar("Bino", { full: "/bino" })}
 <div class="dock-b" id="dock-scroll"><div data-live id="bino-list">${
@@ -307,17 +310,17 @@ export async function binoDockPage(b: Bino): Promise<Html> {
       : html`<p class="notes">Ask about the page you're on, or anything. Bino sees names and states, and changes nothing by itself.</p>`
   }</div></div>
 ${b.route.ready ? composer({ action: "/bino/new", label: "Ask Bino", placeholder: "Ask about this page, or anything", button: "Ask", busy: "Asking", dock: true }) : html`<div class="dock-b">${cantAnswer(b)}</div>`}`;
-  return dockShell({ title: "Bino", body, head: html`<meta name="u-topics" content="bino">` });
+  return dockShell({ title: "Bino", body, head: html`<meta name="u-topics" content="bino">`, ...assets });
 }
 
 /** One conversation in the pane: the thread scrolls, the box stays at the bottom. */
-export function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = []): Html {
+export function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = [], assets: DockAssets = {}): Html {
   const body = html`${dockBar(c.title, { fresh: true, full: `/bino/c/${c.id}`, others })}
 <div class="dock-b" id="dock-scroll"><div data-live id="bino-conv">${thread(c, target, ax)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
 ${answering(c, true)}</div></div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask about this page", button: "Send", busy: "Sending", dock: true }) : cantAnswer(b)}`;
-  return dockShell({ title: `${c.title} · Bino`, body, head: html`<meta name="u-topics" content="bino:${c.id}">` });
+  return dockShell({ title: `${c.title} · Bino`, body, head: html`<meta name="u-topics" content="bino:${c.id}">`, ...assets });
 }
 
 const first = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v) ? (v.find((x) => typeof x === "string") ?? "") : "");
@@ -347,6 +350,8 @@ export function createBinoRoutes(env: Env, deps: {
   apps?: () => ViewApp[];
   /** A pack's act by its kind, when that pack is on. */
   packAct?: (kind: string) => PackAct | undefined;
+  /** The packs' stylesheet and scripts, which the pane loads like a pack's dock page. */
+  assets?: DockAssets;
 }): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const { bino } = deps;
@@ -435,13 +440,13 @@ export function createBinoRoutes(env: Env, deps: {
     await bino.retry(id, await known());
     return c.redirect(convHref(id, first(form.dock) === "1"), 303);
   });
-  app.get("/bino/dock", async (c) => c.html(await binoDockPage(bino)));
+  app.get("/bino/dock", async (c) => c.html(await binoDockPage(bino, deps.assets)));
   app.get("/bino/dock/c/:id", async (c) => {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.redirect("/bino/dock", 303);
     const target = conv.todo !== undefined ? await getTodo(db, conv.todo) : undefined;
     const others = (await bino.list()).filter((x) => x.id !== conv.id).slice(0, 8);
-    return c.html(binoDockConvPage(bino, conv, ax(true), target, others));
+    return c.html(binoDockConvPage(bino, conv, ax(true), target, others, deps.assets));
   });
   /** The card's "Add these to my list": exactly what its form says, once. */
   app.post("/bino/c/:id/plan/:i", async (c) => {

@@ -1569,6 +1569,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         hub: deps.hub,
         peek: () => gatherer.peek(),
         packAct: (kind) => packActs().find((k) => k.kind === kind),
+        assets: { styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts },
         // The object hosted has no packs or list of its own: what Bino knows goes with each message.
         context: engine ? undefined : binoContext,
         apps: () =>
