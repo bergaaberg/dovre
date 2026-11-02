@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.6")
+   src/packs/types.ts     the contract (PACK_API = "1.7")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -37,7 +37,9 @@ Both put core's packs first, then the instance's, and pass the list to `activePa
 A pack session (`src/run.ts`, #353) is a fourth entry: one pack from dovre-packs, on `createApp`
 with `session: { pack }`. Only the pack's paths, `/login`, `/assets/*` and `/events` answer
 (`sessionPath`); the frame holds the pack's own menu entries and no Bino, docks or questions. The
-launch token is made for the session and the database is in memory.
+launch token is made for the session and the database is in memory. Started on a checkout,
+the code folder is its parent and `ctx.checkouts()` / `ctx.checkout()` hold only that one; a pack
+on an API before 1.7 lists the folder itself, and the session warns that it may see the rest.
 
 The public demo uses a third entry, `createDemoWorker` (`dovre/demo/worker.ts`), from its own
 repo. It has no secrets, no D1 (reads return nothing, writes are dropped), no Access and no
@@ -258,6 +260,8 @@ Also:
   | 1.3 | A `Pack.files` script can carry WebAssembly (`wasm: true`) (#356) |
   | 1.4 | Closed fences in core Markdown name their language (`data-lang`); pack scripts get `dovreFiles` (#357) |
   | 1.5 | Math in core Markdown is marked for a pack to draw (`code[data-tex]`, `pre.code[data-lang=math]`) (#358) |
+  | 1.6 | `manifest.version`, a pack's own release, on the Packs page (#364) |
+  | 1.7 | `ctx.checkouts()` and `ctx.checkout(name)`: the git repos directly under the code folder, narrowed to one in a pack session (#368) |
 
 ## Open questions
 

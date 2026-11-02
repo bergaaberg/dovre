@@ -22,7 +22,7 @@ import type { Answer } from "../relay/asks.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.6";
+export const PACK_API = "1.7";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -249,6 +249,10 @@ export type PackContext = {
   hosted: boolean;
   /** Local: the folder the checkouts are in (CODE_DIR), read-only. Unset hosted. */
   codeDir?: string;
+  /** Local (API 1.7): the checkouts' names, git repos directly under codeDir (no symlinks). In a pack session, only its one checkout. */
+  checkouts?(): string[];
+  /** Local (API 1.7): a checkout's folder by name, or null when it isn't one of `checkouts()`. */
+  checkout?(name: unknown): string | null;
   /** Dovre's own database. */
   db: D1;
   /** Tell open pages these data-live regions changed (src/live.ts). Today listens to "snapshot" and each pack's id. */

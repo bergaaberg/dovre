@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { html } from "hono/html";
+import { checkoutIn, checkoutsIn } from "../src/packs/checkouts.ts";
 import { sessionPath } from "../src/app.ts";
 import { assertInert, HOSTILE, packApp } from "../src/packs/testing.ts";
 import { firstPage, packIn, settingsOf } from "../src/run.ts";
@@ -39,7 +43,7 @@ test("sessionPath: the pack's own paths, sign-in, assets and events; nothing els
 });
 
 test("a session serves the pack in a shell without the cockpit, and 404s the cockpit's pages", async () => {
-  const { get, post } = packApp([tool("Tool")], { session: "tool" });
+  const { get, post } = packApp([tool("Tool")], { session: { pack: "tool" } });
   const res = await get("/tool");
   assert.equal(res.status, 200);
   const page = await res.text();
@@ -52,6 +56,40 @@ test("a session serves the pack in a shell without the cockpit, and 404s the coc
 });
 
 test("a session's shell escapes the pack's name", async () => {
-  const { get } = packApp([tool(HOSTILE)], { session: "tool" });
+  const { get } = packApp([tool(HOSTILE)], { session: { pack: "tool" } });
   assertInert("session shell", await (await get("/tool")).text());
+});
+
+/** A code folder with checkouts a and b, a folder without .git, and c, a symlink to a. */
+function codeFolder(): string {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-run-"));
+  for (const r of ["a", "b"]) mkdirSync(join(dir, r, ".git"), { recursive: true });
+  mkdirSync(join(dir, "plain"));
+  symlinkSync(join(dir, "a"), join(dir, "c"));
+  return dir;
+}
+
+test("checkouts: real git folders directly under the code folder; `only` narrows to one", (t) => {
+  const dir = codeFolder();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  assert.deepEqual(checkoutsIn(dir), ["a", "b"]);
+  assert.deepEqual(checkoutsIn(dir, "a"), ["a"]);
+  assert.deepEqual(checkoutsIn(dir, ""), []);
+  assert.equal(checkoutIn(dir, "a"), join(dir, "a"));
+  assert.equal(checkoutIn(dir, "b", "a"), null);
+  for (const bad of ["c", "plain", "..", ".", "../a", "a/b", "", 7, undefined]) assert.equal(checkoutIn(dir, bad), null, String(bad));
+  assert.deepEqual(checkoutsIn(join(dir, "nope")), []);
+});
+
+test("a session's packs see only its checkout through ctx", async (t) => {
+  const dir = codeFolder();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const lister = {
+    ...tool("Tool"),
+    routes(app, ctx) {
+      app.get("/tool", (c) => c.text(`${ctx.checkouts?.().join(",")}|${ctx.checkout?.("b") ?? "none"}`));
+    },
+  } as Pack;
+  assert.equal(await (await packApp([lister], { codeDir: dir, session: { pack: "tool", checkout: "a" } }).get("/tool")).text(), "a|none");
+  assert.equal(await (await packApp([lister], { codeDir: dir }).get("/tool")).text(), `a,b|${join(dir, "b")}`);
 });
