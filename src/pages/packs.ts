@@ -9,6 +9,10 @@ import type { Copy } from "../packs/copies.ts";
 import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago } from "./parts.ts";
+import { apiText, parseApi } from "../packs/api.ts";
+
+/** A pack's own version, as dovre-packs releases it (x.y.z). */
+const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 
 export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string> };
 
@@ -121,6 +125,7 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (o.why) pairs.push(["Off", o.why]);
   if (heldBy) pairs.push(["Off", `needs ${heldBy}, which is switched off here`]);
   else if (hidden) pairs.push(["Off", "switched off here"]);
+  if (typeof m?.version === "string" && SEMVER.test(m.version)) pairs.push(["Version", `${m.version} · needs core API ${apiText(parseApi(m.api) ?? { major: 0, minor: 0 })}`]);
   if (m) pairs.push(["Runs", `${WHERE[m.execution ?? "any"] ?? m.execution} · ${m.domain}${v.core?.includes(id) ? " · Dovre's own" : ""}`]);
   if (o.pack) {
     pairs.push(["Answers", hooksOf(o.pack).join(", ") || "nothing yet"]);

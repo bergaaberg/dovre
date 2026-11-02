@@ -102,12 +102,16 @@ test("Compare (#105): hostile text on both sides stays text, as lines and as JSO
 
 test("the Packs page keeps a pack's manifest and settings inert", async () => {
   const { PACK_API } = await import("../src/packs/types.ts");
-  const manifest = { api: PACK_API, id: "hostile", name: H, description: H, domain: "personal" as const, crons: [H], requiredBindings: [H], settings: [{ key: H, label: H, help: H }, { key: "K", label: H, secret: true }] };
+  const manifest = { api: PACK_API, id: "hostile", name: H, description: H, version: H, domain: "personal" as const, crons: [H], requiredBindings: [H], settings: [{ key: H, label: H, help: H }, { key: "K", label: H, secret: true }] };
   const off = { manifest: { ...manifest, id: "off-one", execution: "hosted-only" as const } };
-  const { get } = signedIn(snapshot(), {}, { packs: [{ manifest, refresh: async () => {}, scheduled: async () => {} }, off], packEnv: { [H]: H, K: H } });
+  const released = { manifest: { ...manifest, id: "released", version: "1.2.0", api: "1.4" } };
+  const { get } = signedIn(snapshot(), {}, { packs: [{ manifest, refresh: async () => {}, scheduled: async () => {} }, off, released], packEnv: { [H]: H, K: H } });
   const res = await get("/packs");
   assert.equal(res.status, 200);
-  assertInert("/packs", await res.text());
+  const out = await res.text();
+  assertInert("/packs", out);
+  assert.match(out, /1\.2\.0 · needs core API 1\.4/, "a released pack shows its version");
+  assert.equal(out.match(/needs core API/g)?.length, 1, "a version that isn't x.y.z isn't shown");
 });
 
 test("the Packs page keeps a copied pack's state, job output and Update inert; Update goes through the copies", async () => {

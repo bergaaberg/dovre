@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.5")
+   src/packs/types.ts     the contract (PACK_API = "1.6")
    src/packs/registry.ts  core's side of every hook
 ```
 
