@@ -7,16 +7,17 @@
  * The same doors as local mode: the launch-token cookie on a localhost Host header, and the exact
  * Origin on every write (createApp's own checks). createApp's `session` keeps the cockpit out: only
  * the pack's paths, sign-in, assets and the event stream answer, and the menu holds the pack's entries. A checkout given is the one repo the pack sees,
- * as a checkout directly under CODE_DIR.
+ * as a checkout directly under CODE_DIR. Its settings: see settingsOf; its Settings page keeps what's
+ * saved there in memory only (#369).
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
 import { openDb } from "./db.ts";
-import type { Env } from "./env.ts";
+import { type Env, parseVars } from "./env.ts";
 import type { Snapshot } from "./gather.ts";
 import { createHub } from "./live.ts";
 import { systemOpener } from "./open-link.ts";
@@ -46,10 +47,70 @@ export function firstPage(pack: Pack): string {
   return href && /^\/(?![/\\])[\w\-/?=&.%]*$/.test(href) ? href : `/${pack.manifest.id}`;
 }
 
-/** The pack's own settings from this shell's environment: only the keys its manifest names. */
-export function settingsOf(pack: Pack, from: Record<string, string | undefined>): Record<string, string> {
-  const keys = (pack.manifest.settings ?? []).map((s) => s.key);
-  return Object.fromEntries(keys.flatMap((k) => (from[k] ? [[k, from[k]!]] : [])));
+/** Where a session's setting came from (#369). */
+export type SettingSource = "--set" | "environment" | "local instance";
+
+/**
+ * The pack's own settings (only the keys its manifest names), first found wins: `--set` flags, this
+ * shell's environment, then the local instance's `.dev.vars` (read, never written). What's still
+ * missing can be set on the session's Settings page, in memory only.
+ */
+export function settingsOf(pack: Pack, o: { flags?: Record<string, string>; env: Record<string, string | undefined>; instance?: Record<string, string> }): { values: Record<string, string>; from: Record<string, SettingSource> } {
+  const values: Record<string, string> = {};
+  const from: Record<string, SettingSource> = {};
+  for (const { key } of pack.manifest.settings ?? []) {
+    for (const [src, vars] of [["--set", o.flags], ["environment", o.env], ["local instance", o.instance]] as const) {
+      const v = vars?.[key]?.trim();
+      if (v) {
+        values[key] = v;
+        from[key] = src;
+        break;
+      }
+    }
+  }
+  return { values, from };
+}
+
+/**
+ * The command line: `<pack> [checkout] [--set KEY=value]…`. A `--set` must name one of the pack's
+ * settings, and never a secret one: the command line lands in shell history.
+ */
+export function argsOf(args: string[]): { id?: string; checkout?: string; sets: [string, string][] } {
+  const rest: string[] = [];
+  const sets: [string, string][] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    const kv = a === "--set" ? (args[++i] ?? "") : a.startsWith("--set=") ? a.slice(6) : undefined;
+    if (kv === undefined) {
+      if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
+      rest.push(a);
+      continue;
+    }
+    const eq = kv.indexOf("=");
+    if (eq < 1) throw new Error("--set takes KEY=value");
+    sets.push([kv.slice(0, eq), kv.slice(eq + 1)]);
+  }
+  return { id: rest[0], checkout: rest[1], sets };
+}
+
+/** The `--set` pairs as settings, checked against the pack's manifest. */
+export function flagsOf(pack: Pack, sets: [string, string][]): Record<string, string> {
+  const settings = pack.manifest.settings ?? [];
+  for (const [k] of sets) {
+    const s = settings.find((x) => x.key === k);
+    if (!s) throw new Error(`${pack.manifest.id} has no setting ${k}${settings.length ? ` (it has ${settings.map((x) => x.key).join(", ")})` : ""}`);
+    if (s.secret) throw new Error(`${k} is a secret: not on the command line (shell history). Set it in the environment, or on the session's Settings page`);
+  }
+  return Object.fromEntries(sets);
+}
+
+/** The local instance's `.dev.vars` beside this core, if there is one. */
+function instanceVars(): Record<string, string> {
+  try {
+    return parseVars(readFileSync(join(dirname(import.meta.dirname), ".dev.vars"), "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 const EMPTY: Snapshot = {
@@ -67,9 +128,9 @@ const EMPTY: Snapshot = {
 };
 
 async function main(args: string[]) {
-  const [id, checkout] = args;
+  const { id, checkout, sets } = argsOf(args);
   if (!id || !ID.test(id)) {
-    console.log("dovre run <pack> [checkout]: one pack from dovre-packs, in a throw-away session");
+    console.log("dovre run <pack> [checkout] [--set KEY=value]…: one pack from dovre-packs, in a throw-away session");
     process.exit(id ? 1 : 0);
   }
   const repo = resolvePacksRepo();
@@ -87,9 +148,12 @@ async function main(args: string[]) {
   const token = randomBytes(24).toString("base64url");
   const db = openDb();
   const env = { LAUNCH_TOKEN: token, CODE_DIR: dir ? dirname(dir) : "", CLAUDE_DIR: "", GHE_HOST: "github.com", GHE_ORG: "", DB: db.DB } as Env;
-  const settings = settingsOf(pack, process.env);
+  const { values: settings, from } = settingsOf(pack, { flags: flagsOf(pack, sets), env: process.env, instance: instanceVars() });
   const packs = activePacks([pack], { env: settings, hosted: false, which });
-  if (!packs.on.length) throw new Error(`${id} is off here: ${packs.off.map((o) => o.why).join("; ")}`);
+  // Off only for a setting it lacks: it starts on its Settings page, and turns on once that's given there.
+  const waiting = !packs.on.length && packs.off.length === 1 && !!packs.off[0]!.pack && (pack.manifest.settings ?? []).some((s) => s.required && !settings[s.key]);
+  if (!packs.on.length && !waiting) throw new Error(`${id} is off here: ${packs.off.map((o) => o.why).join("; ")}`);
+  for (const [k, src] of Object.entries(from)) console.log(`${k}: from ${src === "local instance" ? "the local instance's .dev.vars" : src === "--set" ? "--set" : "the environment"}`);
 
   const ghe: Ghe = { host: "github.com", rest: () => Promise.reject(new Error("no GitHub in a pack session")), graphql: () => Promise.reject(new Error("no GitHub in a pack session")) };
   const gatherer = { get: async () => EMPTY, stale: () => {}, gathering: () => false, peek: () => EMPTY };
@@ -101,13 +165,13 @@ async function main(args: string[]) {
     packs: { ...packs, env: settings },
     session: { pack: id, checkout: dir ? basename(dir) : "" },
   });
-  const start = firstPage(pack);
+  const start = waiting ? `/settings/packs/${encodeURIComponent(id)}` : firstPage(pack);
   // / goes to the pack (createApp's session gate answers 404 for every other core page).
   const fetch = (req: Request) => (new URL(req.url).pathname === "/" ? Response.redirect(new URL(start, req.url), 302) : app.fetch(req));
 
   const server = serve({ fetch, hostname: "127.0.0.1", port: 0 }, (info) => {
     const url = `http://127.0.0.1:${info.port}/login?tk=${token}&next=${encodeURIComponent(start)}`;
-    console.log(`${pack.manifest.name}${dir ? ` on ${basename(dir)}` : ""}: ${url}\nCtrl+C ends the session; nothing is kept.`);
+    console.log(`${pack.manifest.name}${dir ? ` on ${basename(dir)}` : ""}: ${url}${waiting ? `\n${packs.off[0]!.why}: set it on the page that opens.` : ""}\nCtrl+C ends the session; nothing is kept.`);
     if (process.env.DOVRE_NO_OPEN !== "1") systemOpener()(url);
   });
   const end = () => {

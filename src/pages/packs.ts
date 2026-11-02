@@ -116,11 +116,11 @@ function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]
 export const manifestSettings = (m: PackManifest | undefined): PackSetting[] => (Array.isArray(m?.settings) ? m.settings.filter((s) => s && typeof s.key === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(s.key)) : []);
 
 /** Settings → Packs → a pack: its manifest's settings, set or missing, and (on a machine) the form that keeps them in `.dev.vars`. */
-export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean) {
+export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean, session = false) {
   return Panel({
     title: "Its settings",
     id: "manifest",
-    meta: hosted ? "set as the Worker's vars and secrets" : "kept in .dev.vars",
+    meta: hosted ? "set as the Worker's vars and secrets" : session ? "kept in memory for this session" : "kept in .dev.vars",
     children: html`${List(settings.map((s) => settingItem(s, env)))}${hosted ? "" : settingsForm(id, settings, env)}`,
   });
 }

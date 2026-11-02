@@ -56,7 +56,7 @@ import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
 import { agentViews, createReviewRoutes, type ReviewDeps } from "./pages/reviews.ts";
 import type { Kept } from "./issues/templates.ts";
-import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
+import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
 import { speedPanels } from "./pages/speed.ts";
 import { sentPanels, type SentView } from "./pages/sent.ts";
@@ -183,9 +183,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   // A pack session: every path but the pack's own, sign-in, assets and the event stream is a 404.
   if (deps.session) {
     const id = deps.session.pack;
-    const owned = [id, ...(deps.packs?.on.find((x) => x.manifest.id === id)?.manifest.paths ?? [])];
+    // Off until its settings are given (#369): its paths are still its own.
+    const manifest = deps.packs?.on.find((x) => x.manifest.id === id)?.manifest ?? deps.packs?.off.find((x) => x.id === id)?.manifest;
+    const owned = [id, ...(Array.isArray(manifest?.paths) ? manifest.paths : [])];
+    const own = encodeURIComponent(id);
     app.use(async (c, next) => {
-      if (!sessionPath(c.req.path, owned)) return c.notFound();
+      // Its settings page and the form it posts to (kept in memory, src/run.ts).
+      const settings = (c.req.method === "GET" && c.req.path === `/settings/packs/${own}`) || (c.req.method === "POST" && c.req.path === `/packs/${own}/settings`);
+      if (!settings && !sessionPath(c.req.path, owned)) return c.notFound();
       await next();
     });
   }
@@ -742,10 +747,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const binoOn = () => !!bino?.route.ready && !hidden("assistant");
   const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: binoOn(), stats: !off("stats"), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
-  const sessionPack = deps.session && packs.on.find((x) => x.manifest.id === deps.session!.pack);
+  // On or off: a pack waiting for its settings is still the session's (#369).
+  const sessionManifest = () => (deps.session ? (packs.on.find((x) => x.manifest.id === deps.session!.pack)?.manifest ?? packs.off.find((x) => x.id === deps.session!.pack)?.manifest) : undefined);
   const frameOf = (s: Snapshot, path = ""): Frame => {
     const f = fullFrame(s, path);
-    return sessionPack ? { ...f, nav: packNav(), bino: false, docks: [], asks: [], banners: [], session: { name: sessionPack.manifest.name, home: packNav()[0]?.href ?? `/${sessionPack.manifest.id}` } } : f;
+    const m = sessionManifest();
+    if (!m) return f;
+    const own = `/settings/packs/${encodeURIComponent(m.id)}`;
+    const on = packs.on.find((x) => x.manifest.id === m.id);
+    const nav = [...packNav(), ...(manifestSettings(m).length || on?.settings ? [{ href: own, title: "Settings", icon: "gear" as const }] : [])];
+    return { ...f, nav, bino: false, docks: [], asks: [], banners: [], session: { name: m.name, home: on ? (packNav()[0]?.href ?? `/${m.id}`) : own } };
   };
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
@@ -1446,6 +1457,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const writes = on ? writeKinds([on]).filter((w) => w.kind.startsWith(`${id}.`)).length : 0;
     const where = html`<p class="t2">${writes ? html`Its writes: <a href="/settings/writes">Settings → Writes</a>. ` : ""}On or off, its refreshes and why: <a href="/packs#pack-${encodeURIComponent(id)}">Packs</a>.</p>`;
     if (made) c.header("Cache-Control", "no-store");
+    if (deps.session) {
+      const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, true) : ""}`;
+      return c.html(sessionSettings(frame, { name: k.name, notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body }));
+    }
     const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted) : ""}${where}`;
     return c.html(settingsArea(frame, "packs", { areas: settingsAreas(), rows: await rowsNow(frame), notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body, title: k.name, crumbs: [{ href: "/settings/packs", label: "Packs" }] }));
   };

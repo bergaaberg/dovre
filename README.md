@@ -67,9 +67,10 @@ One pack on its own, in a throw-away session (prototype, [#353](https://github.c
 
 ```sh
 node src/run.ts http ../my-repo   # the pack's pages only, on a random port; Ctrl+C and it's gone
+node src/run.ts topo ../my-repo --set TOPO_MAP=rings   # a non-secret setting, for this session
 ```
 
-The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack sees only the checkout it was started on (packs on API 1.7 and up). The pack's settings come from the shell's environment (only the keys its manifest names).
+The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack sees only the checkout it was started on (packs on API 1.7 and up). The pack's settings (only the keys its manifest names) come, first found wins, from `--set KEY=value` (never a secret one: the command line lands in shell history), the shell's environment, then the local instance's `.dev.vars`, which is read, never written. The menu's Settings page sets the rest for this session only, in memory; a pack missing a required setting starts on that page and turns on once it's given.
 
 ## Topo
 
