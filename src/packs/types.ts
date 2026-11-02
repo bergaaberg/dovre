@@ -285,6 +285,8 @@ export type PackContext = {
   startPicture(svg: string): void;
   /** Where one of its `wasm` modules is served (a hashed path, cached for good), or undefined for a name it didn't ship. */
   wasm(name: string): string | undefined;
+  /** Where one of its `files` is served (a hashed path, cached for good), or undefined for a name it didn't ship. */
+  file(name: string): string | undefined;
   /**
    * What a pack it requires shares (`shares`), by name (#326): undefined unless `id` is in its
    * manifest's `requires`, that pack is on and shown, and it shares one by that name now.
@@ -498,6 +500,9 @@ export type WasmFile = {
   load(): Uint8Array | Promise<Uint8Array>;
 };
 
+/** A script or stylesheet kept out of the Worker bundle (Pack.files): checked and served like a WasmFile. */
+export type PackFile = WasmFile;
+
 export type Pack = {
   manifest: PackManifest;
   /**
@@ -546,6 +551,15 @@ export type Pack = {
    * `script-src`: compiling WebAssembly, still only from scripts this app serves.
    */
   wasm?: Record<string, Uint8Array | WasmFile>;
+  /**
+   * A browser library too big for the bundle (mermaid): scripts and stylesheets kept out of the
+   * Worker bundle like a `WasmFile`, each served at a hashed path that `ctx.file(name)` gives. The
+   * name says its kind: lowercase, 32 characters at most before `.js` or `.css` (`mermaid.js`).
+   * 25 MB at most; locally `load` is called on the first request and the bytes are served only if
+   * their SHA-256 matches; hosted, the wrangler `build` step writes them into the static assets.
+   * Only the pack's own script loads them (`import()` or a `<script src>`): CSP stays `'self'`.
+   */
+  files?: Record<string, PackFile>;
   nav?(ctx: PackContext): NavItem[];
   /** Mounted after the core's guard (login or Access) and core routes: it can't shadow a core path. */
   routes?(app: Hono<AppEnv>, ctx: PackContext): void;

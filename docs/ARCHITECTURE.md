@@ -66,7 +66,9 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    first request and serves the bytes only if their SHA-256 matches; hosted, the wrangler `build`
    step (`src/packs/assets.ts`) loads and checks each one under Node and writes it into the
    Worker's static assets, and the Worker serves it from `ASSETS` without calling `load`. A stale
-   `sha256` fails the build, naming the pack. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
+   `sha256` fails the build, naming the pack. A pack's `files` (a browser library too big for the
+   bundle: `mermaid.js`, `katex.css`; lowercase, `.js` or `.css`) go the same way as a `WasmFile`,
+   at `/assets/files/<id>.<name>.<sha>.<ext>`, and never widen the CSP: its own script loads them. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
    A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
    `data-motion="always"` (Settings → Look → Motion): scope those rules under
    `:root:not([data-motion="always"])`, and check the attribute in scripts too.
@@ -91,12 +93,13 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `forge()`: user, owners, and the forge's `work` and `merged` (read-only); `repos()` and `file()` to read the owners' repos, and `everyRepo(paths)` for every repo's files at once (one call per owner, kept for every isolate up to the age the pack takes); `propose()` to open a PR changing one file (one of the pack's `writes` kinds, re-checked against `expect`, logged)
 - `startPicture(svg)`, `pulse()`
 - `wasm(name)`: where one of its `wasm` modules is served
+- `file(name)`: where one of its `files` is served
 
 **Hooks**, by where they land:
 
 | Where | Hooks | Timing |
 |---|---|---|
-| Own pages | `routes`, `styles`, `script`, `wasm`, `nav`, manifest `paths` | on request |
+| Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `nav`, manifest `paths` | on request |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
 | Stats | `stats` (chart or headline number) | from memory |
 | Search | `pages`, `finds` | from memory |

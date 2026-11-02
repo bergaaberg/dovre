@@ -268,6 +268,68 @@ test("the hosted assets build: Dovre's own files plus each pack's WebAssembly fi
   await assert.rejects(buildAssets({ packs: [good, stale], out, core }), /pack old: wasm tree has SHA-256 [0-9a-f]{16}, not the 0123456789abcdef it declares \(rebuild the pack\)/);
 });
 
+test("a pack's big files (Pack.files): a script or stylesheet served at a hashed path, read once and checked locally, from the static assets hosted; no wasm-unsafe-eval", async () => {
+  const JS = new TextEncoder().encode("export const x = 1;");
+  const CSS = new TextEncoder().encode(".lib-x { color: red }");
+  const [jsSha, cssSha] = [await sha16(JS), await sha16(CSS)];
+  let loads = 0;
+  const lib = pack(
+    { id: "lib", execution: "any" },
+    {
+      files: {
+        "lib.js": { sha256: jsSha, load: () => (loads++, JS) },
+        "lib.css": { sha256: cssSha, load: async () => CSS },
+        "stale.js": { sha256: "0123456789abcdef", load: () => JS },
+        "page.html": { sha256: jsSha, load: () => JS },
+        "Bad.js": { sha256: jsSha, load: () => JS },
+        "nosha.js": { sha256: "<script>", load: () => JS },
+      },
+      routes: (app, ctx) => app.get("/lib", (c) => c.text(["lib.js", "lib.css", "stale.js", "page.html", "Bad.js", "nosha.js", "nope.js"].map((n) => ctx.file(n) ?? "none").join("|"))),
+    },
+  );
+  const { get } = signedIn(snapshot(), {}, { packs: [lib] });
+  const res = await get("/lib");
+  assert.doesNotMatch(res.headers.get("Content-Security-Policy") ?? "", /wasm-unsafe-eval/, "files aren't WebAssembly");
+  const [js, css, stale, page, bad, nosha, nope] = (await res.text()).split("|");
+  assert.equal(js, `/assets/files/lib.lib.${jsSha}.js`);
+  assert.equal(css, `/assets/files/lib.lib.${cssSha}.css`);
+  assert.deepEqual([page, bad, nosha, nope], ["none", "none", "none", "none"], "only lowercase .js or .css names with a real hash are served");
+  assert.equal(loads, 0, "nothing is read until asked for");
+  const got = await get(js!);
+  assert.equal(got.headers.get("Content-Type"), "text/javascript; charset=utf-8");
+  assert.match(got.headers.get("Cache-Control") ?? "", /immutable/);
+  assert.equal(await got.text(), "export const x = 1;");
+  await get(js!);
+  assert.equal(loads, 1, "read once");
+  assert.equal((await get(css!)).headers.get("Content-Type"), "text/css; charset=utf-8");
+  assert.equal((await get(stale!)).status, 404, "bytes that don't match the declared hash aren't served");
+
+  const asked: string[] = [];
+  const db = openDb();
+  const hosted = createApp({ GHE_HOST: "github.com", GITHUB_USER: "me", IS_HOSTED: "1", ALLOWED_EMAILS: "me@example.com", PUBLIC_ORIGIN: "https://dovre.example", DB: db.DB } as never, {
+    gatherer: fixedGatherer(snapshot()),
+    ghe: fakeGhe({}).ghe,
+    access: async () => ({ email: "me@example.com" }),
+    packs: { ...activePacks([lib], { env: {}, bindings: {}, hosted: true }), env: {}, bindings: { ASSETS: { fetch: async (r: Request) => (asked.push(new URL(r.url).pathname), new Response(JS)) } } },
+  });
+  const h = await hosted.request(`https://dovre.example${js}`);
+  assert.equal(h.headers.get("Content-Type"), "text/javascript; charset=utf-8");
+  assert.equal(await h.text(), "export const x = 1;");
+  assert.deepEqual(asked, [`/files/lib.lib.${jsSha}.js`]);
+  assert.equal(loads, 1, "hosted never calls load");
+
+  const root = mkdtempSync(join(tmpdir(), "assets-"));
+  const core = join(root, "core");
+  mkdirSync(core);
+  writeFileSync(join(core, "icon.svg"), "<svg/>");
+  const out = join(root, "out");
+  const good = pack({ id: "lib" }, { files: { "lib.js": { sha256: jsSha, load: () => JS } } });
+  assert.deepEqual(await buildAssets({ packs: [good], out, core }), [`files/lib.lib.${jsSha}.js`]);
+  assert.equal(readFileSync(join(out, "files", `lib.lib.${jsSha}.js`), "utf8"), "export const x = 1;");
+  const odd = pack({ id: "odd" }, { files: { "x.html": { sha256: jsSha, load: () => JS } } });
+  await assert.rejects(buildAssets({ packs: [good, odd], out, core }), /pack odd: file x\.html needs a lowercase name ending \.js or \.css/);
+});
+
 test("packs in the app: a route outside /<id>, or an id that's a core path, keeps the pack off; it can't shadow core", async () => {
   const sneaky = pack({ id: "sneaky" }, { routes: (app) => app.get("/prs", (c) => c.text("mine now")) });
   const prs = pack({ id: "prs" }, { routes: (app) => app.get("/prs", (c) => c.text("mine now")) });
