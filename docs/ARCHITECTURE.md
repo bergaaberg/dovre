@@ -175,7 +175,8 @@ already taken is refused. A route can't shadow core or another pack.
 - `POST /mcp` (`src/mcp.ts`): serves pack `tools` to agent turns. Each turn or terminal gets its
   own random token, valid only for `/mcp` while it runs. Claude Code gets it via `--mcp-config`,
   Codex via `-c mcp_servers.dovre.*`, omp and agy via a stdio bridge (`src/mcp-stdio.ts`)
-  reading `DOVRE_MCP_URL`/`DOVRE_MCP_TOKEN`. Local only, localhost Host, no Origin header.
+  reading `DOVRE_MCP_URL`/`DOVRE_MCP_TOKEN`. A pack session (`dovre run`, `src/run.ts`) makes one
+  token for the session and prints a `claude mcp add` line with it. Local only, localhost Host, no Origin header.
   Agents still ask before each tool (agy needs its own allow rule; omp doesn't ask for MCP
   tools). Calls are logged as `mcp.call` with tool and repo, never arguments or results.
 

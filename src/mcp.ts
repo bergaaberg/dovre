@@ -3,7 +3,8 @@
  * over MCP's Streamable HTTP transport, answered as plain JSON (no stream: every call is one answer).
  *
  * Who can call: a turn or terminal Dovre started, while it runs. Each gets its own random token
- * (src/agents/runner.ts, src/packs/core/terminal/terms.ts; omp and agy through src/mcp-stdio.ts);
+ * (src/agents/runner.ts, src/packs/core/terminal/terms.ts; omp and agy through src/mcp-stdio.ts), and a
+ * pack session (src/run.ts, #371) one for the session;
  * it isn't the launch token and opens nothing but POST /mcp. Answered before the sign-in check, so it's held tighter than a page:
  *  - local mode only, on a localhost Host (not PUBLIC_ORIGIN): a 404 otherwise, as if nothing were here;
  *  - no Origin header: a browser always sends one on a POST, an agent's MCP client doesn't;
