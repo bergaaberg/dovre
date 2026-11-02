@@ -271,16 +271,19 @@ async function binoSide(b: Bino, ws: Ws, c?: Conv, target?: Todo): Promise<Html>
   return html`<aside class="bino-side"><div data-live id="bino-side">${sees}${b.route.ready ? list : ""}${remembered}</div></aside>`;
 }
 
-/** The workspace: the conversations at the left, the chat in the middle, what Bino sees at the right. */
+/** On a narrow screen the conversations and the side are drawers: these open them (src/ui/app.js.ts). */
+const PANES = html`<button type="button" class="ghost bino-pane-b" data-bino-pane="nav" aria-expanded="false" title="Your chats">Chats</button><button type="button" class="ghost bino-pane-b" data-bino-pane="side" aria-expanded="false" title="What Bino sees and remembers">Details</button>`;
+
+/** The workspace, filling the screen: the conversations at the left, the chat in the middle (only it scrolls, the box stays at its foot), what Bino sees at the right. */
 const workspace = (nav: Html, main: Html, side: Html) => html`<div class="bino-ws">${nav}<section class="bino-main">${main}</section>${side}</div>`;
 
 /** One conversation; the messages sit in a live region, the box to answer in outside it. */
 export async function convPage(frame: Frame, b: Bino, c: Conv, ws: Ws, target?: Todo, ax?: ActCtx): Promise<Html> {
-  const main = html`<div class="bino-thread"><div data-live id="bino-conv">${thread(c, target, ax)}
+  const main = html`<div class="bino-thread"><div class="bino-scroll" id="bino-scroll" data-scroller><div data-live id="bino-conv">${thread(c, target, ax)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
-${answering(c, false)}</div>
+${answering(c, false)}</div></div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask for a breakdown", button: "Send", busy: "Sending" }) : cantAnswer(b)}</div>`;
-  const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${binoTag(b)}${binoFace(frame, c.thinking)}` })}
+  const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${PANES}${binoTag(b)}${binoFace(frame, c.thinking)}` })}
 ${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }, c.id), main, await binoSide(b, ws, c, target))}`;
   return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino bino:${c.id}">` });
 }
@@ -292,7 +295,7 @@ const STARTERS = ["What should I do first today?", "Group and tidy what's on my 
 export async function binoPage(frame: Frame, b: Bino, ws: Ws): Promise<Html> {
   const starts = html`<div class="bino-starts"><p class="bino-starts-h">Or start from</p><div class="bino-chips">${STARTERS.map((q) => html`<button type="submit" class="bino-chip" name="q" value="${q}" formnovalidate>${q}</button>`)}</div></div>`;
   const start = b.route.ready ? composer({ action: "/bino/new", label: "What's on your mind?", placeholder: "What's on your mind? Something to think through, group or break down.", button: "Talk it through", busy: "Starting", extra: starts }) : cantAnswer(b);
-  const body = html`${PageHeader({ title: "Bino", sub: "Ask about your work, or think something through. It changes nothing by itself.", actions: html`${binoTag(b)}${binoFace(frame, ws.convs.some((x) => x.thinking))}` })}
+  const body = html`${PageHeader({ title: "Bino", sub: "Ask about your work, or think something through. It changes nothing by itself.", actions: html`${PANES}${binoTag(b)}${binoFace(frame, ws.convs.some((x) => x.thinking))}` })}
 ${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }), start, await binoSide(b, ws))}`;
   return shell({ title: "Bino · Dovre", frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino">` });
 }

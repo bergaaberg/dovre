@@ -369,7 +369,21 @@ function sideFold() {
   $("side-fold")?.setAttribute("aria-pressed", String(slim));
 }
 $("side-fold")?.setAttribute("aria-pressed", String(document.documentElement.classList.contains("side-slim")));
+// ── /bino on a narrow screen: Chats and Details open the conversations and the side as drawers; a tap
+// outside, Esc, or the button again closes them. ──
+function binoPane(which) {
+  const ws = document.querySelector(".bino-ws");
+  if (!ws) return false;
+  if (which) ws.dataset.open = which;
+  else delete ws.dataset.open;
+  for (const b of document.querySelectorAll("[data-bino-pane]")) b.setAttribute("aria-expanded", String(b.dataset.binoPane === which));
+  return true;
+}
+const binoPaneOpen = () => document.querySelector(".bino-ws[data-open]")?.dataset.open || "";
 document.addEventListener("click", (e) => {
+  const pb = e.target.closest?.("[data-bino-pane]");
+  if (pb) return binoPane(binoPaneOpen() === pb.dataset.binoPane ? "" : pb.dataset.binoPane);
+  if (e.target.matches?.(".bino-ws[data-open]")) return binoPane("");
   if (e.target.closest?.("#side-fold")) return sideFold();
   const menu = e.target.closest?.("#side-menu, #tab-more");
   const side = $("side");
@@ -952,7 +966,9 @@ function hintKey(e) {
 
 // ── The rest of the keys ──
 const smooth = () => (lessMotion() ? "auto" : "smooth");
-const scrollBy_ = (dy) => scrollBy({ top: dy, behavior: smooth() });
+/** What scrolls on this page: a page that fills the screen (/bino) marks its one scroller data-scroller; else the window. */
+const pageScroller = () => document.querySelector("[data-scroller]") || window;
+const scrollBy_ = (dy) => pageScroller().scrollBy({ top: dy, behavior: smooth() });
 // Settings → Keys (dovre#87, src/keys.ts): how far j/k scroll, and the groups switched off.
 const KEYPREFS = (() => {
   try { return JSON.parse(document.querySelector('meta[name="u-keys"]')?.content || "{}"); } catch { return {}; }
@@ -1077,6 +1093,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.target.closest?.("dialog")) return;
   const k = e.key;
+  if (k === "Escape" && binoPaneOpen()) { e.preventDefault(); binoPane(""); return; }
   // Bino answering: Esc or s stops it, before Esc closes the panel.
   const stop = (k === "Escape" || k === "s") && document.querySelector("[data-bino-stop]");
   if (stop) { e.preventDefault(); stop.click(); return; }
@@ -1092,7 +1109,7 @@ document.addEventListener("keydown", (e) => {
     const group = k === "g" ? "moving" : k === "i" ? "page" : "going";
     if (keysOff(group)) return;
     e.preventDefault();
-    if (k === "g") scrollTo({ top: 0, behavior: smooth() });
+    if (k === "g") pageScroller().scrollTo({ top: 0, behavior: smooth() });
     else if (k === "i") firstField();
     else if (GO[k]) { going(); location.href = GO[k]; }
     return;
@@ -1486,7 +1503,7 @@ function goStop(dir, level) {
   const at = stopAt(list);
   let i = at + dir;
   if (dir < 0 && at >= 0 && list[at].getBoundingClientRect().top - viewTop(scrollerOf(list[at])) < -4) i = at;
-  if (i < 0) scrollTo({ top: 0, behavior: smooth() });
+  if (i < 0) pageScroller().scrollTo({ top: 0, behavior: smooth() });
   else if (i >= list.length) flash(level === 1 ? "That was the last section" : "That was the last one");
   else landOn(list[i]);
   return true;
@@ -1497,7 +1514,7 @@ const followEl = () => document.querySelector("[data-follow]");
 function atLatest(f) {
   return f.getBoundingClientRect().bottom <= viewBottom(scrollerOf(f)) + 160;
 }
-/** Brings the end of the list into view; opening, not past the start of the latest stop (so a long reply reads from its top). */
+/** Brings the end of the list into view; opening (or following), not past the start of the latest stop (so a long reply reads from its top). */
 function toLatest(f, o) {
   const sc = scrollerOf(f);
   const stops = [...f.querySelectorAll("[data-stop]")];
@@ -1519,7 +1536,8 @@ function followState() {
 function followAfter(was) {
   const f = followEl();
   if (!f || !was) return railUpdate();
-  if (was.at) toLatest(f, {});
+  // Following a growing answer stops once its top reaches the top of the view: a long one reads from its start.
+  if (was.at) toLatest(f, { opening: true });
   else if (f.getBoundingClientRect().height > was.height + 4) { railNew(true); pillShow(f, true); }
   railUpdate();
 }
@@ -1531,7 +1549,8 @@ let railEnd = null;
 function railBuild() {
   rail?.remove();
   rail = null;
-  if (framed || !document.querySelector("[data-stop]")) return;
+  // A page that fills the screen (/bino) has no rail: it would sit over the chat. Its keys still work.
+  if (framed || document.querySelector("[data-scroller]") || !document.querySelector("[data-stop]")) return;
   rail = document.createElement("nav");
   rail.className = "rail";
   rail.setAttribute("aria-label", "Move through this page");

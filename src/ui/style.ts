@@ -1158,11 +1158,25 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .dock-compose { flex: none; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--line); }
 .todo-item.proposal { align-items: center; }
 .todo-item.proposal .notes { margin: 2px 0 0; }
-/* The /bino workspace: conversations, the chat, what Bino sees. The two sides stay in view as the chat scrolls. */
-.bino-ws { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(240px, 300px); gap: 22px; align-items: start; }
-.bino-nav, .bino-side { position: sticky; top: 12px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; min-height: 0; }
-.bino-side { overflow-y: auto; }
-.bino-side .panel { margin-bottom: 16px; }
+/* The /bino workspace: conversations, the chat, what Bino sees. It fills the screen and the page itself
+   doesn't scroll: each column scrolls on its own, the header stays, and the box stays at the chat's foot. */
+body:has(.bino-ws) .shell { height: 100vh; height: 100dvh; min-height: 0; }
+body:has(.bino-ws) .wrap { display: flex; flex-direction: column; min-height: 0; }
+body:has(.bino-ws) main.page { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 16px; }
+body:has(.bino-ws) .foot { display: none; }
+body:has(.bino-ws) .page-head { flex: none; margin: 0 0 12px; align-items: center; flex-wrap: nowrap; }
+body:has(.bino-ws) .head-top { margin: 0 0 4px; }
+body:has(.bino-ws) .page-head h1 { font-size: 26px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body:has(.bino-ws) .page-head .titles { min-width: 0; }
+body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
+.bino-ws { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(240px, 300px); grid-template-rows: minmax(0, 1fr); gap: 22px; }
+.bino-nav, .bino-side { display: flex; flex-direction: column; min-height: 0; padding-bottom: 14px; }
+.bino-side { overflow-y: auto; scrollbar-width: thin; }
+.bino-side .panel { margin-bottom: 12px; padding: 12px 14px 8px; box-shadow: none; }
+.bino-side .panel-head { padding-bottom: 6px; }
+.bino-side .panel-head h2 { font-size: var(--fs-m); font-weight: 600; }
+.bino-main { min-height: 0; display: flex; flex-direction: column; }
+.bino-pane-b { display: none; }
 .bino-nav-h { display: flex; margin: 0 0 8px; }
 .bino-nav-h .btn { flex: 1; }
 .bino-find { margin: 0 0 8px; }
@@ -1190,9 +1204,12 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .bino-todo { display: grid; gap: 2px; justify-items: start; width: 100%; padding: 7px 0; border: 0; text-align: left; font-weight: 400; background: transparent; }
 .bino-todo:hover .bino-conv-t { color: var(--accent); }
 .bino-todo .t3 { font-size: var(--fs-xs); }
-.bino-thread { max-width: 52rem; }
+.bino-thread { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 52rem; }
+.bino-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 16px 0; scrollbar-width: thin; }
+.bino-scroll .bino-msgs { margin-top: 0; }
+.bino-thread > .bino-compose { flex: none; margin: 0 0 14px; }
+.bino-main > .bino-compose { margin: 12px 0 0; }
 .bino-compose { margin: 18px 0 0; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: var(--shadow); }
-.bino-main .bino-compose { margin: 0; }
 .bino-compose:focus-within { border-color: var(--accent); }
 .bino-compose textarea { display: block; border: 0; background: transparent; padding: 16px 18px 6px; font-size: var(--fs-m); line-height: 1.55; min-height: 4.8em; max-height: 50vh; resize: none; field-sizing: content; }
 .bino-compose textarea:focus { outline: 0; }
@@ -1232,9 +1249,27 @@ body:has(.docks) .foot p { margin-bottom: 64px; }
 .bino-convs, .bino-mems { list-style: none; margin: 0; padding: 0; display: grid; }
 .bino-mems { gap: 8px; font-size: var(--fs-s); }
 .bino-mems li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
-@media (max-width: 1200px) { .bino-ws { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); } .bino-side { grid-column: 2; position: static; max-height: none; } }
-/* On a narrow screen: the chat first, then the conversations, then the rest. */
-@media (max-width: 900px) { .bino-ws { grid-template-columns: 1fr; } .bino-main { order: -1; } .bino-nav, .bino-side { grid-column: auto; position: static; max-height: none; } }
+/* Narrower: what Bino sees is a drawer from the right (Details); on a phone the conversations are one from the left (Chats). */
+.bino-ws[data-open]::before { content: ""; position: fixed; inset: 0; z-index: 60; background: rgb(0 0 0 / .45); }
+@media (max-width: 1200px) {
+  .bino-ws { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); }
+  [data-bino-pane="side"] { display: inline-flex; }
+  .bino-side { display: none; }
+  .bino-ws[data-open="side"] .bino-side { display: flex; position: fixed; z-index: 61; top: 0; right: 0; bottom: 0; width: min(340px, 88vw); padding: 16px 14px; background: var(--bg); border-left: 1px solid var(--line-2); box-shadow: var(--shadow); }
+}
+@media (max-width: 900px) {
+  .bino-ws { grid-template-columns: minmax(0, 1fr); }
+  [data-bino-pane="nav"] { display: inline-flex; }
+  .bino-nav { display: none; }
+  .bino-ws[data-open="nav"] .bino-nav { display: flex; position: fixed; z-index: 61; top: 0; left: 0; bottom: 0; width: min(320px, 86vw); padding: 16px 14px; background: var(--bg); border-right: 1px solid var(--line-2); box-shadow: var(--shadow); }
+  body:has(.bino-ws) main.page { padding-top: 10px; }
+  body:has(.bino-ws) .page-head h1 { font-size: 21px; }
+  body:has(.bino-ws) .page-head .sub { display: none; }
+  body:has(.bino-ws) .page-head .actions { flex-wrap: nowrap; }
+  body:has(.bino-ws) .page-head .harness { display: none; }
+  .bino-thread > .bino-compose { margin-bottom: 8px; }
+  .bino-compose-f .hint { display: none; }
+}
 @media (max-width: 640px) { .bino-step { grid-template-columns: 1fr; } }
 
 /* ── PR viewer, diff viewer, code explorer (src/pages/viewer.ts) ── */
