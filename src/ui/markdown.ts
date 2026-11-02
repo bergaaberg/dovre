@@ -3,6 +3,10 @@
  * fenced code, tables, paragraphs; inline code, bold, italic, strike, links and bare URLs.
  * Built from `html` fragments, so every piece of text is escaped; links go through safeUrl and
  * open in a new tab. Raw HTML in the source is shown as text, comments are dropped.
+ *
+ * A closed fence names its language as `data-lang` (lowercase; `mermaid`, `dot`), so a pack's
+ * script may draw it in place, the source staying as it is without one. A fence still open at
+ * the end (an answer being written) gets none: it isn't finished.
  */
 import { html } from "hono/html";
 import type { Child, Html } from "./kit.ts";
@@ -59,13 +63,14 @@ export function markdown(source: string, opts: { headingOffset?: number } = {}):
       i++;
       continue;
     }
-    const fence = line.match(/^\s*(```|~~~)/);
+    const fence = line.match(/^\s*(```|~~~)\s*([A-Za-z][\w+-]{0,31})?/);
     if (fence) {
       const body: string[] = [];
       i++;
       while (i < lines.length && !lines[i]!.trim().startsWith(fence[1]!)) body.push(lines[i++]!);
+      const lang = i < lines.length && fence[2] ? fence[2].toLowerCase() : "";
       i++;
-      blocks.push(html`<pre class="code">${body.join("\n")}</pre>`);
+      blocks.push(lang ? html`<pre class="code" data-lang="${lang}">${body.join("\n")}</pre>` : html`<pre class="code">${body.join("\n")}</pre>`);
       continue;
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);

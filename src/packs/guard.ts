@@ -198,6 +198,6 @@ export function scopeCss(css: string, core: Set<string>): { css: string; dropped
 }
 
 /** A pack's script, so a throw in it stops only it. */
-export function scriptOf(id: string, js: string): string {
-  return `// ${id}\ntry {\n${js}\n} catch (e) { console.error("pack ${id}:", e); }\n`;
+export function scriptOf(id: string, js: string, files: Record<string, string> = {}): string {
+  return `// ${id}\ntry {\nconst dovreFiles = Object.freeze(${JSON.stringify(files)});\n${js}\n} catch (e) { console.error("pack ${id}:", e); }\n`;
 }

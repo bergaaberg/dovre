@@ -296,10 +296,14 @@ test("a pack's big files (Pack.files): a script or stylesheet served at a hashed
         "Bad.js": { sha256: jsSha, load: () => JS },
         "nosha.js": { sha256: "<script>", load: () => JS },
       },
+      script: "void dovreFiles;",
       routes: (app, ctx) => app.get("/lib", (c) => c.text(["lib.js", "lib.css", "stale.js", "page.html", "Bad.js", "nosha.js", "nope.js"].map((n) => ctx.file(n) ?? "none").join("|"))),
     },
   );
   const { get } = signedIn(snapshot(), {}, { packs: [lib] });
+  const at = (await (await get("/")).text()).match(/\/assets\/pack\.lib\.\w+\.js/)?.[0];
+  assert.ok(at, "its script is linked");
+  assert.match(await (await get(at!)).text(), new RegExp(`const dovreFiles = Object\\.freeze\\(\\{"lib\\.js":"/assets/files/lib\\.lib\\.${jsSha}\\.js","lib\\.css":`), "its script knows its files' paths on any page");
   const res = await get("/lib");
   assert.doesNotMatch(res.headers.get("Content-Security-Policy") ?? "", /wasm-unsafe-eval/, "files aren't WebAssembly");
   const [js, css, stale, page, bad, nosha, nope] = (await res.text()).split("|");
@@ -860,8 +864,8 @@ test("script and pulse: each pack's script in a file of its own after the core's
   const js = await get(src);
   assert.match(js.headers.get("content-type") ?? "", /text\/javascript/);
   assert.match(js.headers.get("cache-control") ?? "", /immutable/);
-  assert.equal(await js.text(), `// glow\ntry {\ndovreOn(["glow"], () => {});\n} catch (e) { console.error("pack glow:", e); }\n`);
-  assert.match(await (await get(other)).text(), /^\/\/ busy\ntry \{\nlet n = 1;\n\}/, "a syntax error in one stops only its own file");
+  assert.equal(await js.text(), `// glow\ntry {\nconst dovreFiles = Object.freeze({});\ndovreOn(["glow"], () => {});\n} catch (e) { console.error("pack glow:", e); }\n`);
+  assert.match(await (await get(other)).text(), /^\/\/ busy\ntry \{\nconst dovreFiles = Object\.freeze\(\{\}\);\nlet n = 1;\n\}/, "a syntax error in one stops only its own file");
   assert.doesNotMatch(page, /assets\/pack\.loud\./);
   assert.match(await (await get("/glow/dock")).text(), new RegExp(`<script type="module" src="${src.replace(/\./g, "\\.")}">`), "dock pages too");
   assert.deepEqual(await (await get("/glow/pulse")).json(), { working: 1, asking: 2, trouble: [{ level: "storm", why: "1 red signal" }], busy: true });
