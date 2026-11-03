@@ -69,6 +69,17 @@ function taskCard(i: number, n: number, a: Act & { kind: "task" }, ax: ActCtx): 
 </form>`;
 }
 
+/** A bug in Dovre (#384): the card opens /bug filled in, where it's sent. */
+function bugCard(i: number, n: number, a: Act & { kind: "bug" }, ax: ActCtx): Html {
+  return html`<form method="get" action="/bug" class="bino-plan" id="act-${i}-${n}"${out(ax)}>
+<p class="bino-plan-h">A bug report for Dovre</p>
+<input type="hidden" name="from" value="${a.page}">
+<label class="field"><span class="label">Title</span><input type="text" name="title" value="${a.title}" maxlength="200" required></label>
+<label class="field"><span class="label">What happened</span><textarea name="what" rows="5">\n${a.body}</textarea></label>
+<div class="buttons"><button type="submit" class="primary">Report it</button><span class="hint">Opens the bug form: nothing is sent before you press there.</span></div>
+</form>`;
+}
+
 /**
  * A pack's act (src/packs/types.ts ActKind): its inputs inside the core's card, posting to the
  * core, which runs it in the background. Two clicks unless the pack says one is enough.
@@ -93,6 +104,7 @@ ${inputs}
 function actCard(c: Conv, i: number, n: number, a: Act, ax: ActCtx): Html {
   if (isPackAct(a)) return packCard(c, i, n, a, ax);
   // One of a kind that's gone (an old conversation's Teams message, from before Teams was a pack): not drawn.
+  if (a.kind === "bug") return bugCard(i, n, a, ax);
   if (a.kind !== "task") return html``;
   return taskCard(i, n, a, ax);
 }

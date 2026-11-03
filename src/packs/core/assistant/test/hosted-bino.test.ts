@@ -110,7 +110,8 @@ test("hosted Bino answers in the Durable Object: through the gateway, with what 
   assert.equal(talk.url, "https://gateway.ai.cloudflare.com/v1/acc-1/dovre/anthropic/v1/messages");
   assert.equal(talk.headers["cf-aig-authorization"], "Bearer aig-tok");
   assert.match(talk.body.system, /12 trials, 3 end this week/, "what the Worker sent");
-  assert.ok(!talk.body.system.includes(ACT_FENCE), "hosted, Bino proposes no Teams messages or tickets");
+  assert.ok(!/"kind": "task"|teams|ticket/i.test(talk.body.system), "hosted, Bino proposes no dev tasks, Teams messages or tickets");
+  assert.ok(talk.body.system.includes(`${ACT_FENCE}\n{"kind": "bug"`), "only a bug report, whose card just opens the form (#384)");
   assert.match(talk.body.system, /can't propose sending messages/);
   assert.ok(calls.some((x) => x.body.model === "claude-haiku-5-5"), "memory is kept on Haiku");
 

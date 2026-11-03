@@ -47,6 +47,8 @@ import { pagesOf, parseQuery, type Row as SearchRow, search } from "./search/sea
 import { createGheSearch } from "./search/ghe.ts";
 import { searchList, searchPage } from "./pages/search.ts";
 import { createIssueRoutes } from "./pages/issues.ts";
+import { createBugRoutes } from "./pages/bug.ts";
+import { HOME_SOURCE as PACKS_HOME } from "./packs/releases.ts";
 import { type Asks, askInBar, createAsks } from "./relay/asks.ts";
 import { type Bino, createBino } from "./packs/core/assistant/bino/bino.ts";
 import type { Lookups } from "./packs/core/assistant/bino/lookups.ts";
@@ -155,6 +157,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
     !opts.hosted && opts.issues !== false && { href: "/issues/new", title: "New work", icon: "plus", group: "Plan" },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
+    { href: "/bug", title: "Report a bug", icon: "alert", group: "You" },
     !opts.hosted && !!opts.lab && { href: "/lab", title: "Lab", icon: "flask", group: "You" },
   ];
   return items.filter((x): x is NavItem => !!x);
@@ -1675,6 +1678,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
 
   app.route("/", createReviewRoutes(env, { ...reviewDeps, ghe, stale: () => gatherer.stale() }));
   app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), list: () => (shown().some((x) => x.manifest.id === "tracker") ? "/tracker" : undefined), prewarm: deps.prewarm }));
+  // ── Report a bug (#384): to the repo behind the page it came from ──
+  const packHomeOf = (seg: string) => {
+    const p = (deps.packs?.on ?? []).find((x) => x.manifest.id === seg || (x.manifest.paths ?? []).includes(seg));
+    if (!p) return undefined;
+    const id = p.manifest.id;
+    const source = hosted ? undefined : deps.packs?.copies?.get().get(id)?.source;
+    const home = deps.packs?.core?.includes(id) ? "core" : source ? (source.toLowerCase() === PACKS_HOME ? "packs" : "instance") : hosted && p.manifest.version ? "packs" : "instance";
+    return { id, name: p.manifest.name, home } as const;
+  };
+  app.route("/", createBugRoutes({ ghe, db: env.DB, owners: () => ownersIn(env), frame: async () => (await page()).frame, packOf: packHomeOf, instance: () => env.INSTANCE_REPO?.trim().match(/^[\w.-]+\/[\w.-]+$/)?.[0] ?? null, version: deps.info?.version ?? "dev", hosted }));
   // ── My list (src/pages/todo.ts): small things kept on this machine ──
   app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: binoOn, proposals: async () => html`${fill("todo.proposals", {})}` }));
   if (bino)
@@ -1835,7 +1848,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     // A page of its that throws, or doesn't answer in time, is that pack's broken page in the shell, not Dovre's.
     const brokePage = async (cx: Context<AppEnv>, why: string) => {
       packLog(id)(`${cx.req.method} ${cx.req.path}: ${why}`);
-      const body = html`${PageHeader({ title: c.manifest.name })}${Notice({ tone: "bad", children: html`<p><strong>${c.manifest.name} broke on this page.</strong> The rest of Dovre is fine. The pack's log on the <a href="/packs">Packs</a> page says what happened.</p><p class="mono t3">${why.slice(0, 300)}</p>` })}`;
+      const body = html`${PageHeader({ title: c.manifest.name })}${Notice({ tone: "bad", children: html`<p><strong>${c.manifest.name} broke on this page.</strong> The rest of Dovre is fine. The pack's log on the <a href="/packs">Packs</a> page says what happened. <a href="${bugHref(cx.req.path, why, id)}">Report this</a> if it looks like a bug.</p><p class="mono t3">${why.slice(0, 300)}</p>` })}`;
       try {
         const res = await ctxOf(c).page(cx, { title: c.manifest.name, body });
         return new Response(res.body, { status: 500, headers: res.headers });
@@ -1875,10 +1888,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.onError((err, c) => {
     if (err instanceof Pending) return c.html(pendingPage(new URL(c.req.url).pathname, { ...frameOf({ ...EMPTY, login: env.GITHUB_USER ?? "" }), syncedAt: undefined, syncing: false }));
     console.error(err);
-    return c.text(`Something broke: ${err.message}`, 500);
+    const why = String(err?.message ?? err).slice(0, 300);
+    return c.html(html`<!doctype html><meta charset="utf-8"><title>Something broke · Dovre</title><p>Something broke: ${why}</p><p><a href="${bugHref(new URL(c.req.url).pathname, why)}">Report this bug</a> · <a href="/">Today</a></p>`, 500);
   });
   return app;
 }
+
+/** The bug page, filled in from an error page (#384): the page, what broke, the pack if it's one's. */
+export const bugHref = (path: string, why: string, pack?: string) => safeUrl(`/bug?${new URLSearchParams({ from: path.slice(0, 300), error: why.slice(0, 600), ...(pack ? { pack } : {}) })}`);
 
 /** A pack's `frames` entry as a CSP source: an `https://` origin, or `http://localhost:<port>` / `http://127.0.0.1:<port>` (no path, user or wildcard); else undefined. */
 export function frameOrigin(raw: unknown): string | undefined {

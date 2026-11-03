@@ -82,6 +82,10 @@ Put a [`peak.yaml`](https://github.com/bergaaberg/peak) at the root of a checkou
 
 `/code` browses any checkout under `CODE_DIR` at any ref. `/code/<checkout>/diff` shows uncommitted changes, a branch against a ref, or one commit. `/compare` diffs two pasted texts or JSON documents.
 
+## Report a bug
+
+**Report a bug** in the menu (`g r`, or search "bug") opens `/bug` with the page you came from. Error pages and Bino link there too, with what went wrong filled in. The report goes to the repo behind the page: Dovre's own, dovre-packs, or `INSTANCE_REPO` for an instance's own pack. **Open on GitHub** prefills a new issue under your login. **File it** has the token create it, labelled `bug`, but only in the owners' repos.
+
 ## More
 
 - [docs/CONFIG.md](docs/CONFIG.md): every setting

@@ -164,6 +164,37 @@ test("the Packs page lists dovre-packs' other packs inert, each Add going throug
   assert.deepEqual(added, ["fresh"], "a pack already here never reaches the copies");
 });
 
+test("Report a bug (#384): hostile context stays text; Open on GitHub prefills; File it only in the owners' repos, once", async () => {
+  const filed: unknown[] = [];
+  const { get, post, calls } = signedIn(snapshot(), { "GET /repos/ACME/inst": { has_issues: true }, "POST /repos/ACME/inst/issues": (b: unknown) => (filed.push(b), { html_url: "https://acme.ghe.com/ACME/inst/issues/9", number: 9 }) }, { env: { INSTANCE_REPO: "ACME/inst" } });
+  const q = new URLSearchParams({ from: `/prs?x=${H}`, title: H, what: H, error: H, pack: H });
+  const page = await (await get(`/bug?${q}`)).text();
+  assertInert("/bug", page);
+  assert.match(page, /bergaaberg\/dovre/);
+  assert.match(page, /value="core" checked/, "a core page goes to Dovre's repo");
+  const fromMenu = await (await get("/bug", { referer: "http://localhost/agents" })).text();
+  assert.match(fromMenu, /name="page" value="\/agents"/, "the menu entry reads the page you came from");
+  assert.doesNotMatch(await (await get("/bug", { referer: "https://evil.example/x" })).text(), /evil\.example/);
+  const link = await post("/bug", { how: "link", where: "core", title: "It broke", what: H, page: "/prs" });
+  assert.equal(link.status, 303);
+  const u = new URL(link.headers.get("location")!);
+  assert.equal(u.origin + u.pathname, "https://acme.ghe.com/bergaaberg/dovre/issues/new");
+  assert.equal(u.searchParams.get("title"), "It broke");
+  const nonce = "nonce-1234-abcd";
+  const outside = await post("/bug", { how: "file", where: "core", title: "It broke", nonce });
+  assert.equal(outside.status, 502);
+  assertInert("/bug refused", await outside.text());
+  assert.ok(!calls.some((c) => c.method === "POST"), "outside the owners: nothing is filed");
+  assert.equal((await post("/bug", { how: "file", where: "instance", title: "It broke", nonce }, { origin: "http://evil.example" })).status, 403);
+  const ok = await post("/bug", { how: "file", where: "instance", title: "It broke", what: H, nonce });
+  assert.equal(ok.status, 303);
+  assert.equal(ok.headers.get("location"), `/bug?filed=${encodeURIComponent("https://acme.ghe.com/ACME/inst/issues/9")}`);
+  assert.equal((await post("/bug", { how: "file", where: "instance", title: "It broke", nonce })).status, 303);
+  assert.equal(filed.length, 1, "the same form files once");
+  assert.match(await (await get(ok.headers.get("location")!)).text(), /Filed <a href="https:\/\/acme\.ghe\.com\/ACME\/inst\/issues\/9">ACME\/inst#9<\/a>/);
+  assert.doesNotMatch(await (await get(`/bug?filed=${encodeURIComponent("https://evil.example/a/b/issues/1")}`)).text(), /evil\.example/);
+});
+
 test("a source that fails says so on the page; the rest still renders", async () => {
   const { get } = signedIn(snapshot({ prs: { ok: false, error: "GHE graphql: 502" } }), {}, { sessions: { live: [session({ title: "Still here" })] } });
   const out = await (await get("/")).text();

@@ -54,6 +54,17 @@ function setup(reply: string) {
   return { req, until, asked, file };
 }
 
+test("a bug card (#384) opens the bug form filled in; a page that isn't Dovre's is dropped; hostile text stays inert", async () => {
+  assert.deepEqual(actOf({ kind: "bug", title: "It broke", body: "b", page: "//evil.example/x" }), { kind: "bug", title: "It broke", body: "b", page: "" });
+  assert.equal(actOf({ kind: "bug", body: "no title" }), null);
+  const s = setup(`${H}\n${fence({ kind: "bug", title: H, body: H, page: "/prs" })}`);
+  const at = (await s.req("/bino/new", { text: "x" })).headers.get("location")!;
+  const page = await s.until(at, /A bug report for Dovre/);
+  assertInert("bino bug act", page);
+  assert.match(page, /method="get" action="\/bug"/);
+  assert.match(page, /name="from" value="\/prs"/);
+});
+
 test("a task card goes to the normal preview, filled in; a ticket or an old Teams message gets no card; hostile text stays inert", async () => {
   const s = setup(`${H}\n${fence({ kind: "teams", to: H, text: H })}\n${fence({ kind: "ticket", project: "DEV", type: "Story", summary: H, description: H })}\n${fence({ kind: "task", parent: "ACME/intake#12", repo: "shop-api", title: H, body: H })}`);
   const at = (await s.req("/bino/new", { text: "x" })).headers.get("location")!;
