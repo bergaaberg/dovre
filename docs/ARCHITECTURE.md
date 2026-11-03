@@ -229,8 +229,13 @@ Also:
   and synced to origin on each `add` / `outdated` / `update`, so every tag and merge base is there.
 - Hosted (`src/packs/releases.ts`), the Packs page reads dovre-packs' tags through the GitHub API
   at most once an hour (in the background, the page shows the kept answer): a bundled pack behind
-  its newest release shows **x.y.z available**, whether this core can run it, and what changed;
-  the released packs not bundled are listed to add, with the command to run.
+  its newest release shows **x.y.z available**, whether this core can run it, and what changed.
+  The released packs not bundled are listed to add. With `INSTANCE_REPO` set (an owner's repo, the
+  token able to write contents and PRs there), **Add** (`src/actions/addpack.ts`) opens a PR on it
+  with what `pnpm packs add` would write, as one commit on `dovre/add-<id>`: the files at the
+  release tag (text inline, binaries as blobs), `.pack.json`, and the `packs.ts` line. It re-reads
+  the release and the instance first, runs in the background, and logs the PR (or why not) to
+  `actions`, which the page shows. Without it, the page gives the command to run.
   Taking it stays in the instance repo (`pnpm packs update <id>`, then deploy); a Worker can't
   rewrite itself.
 

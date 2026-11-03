@@ -17,7 +17,8 @@ import { parsePrQuery, PRS_COOKIE, PRS_KEYS, prQueryString } from "./pages/prlis
 import { contextStorage, tryGetContext } from "hono/context-storage";
 import { secureHeaders } from "hono/secure-headers";
 import { type AccessVerifier, COOKIE, allowed, isLocal, isOwnOrigin, publicOriginOf, sameSecret, secureCookie } from "./access.ts";
-import { decide, logAction, recentActions, rejectSuperseded, repoIn, runId } from "./actions/deploys.ts";
+import { actionsOf, decide, logAction, recentActions, rejectSuperseded, repoIn, runId } from "./actions/deploys.ts";
+import { proposeAdd } from "./actions/addpack.ts";
 import type { App, AppEnv, Env } from "./env.ts";
 import type { Gatherer, Snapshot } from "./gather.ts";
 import { type Need, needsOf } from "./home/needs.ts";
@@ -73,9 +74,10 @@ import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
 import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards } from "./packs/registry.ts";
-import { createReleases } from "./packs/releases.ts";
+import { createReleases, type GetJson } from "./packs/releases.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
-import type { Copies } from "./packs/copies.ts";
+import type { Copies, ToAdd } from "./packs/copies.ts";
+import type { Listed } from "./packs/releases.ts";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
 import { strictOrigin } from "./strict.ts";
 import { webUrl } from "./open-link.ts";
@@ -672,15 +674,20 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   // github.com goes through the forge's token; a forge on another host reads anonymously (dovre-packs is public).
   /** Every pack id this instance lists, on or off, Dovre's own too. */
   const packIds = () => [...new Set([...packs.on.map((p) => p.manifest.id), ...packs.off.map((o) => o.id), ...(packs.core ?? [])])];
+  const packsGet: GetJson = /^(api\.)?github\.com$/i.test(ghe.host.trim())
+    ? (path) => ghe.rest(path)
+    : async (path) => {
+        const r = await fetch(`https://api.github.com${path}`, { headers: { accept: "application/vnd.github+json", "user-agent": "dovre" } });
+        if (!r.ok) throw new Error(`GitHub ${r.status} for ${path.split("?")[0]}`);
+        return r.json();
+      };
+  /** Hosted (#88): the instance repo Add opens its PR on, when it's set and one of the owners'. */
+  const instanceRepo = () => (hosted ? repoIn(ownersIn(env), env.INSTANCE_REPO?.trim()) : null);
+  /** Hosted Adds started in this isolate and not logged yet. */
+  const opening = new Set<string>();
   const releases = hosted
     ? createReleases({
-        get: /^(api\.)?github\.com$/i.test(ghe.host.trim())
-          ? (path) => ghe.rest(path)
-          : async (path) => {
-              const r = await fetch(`https://api.github.com${path}`, { headers: { accept: "application/vnd.github+json", "user-agent": "dovre" } });
-              if (!r.ok) throw new Error(`GitHub ${r.status} for ${path.split("?")[0]}`);
-              return r.json();
-            },
+        get: packsGet,
         packs: () => [...packs.on.map((p) => ({ id: p.manifest.id, version: p.manifest.version })), ...packs.off.map((o) => ({ id: o.id, version: o.manifest?.version }))].filter((p) => !packs.core?.includes(p.id)),
         here: () => packIds(),
         onChange: () => deps.hub?.publish(["packs"]),
@@ -1287,7 +1294,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         c.executionCtx.waitUntil(reading);
       } catch {}
     const here = packIds();
-    const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: releases.get()!.listed } : undefined;
+    const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
     return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
@@ -1309,12 +1316,45 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     deps.hub?.publish(["packs"]);
     return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
   });
-  /** Add (#88): a pack from dovre-packs this instance doesn't list, as a job on the copies. */
+  /** Hosted: each pack to add, with its newest Add from the log (the PR it opened, or why not) or one opening now. */
+  async function hostedAdds(listed: Listed[]): Promise<ToAdd[]> {
+    const log = await actionsOf(env.DB, "packs.add").catch(() => []);
+    return listed.map((l) => {
+      if (opening.has(l.id)) return { ...l, job: { at: Date.now(), state: "running" as const, step: "opening a PR" } };
+      const a = log.find((x) => x.target === l.id);
+      if (!a) return l;
+      const at = Date.parse(a.at);
+      return { ...l, job: a.ok ? { at, state: "done" as const, step: "PR opened; merge it, then deploy", url: a.detail ?? undefined } : { at, state: "failed" as const, step: a.error ?? "failed" } };
+    });
+  }
+  /** Add (#88): a pack from dovre-packs this instance doesn't list; locally a job on the copies, hosted a PR on the instance repo. */
   app.post("/packs/:id/add", strictOrigin, async (c) => {
-    const copies = deps.packs?.copies;
-    if (hosted || !copies) return c.notFound();
     const id = c.req.param("id");
     if (packIds().includes(id)) return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
+    if (hosted) {
+      const repo = instanceRepo();
+      const l = releases?.get()?.listed.find((x) => x.id === id);
+      if (!repo || !l) return c.notFound();
+      if (opening.has(id)) return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
+      opening.add(id);
+      const work = proposeAdd(ghe, packsGet, { repo, id })
+        .then(
+          (pr) => logAction(env.DB, { kind: "packs.add", target: id, detail: pr.url, ok: true }),
+          (e: unknown) => logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: String((e as Error)?.message ?? e).slice(0, 300) }),
+        )
+        .catch(() => {})
+        .finally(() => {
+          opening.delete(id);
+          deps.hub?.publish(["packs"]);
+        });
+      try {
+        c.executionCtx.waitUntil(work);
+      } catch {}
+      deps.hub?.publish(["packs"]);
+      return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
+    }
+    const copies = deps.packs?.copies;
+    if (!copies) return c.notFound();
     const r = copies.add(id, (ok, detail) => void logAction(env.DB, { kind: "packs.add", target: id, detail, ok }).catch(() => {}));
     if (!r.ok) await logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: r.why }).catch(() => {});
     deps.hub?.publish(["packs"]);

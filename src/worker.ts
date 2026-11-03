@@ -48,6 +48,8 @@ export interface WorkerBindings {
   /** The one host and the owners tracked there (src/owners.ts); GHE_HOST, GHE_ORG and GITHUB_USER still read. */
   REPO_HOST?: string;
   REPO_OWNERS?: string;
+  /** The instance repo this Worker is built from (`owner/name`): Packs' Add opens a PR there (#88). */
+  INSTANCE_REPO?: string;
   GHE_HOST?: string;
   GHE_ORG?: string;
   CF_ACCOUNT_ID?: string;
@@ -288,6 +290,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       OWNERS: ownersOfBindings(bindings, "dovre"),
       GITHUB_USER: bindings.GITHUB_USER || login,
       GITHUB_TOKEN: bindings.GITHUB_TOKEN,
+      INSTANCE_REPO: bindings.INSTANCE_REPO,
       CODE_DIR: "/code",
       CLAUDE_DIR: "/claude",
       IS_HOSTED: "1",

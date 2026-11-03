@@ -44,6 +44,8 @@ export type Env = {
   /** Secret. From `gh auth token [--hostname <GHE_HOST>]` when unset. */
   GHE_TOKEN?: string;
   GITHUB_TOKEN?: string;
+  /** Hosted (#88): the instance repo (`owner/name`, in REPO_OWNERS) that Add from dovre-packs opens a PR on. */
+  INSTANCE_REPO?: string;
   /** Who "me" is on GHE; looked up from the token when unset. */
   GHE_LOGIN?: string;
   /** Comma-separated repos (in GHE_ORG) where the work is planned: their issues are parents for dev tasks, and take none by hand. */

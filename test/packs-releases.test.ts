@@ -9,6 +9,7 @@ import { resolvePacksRepo } from "../src/packs/cli.ts";
 import { availableFor, createReleases, type GetJson, listedFor, listedOf, newestOf } from "../src/packs/releases.ts";
 import { PACK_API } from "../src/packs/types.ts";
 import { packsPage } from "../src/pages/packs.ts";
+import type { ToAdd } from "../src/packs/copies.ts";
 import { assertInert, H } from "./helpers.ts";
 
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
@@ -150,15 +151,27 @@ test("listedOf reads a manifest's literals as text, the ones after its own id (#
   assert.equal(listedOf("gitlab", index.replace("const forge = { id: \"gitlab\", name: \"Forge name\" };", "")).description, `It's a "forge"`);
 });
 
-test("listedFor: each released pack not here, read at its newest tag; the page shows them inert with the command to run", async () => {
-  const { get } = fakeGithub(["foo@1.0.0", "new@1.0.0", "new@1.1.0", "gone@1.0.0"], {
-    "new@1.1.0:packs/new/index.ts": `export const p = { manifest: { api: "${PACK_API}", version: "1.1.0", id: "new", name: "${H}", description: "${H}", execution: "local-only" } };`,
+test("listedFor: each released pack not here, read at its newest tag; hosted shows the command, or Add once INSTANCE_REPO is set", async () => {
+  const { get } = fakeGithub(["foo@1.0.0", "new@1.0.0", "new@1.1.0", "mac@1.0.0", "gone@1.0.0"], {
+    "new@1.1.0:packs/new/index.ts": `export const p = { manifest: { api: "${PACK_API}", version: "1.1.0", id: "new", name: "${H}", description: "${H}" } };`,
+    "mac@1.0.0:packs/mac/index.ts": `export const p = { manifest: { api: "${PACK_API}", id: "mac", name: "Mac", execution: "local-only" } };`,
   });
   const listed = await listedFor(get, ["foo"]);
-  assert.deepEqual(listed.map((l) => [l.id, l.version, l.tag]), [["new", "1.1.0", "new@1.1.0"]], "foo is here; gone has no index.ts at its tag");
-  const out = String(packsPage({ user: "me", nav: [] } as never, { on: [], off: [], env: {}, hosted: true, toAdd: { packs: listed } }));
+  assert.deepEqual(listed.map((l) => [l.id, l.version, l.tag]), [["mac", "1.0.0", "mac@1.0.0"], ["new", "1.1.0", "new@1.1.0"]], "foo is here; gone has no index.ts at its tag");
+  const page = (into?: string, packs: ToAdd[] = listed) => String(packsPage({ user: "me", nav: [] } as never, { on: [], off: [], env: {}, hosted: true, toAdd: { packs, into } }));
+  const out = page();
   assertInert("/packs", out);
   assert.match(out, /pnpm packs add new/);
+  assert.doesNotMatch(out, /pnpm packs add mac/, "nothing to run for a pack that can't run hosted");
   assert.match(out, /runs on a machine only/);
-  assert.doesNotMatch(out, /\/packs\/new\/add/, "hosted has no Add button yet");
+  assert.match(out, /Set the var <code>INSTANCE_REPO<\/code>/);
+  assert.doesNotMatch(out, /\/packs\/new\/add/);
+  const set = page(H);
+  assertInert("/packs", set);
+  assert.match(set, /action="\/packs\/new\/add"/);
+  assert.doesNotMatch(set, /\/packs\/mac\/add/);
+  const opened = page(H, [{ ...listed[1]!, job: { at: 0, state: "done", step: "PR opened; merge it, then deploy", url: "javascript:alert(1)" } }]);
+  assertInert("/packs", opened);
+  assert.doesNotMatch(opened, /href="javascript:/, "the logged PR link goes through safeUrl");
+  assert.doesNotMatch(opened, /\/packs\/new\/add/, "no second PR while one is open");
 });
