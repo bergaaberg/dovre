@@ -12,9 +12,11 @@ export const MAX_TITLE = 255;
 export const MAX_BODY = 8000;
 
 export type TaskAct = { kind: "task"; parent: string; repo: string; title: string; body: string };
+/** A bug in Dovre itself (#384): its card opens /bug filled in; nothing is filed from the card. */
+export type BugAct = { kind: "bug"; title: string; body: string; page: string };
 /** A pack's (src/packs/types.ts ActKind): kind `<pack>.<kind>`, its fields as checked. */
 export type PackAct = { kind: `${string}.${string}`; fields: Record<string, string> };
-export type Act = (TaskAct | PackAct) & {
+export type Act = (TaskAct | BugAct | PackAct) & {
   /** Done (a pack's): when, what the card says, and where to see it. */
   done?: { at: number; text: string; href?: string };
   sending?: boolean;
@@ -47,6 +49,11 @@ export function actOf(raw: unknown, kinds: ActSpec[] = []): Act | null {
   if (r.kind === "task") {
     const title = line(r.title, MAX_TITLE);
     return title ? { kind: "task", parent: line(r.parent, 200), repo: line(r.repo, 200), title, body: para(r.body, MAX_BODY) } : null;
+  }
+  if (r.kind === "bug") {
+    const title = line(r.title, 200);
+    const page = line(r.page, 300);
+    return title ? { kind: "bug", title, body: para(r.body, 6000), page: page.startsWith("/") && !page.startsWith("//") ? page : "" } : null;
   }
   return null;
 }

@@ -93,6 +93,7 @@ test("pack pages: one that throws or hangs is that pack's broken page in the she
   const body = await r.text();
   assertInert("broken pack page", body);
   assert.match(body, /Bad broke on this page/);
+  assert.match(body, /href="\/bug\?from=%2Fbad&amp;error=exploded\+%3Cscript%3E[^"]*&amp;pack=bad">Report this</, "Report this carries the page, the error and the pack (#384)");
   assert.match(body, /class="tabbar|<nav/, "inside the shell");
   const slow = await get("/bad/slow");
   assert.equal(slow.status, 500);

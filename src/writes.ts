@@ -29,6 +29,7 @@ export const WRITES: WriteKind[] = [
   { kind: "issue.close", label: "Close an issue", group: "Issues" },
   { kind: "issue.reopen", label: "Reopen an issue", group: "Issues" },
   { kind: "issue.comment", label: "Post a comment", group: "Issues" },
+  { kind: "bug.file", label: "File a bug report in Dovre's repos (Report a bug → File it)", group: "Issues" },
   { kind: "auto.again", label: "Run a stuck auto issue again (labels it dovre:auto again)", group: "Issues" },
   { kind: "auto.label", label: "Hand an issue to auto runs from a new session's quick picks (labels it dovre:auto)", group: "Issues" },
   { kind: "agents.clear", label: "Clear finished agent sessions", group: "Here" },

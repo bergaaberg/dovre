@@ -66,6 +66,7 @@ export function pagesOf(on: { bino?: boolean; lab?: boolean; /** Offered unless 
     { title: "Moved", href: "/movement", icon: "↯", about: "What people did in the org, 24 h", also: ["movement", "activity", "people", "team", "timeline"] },
     { title: "Code", href: "/code", icon: "{}", about: "Your checkouts at any commit", also: ["browse", "explorer", "files", "source", "kode"] },
     { title: "Bino", href: "/bino", icon: "◍", about: "Talk a piece of work through", also: ["assistant", "chat", "ask"], need: "bino" },
+    { title: "Report a bug", href: "/bug", icon: "!", about: "A bug in Dovre or a pack, to its repo", also: ["bug", "report", "issue", "broken", "feil", "meld feil"] },
     { title: "Settings", href: "/settings", icon: "⚙", about: "Setup, notifications, restart", also: ["setup", "notifications", "config", "innstillinger"] },
     { title: "Lab", href: "/lab", icon: "⚗", about: "Prototypes and looks", also: ["prototypes", "designs", "looks", "menus"], need: "lab" },
   ];

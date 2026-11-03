@@ -39,7 +39,8 @@ test("the hint overlay has its own colours in light and dark, and doesn't take t
 test("Bino's keys (#85): Enter sends a chat box, ↑ brings back the last message, g b goes to Bino, and the help says so", () => {
   for (const key of ["Enter", "Shift Enter", "↑", "g b"]) assert.ok(SCRIPT.includes(`["${key}", `), `the help lists ${key}`);
   assert.ok(SCRIPT.includes(`["Bino", [`), "a Bino group");
-  assert.match(SCRIPT, /b: "\/bino" \}/, "g b");
+  assert.match(SCRIPT, /b: "\/bino"[,}]/, "g b");
+  assert.match(SCRIPT, /r: "\/bug" \}/, "g r (#384)");
   assert.match(SCRIPT, /form\[data-chat\]/);
   assert.match(SCRIPT, /!e\.isComposing/, "an IME's Enter picks a word, it doesn't send");
   assert.match(SCRIPT, /u-chat-last/);

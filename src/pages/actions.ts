@@ -16,6 +16,7 @@ const WHAT: Record<string, string> = {
   "deploy.rejected": "Rejected a deploy",
   "deploy.reject-superseded": "Rejected superseded deploys",
   "issue.create": "Created an issue",
+  "bug.file": "Filed a bug report",
   "task.create": "Created a dev task",
   "pr.retarget": "Retargeted a pull request",
   "pr.review": "Posted an agent's review",

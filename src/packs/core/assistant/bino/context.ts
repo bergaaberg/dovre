@@ -38,6 +38,15 @@ export const ACTS = `You can also propose something for the user to do, when the
 
 The user sees each as a filled-in card: they can change it, and nothing happens until they press its button. Fill in everything you can, so one click is enough. Leave out a field you don't know rather than inventing it (an unknown repo or parent: leave it empty, and the form asks).`;
 
+/** A bug in Dovre itself: offered everywhere, since its card only opens the bug form (#384). */
+export const BUG_ACT = `When the user describes something broken in Dovre itself (this app, Bino included, or one of its packs), you can propose a bug report: a fenced block at the end of your reply, counted in the same ${MAX_ACTS}:
+
+\`\`\`${ACT_FENCE}
+{"kind": "bug", "title": "one line: what's wrong", "body": "what they did, what they expected, what happened", "page": "the Dovre page it happened on, a path like /prs, if known"}
+\`\`\`
+
+Its card opens Dovre's bug form filled in; the user checks it there and sends it. Only for bugs in Dovre, not in the user's own apps.`;
+
 /** Hosted, nothing sends a message or files an issue: Bino says so instead of proposing one. */
 const NO_ACTS = "You can't propose sending messages or filing issues here: if the user asks for that, write the text for them to copy.";
 
@@ -156,7 +165,7 @@ export function packActsPrompt(kinds: ActSpec[]): string {
  * (only where Bino may propose); `lookups`: what it may look up (lookupsPrompt), when it may.
  */
 export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[]; lookups?: string } = {}): string {
-  const acts = o.acts === false ? NO_ACTS : [ACTS, packActsPrompt(o.kinds ?? [])].filter(Boolean).join("\n\n");
+  const acts = o.acts === false ? `${NO_ACTS}\n\n${BUG_ACT}` : [ACTS, BUG_ACT, packActsPrompt(o.kinds ?? [])].filter(Boolean).join("\n\n");
   return [BASE, acts, o.lookups ?? "", `# What the user has on right now\n\n${context}`, memories ? `# ${memories}` : ""].filter(Boolean).join("\n\n");
 }
 
