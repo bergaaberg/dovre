@@ -670,6 +670,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const refreshes = refreshLog(() => deps.hub?.publish(["packs"]));
   // Hosted (#362): newer releases of the packs bundled here, from dovre-packs' tags on GitHub.
   // github.com goes through the forge's token; a forge on another host reads anonymously (dovre-packs is public).
+  /** Every pack id this instance lists, on or off, Dovre's own too. */
+  const packIds = () => [...new Set([...packs.on.map((p) => p.manifest.id), ...packs.off.map((o) => o.id), ...(packs.core ?? [])])];
   const releases = hosted
     ? createReleases({
         get: /^(api\.)?github\.com$/i.test(ghe.host.trim())
@@ -680,6 +682,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
               return r.json();
             },
         packs: () => [...packs.on.map((p) => ({ id: p.manifest.id, version: p.manifest.version })), ...packs.off.map((o) => ({ id: o.id, version: o.manifest?.version }))].filter((p) => !packs.core?.includes(p.id)),
+        here: () => packIds(),
         onChange: () => deps.hub?.publish(["packs"]),
       })
     : undefined;
@@ -1276,13 +1279,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   });
   app.get("/packs", async (c) => {
     const { frame } = await page();
-    const copies = hosted ? undefined : deps.packs?.copies?.get();
+    const local = hosted ? undefined : deps.packs?.copies;
+    const copies = local?.get();
     const reading = releases?.refresh();
     if (reading)
       try {
         c.executionCtx.waitUntil(reading);
       } catch {}
-    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held() }));
+    const here = packIds();
+    const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: releases.get()!.listed } : undefined;
+    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
   app.post("/packs/:id/switch", strictOrigin, async (c) => {
@@ -1302,6 +1308,17 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     if (!r.ok) await logAction(env.DB, { kind: "packs.update", target: id, ok: false, error: r.why }).catch(() => {});
     deps.hub?.publish(["packs"]);
     return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
+  });
+  /** Add (#88): a pack from dovre-packs this instance doesn't list, as a job on the copies. */
+  app.post("/packs/:id/add", strictOrigin, async (c) => {
+    const copies = deps.packs?.copies;
+    if (hosted || !copies) return c.notFound();
+    const id = c.req.param("id");
+    if (packIds().includes(id)) return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
+    const r = copies.add(id, (ok, detail) => void logAction(env.DB, { kind: "packs.add", target: id, detail, ok }).catch(() => {}));
+    if (!r.ok) await logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: r.why }).catch(() => {});
+    deps.hub?.publish(["packs"]);
+    return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
   });
   app.post("/packs/:id/settings", strictOrigin, async (c) => {
     if (hosted) return c.notFound();

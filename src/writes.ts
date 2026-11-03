@@ -43,6 +43,7 @@ export const WRITES: WriteKind[] = [
   { kind: "relay.answer", label: "Answer an MCP server's question", group: "Here" },
   { kind: "ingest.revoke", label: "Revoke an ingest token", group: "Here" },
   { kind: "packs.update", label: "Update a pack from dovre-packs", group: "Here" },
+  { kind: "packs.add", label: "Add a pack from dovre-packs", group: "Here" },
 ];
 
 const PACK_KIND = /^[a-z][a-z0-9-]{0,40}$/;

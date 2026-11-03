@@ -5,16 +5,38 @@
  * Packs page reads `get()`, the newest kept answer, worked out again in the background. An update
  * re-checks the state, rewrites the pack (all or nothing), then runs the instance's typecheck and
  * test; if either fails, the pack's files go back as they were. The new code loads on a restart.
+ * Add (#88) copies a pack the instance doesn't have yet into the first PACKS folder with a packs.ts
+ * (`pnpm packs add`'s work), runs the same checks, and takes it all out again if they fail.
  */
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { resolvePacksRepo } from "./cli.ts";
-import { type FileChange, filesOf, instancePath, META, outdated, type PackState, readMeta, updatePack } from "./update.ts";
+import { addPack, listAvailablePacks, resolvePacksRepo } from "./cli.ts";
+import { type Listed, listedOf } from "./releases.ts";
+import { type FileChange, filesOf, gitShow, instancePath, META, outdated, type PackState, readMeta, releasesOf, sourceAllowed, sourceOf, updatePack, upstreamPath } from "./update.ts";
 
 export type CopyJob = { at: number; state: "running" | "done" | "failed"; step: string; changes?: FileChange[]; /** The end of the failing check's output. */ out?: string };
 export type Copy = { id: string; into: string; state: PackState; source: string | null; commit: string | null; job?: CopyJob };
 export type Check = (into: string) => Promise<{ ok: boolean; step: string; out: string }>;
+/** A pack in the checkout, to add, and how its add went. */
+export type ToAdd = Listed & { job?: CopyJob };
+
+/** Each pack in a dovre-packs checkout, as its newest release's index.ts says (HEAD's when it has none). */
+export function listedIn(repo: string): Listed[] {
+  return listAvailablePacks(repo).flatMap((id) => {
+    const at = upstreamPath(repo, id);
+    if (!at) return [];
+    const r = releasesOf(repo, id)[0] ?? null;
+    let index: string | undefined;
+    try {
+      index = r ? gitShow(repo, r.tag, `${at}/index.ts`)?.toString("utf8") : readFileSync(join(repo, at, "index.ts"), "utf8");
+    } catch {}
+    return index === undefined ? [] : [listedOf(id, index, r)];
+  });
+}
+
+/** The instance file that lists its packs: packs.ts, else crates.ts. */
+const entryOf = (into: string) => [join(into, "packs.ts"), join(into, "crates.ts")].find((f) => existsSync(f));
 
 /** The instance folders in a PACKS setting (a file entry means the folder it's in). */
 export function foldersOf(list: string | undefined, home = process.env.HOME ?? "~"): string[] {
@@ -54,7 +76,10 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
   const check = o.check ?? instanceCheck;
   const folders = foldersOf(o.packs, o.home);
   const jobs = new Map<string, CopyJob>();
-  let kept: { at: number; copies: Map<string, Copy> } | undefined;
+  const adds = new Map<string, CopyJob>();
+  let kept: { at: number; copies: Map<string, Copy>; listed: Listed[] } | undefined;
+  /** Where Add puts a pack: the first PACKS folder that lists its packs in a file. */
+  const target = () => folders.find((f) => entryOf(f));
   let pending = false;
   let fetchedAt = -Infinity;
   /** Fetches the checkout's tags without blocking, at most every 10 minutes; offline is fine. */
@@ -91,17 +116,28 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
     return out;
   }
 
-  function refresh(): Map<string, Copy> {
+  function listedNow(): Listed[] {
     try {
-      kept = { at: now(), copies: compute() };
+      return listedIn(repoOf());
     } catch {
-      kept = { at: now(), copies: new Map() };
+      return [];
     }
-    return kept.copies;
+  }
+
+  function refresh(): Map<string, Copy> {
+    let copies: Map<string, Copy>;
+    try {
+      copies = compute();
+    } catch {
+      copies = new Map();
+    }
+    kept = { at: now(), copies, listed: kept?.listed ?? [] };
+    return copies;
   }
 
   const changed = () => {
     refresh();
+    kept!.listed = listedNow();
     o.onChange?.();
   };
 
@@ -122,6 +158,66 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
       return out;
     },
     refresh,
+    /** The checkout's packs, each with its Add's progress (the page leaves out those already here). */
+    listed(): ToAdd[] {
+      return (kept?.listed ?? []).map((l) => ({ ...l, job: adds.get(l.id) }));
+    },
+    /** The instance folder Add writes into, if PACKS has one with a packs.ts. */
+    target,
+    /**
+     * Starts adding pack `id` from the checkout, if, checked again now, it's there, this core can run
+     * it, the checkout comes from an allowed source and the instance doesn't have it. `done` hears how
+     * it ended (for the actions log).
+     */
+    add(id: string, done?: (ok: boolean, detail: string) => void): { ok: true } | { ok: false; why: string } {
+      if (adds.get(id)?.state === "running") return { ok: false, why: "already adding" };
+      const into = target();
+      if (!into) return { ok: false, why: "PACKS has no instance folder with a packs.ts" };
+      let repo: string;
+      try {
+        repo = repoOf();
+      } catch (e) {
+        return { ok: false, why: (e as Error)?.message ?? String(e) };
+      }
+      const l = listedIn(repo).find((x) => x.id === id);
+      if (!l) return { ok: false, why: "not a pack in dovre-packs" };
+      if (l.needsCore) return { ok: false, why: `needs core API ${l.api}: update Dovre first` };
+      if (!sourceAllowed(sourceOf(repo), o.env)) return { ok: false, why: "the dovre-packs checkout comes from a repo outside REPO_OWNERS" };
+      const dirs = [join(into, "packs", id), join(into, "crates", id)];
+      if (dirs.some((d) => existsSync(d))) return { ok: false, why: "already in the instance" };
+      const entry = entryOf(into)!;
+      const listing = readFileSync(entry);
+      const undo = () => {
+        for (const d of dirs) rmSync(d, { recursive: true, force: true });
+        writeFileSync(entry, listing);
+      };
+      try {
+        addPack({ id, into, from: repo, allowClone: false, to: l.tag ?? undefined });
+      } catch (e) {
+        undo();
+        const why = (e as Error)?.message ?? String(e);
+        adds.set(id, { at: now(), state: "failed", step: why });
+        done?.(false, why);
+        changed();
+        return { ok: true };
+      }
+      adds.set(id, { at: now(), state: "running", step: "running the instance's typecheck and tests" });
+      changed();
+      void check(into)
+        .catch((e: unknown) => ({ ok: false, step: "check", out: String((e as Error)?.message ?? e) }))
+        .then((r) => {
+          if (r.ok) {
+            adds.set(id, { at: now(), state: "done", step: `added${l.version ? ` ${l.version}` : ""}; restart Dovre to load it` });
+            done?.(true, l.version ?? "HEAD");
+          } else {
+            undo();
+            adds.set(id, { at: now(), state: "failed", step: `${r.step} failed, so the pack was taken out again`, out: r.out.slice(-2000) });
+            done?.(false, `${r.step} failed; taken out`);
+          }
+          changed();
+        });
+      return { ok: true };
+    },
     /**
      * Starts updating pack `id` to its newest release if, checked again now, it's tracked and that
      * release has something new.

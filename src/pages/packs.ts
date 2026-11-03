@@ -5,7 +5,7 @@
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
-import type { Copy } from "../packs/copies.ts";
+import type { Copy, ToAdd } from "../packs/copies.ts";
 import type { Available } from "../packs/releases.ts";
 import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
@@ -15,7 +15,7 @@ import { apiText, parseApi } from "../packs/api.ts";
 /** A pack's own version, as dovre-packs releases it (x.y.z). */
 const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 
-export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string } };
+export type PacksView = { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string } };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -168,6 +168,51 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
 const panels = (v: PacksView, fun: boolean) =>
   html`${v.on.filter((c) => (c.manifest.domain === "fun") === fun).map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.filter((o) => (o.manifest?.domain === "fun") === fun).map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`;
 
+/** One pack to add: what it is, where it runs, and (on a machine) Add and how it went. */
+function addItem(p: ToAdd, v: PacksView, into: string | undefined) {
+  const cant = v.hosted ? p.execution === "local-only" : p.execution === "hosted-only";
+  const j = p.job;
+  const job = !j
+    ? ""
+    : j.state === "running"
+      ? html`<p>${Pill({ tone: "accent", children: "adding" })} <span class="t2">${j.step}</span></p>`
+      : j.state === "done"
+        ? html`<p>${Pill({ tone: "ok", children: "added" })} ${j.step}</p>${v.canRestart ? Post({ action: "/settings/restart", label: "Restart Dovre" }) : ""}`
+        : html`<p>${Pill({ tone: "bad", children: "not added" })} <span class="t2">${j.step}</span></p>${j.out ? html`<details><summary class="t2">Output</summary><pre>${j.out}</pre></details>` : ""}`;
+  const how = v.hosted
+    ? html`<p class="t3">Add it in the instance repo with <code>pnpm packs add ${p.id}</code>, then deploy.</p>`
+    : into && !p.needsCore && !cant && j?.state !== "running" && j?.state !== "done"
+      ? Confirm({
+          action: `/packs/${encodeURIComponent(p.id)}/add`,
+          label: "Add",
+          kind: "packs.add",
+          question: html`Copy ${p.name}${p.version ? ` ${p.version}` : ""} from dovre-packs into <code>${into}</code> and list it in its packs.ts? Then the instance's typecheck and tests run, and it's taken out again if either fails.`,
+        })
+      : "";
+  const notes: Child[] = [];
+  if (p.needsCore) notes.push(html`<span class="t2">needs core API ${p.api}: update Dovre first</span>`);
+  if (cant) notes.push(html`<span class="t2">runs ${WHERE[p.execution]}</span>`);
+  return Item({
+    id: `add-${p.id}`,
+    title: html`${p.name} ${p.version ? Pill({ children: p.version }) : Pill({ tone: "warn", children: "no release yet" })}`,
+    line: html`<code>${p.id}</code> · ${WHERE[p.execution]} · ${p.domain}${notes.map((n) => html` · ${n}`)}`,
+    clamp: p.description || undefined,
+    more: html`${job}${how}`,
+  });
+}
+
+/** dovre-packs' packs this instance doesn't list yet (#88). */
+function addPanel(v: PacksView) {
+  const t = v.toAdd;
+  if (!t?.packs.length) return "";
+  return Panel({
+    id: "add",
+    title: "Add from dovre-packs",
+    meta: `${t.packs.length} not here`,
+    children: html`${v.hosted ? "" : t.into ? html`<p class="t2">Added packs go into <code>${t.into}</code>.</p>` : html`<p class="t2">PACKS lists no instance folder with a packs.ts, so there's nowhere to add a pack.</p>`}${List(t.packs.map((p) => addItem(p, v, t.into)))}`,
+  });
+}
+
 export function packsPage(frame: Frame, v: PacksView) {
   const hidden = v.on.filter((c) => v.hidden?.includes(c.manifest.id) || v.held?.has(c.manifest.id)).length;
   const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length - hidden} on, ${v.off.length + hidden} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
@@ -176,6 +221,7 @@ ${v.hosted && v.releases ? html`<p class="t3">${v.releases.error ? html`Couldn't
 ${v.on.length || v.off.length
   ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these.</p>${panels(v, true)}` : ""}`
   : Panel({ children: Empty({ title: "No packs here", children: html`<p class="t2">${v.hosted ? "This Worker bundles none." : "PACKS lists none on this machine."}</p>` }) })}
+${addPanel(v)}
 </div>`;
   return shell({ title: "Packs · Dovre", frame, current: "/packs", body, head: html`<meta name="u-topics" content="packs">` });
 }

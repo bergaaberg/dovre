@@ -219,13 +219,18 @@ Also:
   `.pack.json` from before releases has no version; its next update records one. Locally the
   Packs page shows each copy's version, the newest release and what changed, with **Update to
   x.y.z** (`packs.update`, always asks twice), which runs the instance's typecheck and tests and
-  rolls back on failure. New code loads on restart.
+  rolls back on failure. Below the packs, **Add from dovre-packs** (#88) lists the checkout's packs
+  this instance doesn't have, each read from its newest release's `index.ts` as text (name,
+  description, version, API, where it runs), never run. **Add** (`packs.add`) does `pnpm packs
+  add`'s work into the first `PACKS` folder with a `packs.ts`, runs the same checks, and takes the
+  pack and the `packs.ts` line out again on failure. New code loads on restart.
 - Without a dovre-packs checkout (`--from`, `DOVRE_PACKS_DIR`, or one beside dovre), the CLI keeps
   its own blob-less clone in `~/.cache/dovre/dovre-packs` (`DOVRE_PACKS_CACHE`), made on first use
   and synced to origin on each `add` / `outdated` / `update`, so every tag and merge base is there.
 - Hosted (`src/packs/releases.ts`), the Packs page reads dovre-packs' tags through the GitHub API
   at most once an hour (in the background, the page shows the kept answer): a bundled pack behind
-  its newest release shows **x.y.z available**, whether this core can run it, and what changed.
+  its newest release shows **x.y.z available**, whether this core can run it, and what changed;
+  the released packs not bundled are listed to add, with the command to run.
   Taking it stays in the instance repo (`pnpm packs update <id>`, then deploy); a Worker can't
   rewrite itself.
 

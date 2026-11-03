@@ -59,6 +59,59 @@ export function newestOf(tags: string[]): Map<string, { tag: string; version: st
   return new Map([...out].map(([id, { tag, version }]) => [id, { tag, version }]));
 }
 
+/** Where a pack may run, as its manifest says (PackManifest.execution). */
+export type Runs = "any" | "local-only" | "hosted-only";
+
+/** A pack in dovre-packs that this instance doesn't list (#88): what it is, read from its index.ts as text, never run. */
+export type Listed = {
+  id: string;
+  name: string;
+  description: string;
+  /** Its newest release; null when it has none yet (the checkout's HEAD). */
+  version: string | null;
+  tag: string | null;
+  api: string | null;
+  /** It needs a newer core than this one. */
+  needsCore: boolean;
+  execution: Runs;
+  domain: string;
+};
+
+/** A double-quoted string literal's text (escapes and all), else a single-quoted one's. */
+const strAfter = (text: string, key: string): string | undefined => {
+  const m = text.match(new RegExp(`\\b${key}:\\s*(?:"((?:[^"\\\\\\n]|\\\\.)*)"|'((?:[^'\\\\\\n]|\\\\.)*)')`));
+  if (!m) return undefined;
+  if (m[1] !== undefined)
+    try {
+      return JSON.parse(`"${m[1]}"`) as string;
+    } catch {
+      return m[1];
+    }
+  return m[2]!.replace(/\\(.)/g, "$1");
+};
+
+/**
+ * What pack `id`'s index.ts says about it: the literals after its `id: "<id>"` (name, description,
+ * domain, execution), and its version and API. Anything missing gets a plain default.
+ */
+export function listedOf(id: string, index: string, release: { tag: string; version: string } | null = null): Listed {
+  const at = Math.max(0, index.search(new RegExp(`\\bid:\\s*["']${id}["']`)));
+  const after = index.slice(at);
+  const ex = strAfter(after, "execution");
+  const api = literalApi(index);
+  return {
+    id,
+    name: (strAfter(after, "name") ?? id).slice(0, 80),
+    description: (strAfter(after, "description") ?? "").slice(0, 400),
+    version: literalVersion(index) ?? release?.version ?? null,
+    tag: release?.tag ?? null,
+    api,
+    needsCore: !!api && apiCompare(api, PACK_API) > 0,
+    execution: ex === "local-only" || ex === "hosted-only" ? ex : "any",
+    domain: (strAfter(after, "domain") ?? "general").slice(0, 40),
+  };
+}
+
 /** A release newer than the pack running here. */
 export type Available = {
   version: string;
@@ -91,9 +144,8 @@ async function fileAt(get: GetJson, source: string, path: string, ref: string): 
  * then two for each pack with a newer one (its changelog and index.ts at that tag). A pack without
  * a version, or with no release in `source`, is left out.
  */
-export async function availableFor(get: GetJson, packs: { id: string; version: string }[], source = HOME_SOURCE): Promise<Map<string, Available>> {
-  const refs = (await get(`/repos/${source}/git/matching-refs/tags/`)) as { ref?: unknown }[];
-  const newest = newestOf((Array.isArray(refs) ? refs : []).flatMap((r) => (typeof r?.ref === "string" ? [r.ref] : [])));
+export async function availableFor(get: GetJson, packs: { id: string; version: string }[], source = HOME_SOURCE, tags?: Map<string, { tag: string; version: string }>): Promise<Map<string, Available>> {
+  const newest = tags ?? (await newestIn(get, source));
   const out = new Map<string, Available>();
   await Promise.all(
     packs.map(async (p) => {
@@ -109,6 +161,24 @@ export async function availableFor(get: GetJson, packs: { id: string; version: s
   return out;
 }
 
+/** Each pack's newest release in `source`, from one call for its tags. */
+export async function newestIn(get: GetJson, source = HOME_SOURCE): Promise<Map<string, { tag: string; version: string }>> {
+  const refs = (await get(`/repos/${source}/git/matching-refs/tags/`)) as { ref?: unknown }[];
+  return newestOf((Array.isArray(refs) ? refs : []).flatMap((r) => (typeof r?.ref === "string" ? [r.ref] : [])));
+}
+
+/** The released packs not in `here` (#88), each read from its index.ts at its newest tag; one call each. */
+export async function listedFor(get: GetJson, here: string[], source = HOME_SOURCE, tags?: Map<string, { tag: string; version: string }>): Promise<Listed[]> {
+  const newest = tags ?? (await newestIn(get, source));
+  const out = await Promise.all(
+    [...newest].filter(([id]) => !here.includes(id)).map(async ([id, n]) => {
+      const index = await fileAt(get, source, `packs/${id}/index.ts`, n.tag);
+      return index === undefined ? undefined : listedOf(id, index, n);
+    }),
+  );
+  return out.filter((x): x is Listed => !!x).sort((a, b) => (a.id < b.id ? -1 : 1));
+}
+
 /** How often the releases are read again. */
 export const RELEASES_MS = 3600_000;
 
@@ -116,22 +186,24 @@ export const RELEASES_MS = 3600_000;
  * Hosted: the kept answer for the Packs page, read again in the background once an hour old.
  * `refresh()` returns the read it started (for waitUntil), or undefined when none was due.
  */
-export function createReleases(o: { get: GetJson; /** Each pack listed here, on or off, and its own version. */ packs: () => { id: string; version?: unknown }[]; now?: () => number; onChange?: () => void; source?: string }) {
+export function createReleases(o: { get: GetJson; /** Each pack listed here, on or off, and its own version. */ packs: () => { id: string; version?: unknown }[]; /** Every pack id here, Dovre's own too: the rest of dovre-packs is listed to add (#88). */ here?: () => string[]; now?: () => number; onChange?: () => void; source?: string }) {
   const now = o.now ?? Date.now;
-  let kept: { at: number; available: Map<string, Available>; error?: string } | undefined;
+  let kept: { at: number; available: Map<string, Available>; listed: Listed[]; error?: string } | undefined;
   let reading: Promise<void> | undefined;
   return {
     get: () => kept,
     refresh(force = false): Promise<void> | undefined {
       if (reading || (!force && kept && now() - kept.at < RELEASES_MS)) return undefined;
       const packs = o.packs().flatMap((p) => (typeof p.version === "string" && semver(p.version) ? [{ id: p.id, version: p.version }] : []));
-      reading = availableFor(o.get, packs, o.source)
+      const here = o.here?.() ?? o.packs().map((p) => p.id);
+      reading = newestIn(o.get, o.source)
+        .then((tags) => Promise.all([availableFor(o.get, packs, o.source, tags), listedFor(o.get, here, o.source, tags)]))
         .then(
-          (available) => {
-            kept = { at: now(), available };
+          ([available, listed]) => {
+            kept = { at: now(), available, listed };
           },
           (e: unknown) => {
-            kept = { at: now(), available: kept?.available ?? new Map(), error: String((e as Error)?.message ?? e).slice(0, 200) };
+            kept = { at: now(), available: kept?.available ?? new Map(), listed: kept?.listed ?? [], error: String((e as Error)?.message ?? e).slice(0, 200) };
           },
         )
         .finally(() => {

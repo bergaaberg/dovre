@@ -51,7 +51,7 @@ function git(repo: string, args: string[]): string | undefined {
   return r.status === 0 ? r.stdout : undefined;
 }
 
-function gitShow(repo: string, commit: string, path: string): Buffer | undefined {
+export function gitShow(repo: string, commit: string, path: string): Buffer | undefined {
   const r = spawnSync("git", ["-C", repo, "show", `${commit}:${path}`], { maxBuffer: 64 << 20 });
   return r.status === 0 ? r.stdout : undefined;
 }
@@ -112,7 +112,7 @@ export function apiOf(repo: string, packDir: string): string {
   return v ? apiText(v) : PACK_API;
 }
 
-const sourceOf = (repo: string) => sourceOfUrl(git(repo, ["remote", "get-url", "origin"]) ?? "");
+export const sourceOf = (repo: string) => sourceOfUrl(git(repo, ["remote", "get-url", "origin"]) ?? "");
 const headOf = (repo: string) => git(repo, ["rev-parse", "HEAD"])?.trim() || null;
 
 /** Pack `<id>`'s releases in the checkout, tags `<id>@x.y.z`, newest first. */
