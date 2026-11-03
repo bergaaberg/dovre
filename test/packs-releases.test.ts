@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { resolvePacksRepo } from "../src/packs/cli.ts";
-import { availableFor, createReleases, type GetJson, newestOf } from "../src/packs/releases.ts";
+import { availableFor, createReleases, type GetJson, listedFor, listedOf, newestOf } from "../src/packs/releases.ts";
 import { PACK_API } from "../src/packs/types.ts";
 import { packsPage } from "../src/pages/packs.ts";
 import { assertInert, H } from "./helpers.ts";
@@ -139,4 +139,26 @@ test("with no checkout, the CLI clones dovre-packs into its cache with every tag
     else process.env.DOVRE_PACKS_REPO = was.repo;
     if (was.dir !== undefined) process.env.DOVRE_PACKS_DIR = was.dir;
   }
+});
+
+test("listedOf reads a manifest's literals as text, the ones after its own id (#88)", () => {
+  const index = `const forge = { id: "gitlab", name: "Forge name" };\nexport const p = { manifest: { api: "1.6", version: "1.2.0", id: "gitlab", name: "GitLab", description: 'It\\'s a "forge"', domain: "work", execution: "local-only" } };`;
+  const l = listedOf("gitlab", index, { tag: "gitlab@1.2.0", version: "1.2.0" });
+  assert.equal(l.name, "Forge name", "the first object naming its id wins");
+  const own = listedOf("x", `export const p = { manifest: { api: "99.1", id: "x", description: "Draws the <b>chart</b>", execution: "nowhere" } };`);
+  assert.deepEqual([own.name, own.version, own.needsCore, own.execution, own.domain], ["x", null, true, "any", "general"]);
+  assert.equal(listedOf("gitlab", index.replace("const forge = { id: \"gitlab\", name: \"Forge name\" };", "")).description, `It's a "forge"`);
+});
+
+test("listedFor: each released pack not here, read at its newest tag; the page shows them inert with the command to run", async () => {
+  const { get } = fakeGithub(["foo@1.0.0", "new@1.0.0", "new@1.1.0", "gone@1.0.0"], {
+    "new@1.1.0:packs/new/index.ts": `export const p = { manifest: { api: "${PACK_API}", version: "1.1.0", id: "new", name: "${H}", description: "${H}", execution: "local-only" } };`,
+  });
+  const listed = await listedFor(get, ["foo"]);
+  assert.deepEqual(listed.map((l) => [l.id, l.version, l.tag]), [["new", "1.1.0", "new@1.1.0"]], "foo is here; gone has no index.ts at its tag");
+  const out = String(packsPage({ user: "me", nav: [] } as never, { on: [], off: [], env: {}, hosted: true, toAdd: { packs: listed } }));
+  assertInert("/packs", out);
+  assert.match(out, /pnpm packs add new/);
+  assert.match(out, /runs on a machine only/);
+  assert.doesNotMatch(out, /\/packs\/new\/add/, "hosted has no Add button yet");
 });

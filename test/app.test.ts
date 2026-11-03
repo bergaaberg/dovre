@@ -119,7 +119,7 @@ test("the Packs page keeps a copied pack's state, job output and Update inert; U
   const manifest = { api: PACK_API, id: "copied", name: H, description: H, domain: "personal" as const };
   const started: string[] = [];
   const copy = { id: "copied", into: H, source: H, commit: H, state: { id: "copied", tracked: true, behind: 2, upstream: [H, "view.ts"], edited: [H], version: H, tag: H, newest: H, notes: [{ version: H, lines: [H, "Fixes the &lt;thing&gt;"] }] }, job: { at: 0, state: "failed" as const, step: H, out: H } };
-  const copies = { get: () => new Map([["copied", copy]]), refresh: () => new Map(), update: (id: string) => (started.push(id), { ok: true as const }) };
+  const copies = { get: () => new Map([["copied", copy]]), refresh: () => new Map(), update: (id: string) => (started.push(id), { ok: true as const }), listed: () => [], target: () => undefined, add: () => ({ ok: true as const }) };
   const { get, post } = signedIn(snapshot(), {}, { packs: [{ manifest }], copies });
   const out = await (await get("/packs")).text();
   assertInert("/packs", out);
@@ -133,6 +133,35 @@ test("the Packs page keeps a copied pack's state, job output and Update inert; U
   const res = await post("/packs/copied/update", {});
   assert.equal(res.status, 303);
   assert.deepEqual(started, ["copied"]);
+});
+
+test("the Packs page lists dovre-packs' other packs inert, each Add going through the copies (#88)", async () => {
+  const { PACK_API } = await import("../src/packs/types.ts");
+  const manifest = { api: PACK_API, id: "copied", name: "Copied", description: "", domain: "personal" as const };
+  const added: string[] = [];
+  const listed = (id: string, more: object = {}) => ({ id, name: H, description: H, version: "1.0.0", tag: `${id}@1.0.0`, api: PACK_API, needsCore: false, execution: "any" as const, domain: H, ...more });
+  const copies = {
+    get: () => new Map(),
+    refresh: () => new Map(),
+    update: () => ({ ok: true as const }),
+    listed: () => [listed("fresh"), listed("copied"), listed("newer", { needsCore: true, api: "9.0" }), listed("failed", { job: { at: 0, state: "failed" as const, step: H, out: H } })],
+    target: () => H,
+    add: (id: string) => (added.push(id), { ok: true as const }),
+  };
+  const { get, post } = signedIn(snapshot(), {}, { packs: [{ manifest }], copies });
+  const out = await (await get("/packs")).text();
+  assertInert("/packs", out);
+  assert.match(out, /Add from dovre-packs/);
+  assert.match(out, /action="\/packs\/fresh\/add"/);
+  assert.doesNotMatch(out, /id="add-copied"/, "a pack listed here isn't offered again");
+  assert.doesNotMatch(out, /action="\/packs\/newer\/add"/, "one this core can't run has no Add");
+  assert.match(out, /needs core API 9\.0/);
+  assert.match(out, /not added/);
+  assert.equal((await post("/packs/fresh/add", {}, { origin: "http://evil.example" })).status, 403);
+  assert.deepEqual(added, []);
+  assert.equal((await post("/packs/fresh/add", {})).status, 303);
+  assert.equal((await post("/packs/copied/add", {})).status, 303);
+  assert.deepEqual(added, ["fresh"], "a pack already here never reaches the copies");
 });
 
 test("a source that fails says so on the page; the rest still renders", async () => {
