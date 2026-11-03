@@ -9,7 +9,7 @@ import type { D1 } from "../db.ts";
 import type { SetupLine } from "../pages/settings.ts";
 
 /** The bindings this reads: the same names as the Worker's (src/worker.ts). */
-export type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
+export type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
 
 const set = (v: unknown) => typeof v === "string" && v.trim() !== "";
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -33,6 +33,7 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
     { name: "Live pages and Bino (HUB)", on: !!b.HUB, what: "Pages update by themselves; Bino answers", fix: "Bind the Durable Object: durable_objects HUB → DovreHub, a new_sqlite_classes migration, and `export { DovreHub } from \"dovre/hosted/hub.ts\"` in worker.ts." },
     { name: "Icons and fonts (ASSETS)", on: !!b.ASSETS, what: "The app icon, Nordwand Mono and packs' WebAssembly files", fix: "build: { command: \"node ../dovre/src/packs/assets.ts --out .assets\" } and assets: { directory: \".assets\", binding: \"ASSETS\", run_worker_first: true } in wrangler.jsonc." },
     { name: "GitHub", on: !!o.githubToken || set(b.GITHUB_TOKEN), what: "Pull requests and deploys on Today", fix: "`wrangler secret put GITHUB_TOKEN` (a fine-grained token, read-only on the repos you track)." },
+    { name: "Add packs from here", on: set(b.INSTANCE_REPO), what: "Packs' Add opens a PR on the instance repo; merge it and deploy", fix: "Set the var INSTANCE_REPO (the instance repo, owner/name) and give the GitHub token contents and pull-request write on that one repo." },
     direct
       ? { name: "Bino's model (your key)", on: [b.ASSISTANT_API_KEY, b.ANTHROPIC_API_KEY, b.OPENAI_API_KEY, b.GEMINI_API_KEY].some(set), what: "Bino's answers, straight from the provider with your key", fix: "`wrangler secret put ASSISTANT_API_KEY` (an Anthropic, OpenAI or Gemini key)." }
       : { name: "Bino's model (AI Gateway)", on: set(b.CF_AIG_TOKEN), what: "Bino's answers, through Cloudflare AI Gateway", fix: "Make a gateway (AI_GATEWAY, default dovre) with your Anthropic key in it, then `wrangler secret put CF_AIG_TOKEN`. Or BINO_VIA=api-key with ASSISTANT_API_KEY, straight to the provider." },

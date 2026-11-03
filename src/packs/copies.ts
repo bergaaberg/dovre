@@ -15,7 +15,7 @@ import { addPack, listAvailablePacks, resolvePacksRepo } from "./cli.ts";
 import { type Listed, listedOf } from "./releases.ts";
 import { type FileChange, filesOf, gitShow, instancePath, META, outdated, type PackState, readMeta, releasesOf, sourceAllowed, sourceOf, updatePack, upstreamPath } from "./update.ts";
 
-export type CopyJob = { at: number; state: "running" | "done" | "failed"; step: string; changes?: FileChange[]; /** The end of the failing check's output. */ out?: string };
+export type CopyJob = { at: number; state: "running" | "done" | "failed"; step: string; changes?: FileChange[]; /** The end of the failing check's output. */ out?: string; /** Hosted Add: the PR it opened. */ url?: string };
 export type Copy = { id: string; into: string; state: PackState; source: string | null; commit: string | null; job?: CopyJob };
 export type Check = (into: string) => Promise<{ ok: boolean; step: string; out: string }>;
 /** A pack in the checkout, to add, and how its add went. */

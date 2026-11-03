@@ -22,6 +22,11 @@ export async function recentActions(db: D1, limit = 20): Promise<Logged[]> {
   return (await db.prepare("SELECT * FROM actions ORDER BY id DESC LIMIT ?").bind(limit).all<Logged>()).results;
 }
 
+/** The newest `limit` writes of one kind. */
+export async function actionsOf(db: D1, kind: string, limit = 50): Promise<Logged[]> {
+  return (await db.prepare("SELECT * FROM actions WHERE kind = ? ORDER BY id DESC LIMIT ?").bind(kind, limit).all<Logged>()).results;
+}
+
 /** A repo in the org, as "<org>/<name>": anything else is refused before it reaches a URL. */
 /** `owner/repo` when its owner is one of `owners` (comma-separated, src/owners.ts); null for anything else. */
 export function repoIn(owners: string, repo: unknown): string | null {

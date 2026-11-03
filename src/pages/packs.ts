@@ -9,7 +9,7 @@ import type { Copy, ToAdd } from "../packs/copies.ts";
 import type { Available } from "../packs/releases.ts";
 import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
-import { Ago } from "./parts.ts";
+import { Ago, safeUrl } from "./parts.ts";
 import { apiText, parseApi } from "../packs/api.ts";
 
 /** A pack's own version, as dovre-packs releases it (x.y.z). */
@@ -177,17 +177,16 @@ function addItem(p: ToAdd, v: PacksView, into: string | undefined) {
     : j.state === "running"
       ? html`<p>${Pill({ tone: "accent", children: "adding" })} <span class="t2">${j.step}</span></p>`
       : j.state === "done"
-        ? html`<p>${Pill({ tone: "ok", children: "added" })} ${j.step}</p>${v.canRestart ? Post({ action: "/settings/restart", label: "Restart Dovre" }) : ""}`
+        ? html`<p>${Pill({ tone: "ok", children: v.hosted ? "PR opened" : "added" })} ${j.url ? html`<a href="${safeUrl(j.url)}">${j.url.replace(/^https:\/\/[^/]+\//, "")}</a> · ` : ""}${j.step}</p>${!v.hosted && v.canRestart ? Post({ action: "/settings/restart", label: "Restart Dovre" }) : ""}`
         : html`<p>${Pill({ tone: "bad", children: "not added" })} <span class="t2">${j.step}</span></p>${j.out ? html`<details><summary class="t2">Output</summary><pre>${j.out}</pre></details>` : ""}`;
-  const how = v.hosted
-    ? html`<p class="t3">Add it in the instance repo with <code>pnpm packs add ${p.id}</code>, then deploy.</p>`
-    : into && !p.needsCore && !cant && j?.state !== "running" && j?.state !== "done"
-      ? Confirm({
-          action: `/packs/${encodeURIComponent(p.id)}/add`,
-          label: "Add",
-          kind: "packs.add",
-          question: html`Copy ${p.name}${p.version ? ` ${p.version}` : ""} from dovre-packs into <code>${into}</code> and list it in its packs.ts? Then the instance's typecheck and tests run, and it's taken out again if either fails.`,
-        })
+  const can = !!into && !p.needsCore && !cant && j?.state !== "running" && j?.state !== "done";
+  const question = v.hosted
+    ? html`Open a PR on <code>${into}</code> that adds ${p.name}${p.version ? ` ${p.version}` : ""} from dovre-packs to its packs.ts? It loads once you merge it and deploy.`
+    : html`Copy ${p.name}${p.version ? ` ${p.version}` : ""} from dovre-packs into <code>${into}</code> and list it in its packs.ts? Then the instance's typecheck and tests run, and it's taken out again if either fails.`;
+  const how = can
+    ? Confirm({ action: `/packs/${encodeURIComponent(p.id)}/add`, label: v.hosted ? "Add (opens a PR)" : "Add", kind: "packs.add", question })
+    : v.hosted && !into && !cant
+      ? html`<p class="t3">Add it in the instance repo with <code>pnpm packs add ${p.id}</code>, then deploy.</p>`
       : "";
   const notes: Child[] = [];
   if (p.needsCore) notes.push(html`<span class="t2">needs core API ${p.api}: update Dovre first</span>`);
@@ -209,7 +208,13 @@ function addPanel(v: PacksView) {
     id: "add",
     title: "Add from dovre-packs",
     meta: `${t.packs.length} not here`,
-    children: html`${v.hosted ? "" : t.into ? html`<p class="t2">Added packs go into <code>${t.into}</code>.</p>` : html`<p class="t2">PACKS lists no instance folder with a packs.ts, so there's nowhere to add a pack.</p>`}${List(t.packs.map((p) => addItem(p, v, t.into)))}`,
+    children: html`${v.hosted
+      ? t.into
+        ? html`<p class="t2">Add opens a PR on <code>${t.into}</code>; merge it and deploy to load the pack.</p>`
+        : html`<p class="t2">Set the var <code>INSTANCE_REPO</code> (the instance's <code>owner/name</code>, one of the owners') and give the GitHub token contents and pull-request write on it, to add from here.</p>`
+      : t.into
+        ? html`<p class="t2">Added packs go into <code>${t.into}</code>.</p>`
+        : html`<p class="t2">PACKS lists no instance folder with a packs.ts, so there's nowhere to add a pack.</p>`}${List(t.packs.map((p) => addItem(p, v, t.into)))}`,
   });
 }
 
