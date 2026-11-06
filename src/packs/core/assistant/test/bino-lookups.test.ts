@@ -13,7 +13,7 @@ import type { Route } from "../bino/route.ts";
 import { lookupsVia } from "../../../../hosted/lookups.ts";
 import { offered } from "../../../../mcp.ts";
 import { openDb } from "../../../../db.ts";
-import { activePacks, lookupsFrom } from "../../../registry.ts";
+import { activePacks, lookupsFrom, MAX_PACK_LOOKUPS } from "../../../registry.ts";
 import { PACK_API, type Pack, type PackContext } from "../../../types.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, snapshot } from "../../../../../test/helpers.ts";
 
@@ -50,6 +50,18 @@ test("lookupsFrom: a pack's lookups are vetted, bound to it, and never throw; sl
   const broke = await ls[3]!.run({});
   assert.equal(broke.error, true);
   assert.ok(!broke.text.includes("token=abc"), "why it failed goes to the log, not to the model");
+});
+
+test("lookupsFrom: five a pack, MAX_PACK_LOOKUPS in all; the ones past the cap are logged, not dropped quietly", () => {
+  const many = (i: number): Pack => ({
+    manifest: { api: PACK_API, id: `p${i}`, name: `P${i}`, description: "test", domain: "general" },
+    lookups: () => Array.from({ length: 6 }, (_, k) => ({ kind: `k${k}`, when: "A thing.", fields: [], run: () => "" })),
+  });
+  const logged: string[] = [];
+  const ls = lookupsFrom(Array.from({ length: 8 }, (_, i) => many(i)), () => ctx, (id, l) => logged.push(`${id}: ${l}`));
+  assert.equal(ls.length, MAX_PACK_LOOKUPS);
+  assert.ok(!ls.some((l) => l.kind.endsWith(".k5")), "five a pack");
+  assert.equal(logged.filter((l) => /in all is the most/.test(l)).length, 8 * 5 - MAX_PACK_LOOKUPS);
 });
 
 test("a block is checked against the specs: unknown kinds and a missing required field are dropped, values cut", () => {

@@ -480,8 +480,10 @@ export function actsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: 
 /** A pack's lookup as Bino sees it: checked and cut to size, bound to the pack; `run` never throws. */
 export type PackLookup = LookupSpec & { pack: string; run(args: Record<string, string>): Promise<{ text: string; error?: boolean }> };
 export const LOOKUP_MS = 8000;
+/** Lookups across all packs: each is a few lines of Bino's prompt (an instance with its apps' Ops wants ~25). */
+export const MAX_PACK_LOOKUPS = 32;
 
-/** The packs' lookups (`lookups`): five a pack, six fields each, sixteen in all; a bad one is left out and logged. */
+/** The packs' lookups (`lookups`): five a pack, six fields each, MAX_PACK_LOOKUPS in all; a bad one, or one past the cap, is left out and logged. */
 export function lookupsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, ms = LOOKUP_MS): PackLookup[] {
   const out: PackLookup[] = [];
   for (const c of on) {
@@ -492,7 +494,10 @@ export function lookupsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (i
     if (!Array.isArray(kinds)) continue;
     const seen = new Set<string>();
     for (const k of kinds.slice(0, 5)) {
-      if (out.length >= 16) break;
+      if (out.length >= MAX_PACK_LOOKUPS) {
+        say(`lookups: ${String(k?.kind).slice(0, 40)} left out (${MAX_PACK_LOOKUPS} in all is the most)`);
+        continue;
+      }
       const when = oneLine(k?.when, 400);
       if (!k || !WORD.test(String(k.kind)) || seen.has(k.kind) || !when || !Array.isArray(k.fields) || typeof k.run !== "function") {
         say(`lookups: ${String(k?.kind).slice(0, 40)} left out (it needs a word for its kind, when, fields and run)`);
