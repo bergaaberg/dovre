@@ -793,13 +793,6 @@ button svg, .btn svg { width: 15px; height: 15px; }
 .field > .hint { color: var(--ink-3); font-size: var(--fs-s); }
 .field > fieldset { border: 0; padding: 0; margin: .2rem 0 0; min-width: 0; }
 .field > fieldset > legend { padding: 0; font-size: var(--fs-s); color: var(--ink-2); }
-.welcome-skip { margin-top: .6rem; }
-.pane-set { border: 0; border-top: 1px solid var(--line); margin: 0; padding: .7rem 0 .2rem; min-width: 0; }
-.pane-set > legend { float: left; width: 100%; padding: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .6rem; }
-.pane-set > legend + * { clear: left; }
-.pane-what { margin: 0 0 .5rem 1.6rem; color: var(--ink-3); font-size: var(--fs-s); }
-.pane-set > .fields { margin-left: 1.6rem; }
-.pane-why { color: var(--warn); font-size: var(--fs-s); }
 /* The new-session form's options for one harness (#236): its fields sit in the row as if loose. */
 .harness-opts { border: 0; padding: 0; margin: 0; min-width: 0; }
 /* Two agents on one prompt, side by side (#242). */

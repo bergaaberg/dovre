@@ -9,6 +9,7 @@
 import { type Pack, PACK_API } from "../../types.ts";
 import { createBinoRoutes } from "./bino/routes.ts";
 import { assistantHostOf } from "./bino/host.ts";
+import { VIA_CHOICES } from "./bino/route.ts";
 
 const MANIFEST = {
   api: PACK_API,
@@ -22,7 +23,13 @@ const MANIFEST = {
 
 export function assistantPack(): Pack {
   const pack: Pack = {
-    manifest: { ...MANIFEST, roles: [...MANIFEST.roles], paths: [...MANIFEST.paths] },
+    manifest: {
+      ...MANIFEST,
+      roles: [...MANIFEST.roles],
+      paths: [...MANIFEST.paths],
+      // How Bino answers (#417): read when Dovre starts. Unset: Claude Code if it's here, else Copilot.
+      settings: [{ key: "ASSISTANT_VIA", label: "How it answers", help: "Applies when Dovre starts again. Its default: Claude Code if it's here, else Copilot.", choices: VIA_CHOICES.map((c) => ({ ...c })) }],
+    },
     routes(app, ctx) {
       const host = assistantHostOf(pack);
       if (!host) return;

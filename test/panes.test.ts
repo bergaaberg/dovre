@@ -16,9 +16,11 @@ test("with everything here, every pane runs; Bino takes Claude Code", () => {
   assert.equal(p.bino.via, "claude");
 });
 
-test("Settings offers every route Bino can take", () => {
-  const form = (pane: string, via: string) => configFromForm({ [`on.${pane}`]: "on", [`via.${pane}`]: via }, {}, new Set(), { panes: true });
-  for (const via of ["claude", "omp", "copilot", "agy", "codex", "cf-gateway"]) assert.equal(form("bino", via).config.BINO_VIA, via, via);
+test("the assistant pack's setting offers every route Bino can take but off (#417)", async () => {
+  const { assistantPack } = await import("../src/packs/core/assistant/index.ts");
+  const { VIAS } = await import("../src/packs/core/assistant/bino/route.ts");
+  const s = assistantPack().manifest.settings?.find((x) => x.key === "ASSISTANT_VIA");
+  assert.deepEqual(s?.choices?.map((c) => c.value), VIAS.filter((v) => v !== "off"));
 });
 
 test("without Claude Code: Bino goes to Copilot through omp", () => {
@@ -48,13 +50,13 @@ test("a pane that can't run here says why; one switched off doesn't", () => {
   assert.equal("lab" in on, false, "the Lab is gone");
 });
 
-test("the form: a switch, a route, options; bad values refused; fixed keys left alone", () => {
-  const form = { "on.bino": "on", "via.bino": "omp" };
-  assert.deepEqual(configFromForm(form, {}, new Set(), { panes: true }), { config: { BINO_VIA: "omp" }, bad: [] });
-  assert.equal(configFromForm(form, {}, new Set(["BINO_VIA"]), { panes: true }).config.BINO_VIA, undefined, "set in .dev.vars: not touched");
-  const worse = configFromForm({ "on.bino": "on", "via.bino": "gpt-at-home", JIRA_PROJECTS: "JSD; rm -rf" }, {}, new Set(), { panes: true });
-  assert.deepEqual(worse.bad, ["Bino"]);
-  assert.equal(worse.config.JIRA_PROJECTS, undefined, "a key no pane has isn't kept");
+test("the form: bad values refused; fixed keys left alone; keys it doesn't have aren't kept", () => {
+  assert.deepEqual(configFromForm({ TZ_NAME: "Europe/Oslo" }, {}, new Set(), { general: true }), { config: { TZ_NAME: "Europe/Oslo" }, bad: [] });
+  assert.equal(configFromForm({ TZ_NAME: "Europe/Oslo" }, {}, new Set(["TZ_NAME"]), { general: true }).config.TZ_NAME, undefined, "set in .dev.vars: not touched");
+  const worse = configFromForm({ TZ_NAME: "no where", JIRA_PROJECTS: "JSD; rm -rf", "via.bino": "omp" }, {}, new Set(), { general: true });
+  assert.deepEqual(worse.bad, ["Timezone"]);
+  assert.equal(worse.config.JIRA_PROJECTS, undefined, "a key Settings doesn't have isn't kept");
+  assert.equal(worse.config.BINO_VIA, undefined, "Bino's route is the assistant pack's setting now (#417)");
   const empty = configFromForm({ TZ_NAME: "" }, { TZ_NAME: "Europe/Oslo" }, new Set(), { general: true });
   assert.equal(empty.config.TZ_NAME, undefined, "empty is the default");
   const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TZ_NAME: "Europe/Oslo", "via.bino": "omp" }, {}, new Set(), { general: true });
@@ -91,29 +93,6 @@ test("an off pane is gone from the menu, search, Today and its pages", async () 
   assert.ok(!pagesOf().some((p) => p.href === "/stats" || p.href === "/jira"));
   assert.ok(pagesOf({ stats: true }).some((p) => p.href === "/stats"));
 });
-
-test("Settings shows each pane and saves the form; what can't run says why", async () => {
-  const panes = panesOf({ BINO_VIA: "omp" }, { ...all, terminals: false });
-  const config = { panes, stored: { BINO_VIA: "omp", TZ_NAME: H } };
-  const { get, post, db } = signedIn(snapshot(), {}, { config });
-  const page = await (await get("/settings/panes")).text();
-  assertInert("settings", page);
-  // Bino, Terminal and Docker are switched as packs (#271): Bino's pane keeps only its route.
-  assert.doesNotMatch(page, /name="on\.(bino|terminal|docker)"/);
-  assert.doesNotMatch(page, /id="pane-(terminal|docker)"/);
-  assert.match(page, /<a class="t3" href="\/packs#pack-assistant">On or off: Packs<\/a>/);
-  assert.match(page, /<option value="omp" selected>/);
-  const r = await post("/settings/panes", { "via.bino": "claude" });
-  assert.equal(r.status, 303);
-  const kept = await loadConfig(db.DB);
-  assert.equal(kept.BINO_VIA, "claude");
-  assert.match(await (await get("/settings/panes")).text(), /Saved\./);
-  await post("/settings/panes", { "on.bino": "on", "via.bino": "nope" });
-  assert.match(await (await get("/settings/panes")).text(), /Not saved: Bino/);
-  assert.equal((await loadConfig(db.DB)).BINO_VIA, "claude", "a refused form keeps nothing");
-});
-
-// The first run is the climb now: test/welcome.test.ts.
 
 test("without Claude Code, Bino and summaries talk to Copilot through omp: no tools, the system prompt as omp's", async () => {
   const { mkdirSync, mkdtempSync } = await import("node:fs");
@@ -157,5 +136,4 @@ test("the old Terminal, Docker and Bino switches turn their packs off; Bino's ro
   assert.equal(p.bino.via, "claude", "an old off is the pack's now: the route is the default");
   assert.equal(p.terminal.on, true, "can run: on or off is the pack's");
   assert.equal(p.docker.on, true);
-  assert.equal(configFromForm({ "via.bino": "omp" }, {}, new Set(), { panes: true }).config.BINO_VIA, "omp", "no checkbox: never written off");
 });

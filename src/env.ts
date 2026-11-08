@@ -88,7 +88,7 @@ export type Env = {
   /** Copilot through omp, for Bino and summaries without Claude Code (src/ai/omp.ts): its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
   COPILOT_PROFILE?: string;
   COPILOT_MODEL?: string;
-  /** Panes switched on Settings (src/config.ts): `off` turns one off; unset is on. */
+  /** Old pane switches (src/config.ts LEGACY_SWITCHES): `off` turns its pack off once at start; unset is on. */
   TERMINAL?: string;
   STATS?: string;
   REVIEWS?: string;

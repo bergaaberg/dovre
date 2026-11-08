@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
-import { type Choice, type Field, GENERAL, PANES, type PaneId, type PaneState, ticked } from "../config.ts";
+import { type Choice, type Field, GENERAL, ticked } from "../config.ts";
 import { found } from "../tools.ts";
 import { currentTz } from "../when.ts";
 import { DEFAULT_POLICY, type Policy, RING_KINDS, type Rung } from "../notify.ts";
@@ -16,7 +16,7 @@ import type { Reg, ToolsHarness } from "../agents/mcpsetup.ts";
 import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { Ago, forgeName, quietFields } from "./parts.ts";
 
-/** What this machine has, for the Setup panel: each a line saying what it does, and how to turn it on when it's off. Panes have their own panel. */
+/** What this machine has, for the Setup panel: each a line saying what it does, and how to turn it on when it's off. */
 export type SetupFacts = {
   ghe: { host: string; org: string; login: string };
   claude?: string;
@@ -43,7 +43,7 @@ export function setupLines(f: SetupFacts): SetupLine[] {
     f.claude ? { name: "Claude Code", on: true, what: `Agents can run in it: ${f.claude}` } : { name: "Claude Code", on: false, what: "Not found", fix: "Install it (`claude` on the PATH), or set CLAUDE_BIN in .dev.vars. Without it, Bino, summaries and reviews use Copilot through omp." },
     f.omp ? { name: "omp", on: true, what: `Agents can run in it (Copilot models): ${f.omp}` } : { name: "omp", on: false, what: "Not found", fix: "Install it (`omp` on the PATH), or set OMP_BIN in .dev.vars. Copilot models need it: Bino and summaries without Claude Code." },
     f.copilotCli
-      ? { name: "Copilot CLI", on: true, what: `Its sessions show on Agents; Bino and summaries can ask through it (Settings → Panes): ${f.copilotCli}` }
+      ? { name: "Copilot CLI", on: true, what: `Its sessions show on Agents; Bino and summaries can ask through it (Settings → Packs → Assistant): ${f.copilotCli}` }
       : { name: "Copilot CLI", on: false, what: "Not found", fix: `Optional. Install it (${windows ? "winget install GitHub.Copilot" : "npm install -g @github/copilot"}) for its sessions on Agents, and to give Bino and summaries a way in without Claude Code; or set COPILOT_BIN in .dev.vars.` },
     ...(f.copilot ? [f.copilot === "ready" ? { name: "Copilot", on: true, what: "Bino and summaries can use Copilot models through omp" } : { name: "Copilot", on: false, what: "Not set up", fix: f.copilot }] : []),
     ...(windows ? [f.edge ? { name: "Edge", on: true, what: "Opens Dovre as its own window" } : { name: "Edge", on: false, what: "Not found: the default browser opens it instead" }] : []),
@@ -79,37 +79,8 @@ export function fieldInput(f: Field, value: string | undefined, fixed: boolean, 
   return html`<label class="field"><span class="label">${f.label}</span>${input}${fixedHint}</label>`;
 }
 
-export type PanesView = { panes: Record<PaneId, PaneState>; values: Record<string, string | undefined>; fixed: Set<string> };
-
-/** Each pane's switch, its route where it has more than one, and its main options. */
-export function paneSets(v: PanesView) {
-  return PANES.map((p) => {
-    const st = v.panes[p.id];
-    const fixed = v.fixed.has(p.key);
-    const via = p.on.length > 1 ? html`<label class="field"><span class="label">Through</span><select name="via.${p.id}"${fixed ? html` disabled` : ""}>${p.on.map((c) => html`<option value="${c.value}"${st.via === c.value ? html` selected` : ""}>${c.label}</option>`)}</select></label>` : "";
-    const opts = p.options.map((o) => fieldInput(o, v.values[o.key], v.fixed.has(o.key)));
-    // A pane whose pack is its switch (#271): how it runs here; on or off is on Packs.
-    const toggle = p.pack
-      ? html`<strong>${p.name}</strong> <a class="t3" href="/packs#pack-${p.pack}">On or off: Packs</a>`
-      : html`<label class="check"><input type="checkbox" name="on.${p.id}" value="on"${st.wanted ? html` checked` : ""}${fixed ? html` disabled` : ""}> <strong>${p.name}</strong></label>`;
-    return html`<fieldset class="pane-set" id="pane-${p.id}"><legend>${toggle}${st.wanted && !st.on ? html` <span class="pane-why">${st.why ?? "Can't run here."}</span>` : ""}${fixed ? html` <span class="t3">Set in .dev.vars (${p.key})</span>` : ""}</legend>
-<p class="pane-what">${p.what}</p>${via || opts.length ? html`<div class="fields aligned">${via}${opts}</div>` : ""}</fieldset>`;
-  });
-}
-
-export function panesPanel(v: PanesView, canRestart: boolean) {
-  const n = PANES.filter((p) => v.panes[p.id].on).length;
-  return Panel({
-    title: "Panes",
-    meta: `${n} of ${PANES.length} on`,
-    id: "panes",
-    children: html`<form method="post" action="/settings/panes">
-<p class="notes">A pane that's off is gone from the menu, search and Today, and does nothing in the background. Changes apply when Dovre starts again: open terminals close, agents carry on.</p>
-${paneSets(v)}
-<div class="buttons"><button type="submit" class="primary" data-busy="Saving">${canRestart ? "Save and restart" : "Save"}</button></div>
-</form>`,
-  });
-}
+/** The Work form: what Settings keeps, and what .dev.vars or the environment fixes. */
+export type PanesView = { values: Record<string, string | undefined>; fixed: Set<string> };
 
 /** "Saved, starting again": the page waits for the new server (src/ui/app.js.ts), then opens `then`. */
 export function restartingNote(started: number, then: string, text: string) {
@@ -276,7 +247,6 @@ export const AREAS = [
   { id: "notifications", title: "Notifications", about: "What rings, when, and what rang lately", also: ["ring", "toast", "alert", "quiet"] },
   { id: "writes", title: "Writes", about: "Which writes take one click instead of asking twice", also: ["confirm", "one click", "twice"] },
   { id: "keys", title: "Keys", about: "Shortcuts without Ctrl, and how far j/k scroll", also: ["keyboard", "shortcuts", "vim"] },
-  { id: "panes", title: "Panes", about: "What runs here: how Bino answers (packs are switched on Packs)", also: ["features", "on", "off", "enable"] },
   { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
   { id: "agents", title: "Agents", about: "Which agent CLIs get the packs' tools, when a long turn rings, and auto runs' limits", also: ["mcp", "tools", "omp", "agy", "claude", "auto", "sandbox", "budget", "long turn"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
@@ -351,12 +321,6 @@ export function settingRows(s: RowsState): SettingRow[] {
     const v = s.panes;
     const set = (key: string) => v.fixed.has(key) || (v.stored[key] ?? "") !== "";
     const shown = (key: string, now: string | undefined) => (v.fixed.has(key) ? `${now ?? ""} (.dev.vars)`.trim() : now);
-    for (const pane of PANES) {
-      const st = v.panes[pane.id];
-      const via = pane.on.length > 1 ? pane.on.find((c) => c.value === st.via)?.label : undefined;
-      rows.push({ area: "panes", label: pane.name, href: `/settings/panes#pane-${pane.id}`, now: shown(pane.key, st.wanted ? (via ?? "On") : "Off"), changed: set(pane.key), also: [pane.what] });
-      for (const o of pane.options) rows.push({ area: "panes", label: `${pane.name}: ${o.label}`, href: `/settings/panes#pane-${pane.id}`, now: shown(o.key, v.values[o.key]), changed: set(o.key), also: [o.key] });
-    }
     for (const g of GENERAL) rows.push({ area: "work", label: g.label, href: "/settings/work", now: shown(g.key, v.values[g.key]), changed: set(g.key), also: [g.key, g.hint ?? ""] });
   }
   for (const r of s.agents ?? []) rows.push({ area: "agents", label: `Pack tools for ${TOOL_NAMES[r.id]}`, href: "/settings/agents", now: r.id === "claude" || r.id === "codex" || r.state === "yes" ? "Set up" : "Not set up", also: ["mcp", r.id] });

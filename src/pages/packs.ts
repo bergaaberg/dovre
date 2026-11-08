@@ -95,7 +95,8 @@ const releaseNotes = (id: string, a: Available) =>
 function settingItem(s: PackSetting, env: PacksView["env"]) {
   const v = env[s.key]?.trim();
   const state = v ? Pill({ tone: "ok", children: "set" }) : Pill({ tone: s.required ? "bad" : undefined, children: s.required ? "missing, needed" : "not set" });
-  const shown = v && !s.secret ? html` <code>${v.length > 80 ? `${v.slice(0, 80)}…` : v}</code>` : "";
+  const label = s.choices?.find((c) => c.value === v)?.label;
+  const shown = v && !s.secret ? (label ? html` ${label}` : html` <code>${v.length > 80 ? `${v.slice(0, 80)}…` : v}</code>`) : "";
   return Item({ title: html`${s.label} ${state}`, line: html`<code>${s.key}</code>${s.secret ? " · secret" : ""}${shown}`, clamp: s.help });
 }
 
@@ -104,6 +105,8 @@ function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]
   return html`<form method="post" action="/packs/${encodeURIComponent(id)}/settings">
   <div class="fields aligned">${settings.map((s) => {
     const v = env[s.key]?.trim();
+    if (s.choices)
+      return html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><select name="${s.key}"><option value=""${v ? "" : " selected"}>Its default</option>${s.choices.map((c) => html`<option value="${c.value}"${v === c.value ? " selected" : ""}>${c.label}</option>`)}</select>${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
     return s.secret
       ? html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="password" name="${s.key}" value="" placeholder="${v ? "(set — leave blank to keep)" : s.help ?? ""}" maxlength="2000" spellcheck="false" autocomplete="off">${v ? html`<label class="check"><input type="checkbox" name="clear.${s.key}" value="1"> Clear saved secret</label>` : ""}${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`
       : html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="text" name="${s.key}" value="${v ?? ""}" placeholder="${s.help ?? ""}" maxlength="2000" spellcheck="false">${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
@@ -113,7 +116,20 @@ function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]
 }
 
 /** The settings a pack's manifest lists, a valid key each. */
-export const manifestSettings = (m: PackManifest | undefined): PackSetting[] => (Array.isArray(m?.settings) ? m.settings.filter((s) => s && typeof s.key === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(s.key)) : []);
+export const manifestSettings = (m: PackManifest | undefined): PackSetting[] =>
+  Array.isArray(m?.settings) ? m.settings.filter((s) => s && typeof s.key === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(s.key)).map((s) => withChoices(s)) : [];
+
+/** Its choices after the checks (API 1.15): a value of letters, digits and . _ : - each once, a one-line label, 20 at most; none for a secret. */
+function withChoices(s: PackSetting): PackSetting {
+  const { choices, ...rest } = s;
+  if (!Array.isArray(choices) || s.secret) return rest;
+  const seen = new Set<string>();
+  const ok = choices
+    .filter((c) => c && typeof c.value === "string" && /^[\w.:-]{1,64}$/.test(c.value) && typeof c.label === "string" && !seen.has(c.value) && !!seen.add(c.value))
+    .map((c) => ({ value: c.value, label: c.label.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 80) || c.value }))
+    .slice(0, 20);
+  return ok.length ? { ...rest, choices: ok } : rest;
+}
 
 /** Settings → Packs → a pack: its manifest's settings, set or missing, and (on a machine) the form that keeps them in `.dev.vars`. */
 export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean, session = false) {

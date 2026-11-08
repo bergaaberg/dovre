@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { PANE_IDS, PANES } from "../src/config.ts";
+import { GENERAL, PANE_IDS } from "../src/config.ts";
 import { loadEnv } from "../src/env.ts";
 import { ACTS } from "../src/packs/core/assistant/bino/context.ts";
 import { STYLE } from "../src/ui/style.ts";
@@ -26,7 +26,7 @@ test("Teams is a pack: core has none of its code, panes, settings, routes, style
   assert.deepEqual(imports, []);
 
   assert.ok(!PANE_IDS.some((id) => id === ("teams" as string) || id === ("outlook" as string)));
-  for (const p of PANES) for (const key of [p.key, ...p.options.map((o) => o.key)]) assert.doesNotMatch(key, /^(TEAMS|OUTLOOK)/, key);
+  for (const g of GENERAL) assert.doesNotMatch(g.key, /^(TEAMS|OUTLOOK)/, g.key);
   const env = loadEnv({ TEAMS: "on", TEAMS_CRAWL: "on", OUTLOOK: "on" }) as Record<string, unknown>;
   for (const key of Object.keys(env)) assert.doesNotMatch(key, /^(TEAMS|OUTLOOK)/, key);
 
@@ -47,7 +47,7 @@ test("Data is a pack: core has none of its code, panes, settings, routes or styl
   );
   assert.deepEqual(imports, []);
   assert.ok(!PANE_IDS.some((id) => id === ("data" as string)));
-  for (const p of PANES) for (const key of [p.key, ...p.options.map((o) => o.key)]) assert.doesNotMatch(key, /^DATA/, key);
+  for (const g of GENERAL) assert.doesNotMatch(g.key, /^DATA/, g.key);
   const env = loadEnv({ DATA: "on", DATA_AGENT: "on", DATA_PREFIX: "x-", DATA_DB2: "y" }) as Record<string, unknown>;
   for (const key of Object.keys(env)) assert.doesNotMatch(key, /^DATA/, key);
   const { app, get } = signedIn(snapshot());

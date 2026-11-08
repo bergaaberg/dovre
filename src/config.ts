@@ -29,44 +29,10 @@ export type PaneId = (typeof PANE_IDS)[number];
 /** What this machine has: a pane that needs something missing can't run, whatever its switch says. */
 export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/ai/omp.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh?: boolean; db?: boolean; terminals: boolean; /** This is Windows. Unset: yes, for tests and old callers. */ windows?: boolean; /** Unix socket for Docker Engine on macOS/Linux. */ dockerSocket?: string; /** Windows: berth is installed, DOCKER_PIPE is set, or something serves docker_engine. Unset: yes. */ dockerPipe?: boolean };
 
-export type Pane = {
-  id: PaneId;
-  name: string;
-  what: string;
-  /** The switch: `off` when off; when on, one of `on` (more than one: picked under "Through"). */
-  key: string;
-  on: Choice[];
-  options: Field[];
-  /** Its on/off is this pack's (Packs, one switch per feature, #271): the pane keeps only how. */
-  pack?: string;
-};
-
-const ON: Choice[] = [{ value: "on", label: "On" }];
 /** Comma-separated names: letters, digits, . _ - only. */
 const LIST = /^[\w.\-]+(\s*,\s*[\w.\-]+)*$/;
 
-export const PANES: Pane[] = [
-  {
-    id: "bino",
-    name: "Bino",
-    what: "The assistant: scoped memory, what the packs know about your repos, and plan proposals; it proposes, you click",
-    key: "BINO_VIA",
-    pack: "assistant",
-    on: [
-      { value: "claude", label: "Claude Code" },
-      { value: "omp", label: "Copilot (omp)" },
-      { value: "copilot", label: "Copilot CLI" },
-      { value: "agy", label: "Antigravity (agy): keeps its tools" },
-      { value: "codex", label: "Codex: keeps its tools, read-only" },
-      { value: "api-key", label: "Direct API Key (cheap model recommended)" },
-      { value: "cf-gateway", label: "Cloudflare AI Gateway" },
-      { value: "openrouter", label: "OpenRouter" },
-    ],
-    options: [],
-  },
-];
-
-/** The settings that aren't a pane or a pack's: where things are, and how Dovre talks. */
+/** The settings that aren't a pack's: where things are, and how Dovre talks. */
 export const GENERAL: Field[] = [
   { key: "REPO_OWNERS", label: "Owners to track", hint: "Orgs and users on the host, comma-separated; the first is where short names (repo#12) belong", kind: "text", pattern: LIST, placeholder: "my-org, my-user" },
   { key: "CODE_DIR", label: "Code folder", hint: "Your checkouts sit right in it (<folder>/<repo>)", kind: "text", pattern: /^[^"<>|?*\r\n]{1,260}$/ },
@@ -80,8 +46,6 @@ export const GENERAL: Field[] = [
   { key: "GREETING", label: "Greeting language", hint: "en (Good morning) or no (God morgen)", kind: "choice", choices: [{ value: "en", label: "English" }, { value: "no", label: "Norsk" }] },
   { key: "TZ_NAME", label: "Timezone", hint: "An IANA timezone name (e.g. Europe/Oslo). Empty or invalid: this machine's own zone (UTC when hosted)", kind: "text", pattern: /^[A-Za-z0-9_+\/-]{1,64}$/, placeholder: "this machine's zone" },
 ];
-
-export const paneOf = (id: PaneId) => PANES.find((p) => p.id === id)!;
 
 /** Each pane as it is now: wanted (its switch), running (it can run here too), how, and why not. */
 export type PaneState = { id: PaneId; wanted: boolean; on: boolean; via?: string; why?: string };
@@ -172,7 +136,7 @@ export const runningOf = (p: Record<PaneId, PaneState>): PanesOn => Object.fromE
 
 export type Config = Record<string, string>;
 // The old switches are still read, so starting can move an "off" to its pack (src/index.ts).
-const KEYS = new Set([...PANES.flatMap((p) => [p.key, ...p.options.map((o) => o.key)]), ...GENERAL.map((g) => g.key), ...Object.keys(LEGACY_SWITCHES), "SETUP_DONE"]);
+const KEYS = new Set([...GENERAL.map((g) => g.key), ...Object.keys(LEGACY_SWITCHES), "SETUP_DONE"]);
 
 export async function loadConfig(db: D1): Promise<Config> {
   const row = await db.prepare("SELECT value FROM settings WHERE key = 'config'").first<{ value: string }>();
@@ -212,11 +176,10 @@ const fieldValue = (f: Field, raw: unknown, form: Record<string, unknown> = {}):
 };
 
 /**
- * A posted Settings form as config: `on.<pane>` is the switch, `via.<pane>` the route, options by
- * key. Fixed keys (set in .dev.vars or the environment) are left as they were; a value that isn't
+ * A posted Settings form as config, by key. Fixed keys (set in .dev.vars or the environment) are left as they were; a value that isn't
  * one of the field's is refused, with what was wrong. An empty field means "the default".
  */
-export function configFromForm(form: Record<string, unknown>, was: Config, fixed: Set<string>, opts: { panes?: boolean; general?: boolean } = {}): { config: Config; bad: string[] } {
+export function configFromForm(form: Record<string, unknown>, was: Config, fixed: Set<string>, opts: { general?: boolean } = {}): { config: Config; bad: string[] } {
   const next: Config = { ...was };
   const bad: string[] = [];
   const put = (key: string, value: string | undefined, label: string) => {
@@ -225,13 +188,6 @@ export function configFromForm(form: Record<string, unknown>, was: Config, fixed
     else if (value === "") delete next[key];
     else next[key] = value;
   };
-  for (const p of opts.panes ? PANES : []) {
-    // A pane whose pack is its switch has no on/off here (#271).
-    const on = !!p.pack || form[`on.${p.id}`] !== undefined;
-    const via = typeof form[`via.${p.id}`] === "string" ? String(form[`via.${p.id}`]) : p.on[0]!.value;
-    put(p.key, !on ? "off" : p.on.some((c) => c.value === via) ? via : undefined, p.name);
-    for (const o of p.options) if (o.key in form) put(o.key, fieldValue(o, form[o.key], form), `${p.name}: ${o.label}`);
-  }
   if (opts.general) for (const g of GENERAL) if (g.key in form) put(g.key, fieldValue(g, form[g.key], form), g.label);
   return { config: next, bad };
 }

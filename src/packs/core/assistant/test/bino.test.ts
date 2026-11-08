@@ -146,7 +146,7 @@ test("Bino's pages keep hostile text inert, and with Bino off they say how to tu
   for (const path of ["/bino", at]) assertInert(path, await (await req(path)).text());
   const off = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route: routeOf({ via: "off" }), memory: noMemory("no") }, packs: withAssistant() });
   const page = await (await off.request("http://localhost/bino", { headers: { cookie: "u_tk=test-token" } })).text();
-  assert.match(page, /Settings → Panes/);
+  assert.match(page, /Settings → Packs → Assistant/);
   assert.doesNotMatch(page, /href="\/bino"[^>]*>Bino</, "no nav entry while it can't answer");
 });
 

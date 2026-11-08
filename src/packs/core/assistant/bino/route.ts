@@ -21,6 +21,18 @@ import { type ApiKeyOpts, apiKeyRouteOf, type CfGatewayOpts, gatewayRouteOf, typ
 export const VIAS = ["claude", "omp", "copilot", "agy", "codex", "api-key", "cf-gateway", "openrouter", "off"] as const;
 export type BinoVia = (typeof VIAS)[number];
 
+/** How Bino can answer, for its setting (ASSISTANT_VIA, the assistant pack's): every route but off. */
+export const VIA_CHOICES: { value: Exclude<BinoVia, "off">; label: string }[] = [
+  { value: "claude", label: "Claude Code" },
+  { value: "omp", label: "Copilot (omp)" },
+  { value: "copilot", label: "Copilot CLI" },
+  { value: "agy", label: "Antigravity (agy): keeps its tools" },
+  { value: "codex", label: "Codex: keeps its tools, read-only" },
+  { value: "api-key", label: "Direct API key (cheap model recommended)" },
+  { value: "cf-gateway", label: "Cloudflare AI Gateway" },
+  { value: "openrouter", label: "OpenRouter" },
+];
+
 /** One call: a system prompt and the conversation so far as one message in, the reply out. */
 /** `signal`: aborting it stops the call (Bino's Stop): a request is cancelled, a program killed. */
 /** `onText`: the reply so far, each time it grows, on the routes that stream (the rest answer once). */
@@ -135,7 +147,7 @@ export function routeOf(o: { via: BinoVia; claude?: Tool; copilot?: OmpAsker; co
   const model = o.model || "sonnet";
   const reflectModel = o.reflectModel || "haiku";
   const base = { via: o.via, model, reflectModel };
-  if (o.via === "off") return { ...base, ready: false, why: "Bino is off: turn it on in Settings → Panes." };
+  if (o.via === "off") return { ...base, ready: false, why: "Bino has no way to answer: pick one under Settings → Packs → Assistant." };
   if (o.via === "api-key") return apiKeyRouteOf({ apiKey: o.apiKey, model: o.model, reflectModel: o.reflectModel, log: o.log });
   if (o.via === "openrouter") return openRouterRouteOf({ openRouter: o.openRouter, model: o.model, reflectModel: o.reflectModel, log: o.log });
   if (o.via === "copilot") {
