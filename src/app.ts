@@ -24,7 +24,7 @@ import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell, t
 import { deploysPage } from "./pages/deploys.ts";
 import { CORE_CARDS, packOrder, homePage } from "./pages/home.ts";
 import { currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
-import { movementPage, prsPage } from "./pages/pages.ts";
+import { prsPage } from "./pages/pages.ts";
 import type { Ghe } from "./sources/ghe.ts";
 import { githubForge } from "./forge/github.ts";
 import { type CheckJob, runCheck } from "./reviews/check.ts";
@@ -84,7 +84,7 @@ import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
 import { quietOf } from "./quiet.ts";
 import { listRepos } from "./sources/claude.ts";
-import { SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
+import { GO_KEYS, SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
 import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./packs/guard.ts";
@@ -137,7 +137,6 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /**
     { href: "/prs", title: "Pull requests", short: "PRs", icon: "pr", group: "Code", order: 10, count: prs, hot: s.prs.ok && s.prs.value.review.length > 0 },
     { href: "/deploys", title: "Deploys", icon: "rocket", group: "Code", order: 20, count: deploys, hot: deploys > 0 },
     !opts.hosted && { href: "/code", title: "Code", icon: "code", group: "Code", order: 40 },
-    !opts.hosted && { href: "/movement", title: "Moved", icon: "health", group: "Code", order: 50 },
     !!opts.bino && { href: "/bino", title: "Bino", icon: "chat", group: "Agents", order: 20 },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
@@ -363,7 +362,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.use((c, next) => (dockPath(c.req.path) ? dockHeaders(c, next) : withPackFrames(c, next)));
 
   /** Exchanges the launch token for a cookie, on localhost only. */
-  mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1" });
+  mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1", on: (href) => pageOn(href) });
 
   app.get("/login", (c) => {
     if (!isLocal(c.req.raw, publicOrigin) || !sameSecret(c.req.query("tk"), env.LAUNCH_TOKEN)) return c.notFound();
@@ -554,6 +553,15 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const held = () => heldOff(packs.on, layout.get().packsOff ?? []);
   const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
+  /**
+   * Whether a page answers here (#405): a core path, or one a shown pack holds (its /<id> or a
+   * manifest path). Core's links to a page whose pack is off are left out: Today, the g keys, the
+   * installed app's shortcuts. Read at request time, once every route is mounted.
+   */
+  const pageOn = (href: string) => {
+    const seg = href.split(/[/?#]/)[1] ?? "";
+    return seg === "" || corePaths.has(seg) || shown().some((c) => c.manifest.id === seg || (c.manifest.paths ?? []).includes(seg));
+  };
   /** What the first shown pack sharing it shares under a name: core reads packs' contracts by name, never their ids. */
   const shared = <K extends keyof PackShares>(name: K): PackShares[K] | undefined => {
     for (const c of shown()) {
@@ -754,7 +762,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
   const binoOn = () => !!bino?.route.ready && !!assistant && packs.on.includes(assistant) && !hidden("assistant");
-  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined, goOff: Object.keys(GO_KEYS).filter((k) => !pageOn(GO_KEYS[k]!)) });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
   // On or off: a pack waiting for its settings is still the session's (#369).
   const sessionManifest = () => (deps.session ? (packs.on.find((x) => x.manifest.id === deps.session!.pack)?.manifest ?? packs.off.find((x) => x.id === deps.session!.pack)?.manifest) : undefined);
@@ -787,7 +795,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const { s, frame } = await page();
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
-    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions }));
+    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions }));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
@@ -1065,11 +1073,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       c.executionCtx.waitUntil(job);
     } catch {}
     return c.redirect("/prs/dependabot", 303);
-  });
-  app.get("/movement", async (c) => {
-    const { s, frame } = await page();
-    const view = ["timeline", "me", "bots"].includes(c.req.query("view") ?? "") ? c.req.query("view")! : "people";
-    return c.html(movementPage(frame, s, view));
   });
 
   /** Runs decided here that the snapshot may not know yet: drawn as decided until a gather after the decision lands. */

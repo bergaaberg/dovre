@@ -74,6 +74,7 @@ import { bridgeEntry, registerTools, toolsState } from "./agents/mcpsetup.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { listRepos } from "./sources/claude.ts";
 import { todoPack } from "./packs/core/todo/index.ts";
+import { movementPack } from "./packs/core/movement/index.ts";
 import { systemOpener } from "./open-link.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
 
@@ -417,6 +418,8 @@ const corePacks = [
   summariesPack({ complete: summaryModel }),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
+  // Moved (/movement): what people did in the org lately, from the gather.
+  movementPack(),
   // My list (/todo), shared with Bino, search and New work.
   todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }), bino: () => binoRoute.ready }),
   // My open issues from the forge (/tracker), where the forge has them.
