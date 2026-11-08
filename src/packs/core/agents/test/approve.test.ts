@@ -85,7 +85,7 @@ test("the bar on every page: Allow runs the refused calls, exactly, and comes ba
     app.request(`http://localhost${p}`, { method: "POST", headers: { cookie: "u_tk=test-token", origin: "http://localhost", "content-type": "application/x-www-form-urlencoded", ...(referer ? { referer } : {}) }, body: new URLSearchParams(body).toString() });
   const r = runner.start({ cwd: join(code, "a"), prompt: "fix the build" });
   for (let i = 0; i < 50 && r.status === "running"; i++) await new Promise((res) => setTimeout(res, 10));
-  const prs = await get("/prs");
+  const prs = await get("/actions");
   assertInert("bar", prs);
   assert.match(prs, /Agent in a wants to run/);
   assert.match(prs, new RegExp(`<form method="post" action="/agents/s/${SID}/allow"><input type="hidden" name="spec" value="Bash\\(dotnet test\\)">`));
@@ -98,7 +98,7 @@ test("the bar on every page: Allow runs the refused calls, exactly, and comes ba
   assert.ok(args.includes("--resume") && args.includes(SID));
   assert.ok(!args.some((a) => /bypass|dangerously/i.test(a)));
   await new Promise((r) => setTimeout(r, 40));
-  assert.doesNotMatch(await get("/prs"), /wants to run/, "answered");
+  assert.doesNotMatch(await get("/actions"), /wants to run/, "answered");
   const elsewhere = await post(`/agents/s/${SID}/allow`, [["spec", "Bash(x)"], ["back", "1"]], "https://evil.example/");
   assert.equal(elsewhere.headers.get("location"), `/agents/s/${SID}`, "a foreign referer isn't followed");
 });

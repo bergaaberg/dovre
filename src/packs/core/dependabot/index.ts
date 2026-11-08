@@ -67,7 +67,7 @@ export function dependabotPack(deps: DependabotDeps): Pack {
         const shown = [...jobs.values()];
         for (const [k, j] of jobs) if (j.state === "done") jobs.delete(k);
         const org = deps.owners();
-        const tabs = prTabs("dependabot", ctx.pageOn("/stacks"));
+        const tabs = prTabs("dependabot", ctx.pageOn("/stacks"), true, ctx.pageOn("/prs"));
         const got = await Promise.race([load().then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) })), new Promise<undefined>((res) => setTimeout(res, 1500))]);
         const body = !got ? dependabotBody({ org, pending: true, jobs: shown, tabs }) : dependabotBody({ org, jobs: shown, relock: !!deps.relock, tabs, ...(got.ok ? got.value : { error: got.error }) });
         return ctx.page(c, { title: "Dependabot · Dovre", current: "/prs", body });

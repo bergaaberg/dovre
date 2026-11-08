@@ -63,7 +63,7 @@ export function stacksPack(deps: StacksDeps): Pack {
         const me = s?.login ?? "";
         const shown = flash;
         flash = undefined;
-        const base = { org: deps.owners(), me, forge: ctx.forge()?.name ?? "GitHub", tabs: prTabs("stacks", true, ctx.pageOn("/dependabot")) };
+        const base = { org: deps.owners(), me, forge: ctx.forge()?.name ?? "GitHub", tabs: prTabs("stacks", true, ctx.pageOn("/dependabot"), ctx.pageOn("/prs")) };
         // A first read walks every chain (seconds): the page says so and fills itself in.
         const got = s ? await within(settle(load(me))) : undefined;
         if (!got) return ctx.page(c, { title: "Stacks · Dovre", current: "/prs", body: stacksBody({ ...base, pending: true }) });

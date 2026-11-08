@@ -36,6 +36,7 @@ import { movementPack } from "./packs/core/movement/index.ts";
 import { deploysPack } from "./packs/core/deploys/index.ts";
 import { dependabotPack } from "./packs/core/dependabot/index.ts";
 import { stacksPack } from "./packs/core/stacks/index.ts";
+import { prsPack } from "./packs/core/prs/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
@@ -319,13 +320,12 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), movementPack(), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), movementPack(), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
       events: hub?.events,
       live: !!hub,
-      reviewCheck: hub?.reviewCheck,
       bino: hub ? { remote: remoteBino(hub, { route: hostedBinoRoute(bindings as HubEnv), memory, sees: "My list and what your apps share" }) } : undefined,
       gatherer,
       ghe,

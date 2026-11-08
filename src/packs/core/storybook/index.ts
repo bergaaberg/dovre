@@ -123,11 +123,11 @@ function buildPanel(o: { action: string; roots: { head: Root; base: Root }; canB
 }
 
 /** The page's body: each stories file, each story before (base) and after (the PR) in frames. */
-export function storiesBody(o: { repo: string; n: number; prUrl: string; found: Found | "reading"; roots?: { head: Root; base: Root }; buildAction?: string }): Html {
+export function storiesBody(o: { repo: string; n: number; prUrl: string; found: Found | "reading"; roots?: { head: Root; base: Root }; buildAction?: string; /** The PR list answers here (the prs pack is on; default yes). */ prs?: boolean }): Html {
   const header = PageHeader({
     title: html`Stories in ${o.repo}#${o.n}`,
     sub: "Before (the base branch's Storybook) and after (this PR's), side by side",
-    crumbs: [{ href: "/prs", label: "PRs" }, { href: safeUrl(o.prUrl), label: `${o.repo}#${o.n}` }],
+    crumbs: [...(o.prs === false ? [] : [{ href: "/prs", label: "PRs" }]), { href: safeUrl(o.prUrl), label: `${o.repo}#${o.n}` }],
   });
   if (o.found === "reading") return html`${header}${Reading({ text: "Reading the PR's stories…" })}`;
   if (!o.found.ok) return html`${header}${Notice({ tone: "bad", children: o.found.why })}`;
@@ -216,7 +216,7 @@ export function storybookPack(d: StorybookDeps): Pack {
         }
         const prUrl = `https://${d.ghe.host}/${book.repo}/pull/${n}`;
         const buildAction = d.build ? `/storybook/${enc(book.repo)}/${n}/build` : undefined;
-        return ctx.page(c, { title: `Stories · ${book.repo}#${n}`, current: "/prs", body: storiesBody({ repo: book.repo, n, prUrl, found: got, roots, buildAction }) });
+        return ctx.page(c, { title: `Stories · ${book.repo}#${n}`, current: "/prs", body: storiesBody({ repo: book.repo, n, prUrl, found: got, roots, buildAction, prs: ctx.pageOn("/prs") }) });
       });
       // Runs the PR's own install and build on this machine: from Dovre's own pages only, and logged.
       app.post("/storybook/:owner/:repo/:n{[0-9]+}/build", strictOrigin, async (c) => {

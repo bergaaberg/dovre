@@ -12,11 +12,11 @@ type Item = { number: number; title: string; html_url: string; state: string; pu
 const NUMBERED = /^([\w.-]+)\s*#\s*(\d{1,7})$/;
 const repoOf = (item: Item, fallback = "") => item.repository_url?.split("/repos/")[1] ?? fallback;
 
-export function rowOf(item: Item, org: string, fallbackRepo = ""): Row {
+export function rowOf(item: Item, org: string, fallbackRepo = "", /** Dovre's PR viewer answers here (the prs pack is on, and the forge has it). */ viewer = true): Row {
   const repo = repoOf(item, fallbackRepo);
   const pr = !!item.pull_request;
   const short = repo.replace(`${primaryOf(org)}/`, "");
-  const inOrg = /^[\w.-]+\/[\w.-]+$/.test(repo) && owns(org, repo.split("/")[0]!);
+  const inOrg = viewer && /^[\w.-]+\/[\w.-]+$/.test(repo) && owns(org, repo.split("/")[0]!);
   const state = pr ? ((item.pull_request as { merged_at?: string | null })?.merged_at ? "merged" : item.state === "open" ? (item.draft ? "draft PR" : "open PR") : "closed PR") : item.state === "open" ? "open issue" : "closed issue";
   return {
     title: `#${item.number} ${String(item.title ?? "").slice(0, 140)}`,
@@ -30,13 +30,15 @@ export function rowOf(item: Item, org: string, fallbackRepo = ""): Row {
   };
 }
 
-export function createGheSearch(ghe: Ghe, org: string, opts: { now?: () => number; keepMs?: number } = {}) {
+export function createGheSearch(ghe: Ghe, org: string, opts: { now?: () => number; keepMs?: number; /** Org PRs open in Dovre's viewer while this says so; else on the forge. */ viewer?: () => boolean } = {}) {
   const now = opts.now ?? Date.now;
   const kept = new Map<string, { at: number; rows: Row[] }>();
   return async function find(raw: string): Promise<Row[]> {
     const q = raw.trim().slice(0, 120);
     if (q.length < 3) return [];
-    const hit = kept.get(q.toLowerCase());
+    const viewer = opts.viewer?.() ?? true;
+    const key = `${viewer ? "v" : "f"}:${q.toLowerCase()}`;
+    const hit = kept.get(key);
     if (hit && now() - hit.at < (opts.keepMs ?? 120_000)) return hit.rows;
     let rows: Row[] = [];
     const n = q.match(NUMBERED);
@@ -44,14 +46,14 @@ export function createGheSearch(ghe: Ghe, org: string, opts: { now?: () => numbe
       const repo = `${org}/${n[1]}`;
       try {
         const item = await ghe.rest<Item>(`/repos/${repo}/issues/${n[2]}`);
-        rows = [rowOf(item, org, repo)];
+        rows = [rowOf(item, org, repo, viewer)];
       } catch {}
     } else {
       const r = await ghe.rest<{ items: Item[] }>(`/search/issues?q=${encodeURIComponent(`${q} ${ownerQuery(org)}`)}&per_page=8&sort=updated`).catch(() => ({ items: [] as Item[] }));
-      rows = (r.items ?? []).map((i) => rowOf(i, org));
+      rows = (r.items ?? []).map((i) => rowOf(i, org, "", viewer));
     }
     if (kept.size > 200) kept.clear();
-    kept.set(q.toLowerCase(), { at: now(), rows });
+    kept.set(key, { at: now(), rows });
     return rows;
   };
 }

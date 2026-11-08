@@ -8,11 +8,10 @@ import { type Child, type Html, Item, newTab, Notice, Pill, type Tab, Tabs } fro
 import type { Quiet } from "../quiet.ts";
 
 /** The AI harness an agent runs in, by name. */
-/** Pull requests' two views: the list, and the stacks (PRs built on other PRs). */
-/** The PR pages' tabs; none when the forge has no stacks (one tab is no choice). */
-export function prTabs(current: "list" | "stacks" | "dependabot", stacks = true, dependabot = true): Html | "" {
-  if (!stacks && !dependabot) return "";
-  const items: Tab[] = [{ href: "/prs", label: "Open", current: current === "list" }];
+/** The PR pages' tabs: the list, the stacks (PRs built on other PRs), Dependabot's bumps; each only where its pack answers here, and none for a single tab (one tab is no choice). */
+export function prTabs(current: "list" | "stacks" | "dependabot", stacks = true, dependabot = true, list = true): Html | "" {
+  if ([list, stacks, dependabot].filter(Boolean).length < 2) return "";
+  const items: Tab[] = list ? [{ href: "/prs", label: "Open", current: current === "list" }] : [];
   if (stacks) items.push({ href: "/stacks", label: "Stacks", current: current === "stacks" });
   if (dependabot) items.push({ href: "/dependabot", label: "Dependabot", current: current === "dependabot" });
   return Tabs({ label: "Pull requests", items });

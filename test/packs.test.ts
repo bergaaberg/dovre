@@ -642,7 +642,7 @@ test("the Packs page: each pack on or off and why, what it answers, its refreshe
   assertInert("packs page", page);
   assert.match(page, /href="\/packs" title="Packs"/, "in the menu");
   assert.match(page, /<meta name="u-topics" content="packs">/);
-  assert.match(page, /9 on, 1 off · this machine/, "these two, and Dovre's own agents, terminal, assistant, My list, Moved, Deploys, Dependabot and Stacks");
+  assert.match(page, /10 on, 1 off · this machine/, "these two, and Dovre's own agents, terminal, assistant, My list, Moved, Pull requests, Deploys, Dependabot and Stacks");
   assert.doesNotMatch(page, /sekrit-token-value/, "a secret's value is never shown");
   assert.match(page, /Cloudflare token <span class="pill ok">set<\/span>/);
   assert.match(page, /Key <span class="pill bad">missing, needed<\/span>/);

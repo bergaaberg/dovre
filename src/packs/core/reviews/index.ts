@@ -139,15 +139,17 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         const r = latest?.get(`${kind}:${prKey(p)}`);
         return r?.status === "running" ? r : undefined;
       };
+      /** Where a refused or finished ask goes back to: the PR list, where it answers here. */
+      const prs = () => (ctx.pageOn("/prs") ? "/prs" : "/");
       const page = (c: Context<AppEnv>, title: string, body: Html, code = 200) => ctx.page(c, { title, body, current: "/prs" }).then((res) => status(res, code));
       const confirm = async (c: Context<AppEnv>, p: Pr, kind: ReviewKind, problem?: string, code = 200) =>
-        page(c, KIND_LABEL[kind], confirmPage({ links: links(), pr: p, kind, dir: deps.dirOf(p.repo), clone: cloneCommand(deps.ghe.host, p.repo, deps.codeDir), harnesses: offered(kind, p), running: await runningOf(kind, p), problem, nonce: randomUUID() }), code);
+        page(c, KIND_LABEL[kind], confirmPage({ prs: ctx.pageOn("/prs"), links: links(), pr: p, kind, dir: deps.dirOf(p.repo), clone: cloneCommand(deps.ghe.host, p.repo, deps.codeDir), harnesses: offered(kind, p), running: await runningOf(kind, p), problem, nonce: randomUUID() }), code);
 
       app.get("/reviews/agent", async (c) => {
         const s = await ctx.gathered();
         const p = findPr(s, c.req.query("pr") ?? "");
         const kind = p && s ? kindFor(p, s.login) : null;
-        if (!p || !kind || kind !== c.req.query("kind")) return c.redirect("/prs", 303);
+        if (!p || !kind || kind !== c.req.query("kind")) return c.redirect(prs(), 303);
         return confirm(c, p, kind);
       });
 
@@ -156,23 +158,23 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         const s = await ctx.gathered();
         const p = findPr(s, first(form.pr));
         const kind = p && s ? kindFor(p, s.login) : null;
-        if (!p || !kind || kind !== first(form.kind)) return c.redirect("/prs", 303);
+        if (!p || !kind || kind !== first(form.kind)) return c.redirect(prs(), 303);
         const nonce = first(form.nonce);
         if (!NONCE.test(nonce)) return confirm(c, p, kind, "Start from the confirm page: nothing was started.", 400);
         const was = spent.get(nonce);
         if (was) return c.redirect(was, 303);
         const running = await runningOf(kind, p);
-        if (running) return c.redirect(sessionHref(running, links()) ?? "/prs", 303);
+        if (running) return c.redirect(sessionHref(running, links()) ?? prs(), 303);
         const h = offered(kind, p).find((x) => x.id === first(form.harness));
         const cwd = deps.dirOf(p.repo);
         if (!h || !cwd) return confirm(c, p, kind, !cwd ? `${p.repo} isn't checked out.` : "That agent can't do this here.", 400);
-        bounded(spent, nonce, "/prs");
+        bounded(spent, nonce, prs());
         const run: Run = runner.start({ harness: h.id, cwd, prompt: h.prompt, mode: "default", model: deps.modelOf(form.model, h.id), allowed: h.allowed });
         const r: AgentReview = { runId: run.id, kind, pr: prKey(p), headSha: p.headSha, harness: h.id, status: "running", startedAt: run.startedAt };
         await recordReview(ctx.db, r);
         latest?.set(`${kind}:${r.pr}`, r);
         const sid = await runner.sessionOf(run.id, 300);
-        const to = sessionHref({ ...r, ...(sid ? { sessionId: sid } : {}) }, links()) ?? "/prs";
+        const to = sessionHref({ ...r, ...(sid ? { sessionId: sid } : {}) }, links()) ?? prs();
         spent.set(nonce, to);
         return c.redirect(to, 303);
       });
@@ -208,21 +210,21 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
 
       app.get("/reviews/draft", async (c) => {
         const d = await draftCtx(c.req.query("run"));
-        if (!d?.base) return c.redirect("/prs", 303);
+        if (!d?.base) return c.redirect(prs(), 303);
         const flash = flashes.get(d.r.runId);
         flashes.delete(d.r.runId);
-        return page(c, titleOf(d.base), draftPage(forge(), { links: links(), r: d.r, pr: d.pr, base: d.base, verdict: "comment", flash, diff: await diffOf(d) }));
+        return page(c, titleOf(d.base), draftPage(forge(), { prs: ctx.pageOn("/prs"), links: links(), r: d.r, pr: d.pr, base: d.base, verdict: "comment", flash, diff: await diffOf(d) }));
       });
 
       app.post("/reviews/draft/preview", async (c) => {
         const form = await c.req.parseBody();
         const d = await draftCtx(form.run);
-        if (!d?.base) return c.redirect("/prs", 303);
+        if (!d?.base) return c.redirect(prs(), 303);
         if (d.r.posted) return c.redirect(draftHref(d.r), 303);
         const verdict = d.base.kind === "review" ? verdictOf(form.verdict) : "comment";
         // A POST's page can't fill itself in (it would fetch the URL again): no pending diff here.
         const diff = await diffOf(d);
-        const view = { links: links(), r: d.r, pr: d.pr, base: d.base, form, verdict, diff: diff === "reading" ? undefined : diff };
+        const view = { prs: ctx.pageOn("/prs"), links: links(), r: d.r, pr: d.pr, base: d.base, form, verdict, diff: diff === "reading" ? undefined : diff };
         const show = (preview: Parameters<typeof draftPage>[1]["preview"], code = 200) => page(c, titleOf(d.base!), draftPage(forge(), { ...view, preview }), code);
         const edited = editedDraft(d.base, form);
         const problem = postProblem(edited, verdict);
@@ -236,7 +238,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
       app.post("/reviews/draft/post", async (c) => {
         const form = await c.req.parseBody();
         const d = await draftCtx(form.run);
-        if (!d?.base) return c.redirect("/prs", 303);
+        if (!d?.base) return c.redirect(prs(), 303);
         const back = draftHref(d.r);
         const nonce = first(form.nonce);
         if (!NONCE.test(nonce) || spent.has(nonce) || d.r.posted) return c.redirect(back, 303);

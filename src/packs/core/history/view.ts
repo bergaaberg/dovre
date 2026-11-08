@@ -20,7 +20,7 @@ export function emptyOf(v: HistoryView, forge: string): string {
   return `Nothing from ${forge} yet. Press Gather again; it takes about half a minute.`;
 }
 
-export function historyStats(v: HistoryView, o: { now: number; weeks: number; days?: number; forge: string }): PackStat[] {
+export function historyStats(v: HistoryView, o: { now: number; weeks: number; days?: number; forge: string; /** Dovre's PR list answers here (the prs pack is on): a PR opens in its viewer, else on the forge. */ viewer?: boolean }): PackStat[] {
   const { now, days, forge } = o;
   const h = v.history;
   const empty = emptyOf(v, forge);
@@ -60,13 +60,13 @@ export function historyStats(v: HistoryView, o: { now: number; weeks: number; da
     { id: "releases", title: `The org, releases per ${per}`, meta: `top ${h.repos} repos`, labels, tips, partialLast: true, series: [{ name: "Releases", values: last(c.releases) }] },
     { id: "main-red-weekly", title: `Main red, per ${per}`, meta: "commits whose checks failed", chart: "lines", unit: "percent", labels, tips, series: [{ name: "Red", values: last(c.red.map((r) => r?.pct)) }] },
     { id: "waits", title: "Your PRs, waiting", meta: `median, by ${per} merged`, chart: "lines", unit: "hours", labels, tips, series: [{ name: "To first review", values: waits.map((x) => x.review) }, { name: "To merge", values: waits.map((x) => x.merge) }] },
-    openAge(h, now),
+    openAge(h, now, o.viewer ?? true),
   ];
 }
 
 const TITLES: Record<string, string> = { "you-weekly": "You, per week", "org-merged": "The org, merged PRs per week", releases: "The org, releases per week", "main-red-weekly": "Main red, per week", waits: "Your PRs, waiting" };
 
-function openAge(h: History, now: number): PackStat {
+function openAge(h: History, now: number, viewer: boolean): PackStat {
   const ages = h.open
     .map((p) => ({ p, days: (now - Date.parse(p.createdAt)) / DAY }))
     .sort((a, b) => b.days - a.days)
@@ -80,7 +80,7 @@ function openAge(h: History, now: number): PackStat {
     bars: ages.map(({ p, days }) => ({
       label: `${p.repo.split("/")[1]}#${p.number}`,
       sub: p.title,
-      href: `/prs/${p.repo}/${p.number}`,
+      href: viewer ? `/prs/${p.repo}/${p.number}` : p.url,
       value: days,
       warn: days >= 14,
       note: [p.mine ? "" : "asks you", p.draft ? "draft" : "", days >= 14 ? "over 2 weeks" : ""].filter(Boolean).join(" · ") || undefined,

@@ -1284,7 +1284,7 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 }
 @media (max-width: 640px) { .bino-step { grid-template-columns: 1fr; } }
 
-/* ── PR viewer, diff viewer, code explorer (src/pages/viewer.ts) ── */
+/* ── PR viewer (src/packs/core/prs/), diffs (src/pages/diffview.ts), code explorer (src/pages/code.ts) ── */
 .pr-meta { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .add { color: var(--ok); } .del { color: var(--bad); }
 .pr-comments { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }

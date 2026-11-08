@@ -38,7 +38,7 @@ export function historyPack({ history, forge = "GitHub", now = Date.now }: Histo
       const s = storeOf(ctx);
       // A visit gathers when it's due, or at once for a reach the kept history lacks; never waits.
       s.refresh(false, o);
-      return historyStats(s.view(), { now: now(), weeks: o.weeks, days: o.days, forge });
+      return historyStats(s.view(), { now: now(), weeks: o.weeks, days: o.days, forge, viewer: ctx.pageOn("/prs") });
     },
   };
 }

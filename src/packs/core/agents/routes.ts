@@ -11,7 +11,7 @@ import type { Dismissed } from "../../../agents/dismissed.ts";
 import type { AppEnv } from "../../../env.ts";
 import type { Snapshot } from "../../../gather.ts";
 import type { MacStatus } from "../../../pages/parts.ts";
-import { diffHref } from "../../../pages/viewer.ts";
+import { diffHref } from "../../../pages/diffview.ts";
 import type { PackContext } from "../../types.ts";
 import { openSandboxPr } from "../../../actions/sandbox.ts";
 import type { Ghe } from "../../../sources/ghe.ts";

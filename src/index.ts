@@ -48,6 +48,8 @@ import { foundModels } from "./agents/harnesses/found.ts";
 import { addLeftOut } from "./packs/core/dependabot/relock.ts";
 import { dependabotPack } from "./packs/core/dependabot/index.ts";
 import { stacksPack } from "./packs/core/stacks/index.ts";
+import { prsPack } from "./packs/core/prs/index.ts";
+import { runCheck } from "./reviews/check.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
 import { createHub, startRefresher, throttle } from "./live.ts";
@@ -424,6 +426,8 @@ const corePacks = [
   assistantPack(),
   // Moved (/movement): what people did in the org lately, from the gather.
   movementPack(),
+  // Pull requests (/prs), and where the forge has it the PR viewer with my own review; Bino's model checks it.
+  prsPack({ ghe, owners: () => ownersIn(env), forge, kept: keptAnswers, stale: () => gatherer.stale(), checker: () => { const ask = binoRoute.ask; return binoRoute.ready && ask ? { model: binoRoute.model, start: async (job, topic, publish) => void runCheck(db.DB, ask, job, () => publish([topic])) } : undefined; } }),
   // Stacked PRs (/stacks), where the forge has them; the viewer's "2 of 3 in a stack".
   ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env), kept: keptAnswers })] : []),
   // Dependabot's bumps across the repos (/dependabot), where the forge has them; left-out bumps added in a checkout.

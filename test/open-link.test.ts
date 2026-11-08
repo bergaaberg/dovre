@@ -40,12 +40,12 @@ test("systemOpener: one argument to the system's opener, never a shell", () => {
 
 test("Links to other sites: off by default; on, the page says so and /open-link opens only a web address", async () => {
   const { opened, get, form, open } = appWith();
-  assert.doesNotMatch(await (await get("/prs")).text(), /u-links/, "off until picked");
+  assert.doesNotMatch(await (await get("/actions")).text(), /u-links/, "off until picked");
   assert.equal((await open("https://example.com/")).status, 404, "nothing opens while it's off");
   assert.match(await (await get("/settings/layout")).text(), /<select name="links">/);
 
   await form("/settings/layout", { links: "default" });
-  assert.match(await (await get("/prs")).text(), /<meta name="u-links" content="default">/);
+  assert.match(await (await get("/actions")).text(), /<meta name="u-links" content="default">/);
   assert.match(await (await get("/settings/layout")).text(), /<option value="default" selected>In your default browser/);
 
   assert.equal((await open("https://example.com/x?a=1&b=2")).status, 204);
@@ -66,6 +66,6 @@ test("Links to other sites: not offered where nothing can open them", async () =
   const { get, form, open } = appWith({ opener: false });
   assert.doesNotMatch(await (await get("/settings/layout")).text(), /name="links"/);
   await form("/settings/layout", { links: "default" });
-  assert.doesNotMatch(await (await get("/prs")).text(), /u-links/);
+  assert.doesNotMatch(await (await get("/actions")).text(), /u-links/);
   assert.equal((await open("https://example.com/")).status, 404);
 });

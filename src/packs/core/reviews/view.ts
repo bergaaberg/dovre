@@ -9,7 +9,7 @@ import { type Draft, type LineComment, MAX_BODY, MAX_SUMMARY, splitDraft, type V
 import type { Pr } from "../../../sources/ghe.ts";
 import type { PrFile, Thread } from "../../../sources/prview.ts";
 import { type DiffLine, fileViews, placeDrafts } from "../../../viewer/diff.ts";
-import { fileView } from "../../../pages/viewer.ts";
+import { fileView } from "../../../pages/diffview.ts";
 import { type Child, Confirm, type Html, KeyValues, Notice, PageHeader, Panel, Pill } from "../../../ui/kit.ts";
 import { Reading } from "../../../pages/later.ts";
 import { markdown } from "../../../ui/markdown.ts";
@@ -69,6 +69,8 @@ const whereOf = (c: LineComment) => `${c.path}:${c.startLine ? `${c.startLine}鈥
 export type DraftDiff = { ok: true; files: PrFile[]; threads: Thread[] } | { ok: false; why: string } | "reading";
 
 export type DraftView = {
+  /** The PR list and viewer answer here (the prs pack is on; default yes). */
+  prs?: boolean;
   diff?: DraftDiff;
   /** Where the session is shown, while the agents pack is on. */
   links?: AgentShare;
@@ -134,8 +136,8 @@ ${p.draft.kind === "review"
         });
   const body = html`${PageHeader({
     title: review ? "The agent's review" : "The agent's replies",
-    crumbs: [{ href: "/prs", label: "Pull requests" }],
-    sub: html`${Link(pr.url, html`${pr.repo}#${pr.number}${pr.title ? html` ${pr.title}` : ""}`)}${pr.author ? html` <span class="t3">by ${pr.author}</span>` : ""}${sessionLink(r, v.links, " 路 ", "the session")}${review && !r.posted ? html` 路 <a href="${safeUrl(`/prs/${pr.repo}/${pr.number}/review`)}">start your own review from it</a>` : ""}`,
+    crumbs: v.prs === false ? [] : [{ href: "/prs", label: "Pull requests" }],
+    sub: html`${Link(pr.url, html`${pr.repo}#${pr.number}${pr.title ? html` ${pr.title}` : ""}`)}${pr.author ? html` <span class="t3">by ${pr.author}</span>` : ""}${sessionLink(r, v.links, " 路 ", "the session")}${review && !r.posted && v.prs !== false ? html` 路 <a href="${safeUrl(`/prs/${pr.repo}/${pr.number}/review`)}">start your own review from it</a>` : ""}`,
   })}
 ${v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: v.flash.message }) : ""}
 ${r.posted
@@ -145,6 +147,8 @@ ${r.posted
 }
 
 export type ConfirmView = {
+  /** The PR list answers here (the prs pack is on; default yes). */
+  prs?: boolean;
   /** Where the running session is shown, while the agents pack is on. */
   links?: AgentShare;
   pr: Pr;
@@ -164,7 +168,7 @@ export function confirmPage(c: ConfirmView): Html {
   const canStart = !!(c.dir && first && !c.running);
   const body = html`${PageHeader({
     title: KIND_LABEL[kind],
-    crumbs: [{ href: "/prs", label: "Pull requests" }],
+    crumbs: c.prs === false ? [] : [{ href: "/prs", label: "Pull requests" }],
     sub: html`${Link(pr.url, html`${pr.repo}#${pr.number} ${pr.title}`)} <span class="t3">by ${pr.author}</span>`,
   })}
 ${c.problem ? Notice({ tone: "bad", children: c.problem }) : ""}

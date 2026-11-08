@@ -23,6 +23,9 @@ import { movementPack } from "../src/packs/core/movement/index.ts";
 import { deploysPack } from "../src/packs/core/deploys/index.ts";
 import { dependabotPack } from "../src/packs/core/dependabot/index.ts";
 import { stacksPack } from "../src/packs/core/stacks/index.ts";
+import { prsPack } from "../src/packs/core/prs/index.ts";
+import { createPrRoutes, type PrRoutesDeps } from "../src/packs/core/prs/routes.ts";
+import { shell } from "../src/html.ts";
 import { forgeCan } from "../src/forge/types.ts";
 import { ownersIn } from "../src/owners.ts";
 import assert from "node:assert/strict";
@@ -85,7 +88,7 @@ export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: u
   const terminals = createTerminals({ hostExe: "no-host", codeDir: ENV.CODE_DIR, programs: [] });
   // The agents pack, with the desk and the sessions cleared away, as index.ts makes them.
   const { pack: agents } = agentsFor({ ...ENV, DB: db.DB }, { here: hereOf(extra), desk: extra.desk });
-  const packs = [agents, terminalPack(terminals), assistantPack(), todoPack({ links: () => ({ ghe: ENV.GHE_HOST, org: ENV.GHE_ORG }) }), movementPack(), deploysPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), approve: !extra.forge || forgeCan(extra.forge, "deployApproval"), stale: () => gatherer.stale() }), ...(!extra.forge || forgeCan(extra.forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }) })] : []), ...(!extra.forge || forgeCan(extra.forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), stale: () => gatherer.stale() })] : []), ...(extra.packs ?? [])];
+  const packs = [agents, terminalPack(terminals), assistantPack(), todoPack({ links: () => ({ ghe: ENV.GHE_HOST, org: ENV.GHE_ORG }) }), movementPack(), prsPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), ...(extra.forge ? { forge: extra.forge } : {}), stale: () => gatherer.stale() }), deploysPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), approve: !extra.forge || forgeCan(extra.forge, "deployApproval"), stale: () => gatherer.stale() }), ...(!extra.forge || forgeCan(extra.forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }) })] : []), ...(!extra.forge || forgeCan(extra.forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), stale: () => gatherer.stale() })] : []), ...(extra.packs ?? [])];
   const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, routeMs: extra.routeMs, core: ["agents", "terminal", "assistant", "todo", "movement", "deploys", "dependabot", "stacks"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent, notify: extra.notify });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
@@ -119,4 +122,10 @@ export function appWithAgents(env: Parameters<typeof createApp>[0], deps: Parame
   const given = rest.packs;
   const active = activePacks([agents.pack, ...extra], { env: packEnv, hosted: env.IS_HOSTED === "1", which: () => "/bin/x" });
   return createApp(env, { ...rest, packs: { ...given, on: [...active.on, ...(given?.on ?? [])], off: [...active.off, ...(given?.off ?? [])], env: given?.env ?? packEnv, core: ["agents", ...(given?.core ?? [])] } });
+}
+
+/** The PRs pack's viewer routes on their own (src/packs/core/prs/routes.ts): pages drawn in a plain shell, the org's PRs only. */
+export function viewerRoutes(deps: Omit<PrRoutesDeps, "page" | "owners"> & { owners?: () => string; host?: string }) {
+  const frame = { operator: "me", nav: [], host: deps.host };
+  return createPrRoutes({ owners: () => "ACME", codeDir: "C:/code", page: async (c, o) => c.html(shell({ ...o, current: o.current ?? c.req.path, frame })), ...deps });
 }

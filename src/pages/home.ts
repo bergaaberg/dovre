@@ -4,7 +4,7 @@
  * beside a live log of what's moving, docked at the right (src/home/feed.ts). Lists are short: what
  * needs me first, the rest counted and a link away. Every row opens in place.
  */
-import { prOrder } from "./prlist.ts";
+import { prOrder } from "../sources/ghe.ts";
 import { html } from "hono/html";
 import { type Snapshot, prSummaryKey } from "../gather.ts";
 import { eyebrow, glance, greeting, lede } from "../home/brief.ts";
@@ -31,9 +31,10 @@ const short = (repo: string, org: string) => repo.replace(`${org}/`, "");
 export const needItem = (n: Need) =>
   Item({ href: safeUrl(n.href), lead: html`<span class="kind${n.tone === "neutral" ? "" : ` ${n.tone}`}">${KIND_LABEL[n.kind]}</span>`, title: n.title, line: n.line ? trunc(n.line, 220) : undefined, trail: Ago(n.at) });
 
-function bits(sentence: Bit[]) {
+/** A sentence's bits; a link to one of Dovre's pages that doesn't answer here (its pack is off) is text. */
+function bits(sentence: Bit[], on: (href: string) => boolean = () => true) {
   return sentence.map((b) =>
-    typeof b === "string" ? b : b.code ? html`<code>${b.code}</code>` : html`<a href="${safeUrl(b.href)}"${b.tone ? html` class="${b.tone}"` : ""}>${b.text}</a>`,
+    typeof b === "string" ? b : b.code ? html`<code>${b.code}</code>` : b.href?.startsWith("/") && !b.href.startsWith("//") && !on(b.href) ? b.text : html`<a href="${safeUrl(b.href)}"${b.tone ? html` class="${b.tone}"` : ""}>${b.text}</a>`,
   );
 }
 
@@ -120,7 +121,7 @@ export function prStats(mine: Pr[]): { failing: number; changes: number; threads
 const SHOW = 5;
 const SHOW_REVIEW = 3;
 
-function prsCard(s: Snapshot, summary: SummaryOf, agent?: AgentOf, forge?: ForgeView) {
+function prsCard(s: Snapshot, summary: SummaryOf, agent?: AgentOf, forge?: ForgeView, /** The PR list answers here (the prs pack is on). */ list = true) {
   const mine = s.prs.ok ? prOrder(s.prs.value.mine) : [];
   const review = s.prs.ok ? s.prs.value.review : [];
   const n = prStats(mine);
@@ -133,7 +134,7 @@ ${!s.prs.ok ? html`<p class="notes bad">Pull requests didn't load: ${s.prs.error
 ${mine.length ? html`<p class="stat-row">${n.failing ? st("bad", `${n.failing} failing`) : ""}${n.changes ? st("bad", `${n.changes} changes asked`) : ""}${n.threads ? st("warn", `${n.threads} with open threads`) : ""}${n.ready ? st("ok", `${n.ready} ready to merge`) : ""}${n.drafts ? st("mute", `${n.drafts} draft${n.drafts === 1 ? "" : "s"}`) : ""}</p>` : ""}
 ${review.length ? html`<h3 class="sub-h">Asking for your review <span class="cnt">${review.length}</span></h3><ul class="rows">${review.slice(0, showReview).map((p) => prRow(p, s, summary, true, agent, forge))}</ul><h3 class="sub-h">Yours</h3>` : ""}
 <ul class="rows">${mine.slice(0, showMine).map((p) => prRow(p, s, summary, false, agent, forge))}${!mine.length ? html`<li class="row"><p class="empty">No open PRs.</p></li>` : ""}</ul>
-<div class="card-f"><span>${more ? html`<a href="/prs">${more} more</a>` : ""}</span><a href="/prs">All ${mine.length + review.length}</a></div>
+${list ? html`<div class="card-f"><span>${more ? html`<a href="/prs">${more} more</a>` : ""}</span><a href="/prs">All ${mine.length + review.length}</a></div>` : ""}
 </section>`;
 }
 
@@ -194,10 +195,13 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
   const own = (id: string) => (opts.own ?? []).some((c) => id.startsWith(`${c}-`));
+  const on = opts.on ?? (() => true);
+  // Without the prs pack, a PR opens on the forge, as where the forge has no viewer.
+  const prForge = (f: ForgeView = GITHUB_VIEW): ForgeView => (on("/prs") ? f : { ...f, can: f.can.filter((c) => c !== "viewer") });
   const core: Record<CoreCard, Html | "" | undefined> = {
     ship: shipCard(s, summary, opts.ghe ?? "github.com", opts.rules, forgeCan(opts.forge ?? GITHUB_VIEW, "deployApproval")),
     actions: opts.actions,
-    prs: prsCard(s, summary, opts.agent, opts.forge),
+    prs: prsCard(s, summary, opts.agent, prForge(opts.forge), on("/prs")),
   };
   const slots: Slot<Html>[] = [
     ...CORE_CARDS.flatMap((c) => (core[c.id] ? [{ ...c, render: core[c.id] as Html }] : [])),
@@ -208,7 +212,7 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const lang = frame.greeting ?? currentGreeting();
   const body = html`<div data-live id="today">
 <section class="brief" aria-labelledby="greet">
-<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence)}`)}</p></div>
+<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence, on)}`)}</p></div>
 ${opts.hero ?? ""}<dl class="glance" aria-label="Last 24 hours"><div><dt>Merged</dt><dd>${g.merged}</dd></div><div><dt>Released</dt><dd>${g.released}</dd></div>${apps.glance.slice(0, 4).map((x) => html`<div><dt>${x.label}</dt><dd>${x.value}</dd></div>`)}</dl>
 </section>
 <section class="horizon" aria-labelledby="hz-h"><div class="hz-head"><h2 id="hz-h">The last 24 hours</h2>${legend(apps.lanes)}</div>
