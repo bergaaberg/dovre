@@ -30,7 +30,7 @@ test("a pack's setup: one step at a time, Next saves a form step, a write holds 
   const ctx = packsOf(app)!.ctxOf(k.pack);
 
   const today = await (await get("/")).text();
-  assert.match(today, /A pack wants a minute/);
+  assert.match(today, /A pack wants a minute|A few packs want a minute each/, "Agents is there too (#425)");
   assert.match(today, /href="\/setup\/kit"/);
   assert.match(today, />2 steps</);
 
@@ -60,7 +60,7 @@ test("a pack's setup: one step at a time, Next saves a form step, a write holds 
   assert.match(await (await get("/setup/kit?at=done")).text(), /That's it\..*Run it again/s);
   assert.equal(ctx.setupDone(), true);
 
-  assert.doesNotMatch(await (await get("/")).text(), /wants a minute/, "done: off Today");
+  assert.doesNotMatch(await (await get("/")).text(), /href="\/setup\/kit"/, "done: off Today");
   assert.match(await (await get("/packs")).text(), /href="\/setup\/kit">Set up again</);
   assert.equal((await get("/setup/kit?at=pick")).status, 200, "it can run again");
 });

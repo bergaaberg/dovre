@@ -26,6 +26,8 @@ export type SetupView = {
   form?: boolean;
   /** Next waits, and why (`SetupStep.wait`). */
   wait?: string;
+  /** Seconds until the page loads again (`SetupStep.refresh`). */
+  refresh?: number;
   /** What the last Next was refused for. */
   error?: string;
 };
@@ -41,7 +43,7 @@ export function setupPage(v: SetupView) {
     v.at >= n
       ? html`${head}<div class="climb-eyebrow">${v.pack.name} · set</div><h2>That's it.</h2><p class="climb-lede">${v.pack.name} is ready. Its flag's back with the others.</p><div class="climb-row"><a class="climb-go" href="/">Back to Today ${arrow}</a><a class="climb-link" href="${href(0)}">Run it again</a></div>`
       : stepBody(v, head, href);
-  return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body });
+  return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body, refresh: v.at < n ? v.refresh : undefined });
 }
 
 function stepBody(v: SetupView, head: Html, href: (i: number) => string) {

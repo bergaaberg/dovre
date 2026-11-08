@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.16")
+   src/packs/types.ts     the contract (PACK_API = "1.17")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -288,6 +288,7 @@ Also:
 | 1.14 | Manifest `roles`, `answers` and `markers` (who it suits, which interview answers, which files the checkout scan looks for) and `onboard` (its own setup, up to 3 steps), for first run's suggestions (`src/packs/suggest.ts`) (#415) |
 | 1.15 | A setting's `choices`: the values it takes, shown as a picker on its settings page; a value outside them isn't kept (the assistant's `ASSISTANT_VIA`, #417) |
 | 1.16 | `setup`: a setup page at /setup/<id> for the steps `onboard` declares. The pack draws each step's body (`draw`, and `save` for a form step); core draws the frame, Today lists the packs not set up yet, and `ctx.setupDone()` says whether every step is done (#418) |
+| 1.17 | `forge().propose` takes `files`: up to five files in one PR, each checked against what the pack saw; a setup step's `refresh` loads its page again while a job runs (#425) |
 
 ## Open questions
 

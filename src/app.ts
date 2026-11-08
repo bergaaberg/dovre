@@ -1540,7 +1540,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** What Next on a step was refused for: shown once, on that step. */
   let setupSaid: { id: string; step: string; error: string } | undefined;
   /** A step as the pack draws it, in the time its pages get. One that throws, is late or breaks the rules is that pack's broken step. */
-  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; broke?: string }> => {
+  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; refresh?: number; broke?: string }> => {
     const ms = packs.routeMs ?? PACK_ROUTE_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const log = packLog(c.manifest.id);
@@ -1552,7 +1552,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       // A form step's inputs go with Next: a form inside it would be a form in a form.
       if (form && /<form[\s>]/i.test(String(body))) throw new Error("a form step's body holds a form of its own");
       const wait = typeof got?.wait === "string" && got.wait.trim() ? got.wait.trim().slice(0, 200) : undefined;
-      return { body: html`<div class="pack-box" data-pack="${c.manifest.id}">${body}</div>`, form, wait };
+      const refresh = typeof got?.refresh === "number" && Number.isFinite(got.refresh) ? Math.min(60, Math.max(5, Math.round(got.refresh))) : undefined;
+      return { body: html`<div class="pack-box" data-pack="${c.manifest.id}">${body}</div>`, form, wait, refresh };
     } catch (e) {
       const why = String((e as Error)?.message ?? e).slice(0, 300);
       log(`setup ${step}: ${why}`);
@@ -1584,7 +1585,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     let status: 200 | 500 = 200;
     if (at < steps.length) {
       const d = await drawStep(p, steps[at]!.id);
-      Object.assign(view, { body: d.body, form: d.form, wait: d.wait });
+      Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh });
       if (d.broke) status = 500;
     }
     return noStore(await c.html(setupPage(view), status));

@@ -4,7 +4,7 @@ import { type Ghe, loadDeploys, loadMoves, loadNotes, loadPrRefs, loadPrs, loadR
 import { actOnIssue, loadIssue, loadIssues } from "../sources/issues.ts";
 import { loadEveryRepo, loadFile, loadRepos } from "../sources/files.ts";
 import { loadThread, searchThreads } from "../sources/threads.ts";
-import { proposeFile } from "../actions/propose.ts";
+import { proposeFiles } from "../actions/propose.ts";
 import { loadMerged, loadWork } from "../sources/work.ts";
 import { FORGE_CAN, type Forge } from "./types.ts";
 
@@ -36,6 +36,6 @@ export function githubForge(ghe: Ghe): Forge {
     repos: (owners) => loadRepos(ghe, owners),
     file: (repo, path, at) => loadFile(ghe, repo, path, at),
     everyRepo: (owners, paths) => loadEveryRepo(ghe, owners, paths),
-    propose: (p) => proposeFile(ghe, p),
+    propose: (p) => proposeFiles(ghe, p),
   };
 }
