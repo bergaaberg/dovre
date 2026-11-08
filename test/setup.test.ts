@@ -43,8 +43,13 @@ test("a pack's setup: one step at a time, Next saves a form step, a write holds 
   assert.match(first, /cl-flag cl-focus/, "its flag stands out");
   assert.equal(ctx.setupDone(), false);
 
-  assert.equal((await post("/setup/kit/next", "step=pick&repo=none")).headers.get("location"), "/setup/kit?at=pick", "refused: it stays");
-  assert.match(await (await get("/setup/kit?at=pick")).text(), /role="alert">Pick one\.</);
+  const refused = await post("/setup/kit/next", "step=pick&repo=none");
+  assert.equal(refused.status, 422, "refused: the step again, in this answer (#446)");
+  assert.equal(refused.headers.get("location"), null);
+  const again = await refused.text();
+  assert.match(again, /role="alert">Pick one\.</);
+  assert.match(again, /<h2>Pick repos<\/h2>.*action="\/setup\/kit\/next"/s, "with its form, to try again");
+  assert.doesNotMatch(await (await get("/setup/kit?at=pick")).text(), /role="alert"/, "nothing kept for the next request: on hosted it may be another isolate");
   assert.equal((await post("/setup/kit/next", "step=pick&repo=a/web&repo=a/api")).headers.get("location"), "/setup/kit?at=write");
   assert.deepEqual(k.saved.at(-1), { repo: ["a/web", "a/api"] });
   assert.match(await (await get("/")).text(), />1 of 2 left</);
