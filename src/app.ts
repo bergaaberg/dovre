@@ -790,6 +790,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
 
   const page = async (o: { wait?: boolean; /** The page's path: a pack's bar may leave its own page out. */ path?: string } = {}): Promise<{ s: Snapshot; frame: Frame }> => {
     const t0 = performance.now();
+    await Promise.all([layout.ready, onboarding.ready]);
     const got = gatherer.peek() ? await gatherer.get({ wait: o.wait }) : await Promise.race([gatherer.get(), new Promise<undefined>((res) => setTimeout(res, 1200))]);
     const waited = performance.now() - t0;
     if (waited >= 1) tryGetContext<AppEnv>()?.set(WAITED, (tryGetContext<AppEnv>()?.get(WAITED) ?? 0) + waited);
@@ -982,9 +983,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const form = await c.req.parseBody({ all: true });
     const next = layoutFromForm(form, { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id), stats: v.stats.map((x) => x.id) });
     // Cards not drawn and stats not offered just now (a pack hidden or slow) keep where I put them.
-    const whole = { ...next, cards: { ...v.layout.cards, ...next.cards }, stats: { ...v.layout.stats, ...next.stats } };
     const part = form.part;
-    await layout.save(part === "look" ? { ...partOf(v.layout, false), ...partOf(next, true) } : part === "layout" ? { ...partOf(v.layout, true), ...partOf(whole, false) } : whole);
+    await layout.update((l) => {
+      const whole = { ...next, cards: { ...l.cards, ...next.cards }, stats: { ...l.stats, ...next.stats } };
+      return part === "look" ? { ...partOf(l, false), ...partOf(next, true) } : part === "layout" ? { ...partOf(l, true), ...partOf(whole, false) } : whole;
+    });
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
     return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
@@ -1005,7 +1008,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   });
   app.post("/settings/layout/reset", async (c) => {
     const part = (await c.req.parseBody()).part;
-    if (part === "look" || part === "layout") await layout.save(partOf(layout.get(), part === "layout"));
+    if (part === "look" || part === "layout") await layout.update((l) => partOf(l, part === "layout"));
     else await layout.reset();
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
@@ -1039,8 +1042,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const id = c.req.param("id");
     if (!packs.on.some((p) => p.manifest.id === id)) return c.notFound();
     const on = (await c.req.parseBody()).on === "1";
-    const was = layout.get().packsOff ?? [];
-    await layout.save({ ...layout.get(), packsOff: on ? was.filter((x) => x !== id) : [...new Set([...was, id])] });
+    await layout.update((l) => {
+      const was = l.packsOff ?? [];
+      return { ...l, packsOff: on ? was.filter((x) => x !== id) : [...new Set([...was, id])] };
+    });
     deps.hub?.publish(["snapshot", "packs"]);
     return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
   });
@@ -1485,9 +1490,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const role = typeof f.role === "string" && Object.hasOwn(ROLES, f.role) ? (f.role as Role) : undefined;
     if (!role) return c.redirect("/welcome?at=role", 303);
     const forge = FORGES.find(([x]) => x === f.forge)?.[0] ?? "github";
-    const was = onboarding.get();
     // A new role asks new questions: the old answers and picks no longer fit.
-    await onboarding.save(was.role === role ? { ...was, forge } : { answers: {}, role, forge, done: was.done });
+    await onboarding.update((was) => (was.role === role ? { ...was, forge } : { answers: {}, role, forge, done: was.done }));
     if (askGeneral(f, "REPO_OWNERS") === false) return c.redirect("/welcome?at=role", 303);
     return c.redirect(nextOf("role"), 303);
   });
@@ -1508,7 +1512,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const answers = answersFrom({ ...o.answers, [qid]: QUESTIONS[qid]!.multi ? a : a[0] });
       if (!QUESTIONS[qid]!.multi && answers[qid] === undefined) return c.redirect(`/welcome?at=${step}`, 303);
       // New answers suggest anew: what was ticked before is forgotten.
-      await onboarding.save({ ...o, answers, picked: undefined });
+      await onboarding.update((now) => ({ ...now, answers: answersFrom({ ...now.answers, [qid]: answers[qid] }), picked: undefined }));
       return c.redirect(nextOf(step), 303);
     });
   app.post("/welcome/packs", strictOrigin, async (c) => {
@@ -1517,7 +1521,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const f = await c.req.parseBody({ all: true });
     const can = new Set(packs.on.map((p) => p.manifest.id));
     const picked = [f.pack ?? []].flat().filter((x): x is string => typeof x === "string" && can.has(x));
-    await onboarding.save({ ...onboarding.get(), picked });
+    await onboarding.update((o) => ({ ...o, picked }));
     return c.redirect(nextOf("packs"), 303);
   });
   /** The summit's Open Today: the picked packs on and the rest off (Packs page), the folder and owners kept. */
@@ -1525,10 +1529,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     if (deps.session) return c.notFound();
     await onboarding.ready;
     const on = new Set(pickedNow(scanNow().found));
-    const was = layout.get().packsOff ?? [];
     const ids = packs.on.map((p) => p.manifest.id);
-    await layout.save({ ...layout.get(), packsOff: [...new Set([...was.filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] });
-    await onboarding.save({ ...onboarding.get(), picked: [...on], done: true });
+    await layout.update((l) => ({ ...l, packsOff: [...new Set([...(l.packsOff ?? []).filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] }));
+    await onboarding.update((o) => ({ ...o, picked: [...on], done: true }));
     deps.hub?.publish(["snapshot", "packs"]);
     if (!deps.config) return c.redirect("/", 303);
     const config: Config = { ...deps.config.stored, ...pending, SETUP_DONE: "1" };
@@ -1629,8 +1632,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         });
       if (!r || r.ok !== true) return stay(typeof r?.error === "string" && r.error ? r.error : "Not kept.");
     }
-    const o = onboarding.get();
-    await onboarding.save({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), step.id])] } });
+    await onboarding.update((o) => ({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), step.id])] } }));
     deps.hub?.publish(["snapshot", id]);
     const next = steps[i + 1];
     return c.redirect(`/setup/${id}?at=${next ? next.id : "done"}`, 303);
@@ -1638,7 +1640,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.post("/welcome/skip", strictOrigin, async (c) => {
     if (deps.session) return c.notFound();
     await onboarding.ready;
-    await onboarding.save({ ...onboarding.get(), done: true });
+    await onboarding.update((o) => ({ ...o, done: true }));
     pending = {};
     if (deps.config) {
       await saveConfig(env.DB, { ...deps.config.stored, SETUP_DONE: "1" });

@@ -95,7 +95,9 @@ type Opened = { number: number; url: string } | { error: string };
  */
 export type Kept = { langs: string[]; repos?: string[]; prs?: Record<string, Opened>; /** When the job started (ms), while it runs. */ running?: number };
 /** A job that said it started this long ago and never finished died with its isolate. */
-const STALE_MS = 10 * 60_000;
+const STALE_MS = 2 * 60_000;
+/** How long one press keeps opening PRs: hosted, a Worker keeps a job 30 s past its response. The rest wait for the next press. */
+export const BUDGET_MS = 20_000;
 const busy = (k: Kept, now = Date.now()) => !!k.running && now - k.running < STALE_MS;
 
 const few = (repos: string[]) => `${repos.slice(0, 3).join(", ")}${repos.length > 3 ? `, and ${repos.length - 3} more` : ""}`;
@@ -175,9 +177,11 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
       });
       const going = busy(k);
       const redo = [...failed, ...left];
-      const again = redo.length && !going ? Confirm({ kind: `agents.${SANDBOX_KIND}`, action: "/agents/setup/open", label: `Try ${plural(redo.length, "repo")} again`, question: html`Open the PRs that didn't go, in ${few(redo)}?` }) : "";
+      // Never tried (a press opens what fits in its time) or tried and failed: either way, the button opens them.
+      const label = failed.length ? `Try ${plural(redo.length, "repo")} again` : `Open ${plural(redo.length, "more PR", "more PRs")}`;
+      const again = redo.length && !going ? Confirm({ kind: `agents.${SANDBOX_KIND}`, action: "/agents/setup/open", label, question: html`Open the PRs still to go, in ${few(redo)}?` }) : "";
       const said = left.length || going ? "" : failed.length ? html`<p class="t3">${plural(k.repos.length - failed.length, "PR")} open. Merge them when they're green.</p>` : html`<p class="t3">All ${plural(k.repos.length, "PR")} open. Merge them when they're green; agents use the sandbox from then on.</p>`;
-      return { body: html`${List(rows)}${said}${again}`, ...(going ? { wait: `Opening ${plural(left.length, "PR")}…`, refresh: 5 } : left.length ? { wait: `${plural(left.length, "PR")} didn't get opened. Try again below.` } : {}) };
+      return { body: html`${List(rows)}${said}${again}`, ...(going ? { wait: `Opening ${plural(left.length, "PR")}…`, refresh: 5 } : left.length ? { wait: `${plural(left.length, "PR")} to go. Open them below.` } : {}) };
     },
     async save(ctx, _step, form) {
       const langs = ([] as string[]).concat(form.lang ?? []).filter((id) => LANGS.some((l) => l.id === id));
@@ -189,9 +193,10 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
     },
   };
 
-  const run = async (ctx: PackContext, list: { repo: string; lang: Lang }[]) => {
+  const run = async (ctx: PackContext, list: { repo: string; lang: Lang }[], until = performance.now() + BUDGET_MS) => {
     const propose = ctx.forge()?.propose;
     for (const { repo, lang } of list) {
+      if (performance.now() > until) break;
       const r = propose
         ? await propose({
             kind: SANDBOX_KIND,
@@ -217,7 +222,7 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
     routes(app, ctx) {
       app.post("/agents/setup/open", async (c) => {
         const back = c.redirect("/setup/agents?at=open", 303);
-        if (job) return back;
+        // One job at a time: the saved start says so across isolates (a job that never ended goes stale).
         const k = await read(ctx);
         if (busy(k)) return back;
         const found = await scan(ctx);

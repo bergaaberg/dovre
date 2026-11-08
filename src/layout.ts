@@ -177,13 +177,13 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
 }
 
 /**
- * The layout from the database, kept in memory: pages read it without waiting, and it's read again
- * in the background once it's older than `ttlMs` (hosted, another isolate may have saved since).
+ * The layout from the database, kept in memory. Once it's older than `ttlMs` (hosted, another
+ * isolate may have saved since), a page waits for it to be read again and `get()` reads it in the background.
  * A read that never settles (its request was cancelled) holds no page or save (src/shared-read.ts).
  */
 export function layoutStore(db: D1, o: { ttlMs?: number; now?: () => number; readMs?: number } = {}) {
   const now = o.now ?? Date.now;
-  const ttl = o.ttlMs ?? 30_000;
+  const ttl = o.ttlMs ?? 3_000;
   let kept: Layout = {};
   let at = 0;
   // Bumped by each write: a read begun before it mustn't land after it.
@@ -207,9 +207,9 @@ export function layoutStore(db: D1, o: { ttlMs?: number; now?: () => number; rea
   );
   void r.read();
   return {
-    /** The first read: at once once it's done, else this caller's own wait at most. */
+    /** At once while what's kept is fresh, else a read again: this caller's own wait at most. */
     get ready(): Promise<void> {
-      return r.done ? Promise.resolve() : r.read();
+      return r.done && now() - at <= ttl ? Promise.resolve() : r.read();
     },
     get(): Layout {
       if (now() - at > ttl) void r.read();
@@ -218,6 +218,19 @@ export function layoutStore(db: D1, o: { ttlMs?: number; now?: () => number; rea
     async save(l: Layout): Promise<void> {
       writes++;
       const clean = layoutOf(l);
+      await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('layout', ?, ?)").bind(JSON.stringify(clean), new Date(now()).toISOString()).run();
+      kept = clean;
+      at = now();
+    },
+    /** Changes the layout from the row as saved now (another isolate may have saved since this one read). */
+    async update(fn: (l: Layout) => Layout): Promise<void> {
+      writes++;
+      const row = await db.prepare("SELECT value FROM settings WHERE key = 'layout'").first<{ value: string }>();
+      let saved: Layout = {};
+      try {
+        saved = layoutOf(JSON.parse(row?.value ?? "{}"));
+      } catch {}
+      const clean = layoutOf(fn(saved));
       await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('layout', ?, ?)").bind(JSON.stringify(clean), new Date(now()).toISOString()).run();
       kept = clean;
       at = now();
@@ -239,6 +252,7 @@ export function fixedLayout(fixed: Layout): LayoutStore {
     ready: Promise.resolve(),
     get: () => kept,
     save: async () => {},
+    update: async () => {},
     reset: async () => {},
   };
 }
