@@ -91,3 +91,33 @@ test("setup pages: only for a pack that draws them, writes from this site only, 
   assert.deepEqual(k.saved, []);
   assert.equal((await post("/setup/kit/next", "step=nope")).headers.get("location"), "/setup/kit", "a step it doesn't have");
 });
+
+test("a step's main button (#441): where Next goes, posting only here, with a kind of its own pack's", async () => {
+  const { setupGo } = await import("../src/pages/setup.ts");
+  for (const action of ["//evil.example/x", "https://evil.example/x", "javascript:alert(1)", "/\\evil.example", "/x\"><b>", "", "x"]) assert.equal(setupGo("kit", { action, label: "Go" }), undefined, action);
+  assert.equal(setupGo("kit", { action: "/kit/go" }), undefined, "no label, no button");
+  assert.deepEqual(setupGo("kit", { action: "/kit/go", label: " Go ", kind: "other.write" }), { action: "/kit/go", label: "Go", question: "Go?" }, "another pack's kind asks twice");
+  assert.deepEqual(setupGo("kit", { action: "/kit/go", label: "Go", question: "Sure?", kind: "kit.write" }), { action: "/kit/go", label: "Go", question: "Sure?", kind: "kit.write" });
+
+  const steps = { steps: [{ id: "one", title: "One" }, { id: "two", title: "Two" }] };
+  const goes: Pack = { manifest: { api: PACK_API, id: "goes", name: "Goes", description: "", domain: "work", onboard: steps }, setup: { draw: (_c, step) => (step === "one" ? { body: html`<p>Hi</p>`, go: { action: "/goes/run", label: "Run it", question: "Run it now?" }, carry: true, refresh: 1 } : { body: "" }) } };
+  const both: Pack = { manifest: { api: PACK_API, id: "both", name: "Both", description: "", domain: "work", onboard: steps }, setup: { draw: () => ({ form: true, body: "", go: { action: "/both/run", label: "Run" } }) } };
+  const { get, post } = signedIn(snapshot(), {}, { packs: [goes, both] });
+  const one = await (await get("/setup/goes?at=one")).text();
+  assert.match(one, /class="climb-col" data-refresh="2">/, "redraws in place, 2 s at the least");
+  assert.match(one, /<div class="su-foot">.*<div class="su-go" data-carry="Run it">.*action="\/goes\/run"/s);
+  assert.doesNotMatch(one, />Next <span|action="\/setup\/goes\/next"/, "one main button: no Next, nor its form");
+  assert.equal((await post("/setup/goes/next", "step=one")).headers.get("location"), "/setup/goes?at=one", "Next posted anyway waits for it");
+  const two = await (await get("/setup/goes?at=two")).text();
+  assert.match(two, />Done <span/);
+  assert.doesNotMatch(two, /su-go|data-refresh|<noscript>/);
+  const res = await get("/setup/both");
+  assert.equal(res.status, 500, "a form step with a button of its own is broken");
+
+  const src = one.match(/<script src="(\/assets\/setup\.[0-9a-z]+\.js)"/)![1]!;
+  const js = await get(src);
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get("content-type") ?? "", /javascript/);
+  const text = await js.text();
+  assert.doesNotThrow(() => new Function(text), "the script parses");
+});

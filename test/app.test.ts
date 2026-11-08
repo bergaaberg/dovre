@@ -152,7 +152,7 @@ test("setup pages (#418) keep a pack's name, step title, body, wait and error in
   const { html } = await import("hono/html");
   const hostile: Pack = {
     manifest: { api: PACK_API, id: "hostile", name: H, description: H, domain: "work", onboard: { steps: [{ id: "one", title: H }, { id: "two", title: H }] } },
-    setup: { draw: (_c, step) => ({ form: step === "one", body: html`<p>${H}</p>`, ...(step === "two" ? { wait: H } : {}) }), save: async () => ({ ok: false, error: H }) },
+    setup: { draw: (_c, step) => ({ form: step === "one", body: html`<p>${H}</p>`, ...(step === "two" ? { wait: H, go: { action: "/hostile/go", label: H, question: H, kind: `hostile.${H}` }, carry: true } : {}) }), save: async () => ({ ok: false, error: H }) },
   };
   const { get, post } = signedIn(snapshot(), {}, { packs: [hostile] });
   assertInert("Today", await (await get("/")).text());

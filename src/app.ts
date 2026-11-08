@@ -53,7 +53,7 @@ import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
 import { type ClimbField, type ClimbView, climbPage, type KitTile, startingPage } from "./pages/welcome.ts";
-import { type SetupRow, setupPage, setupStrip, type SetupView } from "./pages/setup.ts";
+import { type SetupRow, setupGo, setupPage, setupStrip, type SetupView } from "./pages/setup.ts";
 import { FORGES, answersFrom, type OnboardingStore, onboardingStore } from "./onboarding.ts";
 import { type Answers, INTERVIEW, markersOf, onboardOf, QUESTIONS, ROLES, suggest } from "./packs/suggest.ts";
 import { scanCheckouts } from "./packs/scan.ts";
@@ -87,6 +87,7 @@ import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "
 import { quietOf } from "./quiet.ts";
 import { listRepos } from "./sources/claude.ts";
 import { GO_KEYS, SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
+import { SETUP_JS, SETUP_JS_PATH } from "./ui/setup.js.ts";
 import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./packs/guard.ts";
@@ -459,6 +460,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     c.header("Content-Type", "text/javascript; charset=utf-8");
     c.header("Cache-Control", "private, max-age=31536000, immutable");
     return c.body(SCRIPT);
+  });
+  app.get(SETUP_JS_PATH, (c) => {
+    c.header("Content-Type", "text/javascript; charset=utf-8");
+    c.header("Cache-Control", "private, max-age=31536000, immutable");
+    return c.body(SETUP_JS);
   });
 
   // ── Packs (src/packs/, PLAN D23): mounted after every core route, each hook isolated ──
@@ -1554,7 +1560,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** A shown pack with a setup page, by id. */
   const setupPack = (id: string) => shown().find((c) => c.manifest.id === id && !!setupOf(c));
   /** A step as the pack draws it, in the time its pages get. One that throws, is late or breaks the rules is that pack's broken step. */
-  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; refresh?: number; broke?: string }> => {
+  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; refresh?: number; go?: SetupView["go"]; carry?: boolean; broke?: string }> => {
     const ms = packs.routeMs ?? PACK_ROUTE_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const log = packLog(c.manifest.id);
@@ -1566,8 +1572,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       // A form step's inputs go with Next: a form inside it would be a form in a form.
       if (form && /<form[\s>]/i.test(String(body))) throw new Error("a form step's body holds a form of its own");
       const wait = typeof got?.wait === "string" && got.wait.trim() ? got.wait.trim().slice(0, 200) : undefined;
-      const refresh = typeof got?.refresh === "number" && Number.isFinite(got.refresh) ? Math.min(60, Math.max(5, Math.round(got.refresh))) : undefined;
-      return { body: html`<div class="pack-box" data-pack="${c.manifest.id}">${body}</div>`, form, wait, refresh };
+      const refresh = typeof got?.refresh === "number" && Number.isFinite(got.refresh) ? Math.min(60, Math.max(2, Math.round(got.refresh))) : undefined;
+      const go = setupGo(c.manifest.id, got?.go);
+      // The main button posts a form of its own: a form step's inputs would go nowhere.
+      if (go && form) throw new Error("a form step has no main button of its own: Next sends its form");
+      return { body: html`<div class="pack-box" data-pack="${c.manifest.id}">${body}</div>`, form, wait, refresh, ...(go ? { go, carry: got?.carry === true } : {}) };
     } catch (e) {
       const why = String((e as Error)?.message ?? e).slice(0, 300);
       log(`setup ${step}: ${why}`);
@@ -1588,7 +1597,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
     if (at >= steps.length) return { view, status: 200 };
     const d = drawn ?? (await drawStep(p, steps[at]!.id));
-    Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh });
+    Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh, go: d.go, carry: d.carry });
     return { view, status: d.broke ? 500 : error ? 422 : 200 };
   };
   app.get("/setup/:id", async (c) => {
@@ -1618,7 +1627,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const step = steps[i]!;
     // Drawn again: a write it waits on may have finished, or not. Still waiting, the step says so itself.
     const d = await drawStep(p, step.id);
-    if (d.wait) return c.redirect(`/setup/${id}?at=${step.id}`, 303);
+    if (d.wait || d.go) return c.redirect(`/setup/${id}?at=${step.id}`, 303);
     if (d.form && p.setup!.save) {
       const fields: Record<string, string | string[]> = {};
       for (const [k, v] of Object.entries(form).slice(0, 50)) {
