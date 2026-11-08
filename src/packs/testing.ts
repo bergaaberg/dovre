@@ -41,6 +41,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     file: () => undefined,
     required: () => undefined,
     refs: () => [],
+    pageOn: () => true,
     ...over,
   };
 }

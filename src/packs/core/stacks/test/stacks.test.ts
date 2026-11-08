@@ -1,14 +1,14 @@
 /** Stacked PRs: chains bottom first, what each waits on, what's wrong, the page, and retargeting. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { recentActions } from "../src/actions/deploys.ts";
-import { branchName, retarget } from "../src/actions/stacks.ts";
-import { createApp } from "../src/app.ts";
-import { openDb } from "../src/db.ts";
-import { problemText, type StackPr, stacksOf, waitText } from "../src/home/stacks.ts";
-import type { Ghe } from "../src/sources/ghe.ts";
-import { loadStackPrs, normalizeStackPr } from "../src/sources/stacks.ts";
-import { assertInert, fakeGhe, fixedGatherer, H, signedIn, snapshot } from "./helpers.ts";
+import { recentActions } from "../../../../actions/deploys.ts";
+import { branchName, retarget } from "../act.ts";
+import { stacksPack } from "../index.ts";
+import { openDb } from "../../../../db.ts";
+import { problemText, type StackPr, stacksOf, waitText } from "../model.ts";
+import type { Ghe } from "../../../../sources/ghe.ts";
+import { loadStackPrs, normalizeStackPr } from "../source.ts";
+import { appWithAgents, assertInert, fakeGhe, fixedGatherer, H, signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const pr = (o: Partial<StackPr> & { number: number }): StackPr => ({
   repo: "ACME/shop-api", title: `PR ${o.number}`, url: `https://acme.ghe.com/ACME/shop-api/pull/${o.number}`, author: "ola-nordmann",
@@ -137,19 +137,19 @@ test("the stacks page renders hostile titles and branches inert, with a retarget
       return out as T;
     },
   };
-  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe });
-  const res = await app.request("http://localhost/prs/stacks", { headers: { cookie: "u_tk=test-token" } });
+  const app = appWithAgents({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe, extra: [stacksPack({ ghe, owners: () => "ACME" })] });
+  const res = await app.request("http://localhost/stacks", { headers: { cookie: "u_tk=test-token" } });
   assert.equal(res.status, 200);
   const out = await res.text();
-  assertInert("/prs/stacks", out);
+  assertInert("/stacks", out);
   assert.ok(!out.includes('href="javascript:'), "a javascript: link got through");
   assert.match(out, /Retarget onto main/);
-  assert.match(out, /action="\/prs\/stacks\/retarget"/);
+  assert.match(out, /action="\/stacks\/retarget"/);
 });
 
 test("with no stacks the page says so", async () => {
   const { get } = signedIn(snapshot());
-  const out = await (await get("/prs/stacks")).text();
+  const out = await (await get("/stacks")).text();
   assert.match(out, /No stacks/);
 });
 
@@ -184,9 +184,23 @@ test("retarget leaves a PR alone when it moved on, closed, or its base never mer
 
 test("the retarget route refuses what isn't a PR in the org, and other origins", async () => {
   const { post, calls } = signedIn(snapshot());
-  for (const body of [{ repo: "evil/x", number: "1", from: "b" }, { repo: "ACME/a", number: "1; rm", from: "b" }, { repo: "ACME/a", number: "1", from: "../x" }, { repo: "ACME/a", number: "1", from: "a b" }]) await post("/prs/stacks/retarget", body);
+  for (const body of [{ repo: "evil/x", number: "1", from: "b" }, { repo: "ACME/a", number: "1; rm", from: "b" }, { repo: "ACME/a", number: "1", from: "../x" }, { repo: "ACME/a", number: "1", from: "a b" }]) await post("/stacks/retarget", body);
   assert.equal(calls.length, 0);
-  assert.equal((await post("/prs/stacks/retarget", { repo: "ACME/a", number: "1", from: "b" }, { origin: "http://evil.example" })).status, 403);
+  assert.equal((await post("/stacks/retarget", { repo: "ACME/a", number: "1", from: "b" }, { origin: "http://evil.example" })).status, 403);
   assert.equal(branchName("feat/x-1.2"), "feat/x-1.2");
   assert.equal(branchName("a..b"), null);
+});
+
+test("a pack (#408): at /stacks, the old address redirects, the PR tabs link it; off, they don't and it's gone", async () => {
+  const on = signedIn(snapshot());
+  const old = await on.get("/prs/stacks");
+  assert.equal(old.status, 301);
+  assert.equal(old.headers.get("location"), "/stacks");
+  assert.match(await (await on.get("/prs")).text(), /href="\/stacks"/, "a tab on the PR list");
+  assert.match(await (await on.get("/dependabot")).text(), /href="\/stacks"/, "and on Dependabot's");
+  const off = signedIn(snapshot(), {}, { packEnv: { PACK_STACKS: "off" } });
+  assert.equal((await off.get("/stacks")).status, 404);
+  assert.equal((await off.post("/stacks/retarget", { repo: "ACME/a", number: "1", from: "b" })).status, 404);
+  assert.doesNotMatch(await (await off.get("/prs")).text(), /href="\/stacks"/);
+  assert.doesNotMatch(await (await off.get("/dependabot")).text(), /href="\/stacks"/);
 });

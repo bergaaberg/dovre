@@ -542,7 +542,7 @@ body:has(.docks) .feed { max-height: calc(100vh - 84px); }
 .row-x { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--fs-s); color: var(--ink-2); margin-top: 3px; overflow-wrap: anywhere; }
 .row-m { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-xs); color: var(--ink-3); margin-top: 6px; }
 .sha { font: 400 11px var(--mono); color: var(--ink-3); }
-/* Stacked PRs (/prs/stacks): a chain, bottom first; a branch steps right. */
+/* Stacked PRs (/stacks): a chain, bottom first; a branch steps right. */
 ol.stack { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; border-left: 2px solid var(--line-2); }
 .stack-pr { display: flex; gap: 12px; align-items: flex-start; padding: 9px 12px; }
 .stack-pr + .stack-pr { border-top: 1px solid var(--line); }

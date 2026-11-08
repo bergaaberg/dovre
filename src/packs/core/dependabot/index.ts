@@ -22,8 +22,6 @@ export type DependabotDeps = {
   owners: () => string;
   /** Local mode: adds the bumps a combined PR left out, lockfiles made again in a checkout (relock.ts). */
   relock?: (repo: string, number: number) => Promise<{ ok: boolean; message: string; url?: string }>;
-  /** The forge has stacks too (the tab beside this one). Default yes. */
-  stacks?: boolean;
   /** After a write: gather again. */
   stale?: () => void;
 };
@@ -54,7 +52,6 @@ export function dependabotPack(deps: DependabotDeps): Pack {
     },
     pages: () => [{ title: "Dependabot", href: HREF, icon: "⇄", about: "Open bumps by repo, combined and merged", also: ["dependabot", "bumps", "dependencies", "combine", "security"] }],
     routes(app, ctx) {
-      const tabs = prTabs("dependabot", deps.stacks !== false);
       const after = (job: Promise<unknown>, c: Context<AppEnv>) => {
         const done = job
           .then(() => load(true).catch(() => undefined))
@@ -70,6 +67,7 @@ export function dependabotPack(deps: DependabotDeps): Pack {
         const shown = [...jobs.values()];
         for (const [k, j] of jobs) if (j.state === "done") jobs.delete(k);
         const org = deps.owners();
+        const tabs = prTabs("dependabot", ctx.pageOn("/stacks"));
         const got = await Promise.race([load().then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) })), new Promise<undefined>((res) => setTimeout(res, 1500))]);
         const body = !got ? dependabotBody({ org, pending: true, jobs: shown, tabs }) : dependabotBody({ org, jobs: shown, relock: !!deps.relock, tabs, ...(got.ok ? got.value : { error: got.error }) });
         return ctx.page(c, { title: "Dependabot · Dovre", current: "/prs", body });

@@ -77,7 +77,7 @@ test("the gather on a forge with no deploys, changelogs or red branches: those a
 test("a forge that can't serve issues, the viewer, stacks, deploy approval, stats or reviews: those pages aren't there", async () => {
   const s = snapshot();
   const { get, post } = signedIn(s, {}, { forge: { id: "lab", name: "Lab", can: [] } });
-  for (const path of ["/issues/new", "/prs/ACME/shop-api/2", "/prs/ACME/shop-api/2/files", "/prs/stacks", "/stats", "/prs/agent", "/prs/draft"])
+  for (const path of ["/issues/new", "/prs/ACME/shop-api/2", "/prs/ACME/shop-api/2/files", "/stacks", "/stats", "/prs/agent", "/prs/draft"])
     assert.equal((await get(path)).status, 404, path);
   assert.equal((await post("/deploys/approve", { repo: "ACME/shop-api", run: "1" })).status, 404);
   // The rest is still here.
@@ -87,16 +87,16 @@ test("a forge that can't serve issues, the viewer, stacks, deploy approval, stat
   assert.doesNotMatch(home, /href="\/issues\/new"/);
   assert.doesNotMatch(home, /href="\/stats"/);
   const found = await (await get("/search?q=stacks")).text();
-  assert.doesNotMatch(found, /href="\/prs\/stacks"/);
+  assert.doesNotMatch(found, /href="\/stacks"/);
   const task = await (await get("/search?q=dev%20task")).text();
   assert.doesNotMatch(task, /href="\/issues\/new/);
 });
 
 test("GitHub (the default) keeps every page", async () => {
   const { get } = signedIn(snapshot(), {}, { packs: [trackerPack()] });
-  for (const path of ["/issues/new", "/prs/stacks"]) assert.notEqual((await get(path)).status, 404, path);
+  for (const path of ["/issues/new", "/stacks"]) assert.notEqual((await get(path)).status, 404, path);
   assert.match(await (await get("/")).text(), /href="\/issues\/new"/);
-  assert.match(await (await get("/search?q=stacks")).text(), /href="\/prs\/stacks"/);
+  assert.match(await (await get("/search?q=stacks")).text(), /href="\/stacks"/);
   assert.match(await (await get("/search?q=dev%20task")).text(), /href="\/issues\/new/);
 });
 
@@ -109,10 +109,10 @@ test("a forge without the viewer or deploy approval: PRs open on the forge, depl
   const prs = await (await lab.get("/prs")).text();
   assert.match(prs, /href="https:\/\/git\.example\.com\/ACME\/shop\/-\/merge_requests\/3"[^>]*>Open on Lab ↗/);
   assert.doesNotMatch(prs, /href="\/prs\/ACME\/shop\/3/);
-  assert.doesNotMatch(prs, /href="\/prs\/stacks"/);
+  assert.doesNotMatch(prs, /href="\/stacks"/);
   const ghPrs = await (await gh.get("/prs")).text();
   assert.match(ghPrs, /href="\/prs\/ACME\/shop\/3"/);
-  assert.match(ghPrs, /href="\/prs\/stacks"/);
+  assert.match(ghPrs, /href="\/stacks"/);
 
   for (const path of ["/", "/deploys"]) {
     assert.doesNotMatch(await (await lab.get(path)).text(), /action="\/deploys\/approve"/, path);

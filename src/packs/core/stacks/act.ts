@@ -3,9 +3,9 @@
  * onto the repo's default branch. Re-checks GHE first (still open, still on that branch, and a PR
  * from that branch really merged), then changes the base, and logs either way.
  */
-import type { D1 } from "../db.ts";
-import type { Ghe } from "../sources/ghe.ts";
-import { logAction } from "./deploys.ts";
+import type { D1 } from "../../../db.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
+import { logAction } from "../../../actions/deploys.ts";
 
 type RawPr = { state: string; base: { ref: string; repo: { default_branch: string } } };
 type RawListed = { number: number; merged_at: string | null };
