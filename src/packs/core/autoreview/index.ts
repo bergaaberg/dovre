@@ -72,6 +72,7 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
       name: "Auto review",
       description: "Review rounds on auto runs' PRs: a level from 1 to 5, fix sessions from the comments, a merge at 5",
       domain: "general",
+      answers: ["agents:many", "catch:agents"],
       execution: "any",
       requires: ["agents"],
       settings: [{ key: "AUTOREVIEW_MODEL", label: "Reviewer model", help: "The model that reviews auto PRs (opus, sonnet, haiku or a full id). Never the one that wrote the PR: when it's the same, another reviews. Empty: the assistant's." }],

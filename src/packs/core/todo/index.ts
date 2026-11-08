@@ -29,6 +29,8 @@ export function todoPack(o: TodoDeps): Pack {
       name: "My list",
       description: "Small things and small initiatives that live nowhere else, with dates",
       domain: "personal",
+      roles: ["po", "an"],
+      answers: ["tasks:head"],
       // Its items link to agent sessions and start agents while that pack is on (#394).
       uses: ["agents"],
     },

@@ -22,6 +22,8 @@ export function dockerPack(make: (ctx: PackContext) => Docker): Pack {
       name: "Docker",
       description: "Containers on Docker Engine: start, stop, logs",
       domain: "general",
+      answers: ["run:containers"],
+      markers: ["Dockerfile", "compose.yaml", "compose.yml", "docker-compose.yml"],
       execution: "local-only",
       settings: [{ key: "DOCKER_PIPE", label: "Another engine's pipe or socket instead of the default" }],
     },

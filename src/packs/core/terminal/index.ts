@@ -19,6 +19,7 @@ export function terminalPack(terminals: Terminals): Pack {
       name: "Terminal",
       description: "Shells and agent CLIs in a checkout, inside Dovre",
       domain: "general",
+      answers: ["agents:many", "agents:some"],
       execution: "local-only",
     },
     nav: () => [{ href: "/terminal", title: "Terminal", icon: "agents", group: "Agents" }],

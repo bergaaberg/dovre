@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.13")
+   src/packs/types.ts     the contract (PACK_API = "1.14")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -285,6 +285,7 @@ Also:
 | 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
 | 1.12 | Share `agent` (where the agents pack starts an agent and shows a session or run): My list, New work, reviews and core link through it and leave the link out while agents is off (#394) |
 | 1.13 | `ctx.pageOn(href)`: whether a page answers here, so a pack leaves out a tab to another pack's page that's off; slot `pr.stack` (the viewer's "2 of 3 in a stack", from the stacks pack) (#408) |
+| 1.14 | Manifest `roles`, `answers` and `markers` (who it suits, which interview answers, which files the checkout scan looks for) and `onboard` (its own setup, up to 3 steps), for first run's suggestions (`src/packs/suggest.ts`) (#415) |
 
 ## Open questions
 

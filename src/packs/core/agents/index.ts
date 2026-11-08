@@ -106,6 +106,8 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       name: "Agents",
       description: "Coding agents on this machine, or the Mac's from anywhere: start, follow, answer",
       domain: "general",
+      answers: ["agents:many", "agents:some"],
+      onboard: { steps: [{ id: "sandboxes", title: "Sandboxes for your languages, one PR a repo" }] },
       execution: "any",
       paths: ["worktrees"],
       rings: [

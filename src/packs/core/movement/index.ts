@@ -18,6 +18,7 @@ export function movementPack(): Pack {
       name: "Moved",
       description: "What people and bots did in the org in the last 24 hours, by person or as a timeline",
       domain: "work",
+      roles: ["lead"],
       execution: "any",
     },
     nav: (ctx) => (ctx.hosted ? [] : [{ href: HREF, title: "Moved", icon: "health", group: "Code", order: 50 }]),

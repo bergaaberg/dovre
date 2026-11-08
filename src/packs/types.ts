@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.13";
+export const PACK_API = "1.14";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -85,7 +85,33 @@ export type PackManifest = {
    * mail, query results). Its `about` isn't asked.
    */
   private?: boolean;
+  /**
+   * Who it suits (API 1.14): first run suggests it to these roles outright. Roles are `dev`, `lead`,
+   * `po` (product owner), `op` (operator) and `an` (analyst).
+   */
+  roles?: Role[];
+  /**
+   * Interview answers it suits (API 1.14), as `<question>:<answer>` from `INTERVIEW` in
+   * src/packs/suggest.ts ("tasks:linear", "agents:many"): first run suggests it when I give one.
+   */
+  answers?: string[];
+  /**
+   * What the checkout scan looks for (API 1.14): paths inside a checkout directly under the code
+   * folder, names only, never contents. A trailing `/` is a folder (".storybook/"), and a `*` in the
+   * last part matches any name ("*.http"). At most 8, each at most 3 parts deep.
+   */
+  markers?: string[];
+  /**
+   * Its own setup (API 1.14), run after first run from its setup page: up to 3 steps, declared up front.
+   * `required`: it doesn't work until they're done (default: it works before, and setup adds to it).
+   */
+  onboard?: { steps: OnboardStep[]; required?: boolean };
 };
+
+/** Who a pack suits (`manifest.roles`). */
+export type Role = "dev" | "lead" | "po" | "op" | "an";
+/** A step of a pack's own setup: a lowercase id, and its title on the setup page. */
+export type OnboardStep = { id: string; title: string };
 
 /** A kind of notification: its id (lowercase), and how Settings says it. On unless I switch it off, or `off`: off until I switch it on. */
 export type RingDecl = { kind: string; label: string; hint?: string; off?: boolean };

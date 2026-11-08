@@ -94,6 +94,8 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       name: "Issues",
       description: "My open issues: assigned, mentioning me, opened by me, and triage",
       domain: "work",
+      answers: ["tasks:github"],
+      onboard: { steps: [{ id: "triage", title: "Pick repos to triage" }] },
       // /issues: New work, and /issues itself, which goes to /tracker.
       paths: ["issues"],
       // New work's "Also put it on My list", while that pack is on.
