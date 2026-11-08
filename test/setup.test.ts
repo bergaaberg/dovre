@@ -132,5 +132,6 @@ test("a setup's end offers the next pack's (#445), and the summit starts there",
   const { setupPage } = await import("../src/pages/setup.ts");
   const last = String(setupPage({ flags: [], pack: { id: "second", name: "Second" }, steps: [{ id: "one", title: "One" }], at: 1 }));
   assert.match(last, /class="climb-go" href="\/">Back to Today/, "none left: Today");
+  assert.match(last, /<body class="climb-page su-page">/, "the ground closes a setup page, under it (#444)");
   assert.equal((await post("/welcome/done", "setup=nope")).headers.get("location"), "/", "not a pack with a setup: Today");
 });

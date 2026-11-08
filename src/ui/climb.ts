@@ -90,9 +90,12 @@ ${FROM}
 .cl-fresh text { animation: cl-say 2.8s ease .8s both; }
 .cl-summit .cl-flag polygon { fill: color-mix(in oklab, var(--sun) 35%, #f4b47f); }
 .cl-summit .cl-flag text { opacity: 1; animation: none; }
-.cl-dim .cl-flag { opacity: .3; }
+.cl-dim .cl-flag { opacity: .45; }
+.cl-dim .cl-flag:not(.cl-focus) text { display: none; }
 .cl-dim .cl-flag.cl-focus { opacity: 1; }
 .cl-dim .cl-flag.cl-focus polygon { fill: var(--accent); }
+/* The one label on a setup page stands on the dawn, which is warm in every theme: dark ink, no halo. */
+.cl-dim .cl-flag.cl-focus text { fill: #1d1a22; stroke: none; font-weight: 600; }
 @keyframes cl-plant { from { transform: scaleY(0); } }
 @keyframes cl-say { 0% { opacity: 0; } 15%, 75% { opacity: 1; } 100% { opacity: 0; } }
 
@@ -122,6 +125,29 @@ ${FROM}
 .climb-link { appearance: none; background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: 8px 4px; font: inherit; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 4px; }
 .climb-link:hover { color: var(--ink); }
 .climb-go:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+/* A pack's setup (#444): the ground closes the page under the step, never behind it, and scrolls with it. */
+.su-page { position: relative; }
+.su-page .climb-scene { position: absolute; inset: auto 0 0 0; height: 440px; overflow: hidden; -webkit-mask-image: linear-gradient(transparent, #000 30%); mask-image: linear-gradient(transparent, #000 30%); }
+.su-page .climb-scene .cl-art { position: absolute; inset: auto 0 0 0; height: 820px; }
+.su-page .climb { padding-bottom: 300px; }
+/* The pack's body is kit parts; on the climb they take the climb's look. */
+.su-body .t2 { color: var(--ink-2); font-size: 15px; }
+.su-body .check-rows > legend { color: var(--ink-3); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; padding-bottom: 10px; }
+.su-body .check-row { grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 14px; padding: 14px 4px; border-top: 0; border-bottom: 1px solid var(--line-2); }
+.su-body .check-rows > legend + .check-row, .su-body .check-rows > .check-row:first-child { border-top: 1px solid var(--line-2); }
+.su-body .check-row b { font-size: 19px; font-weight: 300; }
+.su-body .check-row input { appearance: none; width: 20px; height: 20px; border: 1.5px solid var(--ink-3); border-radius: 6px; display: grid; place-content: center; cursor: pointer; }
+.su-body .check-row input::before { content: ""; width: 10px; height: 6px; border: solid var(--bg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translate(1px, -1px); opacity: 0; }
+.su-body .check-row input:checked { background: var(--accent); border-color: var(--accent); }
+.su-body .check-row input:checked::before { opacity: 1; }
+.su-body .check-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.su-body .check-row:has(input:checked) b { color: var(--accent); }
+.su-body ul.list { border-top: 1px solid var(--line-2); }
+.su-body ul.list > li { border-top: 0; border-bottom: 1px solid var(--line-2); }
+.su-body .item { align-items: center; padding: 12px 4px; }
+.su-body .item:has(> .lead:empty) { grid-template-columns: minmax(0, 1fr) auto; }
+.su-body .item > .lead:empty { display: none; }
+.su-body .item .title > strong { font-size: 17px; font-weight: 400; }
 .su-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink-3); font-size: 13px; }
 .su-head .climb-link { padding: 0; }
 .su-body { display: grid; gap: 14px; min-width: 0; }
