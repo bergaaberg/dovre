@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { D1 } from "../src/db.ts";
+import { openDb } from "../src/db.ts";
 import { layoutStore } from "../src/layout.ts";
 import { onboardingStore } from "../src/onboarding.ts";
 import { sharedRead } from "../src/shared-read.ts";
@@ -60,4 +61,29 @@ test("onboarding: a stuck first read leaves it not loaded (Today doesn't send me
   await o.ready;
   assert.equal(o.loaded?.(), true);
   assert.equal(o.get().done, true);
+});
+
+test("two isolates: each change builds on the saved row, and a page past the ttl reads it again", async () => {
+  const { DB } = openDb();
+  let t = 0;
+  const a = onboardingStore(DB, { now: () => t });
+  const b = onboardingStore(DB, { now: () => t });
+  await Promise.all([a.ready, b.ready]);
+  await a.update((o) => ({ ...o, setup: { ...o.setup, dependabot: ["merge"] } }));
+  await b.update((o) => ({ ...o, setup: { ...o.setup, issues: ["repos"] } }));
+  assert.deepEqual(b.get().setup, { dependabot: ["merge"], issues: ["repos"] }, "b's change kept a's");
+  assert.deepEqual(a.get().setup, { dependabot: ["merge"] }, "a hasn't read again yet");
+  t = 4_000;
+  await a.ready;
+  assert.deepEqual(a.get().setup, { dependabot: ["merge"], issues: ["repos"] }, "past the ttl, a page reads it again");
+
+  const la = layoutStore(DB, { now: () => t });
+  const lb = layoutStore(DB, { now: () => t });
+  await Promise.all([la.ready, lb.ready]);
+  await la.update((l) => ({ ...l, packsOff: ["agents"] }));
+  await lb.update((l) => ({ ...l, packsOff: [...(l.packsOff ?? []), "todo"] }));
+  assert.deepEqual(lb.get().packsOff, ["agents", "todo"]);
+  t = 8_000;
+  await la.ready;
+  assert.deepEqual(la.get().packsOff, ["agents", "todo"]);
 });

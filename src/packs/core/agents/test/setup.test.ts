@@ -5,7 +5,7 @@ import { setupOf } from "../../../../agents/sandbox.ts";
 import { allowOf } from "../../../../agents/egress.ts";
 import type { Proposal } from "../../../../actions/propose.ts";
 import { type Pack, PACK_API } from "../../../types.ts";
-import { agentsSetup, byLang, configText, LANGS, SANDBOX_KIND } from "../setup.ts";
+import { agentsSetup, BUDGET_MS, byLang, configText, LANGS, SANDBOX_KIND } from "../setup.ts";
 import { signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const REPOS: { repo: string; files: Record<string, string> }[] = [
@@ -116,6 +116,44 @@ test("the Agents setup: pick languages, see the files, open one PR a repo with b
   await post("/agents/setup/open", "");
   await settle(get, /Try 1 repo again/);
   assert.deepEqual(asked.slice(4).map((p) => p.repo), ["ACME/api"]);
+});
+
+test("the Agents setup: a press opens what fits in its time; the rest wait for the next press", async () => {
+  const asked: string[] = [];
+  // Each PR takes 15 s on this clock: the first two start inside BUDGET_MS, the third doesn't.
+  const real = performance.now.bind(performance);
+  let skew = 0;
+  performance.now = () => real() + skew;
+  try {
+    const { get, post } = signedIn(snapshot(), {}, {
+      packs: [agentsLike()],
+      forge: {
+        id: "github",
+        name: "GitHub",
+        can: [],
+        host: "github.com",
+        everyRepo: async () => REPOS,
+        propose: async (p) => {
+          asked.push(p.repo);
+          skew += BUDGET_MS * 0.75;
+          return { number: asked.length, url: `https://github.com/${p.repo}/pull/${asked.length}` };
+        },
+      },
+    });
+    await post("/setup/agents/next", "step=repos&lang=pnpm&lang=rust");
+    await post("/setup/agents/next", "step=files");
+    await post("/agents/setup/open", "");
+    const first = await settle(get, /Open 1 more PR/);
+    assert.equal(asked.length, 2, "the third waits: the time ran out");
+    assert.match(first, /1 PR to go/);
+    assert.match(first, /climb-go" disabled/, "Next waits for it");
+    await post("/agents/setup/open", "");
+    const all = await settle(get, /All 3 PRs open/);
+    assert.deepEqual(asked, ["ACME/ingest", "ACME/web", "ACME/api"]);
+    assert.doesNotMatch(all, /climb-go" disabled/);
+  } finally {
+    performance.now = real;
+  }
 });
 
 test("the Agents setup waits for the repos, and says so when the forge can't open PRs", async () => {

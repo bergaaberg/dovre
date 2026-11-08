@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { accessConfigOf, allowed, createAccessVerifier, operatorOf } from "../src/access.ts";
 import worker, { createWorker, resetHostedApp } from "../src/worker.ts";
 import type { D1 } from "../src/db.ts";
+import { type Pack, PACK_API } from "../src/packs/types.ts";
 import { session, signedIn, snapshot } from "./helpers.ts";
 
 const TEAM = "my-team";
@@ -357,6 +358,42 @@ test("worker: a person's POST goes to GitHub with their own token; pages and the
     assert.deepEqual(writes.map((c) => `${c.method} ${c.auth}`), ["GET Bearer as-per@example.dev", "POST Bearer as-per@example.dev"]);
     const rest = calls.filter((c) => !writes.includes(c));
     assert.ok(rest.length && rest.every((c) => c.auth === "Bearer instance"), `the gather the action started: ${rest.map((c) => c.auth).join()}`);
+  } finally {
+    globalThis.fetch = realFetch;
+    w.reset();
+  }
+});
+
+test("worker: a route's c.executionCtx.waitUntil() reaches the Worker's, so a job it starts outlives the response", async () => {
+  const k = await keyPair("k1");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${ISS}/cdn-cgi/access/certs` ? new Response(JSON.stringify({ keys: [k.jwk] })) : new Response("{}")) as typeof fetch;
+  const job = Promise.resolve("the job");
+  let threw = "";
+  const probe: Pack = {
+    manifest: { api: PACK_API, id: "probe", name: "Probe", description: "", domain: "personal", execution: "any" },
+    routes: (app) =>
+      app.get("/probe/go", (c) => {
+        try {
+          c.executionCtx.waitUntil(job);
+        } catch (e) {
+          threw = String(e);
+        }
+        return c.text("ok");
+      }),
+  };
+  const w = createWorker({ packs: [probe] });
+  const bindings = { DB: mockD1(), IS_HOSTED: "1", CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD };
+  const jwt = await k.sign({ ...good, exp: Math.floor(Date.now() / 1000) + 3600 });
+  const later: Promise<unknown>[] = [];
+  try {
+    w.reset();
+    const res = await w.fetch(new Request("https://dovre.example.dev/probe/go", { headers: { "cf-access-jwt-assertion": jwt } }), bindings, { waitUntil: (p) => void later.push(p) });
+    assert.equal(await res.text(), "ok");
+    assert.equal(threw, "", "the route had a context to hand it to");
+    assert.ok(later.includes(job), "the Worker was handed the job");
+    await Promise.allSettled(later);
   } finally {
     globalThis.fetch = realFetch;
     w.reset();

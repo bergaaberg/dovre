@@ -62,35 +62,60 @@ export function onboardingOf(raw: unknown): Onboarding {
   return out;
 }
 
-export type OnboardingStore = { get(): Onboarding; save(o: Onboarding): Promise<void>; ready: Promise<void>; /** Whether it's been read (or saved): until then, `get()` is only the empty default. */ loaded?(): boolean };
+export type OnboardingStore = {
+  get(): Onboarding;
+  /** Changes what's kept: `fn` gets the row as saved now (another isolate may have saved since this one read), and what it returns is written. */
+  update(fn: (o: Onboarding) => Onboarding): Promise<void>;
+  /** Waits for a read (at most its own timer) when there's been none, or the last is older than the ttl. */
+  ready: Promise<void>;
+  /** Whether it's been read (or saved): until then, `get()` is only the empty default. */
+  loaded?(): boolean;
+};
 
-/** Read at start and kept in memory, written through on each save. A read that never settles (its request was cancelled) is started again by the next to wait (src/shared-read.ts). */
-export function onboardingStore(db: D1, o: { readMs?: number } = {}): OnboardingStore {
-  let now: Onboarding = { answers: {} };
+/**
+ * Read at start and kept in memory, read again by the next to wait once older than `ttlMs`, since
+ * hosted runs several isolates and another may have saved. Each change reads the row first, in its
+ * own request, so it builds on what was saved and not on this isolate's copy. A read that never
+ * settles (its request was cancelled) is started again by the next to wait (src/shared-read.ts).
+ */
+export function onboardingStore(db: D1, o: { readMs?: number; ttlMs?: number; now?: () => number } = {}): OnboardingStore {
+  const now = o.now ?? Date.now;
+  const ttl = o.ttlMs ?? 3_000;
+  let kept: Onboarding = { answers: {} };
+  let at = 0;
   // Bumped by each save: a read begun before it mustn't land after it.
   let saves = 0;
+  const row = async () => {
+    const v = (await db.prepare("SELECT value FROM settings WHERE key = 'onboarding'").first<{ value: string }>())?.value;
+    try {
+      return onboardingOf(JSON.parse(v ?? "{}"));
+    } catch {
+      return onboardingOf({});
+    }
+  };
   const r = sharedRead(
     async () => {
       const s = saves;
-      const row = await db.prepare("SELECT value FROM settings WHERE key = 'onboarding'").first<{ value: string }>();
+      const got = await row().catch(() => undefined);
       if (s !== saves) return;
-      try {
-        now = onboardingOf(JSON.parse(row?.value ?? "{}"));
-      } catch {}
+      if (got) kept = got;
+      at = now();
     },
-    { ms: o.readMs },
+    { now, ms: o.readMs },
   );
   void r.read();
   return {
     get ready() {
-      return r.done ? Promise.resolve() : r.read();
+      return r.done && now() - at <= ttl ? Promise.resolve() : r.read();
     },
     loaded: () => r.done || saves > 0,
-    get: () => now,
-    async save(next) {
+    get: () => kept,
+    async update(fn) {
       saves++;
-      now = onboardingOf(next);
-      await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('onboarding', ?, ?)").bind(JSON.stringify(now), new Date().toISOString()).run();
+      const next = onboardingOf(fn(await row()));
+      await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('onboarding', ?, ?)").bind(JSON.stringify(next), new Date(now()).toISOString()).run();
+      kept = next;
+      at = now();
     },
   };
 }

@@ -430,7 +430,10 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       // A write (POST) by a verified person goes to GitHub with their own token, when the instance's
       // provider tells people apart. The app still checks Access itself; this only names the actor.
       const who = opts.githubToken && request.method === "POST" && h.verify ? await h.verify(request).catch(() => undefined) : undefined;
-      const res = who?.email ? await actingAs({ email: who.email }, () => h.app.fetch(request)) : await h.app.fetch(request);
+      // The request's context goes along: a route's c.executionCtx.waitUntil() keeps its job past the
+      // response. Without it that throws, and a job started in the request dies when it answers.
+      const call = () => h.app.fetch(request, {}, ctx as Parameters<typeof h.app.fetch>[2]);
+      const res = who?.email ? await actingAs({ email: who.email }, call) : await call();
       if (ctx) {
         // A page answered from memory and started a gather, or a pack is due: finish after the response.
         const work = [capped(h.refresh.due())];
