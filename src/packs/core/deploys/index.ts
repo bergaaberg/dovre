@@ -39,6 +39,7 @@ export function deploysPack(deps: DeploysDeps): Pack {
       name: "Deploys",
       description: "Runs waiting for your approval, approved or rejected from here, and what you decided",
       domain: "work",
+      via: "forge",
       roles: ["op"],
       answers: ["catch:deploys"],
       execution: "any",

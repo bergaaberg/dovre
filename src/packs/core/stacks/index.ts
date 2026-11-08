@@ -42,6 +42,7 @@ export function stacksPack(deps: StacksDeps): Pack {
       name: "Stacks",
       description: "Stacked PRs around yours and your review requests, bottom first, retargeted when a base merges",
       domain: "work",
+      via: "forge",
       roles: ["dev"],
       answers: ["catch:red"],
       execution: "any",

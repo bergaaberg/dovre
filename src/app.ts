@@ -1031,7 +1031,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const here = packIds();
     const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
     const setups = new Map(packs.on.flatMap((x) => (setupOf(x) ? [[x.manifest.id, setupLeft(x).length > 0] as const] : [])));
-    return c.html(packsPage(frame, { setups, on: packs.on, off: packs.off, env: packs.env, keys: packs.keys?.state, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
+    return c.html(packsPage(frame, { forge: forge.name, setups, on: packs.on, off: packs.off, env: packs.env, keys: packs.keys?.state, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
   app.post("/packs/:id/switch", strictOrigin, async (c) => {

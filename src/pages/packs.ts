@@ -19,7 +19,7 @@ const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 /** A secret setting's store, or why it can't be read. */
 type KeyLookup = (key: string) => KeyState | undefined;
 
-export type PacksView = { /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Where each secret setting's key came from, or why it can't be read (#416, hosted #428). */ keys?: KeyLookup };
+export type PacksView = { /** The forge's name ("GitHub"): the packs `via: "forge"` are listed under it (#432). */ forge?: string; /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Where each secret setting's key came from, or why it can't be read (#416, hosted #428). */ keys?: KeyLookup };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -196,9 +196,15 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   });
 }
 
-/** The packs on and off, the fun ones (domain "fun") or the rest. */
-const panels = (v: PacksView, fun: boolean) =>
-  html`${v.on.filter((c) => (c.manifest.domain === "fun") === fun).map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.filter((o) => (o.manifest?.domain === "fun") === fun).map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`;
+/** Which group a pack is listed in: the fun ones (domain "fun"), the forge's (#432), or the rest. */
+type Group = "fun" | "forge" | "rest";
+const groupOf = (m: PackManifest | undefined): Group => (m?.domain === "fun" ? "fun" : m?.via === "forge" ? "forge" : "rest");
+
+/** The packs on and off in one group. */
+const panels = (v: PacksView, g: Group) =>
+  html`${v.on.filter((c) => groupOf(c.manifest) === g).map((c) => packPanel(c.manifest, c.manifest.id, c.manifest.name, { pack: c }, v))}${v.off.filter((o) => groupOf(o.manifest) === g).map((o) => packPanel(o.manifest, o.id, o.name, { why: o.why }, v))}`;
+
+const has = (v: PacksView, g: Group) => v.on.some((c) => groupOf(c.manifest) === g) || v.off.some((o) => groupOf(o.manifest) === g);
 
 /** One pack to add: what it is, where it runs, and (on a machine) Add and how it went. */
 function addItem(p: ToAdd, v: PacksView, into: string | undefined) {
@@ -256,7 +262,7 @@ export function packsPage(frame: Frame, v: PacksView) {
 <div data-live id="packs">
 ${v.hosted && v.releases ? html`<p class="t3">${v.releases.error ? html`Couldn't read dovre-packs' releases: ${v.releases.error}` : html`Checked dovre-packs for newer releases ${Ago(v.releases.at)}${v.releases.available.size ? "" : ": none"}.`}</p>` : ""}
 ${v.on.length || v.off.length
-  ? html`${panels(v, false)}${v.on.some((c) => c.manifest.domain === "fun") || v.off.some((o) => o.manifest?.domain === "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these.</p>${panels(v, true)}` : ""}`
+  ? html`${panels(v, "rest")}${has(v, "forge") ? html`<p class="eyebrow">${v.forge ?? "The forge"}</p><p class="t2">Read and written through ${v.forge ?? "the forge"}, each with its own switch.</p>${panels(v, "forge")}` : ""}${has(v, "fun") ? html`<p class="eyebrow">Fun</p><p class="t2">For the fun of it: nothing in Dovre needs these.</p>${panels(v, "fun")}` : ""}`
   : Panel({ children: Empty({ title: "No packs here", children: html`<p class="t2">${v.hosted ? "This Worker bundles none." : "PACKS lists none on this machine."}</p>` }) })}
 ${addPanel(v)}
 </div>`;

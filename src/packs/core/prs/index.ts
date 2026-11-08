@@ -51,6 +51,7 @@ export function prsPack(deps: PrsDeps): Pack {
       name: "Pull requests",
       description: "Your PRs and the ones asking for your review, each opened here with its files and your own review of it",
       domain: "work",
+      via: "forge",
       roles: ["dev", "lead"],
       execution: "any",
     },
