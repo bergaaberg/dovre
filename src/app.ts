@@ -805,7 +805,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     }
     if ((deps.config || hosted) && !deps.session) {
       await onboarding.ready;
-      if (!setUp()) return c.redirect("/welcome", 303);
+      // Not read yet (a slow or stuck read): Today, rather than the climb for someone already past it.
+      if (onboarding.loaded?.() !== false && !setUp()) return c.redirect("/welcome", 303);
     }
     const { s, frame } = await page();
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);

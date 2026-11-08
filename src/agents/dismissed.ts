@@ -4,6 +4,7 @@
  * Kept in memory after the first read, since every page filters by it.
  */
 import type { D1 } from "../db.ts";
+import { sharedRead } from "../shared-read.ts";
 
 export type Dismissed = {
   ready: Promise<void>;
@@ -14,15 +15,16 @@ export type Dismissed = {
 
 export function createDismissed(db: D1): Dismissed {
   const set = new Set<string>();
-  const ready = db
-    .prepare("SELECT session_id FROM agent_dismissed")
-    .all<{ session_id: string }>()
-    .then((r) => {
-      for (const row of r.results) set.add(row.session_id);
-    })
-    .catch(() => undefined);
+  // A read that never settles (its request was cancelled) is started again by the next to wait (src/shared-read.ts).
+  const r = sharedRead(async () => {
+    const rows = await db.prepare("SELECT session_id FROM agent_dismissed").all<{ session_id: string }>();
+    for (const row of rows.results) set.add(row.session_id);
+  });
+  void r.read();
   return {
-    ready,
+    get ready() {
+      return r.done ? Promise.resolve() : r.read();
+    },
     has: (sid) => set.has(sid),
     async add(sids, at = Date.now()) {
       const fresh = sids.filter((s) => !set.has(s));
