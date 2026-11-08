@@ -25,9 +25,14 @@ export type ActiveOpts = {
   /** The Worker's bindings (hosted); empty locally. */
   bindings?: Record<string, unknown>;
   hosted: boolean;
+  /** Settings whose secret reference couldn't be read, with why (src/secrets.ts). */
+  unread?: Record<string, string>;
   /** Is this CLI on PATH (local)? */
   which?: (bin: string) => string | undefined;
 };
+
+/** Why a required setting is missing: unset, or its reference can't be read (#416). */
+export const missingWhy = (key: string, unread?: Record<string, string>): string => (unread?.[key] ? `can't read ${key}: ${unread[key]}` : `${key} isn't set`);
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const OFF = /^(off|false|no|0)$/i;
@@ -50,7 +55,7 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
     else if (!opts.hosted && m.execution === "hosted-only") no("runs only hosted (it needs the Worker's bindings)");
     else if (opts.hosted && m.requiredBindings?.some((b) => !(b in (opts.bindings ?? {})))) no(`missing binding ${m.requiredBindings.find((b) => !(b in (opts.bindings ?? {})))}`);
     else if (!opts.hosted && m.requiredBinaries?.some((b) => !opts.which?.(b))) no(`${m.requiredBinaries.find((b) => !opts.which?.(b))} isn't on PATH`);
-    else if (m.settings?.some((s) => s.required && !opts.env[s.key]?.trim())) off.push({ id: m.id, name: m.name ?? m.id, why: `${m.settings.find((s) => s.required && !opts.env[s.key]?.trim())!.key} isn't set`, manifest: m, pack: c });
+    else if (m.settings?.some((s) => s.required && !opts.env[s.key]?.trim())) off.push({ id: m.id, name: m.name ?? m.id, why: missingWhy(m.settings.find((s) => s.required && !opts.env[s.key]?.trim())!.key, opts.unread), manifest: m, pack: c });
     else {
       seen.add(m.id);
       on.push(c);
@@ -645,7 +650,7 @@ export function refreshLog(changed: () => void = () => {}): Refreshes {
 /** Calls every pack's refresh, one at a time per pack (a refresh still running is skipped). */
 /** `maxMs`: a refresh running longer is given up and the next due() starts it again (hosted: a cancelled request's I/O never settles). */
 /** `record`: where each refresh's start, end and failure go (the Packs page). */
-export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (line: string) => void, opts: { maxMs?: number; now?: () => number; record?: Refreshes; /** Packs I've hidden (Settings → Layout): not refreshed. */ skip?: (id: string) => boolean } = {}) {
+export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (line: string) => void, opts: { maxMs?: number; now?: () => number; record?: Refreshes; /** Packs I've hidden (Settings → Layout): not refreshed. */ skip?: (id: string) => boolean; /** After a refresh failed. */ failed?: (c: Pack, why: string) => void } = {}) {
   const clock = opts.now ?? Date.now;
   const running = new Map<string, Promise<void>>();
   const startedAt = new Map<string, number>();
@@ -666,6 +671,9 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
       .catch((e) => {
         failed = why(e);
         log(`pack ${id}: refresh failed: ${failed}`);
+        try {
+          opts.failed?.(c, failed);
+        } catch {}
       })
       .finally(() => {
         if (running.get(id) !== p) return;

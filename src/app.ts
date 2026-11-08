@@ -67,7 +67,8 @@ import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
+import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, missingWhy, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
+import type { Keys } from "./secretrefs.ts";
 import { createReleases, type GetJson } from "./packs/releases.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies, ToAdd } from "./packs/copies.ts";
@@ -149,7 +150,7 @@ function hashBytes(b: Uint8Array): string {
   return (h >>> 0).toString(36);
 }
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns; in a pack session, its own (#371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** What the climb was told (src/onboarding.ts); default: kept in D1. */ onboarding?: OnboardingStore; /** Hosted: the paired machines, for the climb's "Bring your laptop?". */ machines?: () => Promise<{ name?: string; online: boolean }[]>; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** A pack session (#353, src/run.ts): only this pack's pages, sign-in, assets and the event stream; no cockpit. */ session?: { pack: string; /** The one checkout under CODE_DIR its packs see (#368). */ checkout?: string }; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns; in a pack session, its own (#371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** What the climb was told (src/onboarding.ts); default: kept in D1. */ onboarding?: OnboardingStore; /** Hosted: the paired machines, for the climb's "Bring your laptop?". */ machines?: () => Promise<{ name?: string; online: boolean }[]>; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** A pack session (#353, src/run.ts): only this pack's pages, sign-in, assets and the event stream; no cockpit. */ session?: { pack: string; /** The one checkout under CODE_DIR its packs see (#368). */ checkout?: string }; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: secret settings read from a store (#416). */ keys?: Keys; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
@@ -695,7 +696,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         onChange: () => deps.hub?.publish(["packs"]),
       })
     : undefined;
-  const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), { record: refreshes, skip: hidden });
+  /** When each pack's keys were last read again after a failed refresh (#416): once in 10 minutes at most. */
+  const keysAgainAt = new Map<string, number>();
+  const keysAgain = (p: Pack) => {
+    const id = p.manifest.id;
+    const ks = packs.keys && manifestSettings(p.manifest).filter((s) => s.secret && packs.keys!.state(s.key)).map((s) => s.key);
+    if (!ks?.length || Date.now() - (keysAgainAt.get(id) ?? 0) < 600_000) return;
+    keysAgainAt.set(id, Date.now());
+    void packs.keys!.read(ks).then((changed) => (changed ? settleSettings(id).then(() => deps.hub?.publish([id, "packs"])) : undefined)).catch(() => {});
+  };
+  const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), { record: refreshes, skip: hidden, failed: keysAgain });
   /** How things are across the shown packs (`pulse`); a pack reading it from its own `pulse` gets nothing back. */
   let pulsing = false;
   const pulseNow = (): Pulse => {
@@ -1016,7 +1026,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const here = packIds();
     const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
     const setups = new Map(packs.on.flatMap((x) => (setupOf(x) ? [[x.manifest.id, setupLeft(x).length > 0] as const] : [])));
-    return c.html(packsPage(frame, { setups, on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
+    return c.html(packsPage(frame, { setups, on: packs.on, off: packs.off, env: packs.env, keys: packs.keys?.state, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
   app.post("/packs/:id/switch", strictOrigin, async (c) => {
@@ -1081,42 +1091,19 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     deps.hub?.publish(["packs"]);
     return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
   });
-  app.post("/packs/:id/settings", strictOrigin, async (c) => {
-    if (hosted) return c.notFound();
-    const id = c.req.param("id");
+  /** After its settings changed: off for a required one missing (or unread), on (and started) once they're all there. */
+  const settleSettings = async (id: string) => {
     const onPack = packs.on.find((x) => x.manifest.id === id);
     const offEntry = packs.off.find((x) => x.id === id);
     const manifest = onPack?.manifest ?? offEntry?.manifest;
-    const settings = manifestSettings(manifest);
-    if (!manifest || !settings.length) return c.notFound();
-    const body = await c.req.parseBody();
-    for (const s of settings) {
-      const val = body[s.key];
-      const raw = typeof val === "string" ? val.replace(/[\r\n]+/g, " ").trim().slice(0, 2000) : "";
-      // A setting with choices keeps only one of them (API 1.15); anything else leaves it as it was.
-      if (s.choices && raw && !s.choices.some((x) => x.value === raw)) continue;
-      if (s.secret) {
-        if (body[`clear.${s.key}`] === "1") {
-          delete packs.env[s.key];
-          if (packs.varsFile) removeDevVar(packs.varsFile, s.key);
-        } else if (raw) {
-          packs.env[s.key] = raw;
-          if (packs.varsFile) upsertDevVar(packs.varsFile, s.key, raw);
-        }
-      } else if (raw) {
-        packs.env[s.key] = raw;
-        if (packs.varsFile) upsertDevVar(packs.varsFile, s.key, raw);
-      } else {
-        delete packs.env[s.key];
-        if (packs.varsFile) removeDevVar(packs.varsFile, s.key);
-      }
-    }
-    const missing = settings.find((s) => s.required && !packs.env[s.key]?.trim());
-    if (onPack && missing) {
+    if (!manifest) return;
+    const missing = manifestSettings(manifest).find((s) => s.required && !packs.env[s.key]?.trim());
+    const why = missing && missingWhy(missing.key, packs.keys?.unread());
+    if (onPack && why) {
       packs.on.splice(packs.on.indexOf(onPack), 1);
-      packs.off.push({ id, name: manifest.name, why: `${missing.key} isn't set`, manifest, pack: onPack });
+      packs.off.push({ id, name: manifest.name, why, manifest, pack: onPack });
       settleRequires(packs);
-    } else if (offEntry?.pack && !offEntry.needs && !missing) {
+    } else if (offEntry?.pack && !offEntry.needs && !why) {
       const p = offEntry.pack;
       packs.off.splice(packs.off.indexOf(offEntry), 1);
       packs.on.push(p);
@@ -1133,14 +1120,63 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         }
       }
       for (const q of starting) if (packs.on.includes(q)) void runPackRefresh.one(q);
-    } else if (offEntry && missing) {
-      offEntry.why = `${missing.key} isn't set`;
+    } else if (offEntry && why) {
+      offEntry.why = why;
       // Off for its settings now, not only for a pack it requires: it waits for them first.
       delete offEntry.needs;
     } else if (onPack) {
       void runPackRefresh.one(onPack);
     }
+  };
+  app.post("/packs/:id/settings", strictOrigin, async (c) => {
+    if (hosted) return c.notFound();
+    const id = c.req.param("id");
+    const manifest = packs.on.find((x) => x.manifest.id === id)?.manifest ?? packs.off.find((x) => x.id === id)?.manifest;
+    const settings = manifestSettings(manifest);
+    if (!manifest || !settings.length) return c.notFound();
+    const body = await c.req.parseBody();
+    const keys = packs.keys;
+    for (const s of settings) {
+      const val = body[s.key];
+      const raw = typeof val === "string" ? val.replace(/[\r\n]+/g, " ").trim().slice(0, 2000) : "";
+      // A setting with choices keeps only one of them (API 1.15); anything else leaves it as it was.
+      if (s.choices && raw && !s.choices.some((x) => x.value === raw)) continue;
+      if (s.secret) {
+        // A reference is kept and read; a pasted key goes to the Keychain on a Mac (#416).
+        if (body[`clear.${s.key}`] === "1") {
+          if (keys) await keys.clear(s.key);
+          else {
+            delete packs.env[s.key];
+            if (packs.varsFile) removeDevVar(packs.varsFile, s.key);
+          }
+        } else if (raw) {
+          if (keys) await keys.save(s.key, raw);
+          else {
+            packs.env[s.key] = raw;
+            if (packs.varsFile) upsertDevVar(packs.varsFile, s.key, raw);
+          }
+        }
+      } else if (raw) {
+        packs.env[s.key] = raw;
+        if (packs.varsFile) upsertDevVar(packs.varsFile, s.key, raw);
+      } else {
+        delete packs.env[s.key];
+        if (packs.varsFile) removeDevVar(packs.varsFile, s.key);
+      }
+    }
+    await settleSettings(id);
     saved = true;
+    deps.hub?.publish([id, "packs", "snapshot"]);
+    return c.redirect(`/settings/packs/${encodeURIComponent(id)}`, 303);
+  });
+  // Read again (#416): its keys from their stores, then on or off as they came back.
+  app.post("/packs/:id/keys", strictOrigin, async (c) => {
+    const id = c.req.param("id");
+    const manifest = packs.on.find((x) => x.manifest.id === id)?.manifest ?? packs.off.find((x) => x.id === id)?.manifest;
+    const secret = manifestSettings(manifest).filter((s) => s.secret && packs.keys?.state(s.key));
+    if (hosted || !packs.keys || !secret.length) return c.notFound();
+    await packs.keys.read(secret.map((s) => s.key));
+    await settleSettings(id);
     deps.hub?.publish([id, "packs", "snapshot"]);
     return c.redirect(`/settings/packs/${encodeURIComponent(id)}`, 303);
   });
@@ -1238,10 +1274,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const where = html`<p class="t2">${writes ? html`Its writes: <a href="/settings/writes">Settings → Writes</a>. ` : ""}On or off, its refreshes and why: <a href="/packs#pack-${encodeURIComponent(id)}">Packs</a>.</p>`;
     if (made) c.header("Cache-Control", "no-store");
     if (deps.session) {
-      const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, true) : ""}`;
+      const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, true, packs.keys?.state) : ""}`;
       return c.html(sessionSettings(frame, { name: k.name, notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body }));
     }
-    const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted) : ""}${where}`;
+    const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, false, packs.keys?.state) : ""}${where}`;
     return c.html(settingsArea(frame, "packs", { areas: settingsAreas(), rows: await rowsNow(frame), notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body, title: k.name, crumbs: [{ href: "/settings/packs", label: "Packs" }] }));
   };
   // What the last "Set up omp/agy" said, shown once on the next Settings.

@@ -17,6 +17,7 @@ import { findTool, found, harnessesOn, summariesVia, which } from "./tools.ts";
 import { startingPage } from "./pwa.ts";
 import { openDb } from "./db.ts";
 import { loadEnv, rawVars } from "./env.ts";
+import { createKeys } from "./secrets.ts";
 import { LEGACY_SWITCHES, legacyOff, loadConfig, panesOf, runningOf, saveConfig } from "./config.ts";
 import { layoutStore } from "./layout.ts";
 import { setWhen } from "./when.ts";
@@ -158,6 +159,9 @@ if (!env.GHE_ORG)
   });
 // Packs (PLAN D23): the folders this machine's PACKS lists. Loaded this early because one may bring the forge.
 const packEnv = rawVars(config);
+// Secret settings given as a store's reference (#416): read now, before the packs built from them load.
+const keys = createKeys(packEnv, { varsFile: ".dev.vars", log: (l) => console.log(`secrets: ${l}`) });
+await keys.read();
 // An old switch set off in .dev.vars or the environment can't be moved: it switches its pack off there.
 for (const id of legacyOff(packEnv)) packEnv[`PACK_${id.toUpperCase()}`] ??= "off";
 const loaded = await loadPacks(env.PACKS, packEnv);
@@ -479,7 +483,7 @@ if (ghe.calls) setInterval(() => void ghe.calls!.flush(db.DB), 60_000).unref();
 
 // Packs (PLAN D23): those PACKS loaded above that can run here, after the core's.
 const copies = createCopies({ packs: env.PACKS, env: packEnv, onChange: () => hub.publish(["packs"]) });
-const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, hosted: false, which: (b) => which(b) }), env: packEnv, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars", copies };
+const packSet = { ...activePacks([...corePacks, ...loaded.packs], { env: packEnv, unread: keys.unread(), hosted: false, which: (b) => which(b) }), env: packEnv, keys, core: corePacks.map((c) => c.manifest.id), varsFile: ".dev.vars", copies };
 // Terminal and Docker aren't added where they can't run: Packs says why.
 for (const id of ["terminal", "docker"] as const) if (!on[id]) packSet.off.push({ id, name: id === "terminal" ? "Terminal" : "Docker", why: panes[id].why ?? "can't run here" });
 packSet.off.push(...loaded.failed);
