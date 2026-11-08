@@ -121,7 +121,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       // Sandboxes for my repos' languages, one PR a repo (#425, setup.ts).
       onboard: {
         steps: [
-          { id: "repos", title: "Which repos get a sandbox?" },
+          { id: "repos", title: "Which languages get a sandbox?" },
           { id: "files", title: "Here's what goes in." },
           { id: "open", title: "Open the PRs?" },
         ],
