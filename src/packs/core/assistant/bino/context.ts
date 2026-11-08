@@ -9,8 +9,10 @@
  * for them.
  */
 import type { Snapshot } from "../../../../gather.ts";
-import { type State, STATES, type Todo, treeOf } from "../../../../todo/store.ts";
+import type { ListItem as Todo, ListState as State } from "../../../types.ts";
 import { ACT_FENCE, type ActSpec, MAX_ACTS } from "./acts.ts";
+
+const STATES: readonly State[] = ["doing", "next", "waiting", "done"];
 
 export const PLAN_FENCE = "bino-plan";
 export const MAX_STEPS = 12;
@@ -54,7 +56,9 @@ const line = (s: string, max = 160) => s.replace(/\s+/g, " ").trim().slice(0, ma
 
 /** My list, as Bino sees it: open items with their steps, and what's done lately, by id so a plan can name one. */
 function listPart(todos: Todo[], now: number): string {
-  const trees = treeOf(todos);
+  const kids = new Map<number, Todo[]>();
+  for (const t of todos) if (t.parent !== null) kids.set(t.parent, [...(kids.get(t.parent) ?? []), t]);
+  const trees = todos.filter((t) => t.parent === null).map((item) => ({ item, children: kids.get(item.id) ?? [] }));
   const open = trees.filter((t) => t.item.state !== "done");
   const recent = trees.filter((t) => t.item.state === "done" && (t.item.doneAt ?? 0) > now - 7 * 86_400_000);
   const item = (t: Todo) => `#${t.id} [${t.state}] ${line(t.title)}${t.due ? ` (due ${t.due})` : ""}`;
@@ -65,7 +69,8 @@ function listPart(todos: Todo[], now: number): string {
 
 /** Everything Bino is told about right now, as plain text. */
 export function contextOf(o: {
-  todos: Todo[];
+  /** My list, while a pack shares it (#393); none: Bino hears of no list. */
+  todos?: Todo[];
   s?: Snapshot;
   now?: number;
   /** The org's code repos' owner: where a dev task can go. */
@@ -77,7 +82,7 @@ export function contextOf(o: {
 }): string {
   const now = o.now ?? Date.now();
   const s = o.s;
-  const parts = [`Today is ${new Date(now).toISOString().slice(0, 10)}.`, ...(o.about?.trim() ? [`## About me\n${line(o.about, 300)}`] : []), `## My list (local, in Dovre)\n${listPart(o.todos, now)}`];
+  const parts = [`Today is ${new Date(now).toISOString().slice(0, 10)}.`, ...(o.about?.trim() ? [`## About me\n${line(o.about, 300)}`] : []), ...(o.todos ? [`## My list (local, in Dovre)\n${listPart(o.todos, now)}`] : [])];
   if (o.org) parts.push(`## Where things can be filed
 Dev tasks: a repo in ${o.org}.`);
   if (s?.prs.ok) {

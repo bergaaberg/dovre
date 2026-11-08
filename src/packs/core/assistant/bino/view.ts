@@ -18,7 +18,6 @@ const PAGES: [string, string][] = [
   ["/prs/stacks", "Pull requests: stacks"],
   ["/prs", "Pull requests"],
   ["/deploys", "Deploys"],
-  ["/todo", "My list"],
   ["/movement", "Moved (what changed lately)"],
   ["/code", "Code (their checkouts)"],
   ["/stats", "Stats"],

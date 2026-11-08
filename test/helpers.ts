@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import { routeOf } from "../src/packs/core/assistant/bino/route.ts";
 import { assistantPack } from "../src/packs/core/assistant/index.ts";
+import { todoPack } from "../src/packs/core/todo/index.ts";
 import assert from "node:assert/strict";
 import { createApp } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
@@ -78,8 +79,8 @@ export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: u
   const terminals = createTerminals({ hostExe: "no-host", codeDir: ENV.CODE_DIR, programs: [] });
   // The agents pack, with the desk and the sessions cleared away, as index.ts makes them.
   const { pack: agents } = agentsFor({ ...ENV, DB: db.DB }, { here: hereOf(extra), desk: extra.desk });
-  const packs = [agents, terminalPack(terminals), assistantPack(), ...(extra.packs ?? [])];
-  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, routeMs: extra.routeMs, core: ["agents", "terminal", "assistant"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent, notify: extra.notify });
+  const packs = [agents, terminalPack(terminals), assistantPack(), todoPack({ links: () => ({ ghe: ENV.GHE_HOST, org: ENV.GHE_ORG }) }), ...(extra.packs ?? [])];
+  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, budgetMs: extra.budgetMs, routeMs: extra.routeMs, core: ["agents", "terminal", "assistant", "todo"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent, notify: extra.notify });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
     app.request(`http://localhost${path}`, {

@@ -1,11 +1,11 @@
 /** My list: quick add reads a trailing date, items keep their order and state, references become links, hostile text stays text. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { openDb } from "../src/db.ts";
-import { linkCtxOf, todoCard, todoPage } from "../src/pages/todo.ts";
-import { refsIn } from "../src/todo/links.ts";
-import { addTodo, deleteTodo, listTodos, moveTodo, osloDate, parseQuick, toggleDone, treeOf, updateTodo } from "../src/todo/store.ts";
-import { assertInert, H, pr, signedIn, snapshot } from "./helpers.ts";
+import { openDb } from "../../../../db.ts";
+import { linkCtxOf, todoCard, todoPage } from "../view.ts";
+import { refsIn } from "../../../../links.ts";
+import { addTodo, deleteTodo, listTodos, moveTodo, osloDate, parseQuick, toggleDone, treeOf, updateTodo } from "../store.ts";
+import { assertInert, H, pr, signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 // Thursday 22 October 2026.
 const TODAY = "2026-10-22";
@@ -47,13 +47,13 @@ test("items keep order, state and steps; done folds steps' count; delete takes t
 
 /** A pack's kind of reference: ticket keys of two projects, so UTF-8 isn't one. */
 const TICKETS = [{ pattern: /\b(?:DEV|FS)-\d+\b/, href: (k: string) => `https://example.atlassian.net/browse/${k}` }];
-const ctx = linkCtxOf({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME" }, snapshot({ prs: { ok: true, value: { mine: [pr({ repo: "ACME/shop-api", number: 840, title: "Stack base" })], review: [] } } }), TICKETS);
+const ctx = linkCtxOf({ ghe: "acme.ghe.com", org: "ACME" }, snapshot({ prs: { ok: true, value: { mine: [pr({ repo: "ACME/shop-api", number: 840, title: "Stack base" })], review: [] } } }), TICKETS);
 
 test("references become links: PRs with their state, a pack's kinds (ticket keys), agent sessions, plain links", () => {
   const kinds = (s: string) => refsIn(s, ctx).map((p) => (typeof p === "string" ? "text" : p.kind));
   assert.deepEqual(kinds("Rebase shop-api#840 after DEV-12"), ["text", "gh", "text", "app"]);
   assert.equal((refsIn("DEV-12", ctx)[0] as { url: string }).url, "https://example.atlassian.net/browse/DEV-12");
-  assert.deepEqual(refsIn("DEV-12", linkCtxOf({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME" }, undefined, [{ pattern: /DEV-\d+/, href: () => { throw new Error("broken pack"); } }])), ["DEV-12"], "a rule that throws links nothing");
+  assert.deepEqual(refsIn("DEV-12", linkCtxOf({ ghe: "acme.ghe.com", org: "ACME" }, undefined, [{ pattern: /DEV-\d+/, href: () => { throw new Error("broken pack"); } }])), ["DEV-12"], "a rule that throws links nothing");
   const gh = refsIn("shop-api#840", ctx)[0] as { state?: string; url: string };
   assert.equal(gh.state, "OPEN");
   assert.equal(gh.url, "https://acme.ghe.com/ACME/shop-api/issues/840");
@@ -96,7 +96,7 @@ test("done things fold away after a few days; the card shows what's doing and wh
   await addTodo(db, { title: "Due tomorrow", due: "2026-10-23" }, now);
   await addTodo(db, { title: "Someday" }, now);
   const all = await listTodos(db);
-  const page = String(todoPage({ operator: "me", nav: [] }, all, ctx, { now }));
+  const page = String(todoPage(all, ctx, { now }));
   assert.match(page, /<details class="todo-older" id="todo-older"><summary>Done earlier/);
   const card = String(todoCard(all, ctx, now));
   assert.match(card, /Doing it/);
@@ -121,4 +121,18 @@ test("adding with details: notes, where it stands and a due date in one form; ?a
   assert.deepEqual([b!.title, b!.notes, b!.state], ["Only text", "", "next"], "done isn't a state to add in");
   assert.notEqual(b!.due, null, "without a date field, the text's date stays");
   assertInert("/todo", await (await get("/todo")).text());
+});
+
+test("a pack (#393): its list reaches Today, search and Bino through what it shares; off, all of it goes", async () => {
+  const { get, post } = signedIn(snapshot());
+  await post("/todo/add", { q: "Ring Kari om sertifikatene", state: "doing" });
+  assert.match(await (await get("/")).text(), /id="todo-card"[\s\S]*Ring Kari om sertifikatene/, "the card on Today");
+  const found = await (await get("/search?q=sertifikatene")).text();
+  assert.match(found, /href="\/todo#t-1"/, "the item, found");
+  assert.match(await (await get("/search?q=husk")).text(), /Add to My list/, "the thing to do, the pack's");
+
+  const off = signedIn(snapshot(), {}, { packEnv: { PACK_TODO: "off" } });
+  assert.equal((await off.get("/todo")).status, 404);
+  assert.doesNotMatch(await (await off.get("/")).text(), /id="todo-card"/);
+  assert.doesNotMatch(await (await off.get("/search?q=husk")).text(), /Add to My list/);
 });

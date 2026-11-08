@@ -24,8 +24,6 @@ import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell, t
 import { deploysPage } from "./pages/deploys.ts";
 import { CORE_CARDS, packOrder, homePage } from "./pages/home.ts";
 import { currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
-import { createTodoRoutes, linkCtxOf, todoCard } from "./pages/todo.ts";
-import { listTodos } from "./todo/store.ts";
 import { movementPage, prsPage } from "./pages/pages.ts";
 import type { Ghe } from "./sources/ghe.ts";
 import { githubForge } from "./forge/github.ts";
@@ -68,7 +66,7 @@ import { writeClicksStore, writeKinds } from "./writes.ts";
 import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards } from "./packs/registry.ts";
+import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
 import { createReleases, type GetJson } from "./packs/releases.ts";
 import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
 import type { Copies, ToAdd } from "./packs/copies.ts";
@@ -80,7 +78,7 @@ import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } 
 import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
 import { forgeName, safeUrl } from "./pages/parts.ts";
-import type { AiSummary, Pack, PackContext, PackManifest, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
+import type { AiSummary, ListShare, Pack, PackContext, PackManifest, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
 import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
@@ -141,7 +139,6 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /**
     !opts.hosted && { href: "/code", title: "Code", icon: "code", group: "Code", order: 40 },
     !opts.hosted && { href: "/movement", title: "Moved", icon: "health", group: "Code", order: 50 },
     !!opts.bino && { href: "/bino", title: "Bino", icon: "chat", group: "Agents", order: 20 },
-    !opts.hosted && { href: "/todo", title: "My list", icon: "list", group: "Plan" },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
     { href: "/bug", title: "Report a bug", icon: "alert", group: "You" },
@@ -224,7 +221,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const hostedMode = env.IS_HOSTED === "1";
   const binoContext = async () =>
     contextOf({
-      todos: await listTodos(env.DB),
+      todos: await sharedList()?.items(),
       s: hostedMode ? undefined : gatherer.peek(),
       org: hostedMode ? undefined : env.GHE_ORG,
       about: env.ABOUT_ME,
@@ -503,11 +500,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           },
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
           file: (name) => filePaths.get(c.manifest.id)?.get(name),
-          // Only from a pack it requires, while that one is on and shown (#326).
+          // Only from a pack it requires or uses, while that one is on and shown (#326).
           required: (id, name) => {
-            const from = requiresOf(c.manifest).includes(id) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;
+            const from = (requiresOf(c.manifest).includes(id) || usesOf(c.manifest).includes(id)) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;
             return from?.shares ? safely(() => from.shares!(ctxOf(from))[name], undefined, (e) => packLog(id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
           },
+          refs: () => packRefs(),
           startPicture: (svg) => {
             if (typeof svg === "string" && svg.length <= 200_000 && /^\s*<svg[\s>]/.test(svg)) deps.startPicture?.(svg);
           },
@@ -556,6 +554,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const held = () => heldOff(packs.on, layout.get().packsOff ?? []);
   const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
+  /** My list, from the shown pack that shares it (`list`, #393): Bino and search read it, never its store. */
+  const sharedList = (): ListShare | undefined => {
+    for (const c of shown()) {
+      const list = c.shares ? safely(() => c.shares!(ctxOf(c)).list, undefined, (e) => packLog(c.manifest.id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
+      if (list) return list;
+    }
+    return undefined;
+  };
+  /** The list as search reads it: its items, and where each is shown. */
+  const listOf = async (l: ListShare | undefined) => (l ? { items: await l.items().catch(() => []), href: (id: number) => l.href(id) } : undefined);
   // Each pack's styles keep only the rules for its own markup (src/packs/guard.ts): none restyles core.
   const coreClasses = classesOf(STYLE);
   const packCss = packs.on
@@ -775,10 +783,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     }
     if (deps.config && !setUp()) return c.redirect("/welcome", 303);
     const { s, frame } = await page();
-    const todo = todoCard(await listTodos(env.DB), linkCtxOf(env, s, packRefs()));
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
-    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, todo, actions}));
+    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions }));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
@@ -864,7 +871,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
     const found = packFinds();
-    const r = search({ s, hidden: forgeHidden, viewer: can("viewer"), todos: await listTodos(env.DB), repos: listRepos(env.CODE_DIR), pages, apps: found.apps, kinds: found, remote }, raw, { only: c.req.query("only"), per: c.req.query("frag") === "1" ? undefined : 10 });
+    const r = search({ s, hidden: forgeHidden, viewer: can("viewer"), list: await listOf(sharedList()), repos: listRepos(env.CODE_DIR), pages, apps: found.apps, kinds: found, remote }, raw, { only: c.req.query("only"), per: c.req.query("frag") === "1" ? undefined : 10 });
     if (c.req.query("frag") === "1") return noStore(await c.html(html`${searchList(r)}`));
     return c.html(searchPage(frame, r, raw));
   });
@@ -1637,12 +1644,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return { id, name: p.manifest.name, home } as const;
   };
   app.route("/", createBugRoutes({ ghe, db: env.DB, owners: () => ownersIn(env), frame: async () => (await page()).frame, packOf: packHomeOf, instance: () => env.INSTANCE_REPO?.trim().match(/^[\w.-]+\/[\w.-]+$/)?.[0] ?? null, version: deps.info?.version ?? "dev", hosted }));
-  // ── My list (src/pages/todo.ts): small things kept on this machine ──
-  app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: binoOn, proposals: async () => html`${fill("todo.proposals", {})}` }));
   // Bino's pages are its pack's (src/packs/core/assistant/): core hands that pack the engine and what its pages read.
   if (bino && assistant)
     hostAssistant(assistant, {
       bino,
+      list: sharedList,
       frame: async () => (await page()).frame,
       org: env.GHE_ORG,
       packAct: (kind) => packActs().find((k) => k.kind === kind),

@@ -73,7 +73,7 @@ import { createTerminals } from "./packs/core/terminal/terms.ts";
 import { bridgeEntry, registerTools, toolsState } from "./agents/mcpsetup.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { listRepos } from "./sources/claude.ts";
-import { listTodos } from "./todo/store.ts";
+import { todoPack } from "./packs/core/todo/index.ts";
 import { systemOpener } from "./open-link.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
 
@@ -417,6 +417,8 @@ const corePacks = [
   summariesPack({ complete: summaryModel }),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
+  // My list (/todo), shared with Bino, search and New work.
+  todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }), bino: () => binoRoute.ready }),
   // My open issues from the forge (/tracker), where the forge has them.
   // Each row can start a new agent session on its issue, in the repo's checkout, when an agent can run here.
   issuesPack({

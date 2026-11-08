@@ -5,8 +5,8 @@ import { type Checkout, inRepos } from "../../../../checkouts.ts";
 import { type Parent, type TaskCreated, refText } from "./tasks.ts";
 import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill } from "../../../../ui/kit.ts";
 import { markdown } from "../../../../ui/markdown.ts";
-import { Link, MyListBox, failed, forgeName, safeUrl } from "../../../../pages/parts.ts";
-import { type Ctx, type Page, type Res, agentPanel, crumbs, hidden, page, rows, short, star, taskHref, wrap } from "./work.ts";
+import { Link, failed, forgeName, safeUrl } from "../../../../pages/parts.ts";
+import { type Ctx, type Page, type Res, agentPanel, crumbs, hidden, myListBox, page, rows, short, star, taskHref, wrap } from "./work.ts";
 
 export type TaskDraft = { repo: string; title: string; body: string; type: string; assign: boolean };
 export type TaskErrors = { repo?: string; title?: string; type?: string; body?: string };
@@ -95,7 +95,7 @@ export function taskPreviewPage(ctx: Ctx, o: { parent: Parent; draft: TaskDraft;
     ["Title", html`<strong>${d.title.trim()}</strong>`],
     ["Assignee", d.assign ? ctx.operator : html`<span class="t3">nobody</span>`],
   ]);
-  const actions = html`<form method="post" action="/issues/task/create">${hidden([...taskPairs(o.parent, d), ["nonce", o.nonce]])}${MyListBox}<div class="buttons"><button type="submit" formaction="/issues/task/preview" name="edit" value="1">Edit</button><button type="submit" class="primary">Create task</button></div></form>`;
+  const actions = html`<form method="post" action="/issues/task/create">${hidden([...taskPairs(o.parent, d), ["nonce", o.nonce]])}${myListBox(ctx)}<div class="buttons"><button type="submit" formaction="/issues/task/preview" name="edit" value="1">Edit</button><button type="submit" class="primary">Create task</button></div></form>`;
   return page(
     ctx,
     "Preview",

@@ -40,6 +40,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     wasm: () => undefined,
     file: () => undefined,
     required: () => undefined,
+    refs: () => [],
     ...over,
   };
 }

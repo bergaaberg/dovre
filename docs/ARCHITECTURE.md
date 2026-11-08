@@ -64,6 +64,8 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    A pack switched off on the Packs page takes what requires it off too. A pack reaches what it
    requires only through what that pack shares (`shares`, read with `ctx.required(id, name)`),
    never by importing it. Each shared contract's shape is core's (`PackShares` in types.ts).
+   A pack that only `uses` another (1.11) reads its shares the same way while it's on, and stays
+   on without it. Core reads shares too: Bino, search and New work find My list as `list`.
 4. **Mounted** (`createApp`). Each pack gets its own `PackContext`. If `available` says no or
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
@@ -279,6 +281,7 @@ Also:
   | 1.8 | A `PackStat` bar list (`bars`) and `partialLast`; `refresh(ctx, { asked })` when I pressed Gather again (#387) |
 | 1.9 | Slots `pr.agent` (a block on a PR card) and `review.draft` (an agent's draft for my own review); agent reviews became the `reviews` pack (#389) |
 | 1.10 | Slot `ai.summary` (a PR's or deploy's summary by key, drawn by core); AI summaries became the `summaries` pack (#390) |
+| 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
 
 ## Open questions
 

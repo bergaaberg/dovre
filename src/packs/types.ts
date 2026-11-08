@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.10";
+export const PACK_API = "1.11";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -65,6 +65,11 @@ export type PackManifest = {
    * them only through what they share in its context, never by importing them.
    */
   requires?: string[];
+  /**
+   * Packs it reads when they're on (API 1.11; New work: ["todo"], for "Also put it on My list").
+   * Unlike `requires`, it stays on without them: `ctx.required` answers undefined then.
+   */
+  uses?: string[];
   /**
    * Top-level paths it owns besides /<id> (agents: "worktrees"), each a lowercase word. One that's a
    * core path or another pack's keeps the pack off, as a route outside them does.
@@ -333,6 +338,8 @@ export type PackContext = {
    * manifest's `requires`, that pack is on and shown, and it shares one by that name now.
    */
   required<K extends keyof PackShares>(id: string, name: K): PackShares[K] | undefined;
+  /** Every shown pack's kinds of reference (`refs`, API 1.11), for linking what I write. */
+  refs(): RefRule[];
 };
 
 // ── What packs share with the packs that require them (#326) ──
@@ -383,9 +390,25 @@ export type AutoShare = {
 /** A fix session's agent turns at most (`--max-turns`). */
 export const FIX_TURNS = 60;
 
+/** Where an item on My list stands. */
+export type ListState = "doing" | "next" | "waiting" | "done";
+/** An item on My list (#393). `parent`: the initiative it's a step of; `due`: YYYY-MM-DD. */
+export type ListItem = { id: number; parent: number | null; title: string; notes: string; state: ListState; due: string | null; doneAt: number | null };
+/** My list (the todo pack), as Bino, search and New work read and add to it (#393). */
+export type ListShare = {
+  /** Every item, in the list's order. */
+  items(): Promise<ListItem[]>;
+  get(id: number): Promise<ListItem | undefined>;
+  /** Adds an item at the end (under `parent`'s initiative: one level); open pages show it. */
+  add(t: { title: string; parent?: number | null; notes?: string; state?: ListState; due?: string | null }): Promise<ListItem | undefined>;
+  /** Where an item is shown. */
+  href(id: number): string;
+};
+
 /** Each contract a pack can share, by name. A new one is additive. */
 export type PackShares = {
   auto?: AutoShare;
+  list?: ListShare;
 };
 
 /** The forge as a pack reads it (PackContext.forge): read-only, in the owners' repos. */

@@ -45,8 +45,8 @@ import { createCatalog, type Field, type IssueType, type Template, type Template
 import type { Ghe } from "../../../../sources/ghe.ts";
 import { type Child, Grid2, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../../../../ui/kit.ts";
 import { markdown } from "../../../../ui/markdown.ts";
-import { failed, forgeName, Link, MyListBox } from "../../../../pages/parts.ts";
-import { addTodo } from "../../../../todo/store.ts";
+import { failed, forgeName, Link } from "../../../../pages/parts.ts";
+import type { ListShare } from "../../../types.ts";
 import { MAX_TASK_BODY, MAX_TASK_TITLE, type TaskDraft, type TaskErrors, taskDonePage, taskFormPage, taskPickPage, taskPreviewPage } from "./taskpages.ts";
 import {
   agentPanel,
@@ -58,6 +58,7 @@ import {
   first,
   hidden,
   MAX_NOTE,
+  myListBox,
   newHref,
   page,
   type Page,
@@ -216,7 +217,7 @@ export function previewPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>
     ...(d.template?.projects.length ? ([["Project", d.template.projects.join(", ")]] as [Child, Child][]) : []),
     ["Form", d.template?.name ?? "none (blank issue)"],
   ]);
-  const actions = html`<form method="post" action="/issues/create">${hidden([...formPairs(d), ["nonce", o.nonce]])}${MyListBox}<div class="buttons"><button type="submit" formaction="/issues/preview" name="edit" value="1">Edit</button><button type="submit" class="primary">Create issue</button></div></form>`;
+  const actions = html`<form method="post" action="/issues/create">${hidden([...formPairs(d), ["nonce", o.nonce]])}${myListBox(ctx)}<div class="buttons"><button type="submit" formaction="/issues/preview" name="edit" value="1">Edit</button><button type="submit" class="primary">Create issue</button></div></form>`;
   return page(
     ctx,
     "Preview",
@@ -286,6 +287,8 @@ export function createIssueRoutes(
     newWork?: () => Child[];
     /** The issues list (the tracker's /tracker): /issues goes there. */
     list?: string;
+    /** My list, while its pack is on (`uses: ["todo"]`): what's made can go on it too. */
+    myList?: () => ListShare | undefined;
     prewarm?: boolean;
   },
 ): Hono<AppEnv> {
@@ -306,7 +309,7 @@ export function createIssueRoutes(
   /** One parent, for showing the task form; creating re-reads it. */
   const issueCache = memoize({ ttlMs: 60e3, kept: deps.kept });
   const parents = (login: string) => parentsCache(`parents:${login}`, () => loadParents(ghe, parentRepos, login));
-  const ctx = async (): Promise<Ctx> => ({ ...setup, operator: await deps.operator(), org, ghe: ghe.host, extra: deps.newWork?.() });
+  const ctx = async (): Promise<Ctx> => ({ ...setup, operator: await deps.operator(), org, ghe: ghe.host, extra: deps.newWork?.(), myList: !!deps.myList?.() });
   const dirs = () => {
     try {
       return deps.checkouts ? deps.checkouts() : (env.CODE_DIR ? checkouts(env.CODE_DIR, ghe.host, owners) : []);
@@ -351,9 +354,10 @@ export function createIssueRoutes(
 
   /** What New work created, on My list too when the preview's box was ticked. It's made already, so a miss here is only logged. */
   const onMyList = async (form: Record<string, unknown>, title: string, ref: string) => {
-    if (first(form.mylist) !== "1" || !title.trim()) return;
+    const list = deps.myList?.();
+    if (first(form.mylist) !== "1" || !title.trim() || !list) return;
     try {
-      await addTodo(env.DB, { title: title.trim().slice(0, 300), notes: ref });
+      await list.add({ title: title.trim().slice(0, 300), notes: ref });
     } catch (e) {
       console.error(`my list: ${msg(e)}`);
     }

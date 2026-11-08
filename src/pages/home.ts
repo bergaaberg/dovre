@@ -182,7 +182,6 @@ function packsFailed(failed: Off[]): Html {
 /** Today's own cards, where they sit unless I move them (Settings → Layout); packs' cards come after. */
 export const CORE_CARDS = [
   { id: "ship", label: "What ships", col: "left", order: 20 },
-  { id: "todo", label: "My list", col: "left", order: 30 },
   { id: "actions", label: "What Dovre did", col: "left", order: 40 },
   { id: "prs", label: "Pull requests", col: "right", order: 10 },
 ] as const satisfies readonly { id: string; label: string; col: Column; order: number }[];
@@ -190,14 +189,13 @@ type CoreCard = (typeof CORE_CARDS)[number]["id"];
 /** A pack card's place by default: after the core's, in the packs' own order. */
 export const packOrder = (order: number | undefined) => Math.min(999, 100 + Math.max(0, order ?? 100));
 
-export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** My list's card (src/pages/todo.ts). */ todo?: Html; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"] } = {}) {
+export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"] } = {}) {
   const now = opts.now ?? Date.now();
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
   const own = (id: string) => (opts.own ?? []).some((c) => id.startsWith(`${c}-`));
   const core: Record<CoreCard, Html | "" | undefined> = {
     ship: shipCard(s, summary, opts.ghe ?? "github.com", opts.rules, forgeCan(opts.forge ?? GITHUB_VIEW, "deployApproval")),
-    todo: opts.todo,
     actions: opts.actions,
     prs: prsCard(s, summary, opts.agent, opts.forge),
   };
