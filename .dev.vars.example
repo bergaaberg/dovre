@@ -43,7 +43,7 @@
 # Which of them to use (claude, omp, copilot, agy, codex), comma-separated. Unset: every one found.
 # AGENT_HARNESSES=
 
-# AI summaries through agent turn: agy, claude, omp, copilot, on or off.
+# The summaries pack's model: claude, omp, copilot, agy or codex; unset picks one; off turns the pack off.
 # SUMMARIES=
 
 # Bino, the assistant: agy | cf-gateway (Cloudflare AI Gateway) | claude | omp | copilot | off.

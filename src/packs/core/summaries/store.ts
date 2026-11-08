@@ -3,11 +3,12 @@
  * Pages ask `get(key)`: the text when it's made, "pending" while it's being made, nothing if
  * never asked. `want(key, prompt)` queues one; a few run at a time.
  */
-import type { D1 } from "../db.ts";
-import type { Complete } from "./llm.ts";
-import { inFiles } from "../sources/ghe.ts";
+import type { Complete } from "../../../ai/llm.ts";
+import type { D1 } from "../../../db.ts";
+import { inFiles } from "../../../sources/ghe.ts";
+import type { AiSummary } from "../../types.ts";
 
-export type Summary = { state: "ready"; text: string } | { state: "pending" } | { state: "failed"; error: string };
+export type Summary = AiSummary;
 
 export type Summaries = {
   get(key: string): Summary | undefined;

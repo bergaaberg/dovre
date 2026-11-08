@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.9";
+export const PACK_API = "1.10";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -199,6 +199,8 @@ export type RefRule = { pattern: RegExp; href(match: string): string };
 export type PageOpts = { title: string; body: Html | string; current?: string; head?: Html | string };
 /** The PR the "pr.*" slots are drawn on: which repo, and which PR of it (a pack can link a ticket named in its branch or title). */
 export type PrSlotArg = { repo: string; number: number; branch: string; title: string; url: string };
+/** A model's summary of a PR or deploy ("ai.summary" slot): written, still being written, or failed. */
+export type AiSummary = { state: "ready"; text: string } | { state: "pending" } | { state: "failed"; error: string };
 
 /**
  * Named places on core pages a pack can fill (PLAN WP-H9), each with what the page knows there
@@ -219,6 +221,12 @@ export type SlotMap = {
    * commit it read and its draft. The first pack that answers; core reads the draft again. API 1.9.
    */
   "review.draft": { arg: { repo: string; number: number }; out: { sha: string; draft: ReviewDraft } | undefined };
+  /**
+   * A PR (at its head commit) or a deploy (prod..head), by the key core draws it under (gather.ts
+   * prSummaryKey, deploySummaryKey): a model's summary of it. The first pack that answers; core
+   * draws the text, escaped. API 1.10: AI summaries became the `summaries` pack (#390).
+   */
+  "ai.summary": { arg: { key: string }; out: AiSummary | undefined };
   /** A file on a PR's Files tab, in its header beside "Viewed": a button or two (markdown: read it rendered). `sha` is the PR's head commit. */
   "pr.file": { arg: PrSlotArg & { path: string; status: string; sha: string }; out: Html | "" };
   /** New work (/issues/new): a panel above "What is it?". */

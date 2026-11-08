@@ -13,7 +13,7 @@ import { loadPacks } from "./packs/load.ts";
 import { activePacks, initAll, refresher as packRefresher } from "./packs/registry.ts";
 import { launchToken, maskedLogin, serveSetup } from "./boot.ts";
 import { publicOriginOf } from "./access.ts";
-import { findTool, found, harnessesOn, which } from "./tools.ts";
+import { findTool, found, harnessesOn, summariesVia, which } from "./tools.ts";
 import { startingPage } from "./pwa.ts";
 import { openDb } from "./db.ts";
 import { loadEnv, rawVars } from "./env.ts";
@@ -40,7 +40,6 @@ import { forgeCan } from "./forge/types.ts";
 import { checkoutOf, checkouts } from "./issues/tasks.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
-import { createSummaries } from "./ai/summaries.ts";
 import { createRunner, HARNESSES, repoDir, type Run } from "./agents/runner.ts";
 import { gitTurnDiff } from "./agents/turndiff.ts";
 import { appleContainer } from "./agents/sandbox.ts";
@@ -57,6 +56,7 @@ import { dockerPack } from "./packs/core/docker/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
 import { autoreviewPack } from "./packs/core/autoreview/index.ts";
 import { reviewsPack } from "./packs/core/reviews/index.ts";
+import { summariesPack } from "./packs/core/summaries/index.ts";
 import { createHere } from "./packs/core/agents/here.ts";
 import { localSessions } from "./sources/sessions.ts";
 import { loadWorktrees } from "./sources/worktrees.ts";
@@ -249,15 +249,13 @@ console.log(`bino: ${binoRoute.ready ? `${binoRoute.via}, ${binoRoute.model}` : 
 const hub = createHub();
 // What I write to an agent while it works waits here for the turn to end (src/agents/queue.ts).
 const queue = createQueue({ file: join(dataDir, "queue.json"), onChange: (sid) => hub.publish([`run:${sid}`]) });
-// A finished summary or a change in an agent run redraws the pages that show it, a few times a second at most.
-const summariesChanged = throttle(() => hub.publish(["snapshot"]), 2000);
-const summaryModel = !on.summaries ? undefined : panes.summaries.via === "claude" && claude ? claudeCli({ bin: claude.bin, pre: claude.pre }) : panes.summaries.via === "omp" && copilot ? copilotComplete(copilot) : panes.summaries.via === "copilot" ? copilotAsk : panes.summaries.via === "agy" && agy ? agyCli({ bin: agy.bin, pre: agy.pre }) : panes.summaries.via === "codex" && codex ? codexCli({ bin: codex.bin, pre: codex.pre }) : undefined;
-const summaries = summaryModel ? createSummaries(db.DB, summaryModel, { onReady: summariesChanged }) : undefined;
-await summaries?.load();
+// The model the summaries pack writes with (SUMMARIES, #390): none here, and the pack doesn't run.
+const sumVia = summariesVia(env.SUMMARIES, !!claude, !!omp, !!copilotTool, !!agy);
+const summaryModel = sumVia === "claude" && claude ? claudeCli({ bin: claude.bin, pre: claude.pre }) : sumVia === "omp" && copilot && !copilot.why() ? copilotComplete(copilot) : sumVia === "copilot" ? copilotAsk : sumVia === "agy" && agy ? agyCli({ bin: agy.bin, pre: agy.pre }) : sumVia === "codex" && codex ? codexCli({ bin: codex.bin, pre: codex.pre }) : undefined;
 // The refresher keeps the snapshot fresh; pages only read it, and never wait for GHE when there's one to show.
 let gathered = (_s: Snapshot) => {};
 const gatherer = createGatherer({
-  env, forge, login, name, summaries, ttlMs: 10 * 60_000,
+  env, forge, login, name, ttlMs: 10 * 60_000,
   // The PRs the agents' sessions link: their state and title come with the gather.
   linked: () => packLinked(),
   store: snapshotStore(join(dataDir, "snapshot.json"), SNAPSHOT_SHAPE),
@@ -415,6 +413,8 @@ const corePacks = [
         }),
       ]
     : []),
+  // AI summaries on PRs and deploys (#390): on while a model can write them here.
+  summariesPack({ complete: summaryModel }),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
   // My open issues from the forge (/tracker), where the forge has them.
@@ -481,7 +481,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   forge,
   // A pack's picture for the starting page (written next to it, read at the next start).
   startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
-  summaries,
   runner,
   mcpTurns: (t) => terminals?.byMcpToken(t),
   // Settings → Pack tools for agents: omp and agy read MCP servers only from their own config (#172).
