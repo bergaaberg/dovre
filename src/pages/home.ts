@@ -150,7 +150,7 @@ const day = (at: number, tz = currentTz()) => dtf("en-GB", { timeZone: tz, weekd
  * `apps`: the packs' events (src/home/feed.ts packFeedOf). With `only`, the panel is those alone
  * (hosted: the org's GitHub says nothing about my own apps); else they join the org's.
  */
-function feedPanel(s: Snapshot, now: number, apps?: { events: FeedEvent[]; only: boolean }) {
+function feedPanel(s: Snapshot, now: number, apps?: { events: FeedEvent[]; only: boolean }, on: (href: string) => boolean = () => true) {
   if (apps?.only) {
     return html`<aside class="card feed" id="feed" aria-labelledby="feed-h">
 <div class="card-h"><h2 id="feed-h">What's happening</h2><p>in my apps, last 7 days</p></div>
@@ -162,7 +162,7 @@ function feedPanel(s: Snapshot, now: number, apps?: { events: FeedEvent[]; only:
 <div class="card-h"><h2 id="feed-h">What's moving</h2><p>last 24 h</p></div>
 ${!s.moves.ok ? html`<p class="notes bad">Movement didn't load: ${s.moves.error}</p>` : ""}
 <ol class="feed-list" id="feed-list" data-keep-scroll>${events.length ? events.map((e) => feedRow(e, s.org, now)) : html`<li class="fe"><p class="empty">Quiet so far.</p></li>`}</ol>
-<div class="card-f"><span>People and bots, by person</span><a href="/movement">Moved</a></div>
+${on("/movement") ? html`<div class="card-f"><span>People and bots, by person</span><a href="/movement">Moved</a></div>` : ""}
 </aside>`;
 }
 
@@ -189,7 +189,7 @@ type CoreCard = (typeof CORE_CARDS)[number]["id"];
 /** A pack card's place by default: after the core's, in the packs' own order. */
 export const packOrder = (order: number | undefined) => Math.min(999, 100 + Math.max(0, order ?? 100));
 
-export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"] } = {}) {
+export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean } = {}) {
   const now = opts.now ?? Date.now();
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
@@ -224,7 +224,7 @@ ${cols.right.map((c) => c.render)}
 ${opts.packs?.failed.length ? packsFailed(opts.packs.failed) : ""}
 </div>
 </div>
-${feedPanel(s, now, opts.feed)}
+${feedPanel(s, now, opts.feed, opts.on)}
 </div>
 </div>`;
   const topics = ["snapshot", ...(opts.topics ?? [])].join(" ");

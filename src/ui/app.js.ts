@@ -26,6 +26,9 @@ function hintLabels(n, chars) {
 }
 `;
 
+/** g <letter>: the section it goes to. The server leaves out letters whose page isn't on here (u-go-off). */
+export const GO_KEYS: Record<string, string> = { h: "/", d: "/deploys", a: "/agents", p: "/prs", m: "/movement", w: "/worktrees", n: "/agents/new", c: "/issues/new", t: "/todo", b: "/bino", r: "/bug" };
+
 export const SCRIPT = HINT_LABELS_JS + ON_JS + String.raw`
 const typing = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 // The phone's keyboard is up: a field has the focus and what's visible shrank well below the
@@ -801,7 +804,9 @@ document.addEventListener("click", (e) => {
 // ── Keys, the way Vimium has them: f puts letters on everything clickable (type them to press it),
 // j/k scroll, gg/G top and bottom, H/L back and forward, g <letter> goes to a section, ? lists them.
 // They never fire while typing in a field, in a dialog, or with Ctrl/Alt/Meta held. ──
-const GO = { h: "/", d: "/deploys", a: "/agents", p: "/prs", m: "/movement", w: "/worktrees", n: "/agents/new", c: "/issues/new", t: "/todo", b: "/bino", r: "/bug" };
+const GO = ${JSON.stringify(GO_KEYS)};
+// A section whose pack is off here: its letter does nothing.
+for (const k of (document.querySelector('meta[name="u-go-off"]')?.content || "").split(" ")) delete GO[k];
 const KEYS = [
   ["Hints", [["f", "Letters on everything clickable: type them to press it"], ["F", "The same, links open in a new window"], ["Backspace", "Take back a letter"], ["Esc", "Put the letters away"]]],
   ["Moving", [["j / k", "Scroll down / up"], ["d / u", "Half a page down / up"], ["g g", "To the top"], ["G", "To the bottom, or the latest"], ["J / K", "Next / previous item: a reply, a hunk, a comment, a row"], ["] / [", "Next / previous section: your message, a file"], ["o", "The sections, to jump to one"], ["Enter", "Open the row"]]],

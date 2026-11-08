@@ -189,11 +189,13 @@ code { font: 13px "Nordwand Mono", "Cascadia Mono", Consolas, monospace; }
 export const OFFLINE = startingPage();
 
 /** `files: false` (hosted): the icons and fonts come from the Worker's static assets instead (src/worker.ts). */
-export function mountPwa(app: App, info: { version: string; startedAt: number }, opts: { files?: boolean } = {}) {
+/** `on`: whether a page answers here; a shortcut to one whose pack is off is left out. */
+export function mountPwa(app: App, info: { version: string; startedAt: number }, opts: { files?: boolean; on?: (href: string) => boolean } = {}) {
   app.get("/healthz", (c) => c.json({ ok: true, version: info.version, pid: globalThis.process?.pid, startedAt: info.startedAt }));
   app.get("/manifest.webmanifest", (c) => {
     c.header("Content-Type", "application/manifest+json");
-    return c.body(JSON.stringify(MANIFEST));
+    const on = opts.on;
+    return c.body(JSON.stringify(on ? { ...MANIFEST, shortcuts: MANIFEST.shortcuts.filter((x) => on(x.url)) } : MANIFEST));
   });
   app.get("/sw.js", (c) => {
     c.header("Content-Type", "text/javascript; charset=utf-8");
