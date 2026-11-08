@@ -112,6 +112,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       name: "Issues",
       description: "My open issues: assigned, mentioning me, opened by me, and triage",
       domain: "work",
+      via: "forge",
       answers: ["tasks:github"],
       onboard: { steps: [{ id: "triage", title: "Pick repos to triage" }] },
       // /issues: New work, and /issues itself, which goes to /tracker.

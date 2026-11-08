@@ -929,6 +929,16 @@ test("the Packs page lists the fun ones apart", async () => {
   assert.doesNotMatch(await (await signedIn(snapshot()).get("/packs")).text(), /eyebrow">Fun/, "none: no group");
 });
 
+test("the Packs page lists the forge's packs under its name (#432)", async () => {
+  const page = await (await signedIn(snapshot()).get("/packs")).text();
+  const at = page.indexOf('<p class="eyebrow">GitHub</p>');
+  assert.ok(at > 0, "a GitHub group");
+  for (const id of ["prs", "deploys"]) assert.ok(page.indexOf(`id="pack-${id}"`) > at, `${id} in it`);
+  assert.ok(page.indexOf('id="pack-agents"') < at, "agents isn't");
+  const gitea = await (await signedIn(snapshot(), {}, { forge: { id: "gitea", name: "Gitea", can: [] } }).get("/packs")).text();
+  assert.match(gitea, /eyebrow">Gitea</, "named after the forge in use");
+});
+
 test("beforePage: the core waits for the packs together, 1.5 s at most; one that throws or hangs leaves the page whole", async () => {
   let fresh = 0;
   const quick = pack({ id: "quick" }, { beforePage: async () => void fresh++ });

@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.17";
+export const PACK_API = "1.18";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -83,6 +83,11 @@ export type PackManifest = {
    * core path or another pack's keeps the pack off, as a route outside them does.
    */
   paths?: string[];
+  /**
+   * "forge" (API 1.18): it reads and writes through the instance's forge (`src/forge/`), so the
+   * Packs page shows it with the others that do, under the forge's name ("GitHub").
+   */
+  via?: "forge";
   /**
    * Kinds of notification its needs ring as (`PackNeed.ring`), each a line on Settings → Notifications
    * that I can switch off. A kind is this Dovre's alone: one the core or another pack has is refused.

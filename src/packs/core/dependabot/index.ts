@@ -68,6 +68,7 @@ export function dependabotPack(deps: DependabotDeps): Pack {
       name: "Dependabot",
       description: "Dependabot's open bumps across your repos, combined into one PR per repo and merged when green",
       domain: "work",
+      via: "forge",
       answers: ["catch:bumps"],
       markers: [".github/dependabot.yml", ".github/dependabot.yaml"],
       execution: "any",
