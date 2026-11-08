@@ -96,7 +96,7 @@ ${FROM}
 @keyframes cl-plant { from { transform: scaleY(0); } }
 @keyframes cl-say { 0% { opacity: 0; } 15%, 75% { opacity: 1; } 100% { opacity: 0; } }
 
-.climb-page { --climb-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; min-height: 100vh; background: var(--sky); background-image: none; color: var(--ink); font: 15px/1.5 var(--climb-font); }
+.climb-page { --climb-font: var(--sans); margin: 0; min-height: 100vh; background: var(--sky); background-image: none; color: var(--ink); font: 15px/1.5 var(--climb-font); }
 .climb-scene { position: fixed; inset: 0; z-index: 0; }
 .climb-scene .cl-art { width: 100%; height: 100%; display: block; }
 .climb { position: relative; z-index: 1; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; justify-items: center; padding: max(9vh, 48px) max(16px, env(safe-area-inset-right, 0px)) 34vh max(16px, env(safe-area-inset-left, 0px)); box-sizing: border-box; }

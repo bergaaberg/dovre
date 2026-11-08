@@ -129,7 +129,7 @@ test("look: a picked theme and accent are on every page's <html>, the CSS has a 
 
 test("reading settings (#183): font, text size and line height on <html>, a CSS block for each, junk dropped, back to default", async () => {
   const { STYLE } = await import("../src/ui/style.ts");
-  for (const sel of [':root[data-font="sans"]', ':root[data-font="serif"]', ':root[data-size="small"]', ':root[data-size="large"]', ':root[data-size="larger"]', ':root[data-lh="tight"]', ':root[data-lh="loose"]', "font: var(--fs-m)/var(--lh) var(--sans)"]) assert.ok(STYLE.includes(sel), sel);
+  for (const sel of [':root[data-font="mono"]', ':root[data-font="serif"]', ':root[data-size="small"]', ':root[data-size="large"]', ':root[data-size="larger"]', ':root[data-lh="tight"]', ':root[data-lh="loose"]', "font: var(--fs-m)/var(--lh) var(--sans)"]) assert.ok(STYLE.includes(sel), sel);
   assert.deepEqual(layoutOf({ font: "comic", textSize: "huge", lineHeight: 3 }), {});
   const { get, post } = signedIn(snapshot());
   await post("/settings/layout", { font: "serif", textSize: "larger", lineHeight: "loose" });
@@ -138,6 +138,19 @@ test("reading settings (#183): font, text size and line height on <html>, a CSS 
   for (const v of ["serif", "larger", "loose"]) assert.match(settings, new RegExp(`value="${v}" checked>`));
   await post("/settings/layout", { font: "", textSize: "", lineHeight: "" });
   assert.match(await (await get("/actions")).text(), /<html lang="en">/);
+});
+
+test("the font (#419): a neutral sans unless I pick Nordwand Mono or a serif; an old \"sans\" reads as the default; the climb takes it too", async () => {
+  const { STYLE } = await import("../src/ui/style.ts");
+  assert.match(STYLE, /--sans: var\(--sans-system\);/);
+  assert.match(STYLE, /:root\[data-font="mono"\] \{ --sans: var\(--nordwand\);/);
+  assert.match(STYLE, /--mono: var\(--nordwand\);/);
+  assert.deepEqual(layoutOf({ font: "sans" }), {});
+  assert.deepEqual(layoutOf({ font: "mono" }), { font: "mono" });
+  const { get, post } = signedIn(snapshot());
+  await post("/settings/layout", { font: "mono" });
+  assert.match(await (await get("/actions")).text(), /<html lang="en" data-font="mono">/);
+  assert.match(await (await get("/welcome")).text(), /<html lang="en"[^>]* data-font="mono"/);
 });
 
 test("themes (#95): each has its block, its accents and its scheme; the browser's bar is its --sky; the system's dark leaves a picked theme alone", async () => {

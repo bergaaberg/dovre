@@ -79,7 +79,7 @@ document.addEventListener("auxclick", linkOut, true);
 // A dock's page has no frame of its own to say light or dark: it takes its page's (Settings → Layout).
 if (framed) try {
   const top = window.parent.document.documentElement;
-  for (const a of ["data-theme", "data-accent"]) { const v = top.getAttribute(a); if (v) document.documentElement.setAttribute(a, v); }
+  for (const a of ["data-theme", "data-accent", "data-font"]) { const v = top.getAttribute(a); if (v) document.documentElement.setAttribute(a, v); }
 } catch {}
 
 // ── Times marked data-at="<ms>" say how long ago, kept current each minute ──

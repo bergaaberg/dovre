@@ -159,14 +159,13 @@ export function startingPage(opts: { file?: { base: string; up: string; icon: st
 <title>Starting · Dovre</title>
 <style>
 @font-face { font-family: "Nordwand Mono"; src: url("${font}") format("woff2"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "Nordwand Mono"; src: url("${font.replace(/Regular(\.woff2)$/, "Bold$1")}") format("woff2"); font-weight: 700; font-display: swap; }
-:root { color-scheme: light dark; --display: "Nordwand Mono", "Cascadia Mono", Consolas, monospace; --fs-s: 13px; --fs-xs: 12px;
+:root { color-scheme: light dark; --display: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; --fs-s: 13px; --fs-xs: 12px;
   --bg: #f8f4ee; --sky: #efe7db; --surface: #fffdfa; --ink: #2a1d14; --ink-2: #54453a; --ink-3: #65564a; --line: #d6cabb; --accent: #1d5c88; --accent-ink: #fff;
   --ridge-far: #c3d0da; --ridge-near: #8fa5b5; --ridge-edge: #566e7f; --snow: #ffffff; --star: #ffffff; --sun: #1d5c88; }
 @media (prefers-color-scheme: dark) { :root { --bg: #0a1117; --sky: #0e1922; --surface: #111c25; --ink: #e6ecf0; --ink-2: #b2bec7; --ink-3: #8c9aa5; --line: #2c3d4a; --accent: #84b9df; --accent-ink: #07131c;
   --ridge-far: #172633; --ridge-near: #253a4a; --ridge-edge: #5a7a90; --snow: #c9d7e1; --star: #dce7ef; --sun: #c9d7e1; } }
 ${raw(SPLASH_CSS)}
-body { color: var(--ink); font: 15px/1.5 "Nordwand Mono", "Cascadia Mono", Consolas, monospace; }
+body { color: var(--ink); font: 15px/1.5 var(--display); }
 #track { width: min(420px, 100%); height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 10px; }
 #bar { height: 100%; background: var(--accent); transform: scaleX(.04); transform-origin: left; transition: transform .25s ease-out; }
 #status { color: var(--ink-3); margin: 12px 0 0; min-height: 1.5em; }

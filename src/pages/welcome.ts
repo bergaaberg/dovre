@@ -165,7 +165,7 @@ export function climbPage(v: ClimbView, steps: Step[], o: { refresh?: number } =
 export function climbDoc(o: { title: string; look?: Frame["look"]; scene: unknown; body: unknown; refresh?: number }) {
   const l = o.look ?? {};
   return html`<!doctype html>
-<html lang="en"${l.theme ? html` data-theme="${l.theme}"` : ""}${l.accent ? html` data-accent="${l.accent}"` : ""}${l.motion ? html` data-motion="${l.motion}"` : ""}>
+<html lang="en"${l.theme ? html` data-theme="${l.theme}"` : ""}${l.accent ? html` data-accent="${l.accent}"` : ""}${l.font ? html` data-font="${l.font}"` : ""}${l.motion ? html` data-motion="${l.motion}"` : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
