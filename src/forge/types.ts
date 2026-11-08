@@ -82,7 +82,7 @@ export type Forge = {
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   /** Each of the owners' repos with its files at these paths, in as few calls as it can (#294). Absent: packs read them a file at a time. */
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
-  /** A PR changing one file (src/actions/propose.ts), checked already: throws why not. Absent: packs propose none. */
+  /** A PR changing a few files (src/actions/propose.ts), checked already: throws why not. Absent: packs propose none. */
   propose?(p: Proposal): Promise<{ number: number; url: string }>;
 };
 

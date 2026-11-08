@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.16";
+export const PACK_API = "1.17";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -139,6 +139,8 @@ export type SetupStep = {
   form?: boolean;
   /** Next waits, and says this: a write this step needs hasn't finished. Asked again when Next is pressed. */
   wait?: string;
+  /** The page loads again after this many seconds (5 to 60), while a job it shows runs (API 1.17). */
+  refresh?: number;
 };
 
 /** A pack's setup steps (`Pack.setup`): each step drawn, and what Next on a form step saves. */
@@ -527,10 +529,10 @@ export type PackForge = {
    */
   everyRepo?(paths: string[], o?: { maxAgeMs?: number }): Promise<EveryRepo>;
   /**
-   * Opens a PR changing one file in one of the owners' repos: a branch off the default branch, one
-   * commit, the PR (dovre#203). `kind` is one of the pack's `writes`, so it shows on Settings → Writes
+   * Opens a PR changing one file in one of the owners' repos, or up to five in `files` (API 1.17):
+   * a branch off the default branch, a commit per file, the PR (dovre#203). `kind` is one of the pack's `writes`, so it shows on Settings → Writes
    * and its page asks through a `Confirm` of kind `<id>.<kind>`. `expect` is the text the pack saw
-   * (null: no file): when the file says something else now, nothing is written. Logged either way.
+   * (null: no file), per file: when one says something else now, nothing is written. Logged either way.
    * Absent: this forge doesn't say.
    */
   propose?(p: PackProposal): Promise<Proposed>;

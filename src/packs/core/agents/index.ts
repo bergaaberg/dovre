@@ -39,6 +39,7 @@ import { writeClicksStore } from "../../../writes.ts";
 import { alonePanel, autoNeeds, autoPanel } from "./auto.ts";
 import { autoShare } from "./share.ts";
 import { followFixes } from "../../../actions/autofix.ts";
+import { agentsSetup, SANDBOX_KIND } from "./setup.ts";
 
 export type AgentsDeps = {
   /** This machine's desk, or hosted the Mac's over the bridge. */
@@ -99,6 +100,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
   };
   let pass: AutoPass | undefined;
   const picks = github ? issuePicks({ ghe: github.ghe, owners: github.owners, repoOf }) : undefined;
+  const sandboxes = agentsSetup();
   return {
     manifest: {
       api: PACK_API,
@@ -116,7 +118,17 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       ],
       // Auto runs' pass: following runs, and a search for newly labelled issues.
       everyMs: 2 * 60_000,
+      // Sandboxes for my repos' languages, one PR a repo (#425, setup.ts).
+      onboard: {
+        steps: [
+          { id: "repos", title: "Which repos get a sandbox?" },
+          { id: "files", title: "Here's what goes in." },
+          { id: "open", title: "Open the PRs?" },
+        ],
+      },
     },
+    writes: [{ kind: SANDBOX_KIND, label: "Open a PR adding a repo's sandbox files (setup)" }],
+    setup: sandboxes.setup,
     async refresh(ctx, o) {
       if (o?.asked) spentOf(ctx)?.read(true);
       if (!github) return;
@@ -179,6 +191,7 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
     finds: (ctx) => agentFinds(sessions(true), desk.view().runs, ctx.hosted ? [] : (here?.worktrees() ?? [])),
     feed: (ctx) => agentFeed(sessions(true), desk.view().runs, Date.now()),
     routes: (app, ctx) => {
+      sandboxes.routes(app, ctx);
       agentRoutes(app, ctx, { desk, dismissed, here, github, picks, autoOn: (r) => repoOn(auto, r), ...(github ? { alone: () => alonePanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", Date.now()) } : {}) });
       // Quick picks → Run in sandbox (#243): the issue labelled dovre:auto, for the next pass.
       if (github)
