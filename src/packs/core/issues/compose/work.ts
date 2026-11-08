@@ -16,8 +16,10 @@ import { HARNESS_NAME, Link, safeUrl } from "../../../../pages/parts.ts";
 export const CURRENT = "/issues/new";
 export const MAX_NOTE = 4000;
 
-export type Ctx = Setup & { /** Who I am on the forge. */ operator: string; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: a catalog pack's Projects). */ extra?: Child[] };
+export type Ctx = Setup & { /** Who I am on the forge. */ operator: string; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: a catalog pack's Projects). */ extra?: Child[]; /** My list is here (its pack shares it): the preview offers putting what's made on it too. */ myList?: boolean };
 export { type Res, settle };
+/** On the preview, while My list is here: ticked, what's made goes on it too. */
+export const myListBox = (ctx: Ctx) => (ctx.myList ? html`<label class="check mylist"><input type="checkbox" name="mylist" value="1" checked> Also put it on My list</label>` : "");
 export const first = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v) ? (v.find((x) => typeof x === "string") ?? "") : "");
 
 export const short = (org: string, repo: string) => repo.replace(`${org}/`, "");

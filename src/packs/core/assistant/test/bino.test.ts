@@ -11,7 +11,8 @@ import { binoArgs, type Route, routeOf, viaOf } from "../bino/route.ts";
 import { openDb } from "../../../../db.ts";
 import { activePacks } from "../../../registry.ts";
 import { assistantPack } from "../index.ts";
-import { addTodo, listTodos } from "../../../../todo/store.ts";
+import { addTodo, listTodos } from "../../todo/store.ts";
+import { todoPack } from "../../todo/index.ts";
 import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
 
@@ -92,7 +93,7 @@ function fakeRoute(reply: string, asked: { system: string; user: string; model?:
 test("a plan reaches my list only on Add, as the card's form says, once", async () => {
   const db = openDb();
   const route = fakeRoute('Here.\n```bino-plan\n{"title":"Certs","steps":[{"title":"List them"},{"title":"Renew"}]}\n```');
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant([todoPack({ links: () => ({ ghe: ENV.GHE_HOST, org: ENV.GHE_ORG }) })]) });
   const req = (path: string, body?: string) => app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body });
   const started = await req("/bino/new", "text=Help+with+certs");
   assert.equal(started.status, 303);
@@ -152,7 +153,7 @@ test("Bino's pages keep hostile text inert, and with Bino off they say how to tu
 test("the Bino page offers openings and my open items to break down, each a one-click start", async () => {
   const db = openDb();
   const route = fakeRoute("Sure.");
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant([todoPack({ links: () => ({ ghe: ENV.GHE_HOST, org: ENV.GHE_ORG }) })]) });
   const open = (await addTodo(db.DB, { title: "Move the CI pipelines" }))!;
   const done = (await addTodo(db.DB, { title: "Old thing", state: "done" }))!;
   const page = await (await app.request("http://localhost/bino", { headers: { cookie: "u_tk=test-token" } })).text();

@@ -25,17 +25,20 @@ import type { AppEnv, Env } from "../../../../env.ts";
 import type { Snapshot } from "../../../../gather.ts";
 import { dockShell, type Frame, shell } from "../../../../html.ts";
 import type { Hub } from "../../../../live.ts";
-import { addTodo, getTodo, listTodos, STATES, type Todo } from "../../../../todo/store.ts";
 import { Confirm, type Html, Notice, PageHeader, Panel } from "../../../../ui/kit.ts";
 import { markdown } from "../../../../ui/markdown.ts";
+import type { ListItem, ListShare } from "../../../types.ts";
 import { Ago, harnessTag } from "../../../../pages/parts.ts";
 import { currentTz, dtf } from "../../../../when.ts";
 
 const LABEL: Record<string, string> = { doing: "Doing", next: "Next", waiting: "Waiting" };
-const OPEN_STATES = STATES.filter((s) => s !== "done");
+type Todo = ListItem;
+const OPEN_STATES = ["doing", "next", "waiting"] as const;
+/** Where an item on My list is shown (its pack's `href`), or the list itself before one's known. */
+const itemHref = (ax: ActCtx | undefined, id: number) => ax?.listHref?.(id) ?? "/todo";
 
 function planCard(c: Conv, i: number, plan: Plan, m: Msg, target?: Todo, ax?: ActCtx): Html {
-  if (m.added) return html`<div class="bino-plan done"><p>Added to your list. <a href="/todo#t-${m.added}"${out(ax)}>Open it</a></p></div>`;
+  if (m.added) return html`<div class="bino-plan done"><p>Added to your list. <a href="${itemHref(ax, m.added)}"${out(ax)}>Open it</a></p></div>`;
   const step = (s: { title: string; state: string; due: string | null } | undefined, n: number) =>
     html`<li class="bino-step"><input type="text" name="step_title" value="${s?.title ?? ""}" maxlength="300" aria-label="Step ${n + 1}" placeholder="${s ? "" : "Another step (optional)"}"><select name="step_state" aria-label="Step ${n + 1}: where it stands">${OPEN_STATES.map((st) => html`<option value="${st}"${st === (s?.state ?? "next") ? html` selected` : ""}>${LABEL[st]}</option>`)}</select><input type="date" name="step_due" value="${s?.due ?? ""}" aria-label="Step ${n + 1}: due"></li>`;
   const rows = [...plan.steps.map((s, n) => step(s, n)), ...(plan.steps.length < MAX_STEPS ? [step(undefined, plan.steps.length)] : [])];
@@ -51,7 +54,7 @@ ${target ? html`<fieldset class="bino-target"><legend>Where</legend><label class
 
 
 /** What a card needs from outside Bino: the org, and what packs' cards need. */
-export type ActCtx = { org: string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>> };
+export type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>> };
 const out = (ax?: ActCtx) => (ax?.dock ? html` target="_top"` : "");
 
 const actKey = (c: Conv, i: number, n: number) => `${c.id}:${i}:${n}`;
@@ -221,7 +224,7 @@ export const saysIt = (c: Conv, q: string) => {
 };
 
 /** What the workspace around a page needs: the conversations, my list, the packs' apps. */
-export type Ws = { convs: Conv[]; todos: Todo[]; apps: ViewApp[]; q?: string; now?: number; tz?: string };
+export type Ws = { convs: Conv[]; todos: Todo[]; /** Where an item on My list is shown; unset: no list here. */ listHref?: (id: number) => string; apps: ViewApp[]; q?: string; now?: number; tz?: string };
 
 /** One conversation in the sidebar: its link, and a menu to rename, pin or delete it. */
 function navItem(c: Conv, current: string | undefined, back: string): Html {
@@ -261,7 +264,7 @@ async function binoSide(b: Bino, ws: Ws, c?: Conv, target?: Todo): Promise<Html>
     title: "What Bino sees",
     children: html`<p class="bino-sees">${b.sees ?? "My list and pull requests"}.${ws.apps.length ? html` Your apps: ${ws.apps.map((a, i) => html`${i ? ", " : ""}${a.name}`)}.` : ""} It changes nothing by itself.</p>${
       c && (app || from || target)
-        ? html`<dl class="facts">${target ? html`<dt>About</dt><dd><a href="/todo#t-${target.id}">${target.title}</a></dd>` : ""}${app ? html`<dt>App</dt><dd>${app.name}</dd>` : ""}${from ? html`<dt>Asked from</dt><dd>${from}</dd>` : ""}</dl>`
+        ? html`<dl class="facts">${target ? html`<dt>About</dt><dd><a href="${ws.listHref?.(target.id) ?? "/todo"}">${target.title}</a></dd>` : ""}${app ? html`<dt>App</dt><dd>${app.name}</dd>` : ""}${from ? html`<dt>Asked from</dt><dd>${from}</dd>` : ""}</dl>`
         : ""
     }`,
   });
@@ -281,7 +284,7 @@ async function binoSide(b: Bino, ws: Ws, c?: Conv, target?: Todo): Promise<Html>
         ? html`<ul class="bino-mems">${memories.map((m) => html`<li><span>${m.scope.startsWith("app:") ? html`<span class="tag">${m.scope.slice(4)}</span> ` : ""}${m.text}</span> ${Confirm({ kind: "bino.forget", action: `/bino/memory/${m.id}/forget`, label: "Forget", question: "Forget this?" })}</li>`)}</ul>`
         : html`<p class="notes">Nothing yet. Bino keeps a few short facts from your conversations, never secrets. You can make it forget any of them here.</p>`,
   });
-  return html`<aside class="bino-side"><div data-live id="bino-side">${sees}${b.route.ready ? list : ""}${remembered}</div></aside>`;
+  return html`<aside class="bino-side"><div data-live id="bino-side">${sees}${b.route.ready && ws.listHref ? list : ""}${remembered}</div></aside>`;
 }
 
 /** On a narrow screen the conversations and the side are drawers: these open them (src/ui/app.js.ts). */
@@ -380,15 +383,18 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   apps?: () => ViewApp[];
   /** A pack's act by its kind, when that pack is on. */
   packAct?: (kind: string) => PackAct | undefined;
+  /** My list, while a pack shares it (#393). */
+  list?: () => ListShare | undefined;
   /** The packs' stylesheet and scripts, which the pane loads like a pack's dock page. */
   assets?: DockAssets;
 }): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const { bino } = deps;
-  const db = env.DB;
   /** What I wrote in a pack act's card that was refused: in memory only, to try again with. */
   const keptForms = new Map<string, Record<string, string>>();
-  const ax = (dock = false): ActCtx => ({ org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms });
+  const list = () => deps.list?.();
+  const getTodo = async (id: number) => list()?.get(id).catch(() => undefined);
+  const ax = (dock = false): ActCtx => ({ org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms, listHref: list()?.href });
   /** Where a conversation is shown: in the pane when it was asked from there. */
   const convHref = (id: string, dock: boolean) => (dock ? `/bino/dock/c/${id}` : `/bino/c/${id}`);
   const viewIn = async (form: Record<string, unknown>) => (first(form.dock) === "1" ? (await viewOf(first(form.view).slice(0, 500), deps.peek?.(), deps.apps?.())) || undefined : undefined);
@@ -402,7 +408,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   const known = async () => (deps.context ? { context: await deps.context() } : {});
 
   /** What the workspace shows around a page: every conversation, my list, the apps; `q` narrows the conversations. */
-  const wsOf = async (q: string | undefined): Promise<Ws> => ({ convs: await bino.list(), todos: await listTodos(db).catch(() => []), apps: deps.apps?.() ?? [], q: (q ?? "").trim().slice(0, 200) });
+  const wsOf = async (q: string | undefined): Promise<Ws> => ({ convs: await bino.list(), todos: (await list()?.items().catch(() => [])) ?? [], listHref: list()?.href, apps: deps.apps?.() ?? [], q: (q ?? "").trim().slice(0, 200) });
   /** Where a sidebar's form goes back to: the workspace page it was on. */
   const backOf = (form: Record<string, unknown>, gone?: string) => {
     const b = first(form.back);
@@ -413,7 +419,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   app.post("/bino/new", async (c) => {
     const form = await c.req.parseBody();
     const todo = idOf(first(form.todo));
-    const item = todo !== undefined ? await getTodo(db, todo) : undefined;
+    const item = todo !== undefined ? await getTodo(todo) : undefined;
     const text = first(form.text) || first(form.q) || first(form.prompt) || (item ? `Help me group and break this down: ${item.title}${item.notes ? `\n\n${item.notes}` : ""}` : "");
     if (!text.trim() || !bino.route.ready) return c.redirect(first(form.dock) === "1" ? "/bino/dock" : "/bino", 303);
     const conv = await bino.start(text, { todo: item ? (item.parent ?? item.id) : undefined, view: await viewIn(form), app: appIn(form), ...(await known()) });
@@ -422,7 +428,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   app.get("/bino/c/:id", async (c) => {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.notFound();
-    const target = conv.todo !== undefined ? await getTodo(db, conv.todo) : undefined;
+    const target = conv.todo !== undefined ? await getTodo(conv.todo) : undefined;
     return c.html(await convPage((await deps.page()).frame, bino, conv, await wsOf(c.req.query("q")), target, ax()));
   });
   app.post("/bino/c/:id/rename", async (c) => {
@@ -481,7 +487,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   app.get("/bino/dock/c/:id", async (c) => {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.redirect("/bino/dock", 303);
-    const target = conv.todo !== undefined ? await getTodo(db, conv.todo) : undefined;
+    const target = conv.todo !== undefined ? await getTodo(conv.todo) : undefined;
     const others = (await bino.list()).filter((x) => x.id !== conv.id).slice(0, 8);
     return c.html(binoDockConvPage(bino, conv, ax(true), target, others, deps.assets));
   });
@@ -492,18 +498,20 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
     const i = idOf(c.req.param("i"));
     const m = conv && i !== undefined ? conv.msgs[i] : undefined;
     if (!conv || i === undefined || !m?.plan) return c.notFound();
-    if (m.added) return c.redirect(`/todo#t-${m.added}`, 303);
+    const to = list();
+    if (m.added) return c.redirect(to?.href(m.added) ?? "/todo", 303);
+    if (!to) return c.redirect(`/bino/c/${id}`, 303);
     const form = await c.req.parseBody({ all: true });
     const plan = planFromForm(form);
     if (!plan) return c.redirect(`/bino/c/${id}`, 303);
     const targetId = idOf(first(form.target));
-    const target = targetId !== undefined && targetId === conv.todo ? await getTodo(db, targetId) : undefined;
-    const parent = target && target.parent === null ? target : await addTodo(db, { title: plan.title, notes: plan.notes });
+    const target = targetId !== undefined && targetId === conv.todo ? await getTodo(targetId) : undefined;
+    const parent = target && target.parent === null ? target : await to.add({ title: plan.title, notes: plan.notes });
     if (!parent) return c.redirect(`/bino/c/${id}`, 303);
-    for (const s of plan.steps) await addTodo(db, { title: s.title, parent: parent.id, state: s.state, due: s.due });
+    for (const s of plan.steps) await to.add({ title: s.title, parent: parent.id, state: s.state, due: s.due });
     await bino.added(id, i, parent.id);
     deps.hub?.publish(["snapshot"]);
-    return c.redirect(`/todo#t-${parent.id}`, 303);
+    return c.redirect(to.href(parent.id), 303);
   });
   /** A pack's act from Bino's card: what the card says now, carried out by the pack in the background. */
   app.post("/bino/c/:id/act/:i/:n", async (c) => {

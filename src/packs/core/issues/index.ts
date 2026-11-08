@@ -96,6 +96,8 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       domain: "work",
       // /issues: New work, and /issues itself, which goes to /tracker.
       paths: ["issues"],
+      // New work's "Also put it on My list", while that pack is on.
+      uses: ["todo"],
       everyMs: 5 * 60_000,
       settings: [
         { key: "ISSUES_TRIAGE_REPOS", label: "Repos to triage", help: "owner/repo, comma-separated: their open issues with no assignee and no label" },
@@ -174,6 +176,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
               kept: c.kept,
               newWork: () => ctx.fill("work.new", {}),
               list: HREF,
+              myList: () => ctx.required("todo", "list"),
               prewarm: c.prewarm,
             },
           ),

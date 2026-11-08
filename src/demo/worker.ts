@@ -17,6 +17,7 @@ import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
 import { fixedHere } from "../packs/core/agents/here.ts";
 import { assistantPack } from "../packs/core/assistant/index.ts";
+import { todoPack } from "../packs/core/todo/index.ts";
 import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { FORGE_CAN } from "../forge/types.ts";
 import { createDismissed } from "../agents/dismissed.ts";
@@ -257,7 +258,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     // The fixtures' weeks and spend, through the same packs as a real instance; nothing is gathered.
     const history = historyPack({ history: () => ({ view: () => ({ history: stats.view().history, gathering: false }), refresh: () => {} }) });
     const spend = { days: async () => stats.view().spend ?? [], known: () => stats.view().spend };
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), todoPack({ links: () => ({ ghe: host, org }) }), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const snapshot = () => gatherer.peek() ?? snapshotFn();
     const route = demoScriptRoute({ snapshot, answers: opts.answers });
     const memory = noMemory("The demo remembers nothing.");
@@ -273,7 +274,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
-      packs: { on, off, env: settings, bindings: {}, core: ["agents", "history", "assistant"] },
+      packs: { on, off, env: settings, bindings: {}, core: ["agents", "history", "assistant", "todo"] },
     });
     // Packs fed made-up data read it the way they'd read their app: on their schedule, before the page.
     refresh = refresher(on, packsOf(app)!.ctxOf, () => {});

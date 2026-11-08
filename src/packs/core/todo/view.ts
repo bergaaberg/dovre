@@ -1,18 +1,16 @@
 /**
  * My list (/todo): small things and small initiatives that live nowhere else, kept on this
- * machine (src/todo/store.ts). Quick add at the top, grouped by where things stand, one click to
+ * machine (store.ts). Quick add at the top, grouped by where things stand, one click to
  * tick off, everything else behind an item's "Edit". A card on Today shows what's on now.
  * Every form works without the script; the list sits in a live region, and a change publishes
  * on the hub so every open window shows it.
  */
-import { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { html } from "hono/html";
-import type { AppEnv, Env } from "../env.ts";
-import type { Snapshot } from "../gather.ts";
-import { type Frame, shell } from "../html.ts";
-import type { Hub } from "../live.ts";
-import { type LinkCtx, linked, refLink, refsOnly } from "../todo/links.ts";
-import type { RefRule } from "../packs/types.ts";
+import type { AppEnv } from "../../../env.ts";
+import type { Snapshot } from "../../../gather.ts";
+import { type LinkCtx, linked, refLink, refsOnly } from "../../../links.ts";
+import type { PackContext, RefRule } from "../../types.ts";
 import {
   addTodo,
   daysUntil,
@@ -32,23 +30,23 @@ import {
   treeOf,
   type Tree,
   updateTodo,
-} from "../todo/store.ts";
-import { Confirm, type Html, PageHeader, Pill } from "../ui/kit.ts";
-import { markdown } from "../ui/markdown.ts";
-import { safeUrl } from "./parts.ts";
+} from "./store.ts";
+import { Confirm, type Html, PageHeader, Pill } from "../../../ui/kit.ts";
+import { markdown } from "../../../ui/markdown.ts";
+import { safeUrl } from "../../../pages/parts.ts";
 
 /** Done items show this long, then fold away under "Done earlier". */
 const DONE_SHOWN_MS = 3 * 86_400_000;
 const LABEL: Record<State, string> = { doing: "Doing", next: "Next", waiting: "Waiting", done: "Done" };
 
 /** What links in my list can say about PRs, from what's already gathered; `rules`: the packs' kinds of reference. */
-export function linkCtxOf(env: Pick<Env, "GHE_HOST" | "GHE_ORG">, s?: Snapshot, rules: RefRule[] = []): LinkCtx {
+export function linkCtxOf(at: { ghe: string; org: string }, s?: Snapshot, rules: RefRule[] = []): LinkCtx {
   const prs = new Map<string, { state: string; title?: string }>();
   if (s) {
     for (const [k, r] of s.refs) prs.set(k, { state: r.state, title: r.title });
     if (s.prs.ok) for (const p of [...s.prs.value.mine, ...s.prs.value.review]) prs.set(`${p.repo}#${p.number}`, { state: "OPEN", title: p.title });
   }
-  return { ghe: env.GHE_HOST, org: env.GHE_ORG, rules, prs };
+  return { ghe: at.ghe, org: at.org, rules, prs };
 }
 
 const WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" });
@@ -113,7 +111,7 @@ const quickAdd = (back: string, id: string, label = "Add to my list", bino = fal
   }${details ? addDetails(details.open) : ""}</form>`;
 
 /** The page: quick add, then Doing, Next, Waiting and recent Done; older done things folded away. */
-export function todoPage(frame: Frame, all: Todo[], ctx: LinkCtx, opts: { now?: number; bino?: boolean; /** Proposals from elsewhere (Teams' crawler), above the list. */ proposals?: Html | ""; /** Came here to add something with details (the a key, ?add): open them. */ adding?: boolean } = {}): Html {
+export function todoPage(all: Todo[], ctx: LinkCtx, opts: { now?: number; bino?: boolean; /** Proposals from elsewhere (Teams' crawler), above the list. */ proposals?: Html | ""; /** Came here to add something with details (the a key, ?add): open them. */ adding?: boolean } = {}): Html {
   const now = opts.now ?? Date.now();
   const today = osloDate(now);
   const trees = treeOf(all);
@@ -133,7 +131,7 @@ ${open || recent.length ? "" : html`<div class="empty"><strong>Nothing on your l
 ${group("doing", by("doing"))}${group("next", by("next"))}${group("waiting", by("waiting"))}${group("done", recent)}
 ${older.length ? html`<details class="todo-older" id="todo-older"><summary>Done earlier <span class="t3">${older.length}</span></summary><ul class="todo-list">${older.map((t) => row(t, ctx, today, back))}</ul></details>` : ""}
 </div>`;
-  return shell({ title: "My list · Dovre", frame, current: "/todo", body });
+  return body;
 }
 
 /** On Today: what I'm doing, and what's next and due within two days (or late). */
@@ -162,17 +160,29 @@ const backTo = (form: Record<string, unknown>, id?: number) => {
 };
 const idOf = (s: string) => (/^\d{1,9}$/.test(s) ? Number(s) : undefined);
 
-/** /todo…: mounted at "/" by app.ts, behind its cookie and same-origin checks. */
-export function createTodoRoutes(env: Env, deps: { page: () => Promise<{ s: Snapshot; frame: Frame }>; /** The packs' kinds of reference. */ rules?: () => RefRule[]; hub?: Hub; now?: () => number; /** Bino can answer (asked each time: its pack can be switched off): offer talking a task through. */ bino?: () => boolean; /** Proposals to show above the list (Teams' crawler). */ proposals?: () => Promise<Html | ""> }): Hono<AppEnv> {
-  const app = new Hono<AppEnv>();
-  const db = env.DB;
-  const now = deps.now ?? Date.now;
-  const changed = () => deps.hub?.publish(["snapshot"]);
+/** What the routes need from the pack: where links point, Bino, and what changed. */
+export type TodoRoutesDeps = {
+  ctx: PackContext;
+  links: () => { ghe: string; org: string };
+  now?: () => number;
+  /** Bino can answer (asked each time: its pack can be switched off): offer talking a task through. */
+  bino?: () => boolean;
+  changed: () => void;
+};
 
-  app.get("/todo", async (c) => {
-    const { s, frame } = await deps.page();
-    return c.html(todoPage(frame, await listTodos(db), linkCtxOf(env, s, deps.rules?.()), { now: now(), bino: deps.bino?.(), adding: c.req.query("add") !== undefined, proposals: deps.proposals ? await deps.proposals().catch(() => "" as const) : "" }));
-  });
+/** /todo…: the pack's routes, behind core's cookie and same-origin checks. */
+export function mountTodo(app: Hono<AppEnv>, deps: TodoRoutesDeps): void {
+  const { ctx } = deps;
+  const db = ctx.db;
+  const now = deps.now ?? Date.now;
+  const changed = deps.changed;
+  const show = async (c: Context<AppEnv>) => {
+    const s = await ctx.gathered();
+    const proposals = html`${ctx.fill("todo.proposals", {})}`;
+    return ctx.page(c, { title: "My list · Dovre", current: "/todo", body: todoPage(await listTodos(db), linkCtxOf(deps.links(), s, ctx.refs()), { now: now(), bino: deps.bino?.(), adding: c.req.query("add") !== undefined, proposals }) });
+  };
+
+  app.get("/todo", (c) => show(c));
   app.post("/todo/add", async (c) => {
     const form = await c.req.parseBody();
     const q = parseQuick(first(form.q), osloDate(now()));
@@ -220,5 +230,4 @@ export function createTodoRoutes(env: Env, deps: { page: () => Promise<{ s: Snap
     changed();
     return c.redirect(backTo(form, t?.parent ?? undefined), 303);
   });
-  return app;
 }

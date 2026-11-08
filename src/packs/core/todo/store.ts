@@ -5,8 +5,8 @@
  *
  * The quick-add parser and the date helpers are pure and tested; the rest is plain SQL.
  */
-import type { D1 } from "../db.ts";
-import { currentTz, dtf } from "../when.ts";
+import type { D1 } from "../../../db.ts";
+import { currentTz, dtf } from "../../../when.ts";
 
 export const STATES = ["doing", "next", "waiting", "done"] as const;
 export type State = (typeof STATES)[number];

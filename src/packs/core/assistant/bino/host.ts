@@ -4,7 +4,7 @@
  * id `assistant` gets one (src/app.ts); any other pack, and the assistant pack with Bino off, gets
  * none, and then mounts no Bino pages.
  */
-import type { Pack } from "../../../types.ts";
+import type { ListShare, Pack } from "../../../types.ts";
 import type { PackAct } from "../../../registry.ts";
 import type { Bino } from "./bino.ts";
 import type { DockAssets } from "./routes.ts";
@@ -25,6 +25,8 @@ export type AssistantHost = {
   context?: () => Promise<string>;
   /** The packs' stylesheet and scripts, which the pane loads like a pack's dock page. */
   assets: DockAssets;
+  /** My list, while a pack shares it (`list`, #393): what to break down, and where plans go. */
+  list?: () => ListShare | undefined;
 };
 
 const hosts = new WeakMap<Pack, AssistantHost>();

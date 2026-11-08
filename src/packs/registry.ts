@@ -66,6 +66,9 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
 /** The packs a manifest requires: valid ids, each once, itself left out. */
 export const requiresOf = (m: PackManifest | undefined): string[] =>
   Array.isArray(m?.requires) ? [...new Set(m.requires.filter((r): r is string => typeof r === "string" && ID.test(r) && r !== m.id))] : [];
+/** The packs it reads while they're on (`uses`, API 1.11): it stays on without them. */
+export const usesOf = (m: PackManifest | undefined): string[] =>
+  Array.isArray(m?.uses) ? [...new Set(m.uses.filter((r): r is string => typeof r === "string" && ID.test(r) && r !== m.id))] : [];
 
 /**
  * Packs that require others (#326), settled after any change to what's on: a pack off only for

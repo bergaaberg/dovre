@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import { recentActions } from "../../../../actions/deploys.ts";
 import { openDb } from "../../../../db.ts";
-import { listTodos } from "../../../../todo/store.ts";
+import { addTodo, getTodo, listTodos } from "../../todo/store.ts";
 import type { AppEnv } from "../../../../env.ts";
 import { agentPrompt, composeBody, emptyDraft, formPairs, isValid, labelsOf, NOTHING_OFFERED, offeredLabels, readDraft, untouched, validate } from "../compose/compose.ts";
 import { createCatalog, isPlanning, loadTemplates, OPEN_CHOOSER, parseConfig, parseTemplate, takesIssues } from "../compose/templates.ts";
@@ -161,7 +161,7 @@ function mounted(routes: Record<string, unknown>, opts: { env?: Partial<ComposeE
     return (q.includes("projectV2(number:") ? { organization: { projectV2: { id: "PVT_6" } } } : {}) as T;
   };
   const app = new Hono<AppEnv>();
-  app.route("/", createIssueRoutes(ENV(db, opts.env), { ghe, show: (c, p, status) => c.html(html`<title>${p.title}</title>${p.body}`, status as 200), operator: async () => "ola-nordmann", checkouts: () => DIRS }));
+  app.route("/", createIssueRoutes(ENV(db, opts.env), { ghe, show: (c, p, status) => c.html(html`<title>${p.title}</title>${p.body}`, status as 200), operator: async () => "ola-nordmann", checkouts: () => DIRS, myList: () => ({ items: () => listTodos(db.DB), get: (id) => getTodo(db.DB, id), add: (t) => addTodo(db.DB, t), href: (id) => `/todo#t-${id}` }) }));
   const get = (path: string) => app.request(`http://localhost${path}`);
   const post = (path: string, body: [string, string][] | Record<string, string>) =>
     app.request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });

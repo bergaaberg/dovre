@@ -35,6 +35,7 @@ export function assistantPack(): Pack {
             hub: { publish: (topics) => ctx.publish(topics) },
             peek: () => ctx.snapshot(),
             packAct: (kind) => host.packAct(kind),
+            list: host.list,
             assets: host.assets,
             context: host.context,
             apps: () => host.apps(),

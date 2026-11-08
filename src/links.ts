@@ -5,10 +5,10 @@
  * comes from the snapshot when it's there. The text itself stays text (html`` escapes it).
  */
 import { html } from "hono/html";
-import type { Html } from "../ui/kit.ts";
-import { Pill } from "../ui/kit.ts";
-import { safeUrl } from "../pages/parts.ts";
-import type { RefRule } from "../packs/types.ts";
+import type { Html } from "./ui/kit.ts";
+import { Pill } from "./ui/kit.ts";
+import { safeUrl } from "./pages/parts.ts";
+import type { RefRule } from "./packs/types.ts";
 
 export type LinkCtx = {
   ghe: string;

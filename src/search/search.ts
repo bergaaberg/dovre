@@ -6,7 +6,7 @@
  * names a thing answers to. Pure: what to search in, and the query, in; groups of rows out.
  */
 import type { Snapshot } from "../gather.ts";
-import type { Todo } from "../todo/store.ts";
+import type { ListItem } from "../packs/types.ts";
 
 export type Row = { title: string; sub?: string; href: string; icon: string; also?: string[]; /** Leaves the app (a new tab). */ out?: boolean; /** Found by GHE's search for this query: kept, after what matches here. */ found?: boolean };
 export type Group = { id: Kind; title: string; rows: Row[] };
@@ -60,7 +60,6 @@ export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ 
     { title: "Pull requests", href: "/prs", icon: "⇄", about: "Asking for your review, and yours", also: ["pr", "prs", "reviews", "pull"] },
     { title: "Stacks", href: "/prs/stacks", icon: "≡", about: "Stacked PRs, bottom first", also: ["stacked", "chain", "retarget"] },
     { title: "Deploys", href: "/deploys", icon: "⇡", about: "Waiting for prod, and what ships", also: ["release", "prod", "approve", "ship", "utrulling"] },
-    { title: "My list", href: "/todo", icon: "☐", about: "Your own list, with dates", also: ["todo", "tasks", "liste", "huskeliste"] },
     { title: "Actions", href: "/actions", icon: "✓", about: "What Dovre did for you: deploys, messages, issues, production", also: ["log", "history", "decided", "logg", "historikk"] },
     { title: "Moved", href: "/movement", icon: "↯", about: "What people did in the org, 24 h", also: ["movement", "activity", "people", "team", "timeline"] },
     { title: "Code", href: "/code", icon: "{}", about: "Your checkouts at any commit", also: ["browse", "explorer", "files", "source", "kode"] },
@@ -72,7 +71,6 @@ export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ 
 }
 
 const ACTIONS: Row[] = [
-  { title: "Add to My list", icon: "☐", href: "/todo", also: ["todo", "remember", "husk"] },
   { title: "Refresh everything", icon: "↻", href: "/?fresh=1", also: ["sync", "reload", "fetch", "oppdater"] },
 ];
 
@@ -87,7 +85,8 @@ export type Sources = {
   hidden?: (href: string) => boolean;
   /** Issues and PRs GHE's own search found for this query (src/search/ghe.ts). */
   remote?: Row[];
-  todos?: Todo[];
+  /** My list, when its pack shares it (`list`): its items, and where each is shown. */
+  list?: { items: ListItem[]; href(id: number): string };
   /** What the packs offer for search (their `finds`, checked in app.ts), under "In your apps". */
   apps?: Row[];
   /** What the packs offer for one of search's own groups (a find's `kind`): agents, worktrees, things to start. */
@@ -155,7 +154,7 @@ export function corpus(src: Sources): Record<Kind, Row[]> {
       ...code,
       ...(src.repos ?? []).filter((r) => !inCode.has(`/code/${encodeURIComponent(r)}`)).map((r) => ({ title: r, sub: "checkout", href: `/code/${encodeURIComponent(r)}`, icon: "{}", also: [] })),
     ],
-    todo: (src.todos ?? []).filter((t) => t.state !== "done").map((t) => ({ title: line(t.title), sub: `${t.state}${t.due ? ` · ${t.due}` : ""}`, href: `/todo#t-${t.id}`, icon: "☐", also: [line(t.notes, 200)] })),
+    todo: (src.list?.items ?? []).filter((t) => t.state !== "done").map((t) => ({ title: line(t.title), sub: `${t.state}${t.due ? ` · ${t.due}` : ""}`, href: src.list!.href(t.id), icon: "☐", also: [line(t.notes, 200)] })),
     // The packs' things to start go before "Refresh everything", which stays last.
     actions: [...ACTIONS.slice(0, -1), ...(src.kinds?.actions ?? []), ...ACTIONS.slice(-1)].filter(here),
   };

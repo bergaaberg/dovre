@@ -8,7 +8,7 @@ import { type Changelog, groupChanges, KIND_TITLE } from "../sources/changelog.t
 import { inFiles, type Pr } from "../sources/ghe.ts";
 import { type Child, type Html, KeyValues, Notice, Pill } from "../ui/kit.ts";
 import type { AiSummary as Summary, PrSlotArg, RefRule } from "../packs/types.ts";
-import { appRefs } from "../todo/links.ts";
+import { appRefs } from "../links.ts";
 import { markdown } from "../ui/markdown.ts";
 import { Ago, Link, prPills, safeUrl } from "./parts.ts";
 import { type ForgeView, forgeCan, GITHUB_VIEW } from "../forge/types.ts";

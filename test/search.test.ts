@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { corpus, fold, pagesOf, parseQuery, score, search } from "../src/search/search.ts";
-import type { Todo } from "../src/todo/store.ts";
+import type { Todo } from "../src/packs/core/todo/store.ts";
 import { H, assertInert, pr, session, signedIn, snapshot } from "./helpers.ts";
 
 test("folding: case, æ ø å and punctuation away, so «epost» finds «E-post» and «medredaktorer» «Medredaktører»", () => {
@@ -42,7 +42,7 @@ const kinds = {
 };
 
 test("finds pages by their other names, PRs by number, branch and repo, the packs' rows by kind, My list, and things to do", () => {
-  const src = { s: world(), kinds, todos: [todo({ id: 7, title: "Ring Per om stacken" }), todo({ id: 8, title: "Gammel", state: "done" })], repos: ["shop-api", "shop-api-pr863", "ledger"], pages: pagesOf() };
+  const src = { s: world(), kinds, list: { items: [todo({ id: 7, title: "Ring Per om stacken" }), todo({ id: 8, title: "Gammel", state: "done" })], href: (id: number) => `/todo#t-${id}` }, repos: ["shop-api", "shop-api-pr863", "ledger"], pages: pagesOf() };
   const first = (q: string) => search(src, q).groups[0]?.rows[0];
   assert.equal(search(src, "863").groups.find((g) => g.id === "prs")?.rows[0]?.href, "/prs/ACME/shop-api/863");
   assert.equal(search(src, "#863").groups.find((g) => g.id === "prs")?.rows.length, 1);
@@ -51,7 +51,7 @@ test("finds pages by their other names, PRs by number, branch and repo, the pack
   assert.equal(search(src, "a: review").groups[0]?.rows[0]?.href, "/agents/s/11111111-1111-4111-8111-111111111111");
   assert.equal(search(src, "t: per").groups[0]?.rows[0]?.href, "/todo#t-7");
   assert.equal(search(src, "gammel").groups.length, 0, "done items aren't searched");
-  assert.ok(search(src, "husk").groups.some((g) => g.id === "actions"));
+  assert.ok(search(src, "oppdater").groups.some((g) => g.id === "actions"));
   const doRows = corpus({ ...src, kinds: { actions: [{ title: "Start an agent", href: "/agents/new", icon: "✦", also: [] }] } }).actions.map((r) => r.title);
   assert.deepEqual(doRows.slice(-2), ["Start an agent", "Refresh everything"], "a pack's things to start come before Refresh everything");
   assert.ok(!corpus(src).actions.some((r) => r.href === "/agents/new"), "core names no pack's action");
