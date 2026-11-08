@@ -13,6 +13,8 @@ import { logAction, recentActions } from "../../../../actions/deploys.ts";
 import { checkReview } from "../../../../actions/reviews.ts";
 import { actingAs } from "../../../../actor.ts";
 import { activePacks } from "../../../registry.ts";
+import { testAgentLinks, testAgentsPack } from "../../../testing.ts";
+import { agentBlock } from "../view.ts";
 import { H, assertInert, fakeGhe, pr, snapshot } from "../../../../../test/helpers.ts";
 import { allowedFor, kindFor, REVIEW_ALLOWED, reviewPrompt, skillOf } from "../agent.ts";
 import { reviewsPack } from "../index.ts";
@@ -118,7 +120,7 @@ function appWith(s: { snap: Snapshot }, opts: { runner?: ReturnType<typeof fakeR
   const gatherer = { get: async () => s.snap, stale: () => {}, gathering: () => false, peek: () => s.snap };
   const { ghe, calls } = fakeGhe(opts.routes ?? {});
   const pack = reviewsPack({ runner: fr.runner, ghe, owners: () => "ACME", dirOf: (repo) => (repo === "ACME/people" ? join(code, "people") : undefined), codeDir: code, claudeDir: join(home, "nope"), home, modelOf });
-  const packs = { ...activePacks([pack], { env: {}, hosted: false }), env: {} };
+  const packs = { ...activePacks([pack, testAgentsPack()], { env: {}, hosted: false }), env: {} };
   const app = createApp({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: code, CLAUDE_DIR: join(home, "nope"), DB: db.DB }, { gatherer, ghe, runner: fr.runner, skillsHome: home, packs });
   const get = async (path: string) => {
     const res = await app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
@@ -448,4 +450,14 @@ test("a finished review's draft is handed to my own review in the viewer (\"revi
   const p = await w.post("/reviews/draft/preview", { run: "run-1", verdict: "comment", summary: "x", keep_0: "on", body_0: "y" });
   await w.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
   assert.equal(draftOf(), undefined);
+});
+
+test("the card links to the agent's session only while the agents pack is on (#394)", () => {
+  const p = pr({ repo: "ACME/people", number: 7 });
+  const r = { runId: "run-1", kind: "review" as const, pr: "ACME/people#7", headSha: p.headSha, harness: "claude" as const, status: "running" as const, startedAt: Date.now() };
+  assert.match(String(agentBlock(p, "review", r, undefined, "GitHub", testAgentLinks)), /href="\/agents\/r\/run-1">Open the session/);
+  assert.match(String(agentBlock(p, "review", { ...r, sessionId: "s-9" }, undefined, "GitHub", testAgentLinks)), /href="\/agents\/s\/s-9"/);
+  const off = String(agentBlock(p, "review", r, undefined, "GitHub"));
+  assert.match(off, /Agent review<\/span> running/);
+  assert.doesNotMatch(off, /\/agents\/|Open the session/);
 });

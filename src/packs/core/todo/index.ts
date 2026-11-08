@@ -24,11 +24,13 @@ export function todoPack(o: TodoDeps): Pack {
   const changed = (ctx: PackContext) => ctx.publish([TODO_PACK_ID]);
   return {
     manifest: {
-      api: "1.11",
+      api: "1.12",
       id: TODO_PACK_ID,
       name: "My list",
       description: "Small things and small initiatives that live nowhere else, with dates",
       domain: "personal",
+      // Its items link to agent sessions and start agents while that pack is on (#394).
+      uses: ["agents"],
     },
     writes: [{ kind: "delete", label: "Delete from My list" }],
     routes: (app, ctx) => mountTodo(app, { ctx, links: o.links, bino: o.bino, now, changed: () => changed(ctx) }),
@@ -37,7 +39,7 @@ export function todoPack(o: TodoDeps): Pack {
       { title: "My list", href: HREF, icon: "☐", about: "Your own list, with dates", also: ["todo", "tasks", "liste", "huskeliste"] },
     ],
     finds: () => [{ title: "Add to My list", icon: "☐", href: `${HREF}?add`, also: ["todo", "remember", "husk"], kind: "actions" }],
-    today: async (ctx) => [{ id: "list", column: "left", order: 30, render: todoCard(await listTodos(ctx.db), linkCtxOf(o.links(), ctx.snapshot(), ctx.refs()), now()) }],
+    today: async (ctx) => [{ id: "list", column: "left", order: 30, render: todoCard(await listTodos(ctx.db), linkCtxOf(o.links(), ctx.snapshot(), ctx.refs(), ctx.required("agents", "agent")), now()) }],
     shares: (ctx): { list: ListShare } => ({
       list: {
         items: () => listTodos(ctx.db),

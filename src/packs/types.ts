@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.11";
+export const PACK_API = "1.12";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -405,8 +405,22 @@ export type ListShare = {
   href(id: number): string;
 };
 
+/**
+ * Where the agents pack's pages are (#394). Packs that link to them read this through
+ * `ctx.required("agents", "agent")` and leave the link out while it's off; core reads it too.
+ */
+export type AgentShare = {
+  /** The page that starts an agent, filled in with a prompt and where it runs (`repo`: a checkout's folder). Plain, it's where a start form posts. */
+  start(o?: { prompt?: string; repo?: string }): string;
+  /** A session's page. */
+  session(sid: string): string;
+  /** A run's page, while it has no session yet. */
+  run(id: string): string;
+};
+
 /** Each contract a pack can share, by name. A new one is additive. */
 export type PackShares = {
+  agent?: AgentShare;
   auto?: AutoShare;
   list?: ListShare;
 };

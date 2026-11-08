@@ -1,6 +1,7 @@
 /** /tracker: my issues by set (tabs), each a row with its labels, linked PRs, sub-issues and age, and what I may do to it. */
 import { html } from "hono/html";
 import type { Issue } from "../../../forge/types.ts";
+import type { AgentShare } from "../../types.ts";
 import { ago } from "../../../format.ts";
 import { Link, safeUrl } from "../../../pages/parts.ts";
 import { taskHref } from "./compose/work.ts";
@@ -20,10 +21,11 @@ export type BulkDo = keyof typeof BULK_DO;
 
 /**
  * What a row may offer: absent, nothing. `write`: the forge takes writes (assign, close, comment);
- * `me`: who I am; `task`: dev tasks start here (local); `agent`: a new agent session starts on it,
- * given the checkout folder for its repo (none: the new-session form starts in Dovre's own folder).
+ * `me`: who I am; `task`: dev tasks start here (local); `agent`: a new agent session starts on it
+ * (the agents pack's start page), given the checkout folder for its repo (none: the new-session
+ * form starts in Dovre's own folder).
  */
-export type RowActs = { me: string; task: boolean; set: SetId; write: boolean; agent?: (repo: string) => string | undefined };
+export type RowActs = { me: string; task: boolean; set: SetId; write: boolean; agent?: { links: AgentShare; dirOf: (repo: string) => string | undefined } };
 
 /** A new agent session's first message about an issue: what it is, where to read it, how its PR closes it. */
 export function agentPromptOf(i: Pick<Issue, "repo" | "number" | "title" | "url">): string {
@@ -32,8 +34,8 @@ export function agentPromptOf(i: Pick<Issue, "repo" | "number" | "title" | "url"
 }
 
 /** The new-session form, filled in for the issue: nothing starts until I press Start there. */
-export const agentHref = (i: Pick<Issue, "repo" | "number" | "title" | "url">, dir?: string) =>
-  safeUrl(`/agents/new?${new URLSearchParams({ ...(dir ? { repo: dir } : {}), prompt: agentPromptOf(i) })}`);
+export const agentHref = (links: AgentShare, i: Pick<Issue, "repo" | "number" | "title" | "url">, dir?: string) =>
+  safeUrl(links.start({ ...(dir ? { repo: dir } : {}), prompt: agentPromptOf(i) }));
 
 const prPill = (p: Issue["prs"][number]) =>
   Pill({ tone: p.state === "MERGED" ? "ok" : undefined, title: `${p.key}: ${p.state.toLowerCase()}`, children: `PR #${p.key.split("#")[1]} ${p.state === "MERGED" ? "merged" : p.state === "OPEN" ? "open" : "closed"}` });
@@ -53,7 +55,7 @@ function actsOf(i: Issue, a: RowActs): Html {
     danger: true,
   })}<form class="issue-comment" method="post" action="${COMMENT}">${Object.entries(fieldsOf(i, a.set)).map(([n, v]) => html`<input type="hidden" name="${n}" value="${v}">`)}<textarea name="body" rows="2" maxlength="${MAX_COMMENT}" required aria-label="${`Comment on ${k}`}" placeholder="A comment"></textarea><button type="submit">Preview comment</button></form>`
     : "";
-  const agent = a.agent ? html`<a class="btn" href="${agentHref(i, a.agent(i.repo))}" title="A new agent session on ${k}: the form opens filled in">Start an agent</a>` : "";
+  const agent = a.agent ? html`<a class="btn" href="${agentHref(a.agent.links, i, a.agent.dirOf(i.repo))}" title="A new agent session on ${k}: the form opens filled in">Start an agent</a>` : "";
   return html`<details class="issue-acts"><summary>Act on it</summary><div class="issue-acts-body">${agent}${writes}${
     a.task ? html`<a class="btn" href="${taskHref(k, i.repo)}">Start a task</a>` : ""
   }</div></details>`;

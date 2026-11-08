@@ -8,6 +8,7 @@ import { html } from "hono/html";
 import type { Frame } from "../html.ts";
 import { shell } from "../html.ts";
 import { safeUrl } from "./parts.ts";
+import type { AgentShare } from "../packs/types.ts";
 import { type Html, Notice, PageHeader, Panel } from "../ui/kit.ts";
 
 /** Longest prompt carried in the link. */
@@ -24,15 +25,15 @@ export function investigateOf(q: { prompt?: string; repo?: string; from?: string
 }
 
 /** The page: the prompt to change, then Ask Bino or Start an agent (plan mode: it reads and reports, and changes nothing). */
-export function investigatePage(frame: Frame, v: Investigate, o: { bino: boolean; agents: boolean }): Html {
-  const none = !o.bino && !o.agents;
+export function investigatePage(frame: Frame, v: Investigate, o: { bino: boolean; /** Where agents start, while the agents pack is on. */ agent?: AgentShare }): Html {
+  const none = !o.bino && !o.agent;
   const form = html`<form method="post" action="/bino/new">
 <label class="field"><span class="label">What to look into</span><textarea name="prompt" rows="10" maxlength="${INVESTIGATE_MAX}" required>${v.prompt}</textarea><span class="hint">Change it as you like: nothing goes anywhere before you press a button.</span></label>
 ${v.repo ? html`<input type="hidden" name="repo" value="${v.repo}">` : ""}<input type="hidden" name="mode" value="plan">
 <div class="buttons">${o.bino ? html`<button type="submit" class="primary" data-busy="Asking">Ask Bino</button>` : ""}${
-    o.agents ? html`<button type="submit" class=${o.bino ? html`"ghost"` : html`"primary"`} formaction="/agents/new" formmethod="get">Start an agent</button>` : ""
+    o.agent ? html`<button type="submit" class=${o.bino ? html`"ghost"` : html`"primary"`} formaction="${safeUrl(o.agent.start())}" formmethod="get">Start an agent</button>` : ""
   }</div>
-${o.agents ? html`<p class="hint t3">The agent starts in plan mode${v.repo ? html` in a checkout of <code>${v.repo}</code>` : ""}: it reads the code, logs and deploys and reports, and changes nothing. You pick where it runs on the next page.</p>` : ""}
+${o.agent ? html`<p class="hint t3">The agent starts in plan mode${v.repo ? html` in a checkout of <code>${v.repo}</code>` : ""}: it reads the code, logs and deploys and reports, and changes nothing. You pick where it runs on the next page.</p>` : ""}
 </form>`;
   const body = html`${PageHeader({ title: "Investigate", sub: v.from ? html`From <a href="${safeUrl(v.from)}">${v.from}</a>` : undefined })}
 ${none ? Notice({ tone: "warn", children: "Neither Bino nor agents are on here, so there's nothing to hand this to." }) : ""}

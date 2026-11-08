@@ -16,7 +16,7 @@ import { routeOf } from "./core/assistant/bino/route.ts";
 import { activePacks } from "./registry.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
-import type { Pack, PackContext } from "./types.ts";
+import { type AgentShare, type Pack, PACK_API, type PackContext } from "./types.ts";
 
 export function testContext(over: Partial<PackContext> = {}): PackContext {
   return {
@@ -48,6 +48,22 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
 // ── For tests of a pack's pages: made-up data, hostile text, and an app around the pack ──
 
 /** Markup if anything renders it unescaped: put it in every string field of a view's input. */
+/** The agents pack's share (`agent`) as a test fills it in: links shaped like its own. */
+export const testAgentLinks: AgentShare = {
+  start: (o = {}) => {
+    const q = new URLSearchParams({ ...(o.repo ? { repo: o.repo } : {}), ...(o.prompt !== undefined ? { prompt: o.prompt } : {}) }).toString();
+    return q ? `/agents/new?${q}` : "/agents/new";
+  },
+  session: (sid) => `/agents/s/${encodeURIComponent(sid)}`,
+  run: (id) => `/agents/r/${encodeURIComponent(id)}`,
+};
+
+/** A stand-in for the agents pack that only shares where its pages are, for packs that link there (`uses: ["agents"]`). */
+export const testAgentsPack = (): Pack => ({
+  manifest: { api: PACK_API, id: "agents", name: "Agents", description: "Stand-in: where agents' pages are", domain: "general" },
+  shares: () => ({ agent: testAgentLinks }),
+});
+
 export const HOSTILE = `<script>x</script>"'><img src=x onerror=1>`;
 
 /** Fails when hostile text (HOSTILE) reached the page as markup. */
