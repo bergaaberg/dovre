@@ -209,8 +209,9 @@ export function ringsOf(on: Pack[], taken: string[], log: (id: string, line: str
 
 /** A pack's stat after the checks: ids under the pack's, text cut, numbers finite or left out. */
 export type StatOut = { id: string; pack: string; packName: string; title: string; meta?: string; unit: StatUnit; empty?: string } & (
-  | { kind: "chart"; chart: "columns" | "lines"; stacked: boolean; labels: string[]; tips: string[]; series: { name: string; values: (number | undefined)[] }[] }
+  | { kind: "chart"; chart: "columns" | "lines"; stacked: boolean; partialLast: boolean; labels: string[]; tips: string[]; series: { name: string; values: (number | undefined)[] }[] }
   | { kind: "tile"; value?: number; note?: string; trend?: (number | undefined)[] }
+  | { kind: "bars"; bars: { label: string; sub?: string; href: string | undefined; value: number; note?: string; warn: boolean }[] }
 );
 
 const UNITS = new Set<StatUnit>(["count", "money", "hours", "days", "percent"]);
@@ -219,7 +220,7 @@ const nums = (v: unknown, n: number) => (Array.isArray(v) ? v.slice(0, n).map(nu
 
 /**
  * Every pack's panels for /stats (PackStat), checked: at most 12 a pack, ids under the pack's
- * (`<pack>:<id>`, unique), 60 labels, two series, text cut to size. A pack that throws adds nothing and is logged.
+ * (`<pack>:<id>`, unique), 60 labels, two series, 30 bars with safe links, text cut to size. A pack that throws adds nothing and is logged.
  */
 export function statsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, weeks: number, log: (id: string, line: string) => void, days?: number): StatOut[] {
   return on.flatMap((c) => {
@@ -236,7 +237,15 @@ export function statsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, weeks: nu
         const labels = st.labels.slice(0, 60).map((l) => cut(l, 24));
         const tips = labels.map((l, i) => cut(Array.isArray(st.tips) ? st.tips[i] : undefined, 80) || l);
         const series = (Array.isArray(st.series) ? st.series : []).slice(0, 2).filter((x) => x && typeof x.name === "string").map((x) => ({ name: x.name.slice(0, 40), values: nums(x.values, labels.length) }));
-        return [{ ...base, kind: "chart", chart: st.chart === "lines" ? "lines" : "columns", stacked: st.stacked === true, labels, tips, series }];
+        return [{ ...base, kind: "chart", chart: st.chart === "lines" ? "lines" : "columns", stacked: st.stacked === true, partialLast: st.partialLast === true, labels, tips, series }];
+      }
+      if ("bars" in st && Array.isArray(st.bars)) {
+        const bars = st.bars.slice(0, 30).flatMap((b) => {
+          const value = num(b?.value);
+          if (!b || typeof b.label !== "string" || !b.label.trim() || value === undefined) return [];
+          return [{ label: b.label.slice(0, 60), sub: cut(b.sub, 120) || undefined, href: typeof b.href === "string" && b.href ? safeUrl(b.href) : undefined, value, note: cut(b.note, 80) || undefined, warn: b.warn === true }];
+        });
+        return [{ ...base, kind: "bars", bars }];
       }
       if ("value" in st) return [{ ...base, kind: "tile", value: num(st.value), note: cut(st.note, 120) || undefined, trend: Array.isArray(st.trend) ? nums(st.trend, 60) : undefined }];
       return [];
@@ -633,7 +642,7 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
   const running = new Map<string, Promise<void>>();
   const startedAt = new Map<string, number>();
   const last = new Map<string, number>();
-  const one = (c: Pack): Promise<void> => {
+  const one = (c: Pack, o?: { asked?: boolean }): Promise<void> => {
     const id = c.manifest.id;
     if (!c.refresh) return Promise.resolve();
     const was = running.get(id);
@@ -645,7 +654,7 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
     } else if (was) return was;
     let failed: string | undefined;
     const p = Promise.resolve()
-      .then(() => c.refresh!(ctxOf(c)))
+      .then(() => c.refresh!(ctxOf(c), o?.asked ? { asked: true } : undefined))
       .catch((e) => {
         failed = why(e);
         log(`pack ${id}: refresh failed: ${failed}`);
@@ -665,7 +674,7 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
     one,
     /** Every pack whose refresh is due (or all, with `force`). */
     due(force = false, now = Date.now()): Promise<void> {
-      return Promise.all(on.filter((c) => c.refresh && !opts.skip?.(c.manifest.id) && (force || now - (last.get(c.manifest.id) ?? 0) >= (c.manifest.everyMs ?? 300_000))).map(one)).then(() => undefined);
+      return Promise.all(on.filter((c) => c.refresh && !opts.skip?.(c.manifest.id) && (force || now - (last.get(c.manifest.id) ?? 0) >= (c.manifest.everyMs ?? 300_000))).map((c) => one(c))).then(() => undefined);
     },
   };
 }

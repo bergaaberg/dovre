@@ -8,10 +8,9 @@
  * Then pure functions turn it into weeks. Only GitHub metadata (numbers, titles, times), as the
  * snapshot already holds.
  */
-import { ownerQuery } from "../owners.ts";
-import type { Ghe } from "../sources/ghe.ts";
-import { osloDay } from "./spend.ts";
-import { currentTz } from "../when.ts";
+import { ownerQuery } from "../../../owners.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
+import { currentTz, osloDay } from "../../../when.ts";
 
 export const WEEKS = 12;
 const DAY = 86400e3;

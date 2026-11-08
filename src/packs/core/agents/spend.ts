@@ -11,12 +11,12 @@
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { currentTz, dtf } from "../when.ts";
+import { currentTz, dtf, osloDay } from "../../../when.ts";
+import type { PackStat } from "../../types.ts";
 
 export type SpendDay = { day: string; claude: number; omp: number; sessions: number };
 
-/** The day (YYYY-MM-DD) in the instance timezone of a time. */
-export const osloDay = (at: number | string | Date, tz = currentTz()) => dtf("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+export { osloDay };
 
 const TS = /"timestamp":"(\d{4}-\d\d-\d\dT[\d:.]+Z)"/;
 
@@ -117,7 +117,7 @@ function filesOf(claudeDir: string | undefined, ompDirs: string[], since: number
   return out;
 }
 
-export type Spend = { days(): Promise<SpendDay[]> };
+export type Spend = { days(): Promise<SpendDay[]>; /** Days known already, without reading (fixtures). */ known?(): SpendDay[] | undefined };
 
 export function createSpend(o: { claudeDir?: string; ompDirs?: string[]; days?: number; now?: () => number }): Spend {
   const now = o.now ?? Date.now;
@@ -156,4 +156,60 @@ export function createSpend(o: { claudeDir?: string; ompDirs?: string[]; days?: 
       return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day));
     },
   };
+}
+
+/** Spend kept for /stats: read again when Stats asks and it's older than ten minutes, never awaited. */
+export function spendKeeper(spend: Spend, o: { now?: () => number; onChange?: () => void } = {}) {
+  const now = o.now ?? Date.now;
+  let days: SpendDay[] | undefined;
+  let at = 0;
+  let reading = false;
+  return {
+    days: () => spend.known?.() ?? days,
+    read(force = false) {
+      if (reading || (!force && now() - at <= 10 * 60e3)) return;
+      reading = true;
+      spend.days().then(
+        (d) => {
+          days = d;
+          at = now();
+        },
+        () => {},
+      ).finally(() => {
+        reading = false;
+        o.onChange?.();
+      });
+    },
+  };
+}
+
+const total = (d: SpendDay) => d.claude + d.omp;
+const dayLabel = (key: string, o: Intl.DateTimeFormatOptions) => dtf("en-GB", { timeZone: "UTC", ...o }).format(Date.parse(`${key}T12:00:00Z`));
+
+/** Agent spend on /stats: the last seven days against the seven before, and per day over 30. */
+export function spendStats(spend: SpendDay[] | undefined): PackStat[] {
+  const empty = "Reading transcripts…";
+  if (!spend?.length)
+    return [
+      { id: "spend-7d", title: "Agent spend, 7 days", unit: "money", value: undefined, empty },
+      { id: "spend-daily", title: "Agent spend per day", unit: "money", labels: [], series: [], empty },
+    ];
+  const last7 = spend.slice(-7).reduce((a, d) => a + total(d), 0);
+  const prev7 = spend.slice(-14, -7).reduce((a, d) => a + total(d), 0);
+  const money = (n: number) => (n >= 100 ? `$${Math.round(n)}` : n >= 10 ? `$${n.toFixed(1)}` : `$${n.toFixed(2)}`);
+  const days = spend.slice(-30);
+  return [
+    { id: "spend-7d", title: "Agent spend, 7 days", unit: "money", value: last7, note: `${money(prev7)} the 7 days before`, trend: spend.slice(-30).map(total) },
+    {
+      id: "spend-daily",
+      title: "Agent spend per day",
+      meta: "omp at list price",
+      unit: "money",
+      stacked: true,
+      partialLast: true,
+      labels: days.map((d) => dayLabel(d.day, { day: "numeric", month: "short" })),
+      tips: days.map((d) => `${dayLabel(d.day, { weekday: "short", day: "numeric", month: "short" })} · ${d.sessions} ${d.sessions === 1 ? "session" : "sessions"}`),
+      series: [{ name: "Claude Code", values: days.map((d) => d.claude) }, { name: "omp", values: days.map((d) => d.omp) }],
+    },
+  ];
 }

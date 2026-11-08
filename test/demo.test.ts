@@ -5,7 +5,7 @@ import { createDemoWorker } from "../src/demo/worker.ts";
 import { DEMO_HOST, demoHistory, demoPrs, demoSnapshot } from "../src/demo/fixtures.ts";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
 import { html } from "hono/html";
-import { weekOf, weeksOf } from "../src/stats/history.ts";
+import { weekOf, weeksOf } from "../src/packs/core/history/history.ts";
 import { H, assertInert, signedIn, snapshot } from "./helpers.ts";
 
 const at = (path: string, init?: RequestInit) => new Request(`https://demo.dovre.dev${path}`, init);

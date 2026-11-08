@@ -77,3 +77,6 @@ export function hourAt(at: number, tz = currentTz()): number {
 export function currentGreeting(): GreetingLang {
   return state.lang;
 }
+
+/** The day (YYYY-MM-DD) in the instance timezone of a time. */
+export const osloDay = (at: number | string | Date, tz = currentTz()) => dtf("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));

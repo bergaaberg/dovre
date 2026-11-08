@@ -9,11 +9,14 @@ import type { Session } from "../sources/claude.ts";
 import type { Sessions } from "../sources/sessions.ts";
 import type { Turn } from "../agents/conversation.ts";
 import type { Todo } from "../agents/todos.ts";
-import type { History, MyPr, OpenPr, Commit, Release } from "../stats/history.ts";
-import { weeksOf } from "../stats/history.ts";
-import type { SpendDay } from "../stats/spend.ts";
-import { osloDay } from "../stats/spend.ts";
-import type { Stats, StatsView } from "../stats/stats.ts";
+import type { History, MyPr, OpenPr, Commit, Release } from "../packs/core/history/history.ts";
+import { weeksOf } from "../packs/core/history/history.ts";
+import type { SpendDay } from "../packs/core/agents/spend.ts";
+import { osloDay } from "../when.ts";
+
+/** The demo's numbers for /stats: the forge's weeks (the history pack's) and agent spend (the agents pack's). */
+export type DemoStatsView = { history?: History; spend?: SpendDay[]; gathering?: boolean };
+export type Stats = { view(): DemoStatsView; refresh?(): void };
 
 export const DEMO_HOST = "git.example.com";
 export const DEMO_ORG = "northwind";
@@ -499,12 +502,12 @@ export function demoSpend(now = Date.now()): SpendDay[] {
 /** Fixed stats for the demo worker, refreshed with the clock so times stay relative. */
 export function demoStats(now = Date.now()): Stats {
   let at = now;
-  let v: StatsView = { history: demoHistory(at), gathering: false, spend: demoSpend(at), spendAt: at };
+  let v: DemoStatsView = { history: demoHistory(at), gathering: false, spend: demoSpend(at) };
   const get = () => {
     const cur = Date.now();
     if (cur - at > 120_000) {
       at = cur;
-      v = { history: demoHistory(at), gathering: false, spend: demoSpend(at), spendAt: at };
+      v = { history: demoHistory(at), gathering: false, spend: demoSpend(at) };
     }
     return v;
   };
