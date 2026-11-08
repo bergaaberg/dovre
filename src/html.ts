@@ -213,7 +213,7 @@ export function shell(opts: { title: string; frame: Frame; current?: string; bod
 <title>${title}</title>
 <link rel="stylesheet" href="${STYLE_PATH}">
 ${(frame.styles ?? []).map((href) => html`<link rel="stylesheet" href="${href}">`)}
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 ${themeColor(frame.look?.theme)}
 <meta name="u-tz" content="${frame.tz ?? currentTz()}">${frame.keys && !isDefaultKeys(frame.keys) ? html`
