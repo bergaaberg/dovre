@@ -1541,20 +1541,23 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.post("/welcome/done", strictOrigin, async (c) => {
     if (deps.session) return c.notFound();
     await onboarding.ready;
+    // The summit's "Set up X": straight on to that pack's setup (#445).
+    const asked = (await c.req.parseBody())["setup"];
+    const then = typeof asked === "string" && setupPack(asked) ? `/setup/${asked}` : "/";
     const on = new Set(pickedNow(scanNow().found));
     const ids = packs.on.map((p) => p.manifest.id);
     await layout.update((l) => ({ ...l, packsOff: [...new Set([...(l.packsOff ?? []).filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] }));
     await onboarding.update((o) => ({ ...o, picked: [...on], done: true }));
     deps.hub?.publish(["snapshot", "packs"]);
-    if (!deps.config) return c.redirect("/", 303);
+    if (!deps.config) return c.redirect(then, 303);
     const config: Config = { ...deps.config.stored, ...pending, SETUP_DONE: "1" };
     for (const [k, v] of Object.entries(pending)) if (v === "") delete config[k];
     const changed = Object.keys(pending).length > 0;
     pending = {};
-    if (changed) return c.redirect((await keep(config)) ? "/welcome?started=1" : "/", 303);
+    if (changed) return c.redirect((await keep(config)) ? "/welcome?started=1" : then, 303);
     await saveConfig(env.DB, config);
     deps.config.stored = config;
-    return c.redirect("/", 303);
+    return c.redirect(then, 303);
   });
   // ── A pack's own setup (src/pages/setup.ts, #418): the pack draws each step, core draws the frame ──
   /** A shown pack with a setup page, by id. */
@@ -1595,7 +1598,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const { steps } = setupOf(p)!;
     const l = layout.get();
     const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
-    if (at >= steps.length) return { view, status: 200 };
+    if (at >= steps.length) {
+      // Done: the next pack whose setup isn't, in Today's order (#445).
+      const next = shown().find((x) => x !== p && !!setupOf(x) && setupLeft(x).length > 0);
+      return { view: { ...view, ...(next ? { next: { id: next.manifest.id, name: next.manifest.name } } : {}) }, status: 200 };
+    }
     const d = drawn ?? (await drawStep(p, steps[at]!.id));
     Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh, go: d.go, carry: d.carry });
     return { view, status: d.broke ? 500 : error ? 422 : 200 };
