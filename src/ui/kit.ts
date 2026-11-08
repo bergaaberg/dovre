@@ -137,7 +137,7 @@ export function BulkBar(opts: { id: string; action: string; label: Child; fields
     oneClickNow(b.kind) ? press(b) : html`<details class="confirm"><summary>${b.label}…</summary><div class="confirm-body"><p>${b.question}</p>${press(b)}</div></details>`,
   )}</div>`;
 }
-export const Pick = (o: { form: string; value: string; label: string }) => html`<input type="checkbox" class="pick" form="${o.form}" name="pick" value="${o.value}" aria-label="${o.label}">`;
+export const Pick = (o: { form: string; value: string; label: string; checked?: boolean }) => html`<input type="checkbox" class="pick" form="${o.form}" name="pick" value="${o.value}" aria-label="${o.label}"${o.checked ? " checked" : ""}>`;
 
 /**
  * A button that posts at once, no second click: for what's easily undone or only runs a job

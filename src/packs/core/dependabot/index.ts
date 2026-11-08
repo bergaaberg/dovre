@@ -7,12 +7,15 @@
  * has Dependabot (GitHub): the entry points leave it out elsewhere.
  */
 import type { Context } from "hono";
+import { html } from "hono/html";
 import { repoIn } from "../../../actions/deploys.ts";
 import type { AppEnv } from "../../../env.ts";
 import { prTabs } from "../../../pages/parts.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
+import type { D1 } from "../../../db.ts";
+import { CheckRows } from "../../../ui/kit.ts";
 import { type Pack, PACK_API } from "../../types.ts";
-import { addGroups, combine, loadQueue, MAX_MERGE, mergeCombined } from "./act.ts";
+import { addGroups, combine, type Level, LEVELS, loadQueue, MAX_MERGE, mergeCombined } from "./act.ts";
 import { dependabotBody, type Job } from "./view.ts";
 
 export type DependabotDeps = {
@@ -27,6 +30,23 @@ export type DependabotDeps = {
 };
 
 export const HREF = "/dependabot";
+/** Where its setup keeps the levels that start ticked (#426), in Dovre's settings table. */
+const MERGE_KEY = "dependabot.merge";
+/** What its setup starts with ticked, as the prototype has it. */
+const FIRST: Level[] = ["patch", "minor"];
+
+/** The levels picked on its setup page; unset until it's done (then none start ticked). */
+async function picked(db: D1): Promise<Level[] | undefined> {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(MERGE_KEY).first<{ value: string }>().catch(() => null);
+  if (!row) return undefined;
+  try {
+    const v: unknown = JSON.parse(row.value);
+    return Array.isArray(v) ? LEVELS.filter((l) => v.includes(l)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+const SAMPLE: Record<Level, [string, string]> = { patch: ["Patch", "1.4.2 → 1.4.3"], minor: ["Minor", "1.4 → 1.5"], major: ["Major", "1.x → 2.0, brave"] };
 type Queue = Awaited<ReturnType<typeof loadQueue>>;
 
 export function dependabotPack(deps: DependabotDeps): Pack {
@@ -51,6 +71,23 @@ export function dependabotPack(deps: DependabotDeps): Pack {
       answers: ["catch:bumps"],
       markers: [".github/dependabot.yml", ".github/dependabot.yaml"],
       execution: "any",
+      onboard: { steps: [{ id: "merge", title: "Pick what merges on green" }] },
+    },
+    // What merges on green (#426): the picked levels start ticked on /dependabot. Merging is still a click.
+    setup: {
+      async draw(ctx) {
+        const on = (await picked(ctx.db)) ?? FIRST;
+        return {
+          form: true,
+          body: html`<p class="t2">Dovre rolls each repo's bumps into one PR. Once its checks pass, a combined PR with only these bumps starts ticked on Dependabot. You still press Merge.</p>${CheckRows({ name: "level", label: "Bumps", rows: LEVELS.map((l) => ({ value: l, label: SAMPLE[l][0], sub: SAMPLE[l][1], checked: on.includes(l) })) })}`,
+        };
+      },
+      async save(ctx, _step, form) {
+        const want = ([] as string[]).concat(form.level ?? []);
+        await ctx.db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES (?, ?, ?)").bind(MERGE_KEY, JSON.stringify(LEVELS.filter((l) => want.includes(l))), new Date().toISOString()).run();
+        ctx.publish(["dependabot"]);
+        return { ok: true };
+      },
     },
     pages: () => [{ title: "Dependabot", href: HREF, icon: "⇄", about: "Open bumps by repo, combined and merged", also: ["dependabot", "bumps", "dependencies", "combine", "security"] }],
     routes(app, ctx) {
@@ -70,8 +107,9 @@ export function dependabotPack(deps: DependabotDeps): Pack {
         for (const [k, j] of jobs) if (j.state === "done") jobs.delete(k);
         const org = deps.owners();
         const tabs = prTabs("dependabot", ctx.pageOn("/stacks"), true, ctx.pageOn("/prs"));
+        const auto = await picked(ctx.db);
         const got = await Promise.race([load().then((value) => ({ ok: true as const, value }), (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) })), new Promise<undefined>((res) => setTimeout(res, 1500))]);
-        const body = !got ? dependabotBody({ org, pending: true, jobs: shown, tabs }) : dependabotBody({ org, jobs: shown, relock: !!deps.relock, tabs, ...(got.ok ? got.value : { error: got.error }) });
+        const body = !got ? dependabotBody({ org, pending: true, jobs: shown, tabs }) : dependabotBody({ org, jobs: shown, relock: !!deps.relock, tabs, auto, ...(got.ok ? got.value : { error: got.error }) });
         return ctx.page(c, { title: "Dependabot · Dovre", current: "/prs", body });
       });
       const write = (what: Job["what"], run: (repo: string, form: Record<string, unknown>) => Promise<{ ok: boolean; message: string; url?: string }>) => async (c: Context<AppEnv>) => {

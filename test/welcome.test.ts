@@ -89,7 +89,7 @@ test("the climb, locally: role, scan, two questions, the kit, the summit; what's
   assertInert("summit", top);
   assert.match(top, /You made it\./);
   assert.match(top, /2 flags on the ridge/);
-  assert.doesNotMatch(top, /A little more/, "neither has a setup page of its own");
+  assert.match(top, /A little more[\s\S]*href="\/setup\/dependabot"><b>Dependabot<\/b><\/a> · pick what merges on green/, "Dependabot's setup waits for later (#426)");
   assert.match(top, /cl-summit/);
 
   assert.equal((await post("/welcome/done", {})).headers.get("location"), "/", "no supervisor in a test: straight to Today");

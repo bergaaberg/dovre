@@ -17,7 +17,7 @@ export const MAX_COMBINE = 30;
 
 export type BotPr = { repo: string; number: number; title: string; url: string; createdAt: string; security: boolean };
 /** A combined PR Dovre opened: its checks (the head commit's rollup, null without any) and whether it can merge now. */
-export type Combined = { number: number; url: string; checks: string | null; mergeable: string | null; draft: boolean };
+export type Combined = { number: number; url: string; checks: string | null; mergeable: string | null; draft: boolean; /** The kinds of bump in it, from its body; unknown when any can't be told (#426). */ levels?: Level[] };
 /** Green, mergeable and not a draft: what may be ticked to merge. */
 export const combinedReady = (c: Combined) => !c.draft && c.mergeable === "MERGEABLE" && c.checks === "SUCCESS";
 export type RepoQueue = { repo: string; prs: BotPr[]; oldest: string; security: number; combined?: Combined };
@@ -27,12 +27,48 @@ export function bumpedPackage(title: string): string | undefined {
   return /\b[Bb]ump (\S+) from \S+ to \S+/.exec(title)?.[1]?.toLowerCase();
 }
 
+/** How big a bump is, by its version numbers (#426). */
+export type Level = "patch" | "minor" | "major";
+export const LEVELS: Level[] = ["patch", "minor", "major"];
+
+const VERSION = /\bfrom v?(\d+(?:\.\d+)*)(?:[-+]\S*)? to v?(\d+(?:\.\d+)*)(?:[-+]\S*)?(?=\s|$)/;
+
+/**
+ * A bump's level from its title: "Bump x from 1.4.2 to 1.5.0" → "minor". Below 1.0 a minor change
+ * counts as major, as semver has it. Grouped bumps and commit SHAs have none.
+ */
+export function bumpLevel(title: string): Level | undefined {
+  const m = VERSION.exec(title);
+  if (!m) return undefined;
+  const [a, b] = [m[1]!, m[2]!].map((v) => [...v.split(".").map(Number), 0, 0]);
+  if (a![0] !== b![0] || (a![0] === 0 && a![1] !== b![1])) return "major";
+  return a![1] !== b![1] ? "minor" : "patch";
+}
+
+/**
+ * The levels in a combined PR, from the bumps its body lists (combinedBody), not the left-out ones.
+ * Unknown when one can't be told, or when its title counts more than the body lists (relock added some).
+ */
+export function combinedLevels(title: string, body: string): Level[] | undefined {
+  const listed = body.split(/\n\*\*Left out/)[0]!.split("\n").filter((l) => /^- #\d+ /.test(l));
+  const count = /\((\d+)\)\s*$/.exec(title)?.[1];
+  if (!listed.length || (count && Number(count) !== listed.length)) return undefined;
+  const levels = new Set<Level>();
+  for (const l of listed) {
+    const v = bumpLevel(l);
+    if (!v) return undefined;
+    levels.add(v);
+  }
+  return LEVELS.filter((v) => levels.has(v));
+}
+
 /** A Python package's name as PyPI compares it (PEP 503): "Typing_Extensions" and "typing-extensions" are one. */
 export const pipName = (name: string) => name.toLowerCase().replace(/[-_.]+/g, "-");
 
 type SearchNode = {
   number?: number;
   title?: string;
+  body?: string;
   url?: string;
   createdAt?: string;
   headRefName?: string;
@@ -52,7 +88,7 @@ const q = (s: string) => JSON.stringify(s);
 export async function loadQueue(ghe: Ghe, owners: string): Promise<{ repos: RepoQueue[]; alertsUnread: string[] }> {
   const d = await ghe.graphql<{ bots: { nodes: SearchNode[] }; mine: { nodes: SearchNode[] } }>(`{
     bots: search(query:${q(`is:pr is:open author:app/dependabot ${ownerQuery(owners)} archived:false sort:created-asc`)}, type:ISSUE, first:100){ nodes{ ... on PullRequest { number title url createdAt repository{nameWithOwner} } } }
-    mine: search(query:${q(`is:pr is:open in:title \"Dependency updates\" ${ownerQuery(owners)} archived:false`)}, type:ISSUE, first:50){ nodes{ ... on PullRequest { number url headRefName isDraft mergeable repository{nameWithOwner} commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } } } }
+    mine: search(query:${q(`is:pr is:open in:title \"Dependency updates\" ${ownerQuery(owners)} archived:false`)}, type:ISSUE, first:50){ nodes{ ... on PullRequest { number title body url headRefName isDraft mergeable repository{nameWithOwner} commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } } } }
   }`);
   const by = new Map<string, BotPr[]>();
   for (const n of d.bots?.nodes ?? []) {
@@ -87,6 +123,7 @@ export async function loadQueue(ghe: Ghe, owners: string): Promise<{ repos: Repo
         checks: n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
         mergeable: n.mergeable ?? null,
         draft: n.isDraft === true,
+        levels: combinedLevels(String(n.title ?? ""), String(n.body ?? "")),
       });
   const repos = [...by.entries()].map(([repo, prs]): RepoQueue => {
     prs.sort((a, b) => Number(b.security) - Number(a.security) || a.createdAt.localeCompare(b.createdAt));

@@ -1,6 +1,6 @@
 /** Dependabot (dovre#108): the open bumps across the owners' repos, and combining a repo's into one PR. */
 import { html } from "hono/html";
-import type { Combined, RepoQueue } from "./act.ts";
+import type { Combined, Level, RepoQueue } from "./act.ts";
 import { combinedReady, MAX_COMBINE } from "./act.ts";
 import { BulkBar, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill } from "../../../ui/kit.ts";
 import { ago } from "../../../format.ts";
@@ -20,8 +20,11 @@ function combinedState(c: Combined): Html {
   return Pill({ tone: "ok", children: "green" });
 }
 
-/** The combined PRs Dovre opened: tick the green ones and merge them at once (dovre#108). */
-function combinedPanel(repos: RepoQueue[], running: boolean): Html {
+/** Green, and every bump in it is a level the setup picked (#426): it starts ticked. */
+export const preTicked = (c: Combined, auto: Level[] | undefined) => !!auto && !!c.levels && combinedReady(c) && c.levels.every((l) => auto.includes(l));
+
+/** The combined PRs Dovre opened: tick the green ones and merge them at once (dovre#108); the setup's levels start ticked (#426). */
+function combinedPanel(repos: RepoQueue[], running: boolean, auto: Level[] | undefined): Html {
   const open = repos.filter((r): r is RepoQueue & { combined: Combined } => !!r.combined);
   if (!open.length) return html``;
   const ready = open.filter((r) => combinedReady(r.combined)).length;
@@ -35,11 +38,12 @@ function combinedPanel(repos: RepoQueue[], running: boolean): Html {
     title: "Combined PRs",
     meta: `${ready} of ${open.length} green`,
     flush: true,
-    children: html`${bar}${List(
+    children: html`${bar}${auto && !running && ready ? html`<p class="t3">${auto.length === 3 ? "Green ones start ticked." : auto.length ? `Green ones with only ${auto.join(" and ")} bumps start ticked.` : "None start ticked."} <a href="/setup/dependabot">Change</a></p>` : ""}${List(
       open.map((r) =>
         Item({
-          lead: !running && combinedReady(r.combined) ? Pick({ form: "dependabot-merge", value: `${r.repo}#${r.combined.number}`, label: `Pick ${r.repo}#${r.combined.number}` }) : "",
+          lead: !running && combinedReady(r.combined) ? Pick({ form: "dependabot-merge", value: `${r.repo}#${r.combined.number}`, label: `Pick ${r.repo}#${r.combined.number}`, checked: preTicked(r.combined, auto) }) : "",
           title: html`<strong>${r.repo}</strong> ${Link(r.combined.url, `#${r.combined.number}`)}`,
+          line: r.combined.levels?.length ? r.combined.levels.join(", ") : "",
           trail: combinedState(r.combined),
         }),
       ),
@@ -97,7 +101,7 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: bool
   });
 }
 
-export function dependabotBody(o: { org: string; /** Local mode: left-out bumps can be added to a combined PR. */ relock?: boolean; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number; /** The tabs over it: PRs and their stacks, when they're on here. */ tabs?: Html | "" }): Html {
+export function dependabotBody(o: { org: string; /** The levels picked on its setup page (#426): green combined PRs with only those start ticked. Unset: none do. */ auto?: Level[]; /** Local mode: left-out bumps can be added to a combined PR. */ relock?: boolean; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number; /** The tabs over it: PRs and their stacks, when they're on here. */ tabs?: Html | "" }): Html {
   const now = o.now ?? Date.now();
   const jobs = o.jobs ?? [];
   const running = new Set(jobs.filter((j) => j.state === "running").map((j) => `${j.what}:${j.repo}`));
@@ -114,7 +118,7 @@ export function dependabotBody(o: { org: string; /** Local mode: left-out bumps 
       }${
         o.repos && !o.repos.length
           ? Empty({ title: "No Dependabot PRs", children: html`<p class="t2">Nothing open from Dependabot in ${o.org}.</p>` })
-          : html`${combinedPanel(o.repos ?? [], running.has("merge:combined PRs"))}${(o.repos ?? []).map((r) => repoPanel(r, now, running, !!o.relock))}`
+          : html`${combinedPanel(o.repos ?? [], running.has("merge:combined PRs"), o.auto)}${(o.repos ?? []).map((r) => repoPanel(r, now, running, !!o.relock))}`
       }`;
   return html`${PageHeader({ title: "Pull requests", sub: o.repos ? `Dependabot: ${total} open bump${total === 1 ? "" : "s"} in ${o.repos.length} repo${o.repos.length === 1 ? "" : "s"}, security fixes first.` : "Dependabot's open bumps, by repo.", tabs: o.tabs })}<div data-live id="dependabot">${body}</div>`;
 }
