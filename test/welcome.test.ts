@@ -91,6 +91,7 @@ test("the climb, locally: role, scan, two questions, the kit, the summit; what's
   assert.match(top, /2 flags on the ridge/);
   assert.match(top, /A little more[\s\S]*href="\/setup\/dependabot"><b>Dependabot<\/b><\/a> · pick what merges on green/, "Dependabot's setup waits for later (#426)");
   assert.match(top, /cl-summit/);
+  assert.match(top, /<button type="submit" class="climb-go" name="setup" value="dependabot">Set up Dependabot .*<button type="submit" class="climb-link">Open Today<\/button>/s, "the summit starts the chain (#445)");
 
   assert.equal((await post("/welcome/done", {})).headers.get("location"), "/", "no supervisor in a test: straight to Today");
   const kept = await loadConfig(db.DB);

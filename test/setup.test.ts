@@ -121,3 +121,16 @@ test("a step's main button (#441): where Next goes, posting only here, with a ki
   const text = await js.text();
   assert.doesNotThrow(() => new Function(text), "the script parses");
 });
+
+test("a setup's end offers the next pack's (#445), and the summit starts there", async () => {
+  const one = (id: string, name: string): Pack => ({ manifest: { api: PACK_API, id, name, description: "", domain: "work", onboard: { steps: [{ id: "one", title: "One" }] } }, setup: { draw: () => ({ body: "" }) } });
+  const { get, post } = signedIn(snapshot(), {}, { packs: [one("first", "First"), one("second", "Second")] });
+  await post("/setup/first/next", "step=one");
+  const done = await (await get("/setup/first?at=done")).text();
+  assert.match(done, /<a class="climb-go" href="\/setup\/agents">Next: Agents .*<a class="climb-link" href="\/">Today<\/a>/s, "in Today's order: core's Agents first");
+  assert.doesNotMatch(done, /flag's back/);
+  const { setupPage } = await import("../src/pages/setup.ts");
+  const last = String(setupPage({ flags: [], pack: { id: "second", name: "Second" }, steps: [{ id: "one", title: "One" }], at: 1 }));
+  assert.match(last, /class="climb-go" href="\/">Back to Today/, "none left: Today");
+  assert.equal((await post("/welcome/done", "setup=nope")).headers.get("location"), "/", "not a pack with a setup: Today");
+});

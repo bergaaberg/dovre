@@ -35,6 +35,8 @@ export type SetupView = {
   carry?: boolean;
   /** What the last Next was refused for. */
   error?: string;
+  /** At the end: the next pack whose setup isn't finished. */
+  next?: { id: string; name: string };
 };
 
 /**
@@ -61,7 +63,11 @@ export function setupPage(v: SetupView) {
   const head = html`<div class="su-head"><span class="climb-mark">${MARK}Setting up ${v.pack.name}</span>${v.at < n ? later : ""}</div>`;
   const body =
     v.at >= n
-      ? html`${head}<div class="climb-eyebrow">${v.pack.name} · set</div><h2>That's it.</h2><p class="climb-lede">${v.pack.name} is ready. Its flag's back with the others.</p><div class="climb-row"><a class="climb-go" href="/">Back to Today ${arrow}</a><a class="climb-link" href="${href(0)}">Run it again</a></div>`
+      ? html`${head}<div class="climb-eyebrow">${v.pack.name} · set</div><h2>That's it.</h2><p class="climb-lede">${v.pack.name} is set up. Run this again from Packs if anything changes.</p>${
+          v.next
+            ? html`<div class="climb-row"><a class="climb-go" href="/setup/${v.next.id}">Next: ${v.next.name} ${arrow}</a><a class="climb-link" href="/">Today</a><a class="climb-link" href="${href(0)}">Run it again</a></div>`
+            : html`<div class="climb-row"><a class="climb-go" href="/">Back to Today ${arrow}</a><a class="climb-link" href="${href(0)}">Run it again</a></div>`
+        }`
       : stepBody(v, head, href);
   return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body, refresh: v.at < n ? v.refresh : undefined, script: SETUP_JS_PATH });
 }

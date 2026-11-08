@@ -146,8 +146,12 @@ function summit(v: ClimbView) {
 <h2>You made it.</h2>
 <p class="climb-lede">${n} flag${n === 1 ? "" : "s"} on the ridge. Today's ready${s.restarts ? " once Dovre restarts, in a few seconds" : ""}.</p>
 ${s.waits ? html`<p class="climb-small">What runs on your laptop waits for it.</p>` : ""}
-${s.later.length ? html`<div class="climb-card"><h3>A little more, when you get there</h3><p class="climb-small">These packs have a short setup of their own. Today lists them until they're done.</p><ul class="climb-later">${s.later.map((l) => html`<li><a href="/setup/${l.id}"><b>${l.name}</b></a> · ${l.steps.join(", ").toLowerCase()}</li>`)}</ul></div>` : ""}
-<div class="climb-row"><form method="post" action="/welcome/done"><button type="submit" class="climb-go">Open Today ${arrow}</button></form><a class="climb-link" href="/welcome?at=role">Climb again</a></div>
+${s.later.length ? html`<div class="climb-card"><h3>A little more, when you get there</h3><p class="climb-small">These packs have a short setup of their own. Each one ends on the next, and Today lists them until they're done.</p><ul class="climb-later">${s.later.map((l) => html`<li><a href="/setup/${l.id}"><b>${l.name}</b></a> · ${l.steps.join(", ").toLowerCase()}</li>`)}</ul></div>` : ""}
+<div class="climb-row"><form method="post" action="/welcome/done">${
+    s.later.length
+      ? html`<button type="submit" class="climb-go" name="setup" value="${s.later[0]!.id}">Set up ${s.later[0]!.name} ${arrow}</button><button type="submit" class="climb-link">Open Today</button>`
+      : html`<button type="submit" class="climb-go">Open Today ${arrow}</button>`
+  }</form><a class="climb-link" href="/welcome?at=role">Climb again</a></div>
 <p class="climb-small">Fonts, colours and the rest are under Settings → Look.</p>`;
 }
 
