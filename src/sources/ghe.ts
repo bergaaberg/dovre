@@ -294,6 +294,12 @@ export function prNeeds(p: Pr): string[] {
   return why;
 }
 
+const prFailing = (p: Pr) => p.checks === "FAILURE" || p.checks === "ERROR";
+/** Mine first where I'm needed: red, changes asked, threads, ready to merge; then the freshest. */
+export const prWeight = (p: Pr) => (prFailing(p) ? 0 : p.review === "CHANGES_REQUESTED" ? 1 : p.openThreads ? 2 : prNeeds(p)[0]?.startsWith("approved") ? 3 : p.draft ? 5 : 4);
+/** Mine first where I'm needed (Today's card and the PR list's "attention" sort). */
+export const prOrder = (prs: Pr[]): Pr[] => [...prs].sort((a, b) => prWeight(a) - prWeight(b) || b.updatedAt.localeCompare(a.updatedAt));
+
 export async function loadPrs(ghe: Ghe, login: string, org: string): Promise<{ mine: Pr[]; review: Pr[] }> {
   const q = (s: string) => JSON.stringify(s);
   const d = await ghe.graphql<{ mine: { nodes: PrNode[] }; review: { nodes: PrNode[] } }>(`{

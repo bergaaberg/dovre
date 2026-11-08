@@ -7,6 +7,7 @@ import { test } from "node:test";
 import type { HarnessId, Run, Runner, StartOpts } from "../../../../agents/runner.ts";
 import { modelOf } from "../../../../agents/desk.ts";
 import { createApp } from "../../../../app.ts";
+import { prsPack } from "../../prs/index.ts";
 import { openDb } from "../../../../db.ts";
 import type { Snapshot } from "../../../../gather.ts";
 import { logAction, recentActions } from "../../../../actions/deploys.ts";
@@ -120,7 +121,7 @@ function appWith(s: { snap: Snapshot }, opts: { runner?: ReturnType<typeof fakeR
   const gatherer = { get: async () => s.snap, stale: () => {}, gathering: () => false, peek: () => s.snap };
   const { ghe, calls } = fakeGhe(opts.routes ?? {});
   const pack = reviewsPack({ runner: fr.runner, ghe, owners: () => "ACME", dirOf: (repo) => (repo === "ACME/people" ? join(code, "people") : undefined), codeDir: code, claudeDir: join(home, "nope"), home, modelOf });
-  const packs = { ...activePacks([pack, testAgentsPack()], { env: {}, hosted: false }), env: {} };
+  const packs = { ...activePacks([pack, testAgentsPack(), prsPack({ ghe, owners: () => "ACME" })], { env: {}, hosted: false }), env: {} };
   const app = createApp({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: code, CLAUDE_DIR: join(home, "nope"), DB: db.DB }, { gatherer, ghe, runner: fr.runner, skillsHome: home, packs });
   const get = async (path: string) => {
     const res = await app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });

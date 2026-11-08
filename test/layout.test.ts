@@ -76,7 +76,7 @@ test("Settings → Layout: tabs, a card moved and one hidden, a feed off, a pack
   assert.match(settings, /<select name="tab1">[\s\S]*?<option value="\/shop" selected>Shop<\/option>/, "the tab the pack marks, as it is now");
   assert.match(settings, /name="col:shop-now"/);
 
-  const res = await post("/settings/layout", { tab1: "/prs", tab2: "/blog", tab3: "", "col:agents": "off", "order:agents": "10", "col:shop-now": "left", "order:shop-now": "1", "col:prs": "right", "order:prs": "10", feed: "shop", pack: "shop" });
+  const res = await post("/settings/layout", `${new URLSearchParams({ tab1: "/prs", tab2: "/blog", tab3: "", "col:agents": "off", "order:agents": "10", "col:shop-now": "left", "order:shop-now": "1", "col:prs": "right", "order:prs": "10", feed: "shop", pack: "shop" })}&pack=prs`);
   assert.equal(res.status, 303);
   const today = await (await get("/")).text();
   assert.doesNotMatch(today, /class="card" id="agents"/, "a hidden card isn't drawn");
@@ -113,15 +113,15 @@ test("look: a picked theme and accent are on every page's <html>, the CSS has a 
   assert.match(unset, /<meta name="theme-color" content="#efe7db" media="\(prefers-color-scheme: light\)">/, "the browser's bar follows the system too");
   assert.match(unset, /<meta name="theme-color" content="#0e1922" media="\(prefers-color-scheme: dark\)">/);
   await post("/settings/layout", { theme: "dark", accent: "heather" });
-  const page = await (await get("/prs")).text();
+  const page = await (await get("/actions")).text();
   assert.match(page, /<html lang="en" data-theme="dark" data-accent="heather">/);
   assert.equal(page.match(/name="theme-color"/g)?.length, 1, "picked: one bar colour, the theme's");
   assert.match(page, /<meta name="theme-color" content="#0e1922">/);
   assert.match(await (await get("/settings/look")).text(), /name="accent" value="heather" checked>/);
   await post("/settings/layout", { theme: "light" });
-  assert.match(await (await get("/prs")).text(), /<meta name="theme-color" content="#efe7db">/);
+  assert.match(await (await get("/actions")).text(), /<meta name="theme-color" content="#efe7db">/);
   await post("/settings/layout", { theme: "ember", accent: "glacier" });
-  const ember = await (await get("/prs")).text();
+  const ember = await (await get("/actions")).text();
   assert.match(ember, /<html lang="en" data-theme="ember" data-accent="glacier">/);
   assert.match(ember, /<meta name="theme-color" content="#1b140f">/);
   assert.match(await (await get("/settings/look")).text(), /name="theme" value="ember" checked>/);
@@ -133,11 +133,11 @@ test("reading settings (#183): font, text size and line height on <html>, a CSS 
   assert.deepEqual(layoutOf({ font: "comic", textSize: "huge", lineHeight: 3 }), {});
   const { get, post } = signedIn(snapshot());
   await post("/settings/layout", { font: "serif", textSize: "larger", lineHeight: "loose" });
-  assert.match(await (await get("/prs")).text(), /<html lang="en" data-font="serif" data-size="larger" data-lh="loose">/);
+  assert.match(await (await get("/actions")).text(), /<html lang="en" data-font="serif" data-size="larger" data-lh="loose">/);
   const settings = await (await get("/settings/look")).text();
   for (const v of ["serif", "larger", "loose"]) assert.match(settings, new RegExp(`value="${v}" checked>`));
   await post("/settings/layout", { font: "", textSize: "", lineHeight: "" });
-  assert.match(await (await get("/prs")).text(), /<html lang="en">/);
+  assert.match(await (await get("/actions")).text(), /<html lang="en">/);
 });
 
 test("themes (#95): each has its block, its accents and its scheme; the browser's bar is its --sky; the system's dark leaves a picked theme alone", async () => {
@@ -175,14 +175,14 @@ test("Bino's button: the assistant icon without an avatar; with one, the avatar 
     return { get, post };
   };
   const button = (page: string) => page.match(/<a class="tdock-btn[^"]*" id="bdock-btn"[^]*?<\/a>/)?.[0] ?? "";
-  const icon = button(await (await appWith([]).get("/prs")).text());
+  const icon = button(await (await appWith([]).get("/actions")).text());
   assert.match(icon, /class="tdock-btn bino-btn"/);
   assert.match(icon, /href="#i-bino"/);
   assert.match(icon, /aria-label="Bino"/);
   const { get, post } = appWith([face]);
-  assert.match(button(await (await get("/prs")).text()), /face-btn[^]*av-face/);
+  assert.match(button(await (await get("/actions")).text()), /face-btn[^]*av-face/);
   await post("/settings/layout", { part: "look", binoButton: "icon" });
-  assert.match(button(await (await get("/prs")).text()), /href="#i-bino"/);
+  assert.match(button(await (await get("/actions")).text()), /href="#i-bino"/);
   assert.match(await (await get("/settings/look")).text(), /name="binoButton" value="icon" checked>[^]*?The assistant icon/);
   assert.deepEqual(layoutOf({ binoButton: "face" }), {}, "only what it knows");
 });
@@ -206,10 +206,10 @@ test("motion: Always puts data-motion on <html>, and the reduced-motion rules an
   assert.match(SCRIPT, /dataset\.motion !== "always"/);
   assert.deepEqual(layoutOf({ motion: "never" }), {}, "only what it knows");
   const { get, post } = signedIn(snapshot());
-  assert.doesNotMatch(await (await get("/prs")).text(), /data-motion/);
+  assert.doesNotMatch(await (await get("/actions")).text(), /data-motion/);
   await post("/settings/layout", { motion: "always" });
-  assert.match(await (await get("/prs")).text(), /<html lang="en" data-motion="always">/);
+  assert.match(await (await get("/actions")).text(), /<html lang="en" data-motion="always">/);
   assert.match(await (await get("/settings/look")).text(), /name="motion" value="always" checked>/);
   await post("/settings/layout", { motion: "" });
-  assert.match(await (await get("/prs")).text(), /<html lang="en">/);
+  assert.match(await (await get("/actions")).text(), /<html lang="en">/);
 });

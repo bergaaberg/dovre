@@ -92,14 +92,14 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
     },
     refresh: (ctx) => pass(ctx, !ctx.hosted),
     scheduled: (_e, ctx) => pass(ctx, true),
-    needs: () =>
+    needs: (ctx) =>
       rows
         .filter((r) => r.state === "yours")
         .map((r) => ({
           key: `autoreview:${r.pr}:${r.round}`,
           title: `Auto PR ${r.repo}#${r.number} is handed to you${r.level !== null ? ` at level ${r.level}` : ""}`,
           ...(r.why ? { line: r.why.slice(0, 300) } : {}),
-          href: `/prs/${r.repo}/${r.number}`,
+          href: ctx.pageOn("/prs") ? `/prs/${r.repo}/${r.number}` : r.pr,
           tone: "warn" as const,
           at: r.updated,
           ring: "autoreview-yours",

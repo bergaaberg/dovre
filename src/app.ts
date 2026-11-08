@@ -11,7 +11,6 @@ import { slowLog } from "./slow.ts";
 import { createSpeed, routeOk, type Speed, speedLog, WAITED } from "./speed.ts";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { parsePrQuery, PRS_COOKIE, PRS_KEYS, prQueryString } from "./pages/prlist.ts";
 import { contextStorage, tryGetContext } from "hono/context-storage";
 import { secureHeaders } from "hono/secure-headers";
 import { type AccessVerifier, COOKIE, allowed, isLocal, isOwnOrigin, publicOriginOf, sameSecret, secureCookie } from "./access.ts";
@@ -23,10 +22,8 @@ import { type Need, needsOf } from "./home/needs.ts";
 import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell, tabsOf } from "./html.ts";
 import { CORE_CARDS, packOrder, homePage } from "./pages/home.ts";
 import { currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
-import { prsPage } from "./pages/pages.ts";
 import type { Ghe } from "./sources/ghe.ts";
 import { githubForge } from "./forge/github.ts";
-import { type CheckJob, runCheck } from "./reviews/check.ts";
 import { type Forge, type ForgeCan, forgeCan } from "./forge/types.ts";
 import { streamSSE } from "hono/streaming";
 import type { Hub } from "./live.ts";
@@ -87,9 +84,8 @@ import { GO_KEYS, SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
 import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./packs/guard.ts";
-import { createViewerRoutes } from "./pages/viewer.ts";
+import { createCodeRoutes } from "./pages/code.ts";
 import { settle, within } from "./pages/later.ts";
-import { draftOf } from "./reviews/draft.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
 import { DEFAULT_KEYS, KEY_GROUPS, keyPrefsStore } from "./keys.ts";
 import { keysPanel } from "./pages/keys.ts";
@@ -101,7 +97,6 @@ const PANE_PATHS: [PaneId, RegExp][] = [
 
 /** Core pages only some forges serve (src/forge/types.ts): not here at all when this one can't. */
 const FORGE_PATHS: [ForgeCan, RegExp][] = [
-  ["viewer", /^\/prs\/[^/]+\/[^/]+\/\d+(\/files)?$/],
   ["deployApproval", /^\/deploys\/(approve|reject|reject-superseded)$/],
 ];
 
@@ -119,12 +114,10 @@ function pendingPage(path: string, frame: Frame): string {
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
 export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
-  const prs = s.prs.ok ? s.prs.value.mine.length + s.prs.value.review.length : 0;
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
   const items: (NavItem | false)[] = [
     { href: "/", title: "Today", icon: "home" },
     !!opts.stats && { href: "/stats", title: "Stats", icon: "chart" },
-    { href: "/prs", title: "Pull requests", short: "PRs", icon: "pr", group: "Code", order: 10, count: prs, hot: s.prs.ok && s.prs.value.review.length > 0 },
     !opts.hosted && { href: "/code", title: "Code", icon: "code", group: "Code", order: 40 },
     !!opts.bino && { href: "/bino", title: "Bino", icon: "chat", group: "Agents", order: 20 },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
@@ -151,7 +144,7 @@ function hashBytes(b: Uint8Array): string {
   return (h >>> 0).toString(36);
 }
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns; in a pack session, its own (#371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; /** Hosted: runs the agent's check of my review in the Durable Object (src/hosted/hub.ts), which publishes `topic` when it's done. */ reviewCheck?: (job: CheckJob, topic: string) => Promise<void>; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** A pack session (#353, src/run.ts): only this pack's pages, sign-in, assets and the event stream; no cockpit. */ session?: { pack: string; /** The one checkout under CODE_DIR its packs see (#368). */ checkout?: string }; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns; in a pack session, its own (#371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** A pack session (#353, src/run.ts): only this pack's pages, sign-in, assets and the event stream; no cockpit. */ session?: { pack: string; /** The one checkout under CODE_DIR its packs see (#368). */ checkout?: string }; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
@@ -841,7 +834,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const noStore = (res: Response) => (res.headers.set("Cache-Control", "no-store"), res);
 
   // ── Search (src/search/search.ts): /search as a page; with frag=1, just the list the palette swaps in ──
-  const gheSearch = createGheSearch(ghe, ownersIn(env));
+  const gheSearch = createGheSearch(ghe, ownersIn(env), { viewer: () => can("viewer") && pageOn("/prs") });
   // ── Stats: the packs' panels (Pack.stats), from memory; each pack gathers on its own ──
   /** The packs' panels for /stats, over the weeks I picked (Settings → Layout). */
   // Days touch at most five weeks: that's what a pack drawing weekly gets.
@@ -870,73 +863,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
     const found = packFinds();
-    const r = search({ s, deploys: pageOn("/deploys"), hidden: forgeHidden, viewer: can("viewer"), list: await listOf(sharedList()), repos: listRepos(env.CODE_DIR), pages, apps: found.apps, kinds: found, remote }, raw, { only: c.req.query("only"), per: c.req.query("frag") === "1" ? undefined : 10 });
+    const r = search({ s, deploys: pageOn("/deploys"), hidden: forgeHidden, viewer: can("viewer") && pageOn("/prs"), list: await listOf(sharedList()), repos: listRepos(env.CODE_DIR), pages, apps: found.apps, kinds: found, remote }, raw, { only: c.req.query("only"), per: c.req.query("frag") === "1" ? undefined : 10 });
     if (c.req.query("frag") === "1") return noStore(await c.html(html`${searchList(r)}`));
     return c.html(searchPage(frame, r, raw));
   });
 
-  app.get("/prs", async (c) => {
-    // The view, filters and sort (dovre#157): from the link, else as this viewer left them (a cookie).
-    const url = new URL(c.req.url);
-    const keep = { httpOnly: true, sameSite: "Lax" as const, path: "/prs", maxAge: 400 * 86400, secure: url.protocol === "https:" };
-    if (url.searchParams.has("reset")) {
-      deleteCookie(c, PRS_COOKIE, { path: "/prs" });
-      return c.redirect("/prs", 303);
-    }
-    const asked = PRS_KEYS.some((k) => url.searchParams.has(k));
-    const q = parsePrQuery(asked ? url.searchParams : new URLSearchParams(getCookie(c, PRS_COOKIE) ?? ""));
-    if (asked) {
-      const str = prQueryString(q);
-      if (str) setCookie(c, PRS_COOKIE, str, keep);
-      else deleteCookie(c, PRS_COOKIE, { path: "/prs" });
-      // An all-defaults form goes back to the plain address; anything else stays a link to share.
-      if (url.search.slice(1) !== str) return c.redirect(str ? `/prs?${str}` : "/prs", 303);
-    }
-    const { s, frame } = await page();
-    return c.html(prsPage(frame, s, summary, agentOf, { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge, q, { dependabot: pageOn("/dependabot"), stacks: pageOn("/stacks") }));
-  });
-  // Stacks' pages are its pack's (#408), at /stacks since.
-  app.get("/prs/stacks", (c) => c.redirect("/stacks", 301));
-  // ── Dovre's own PR viewer, diff viewer and code explorer (src/pages/viewer.ts) ──
-  app.route(
-    "/",
-    createViewerRoutes(env, {
-      ghe,
-      frame: async () => (await page()).frame,
-      hub: deps.hub,
-      facts: (p) => fill("pr.facts", p).flat(),
-      fileSlot: (f) => html`${fill("pr.file", f)}`,
-      kept: deps.kept,
-      agentFor: async (repo, n) => {
-        const { s } = await page();
-        const p = s.prs.ok ? [...s.prs.value.mine, ...s.prs.value.review].find((x) => x.repo === repo && x.number === n) : undefined;
-        return p ? agentOf(p) : "";
-      },
-      db: env.DB,
-      login: async () => (await page()).s.login,
-      stale: () => gatherer.stale(),
-      checker: () => {
-        const r = bino?.route;
-        if (!binoOn() || !r?.ready || !r.ask) return undefined;
-        const ask = r.ask;
-        // Hosted, the Durable Object runs it; locally, this process does, in the background.
-        const start = deps.reviewCheck ?? (async (job: CheckJob, topic: string) => void runCheck(env.DB, ask, job, () => deps.hub?.publish([topic])));
-        return { model: r.model, start };
-      },
-      agentDraft: async (repo, n) => {
-        // A pack's answer, read again as a draft: only a review's own shape goes in.
-        for (const got of fill("review.draft", { repo, number: n })) {
-          const draft = got && typeof got.sha === "string" ? draftOf("review", got.draft) : null;
-          if (draft?.kind === "review") return { sha: got!.sha, draft };
-        }
-        return undefined;
-      },
-      // Where it sits in a stack: the stacks pack's line (#408), from memory.
-      stackFor: async (repo, n) => fill("pr.stack", { repo, number: n }).find((x) => !!x) || undefined,
-    }),
-  );
-  // Dependabot's pages are its pack's (#407), at /dependabot since.
-  app.get("/prs/dependabot", (c) => c.redirect("/dependabot", 301));
+  // ── The code explorer (src/pages/code.ts; local only). PRs and their viewer are the prs pack's (#409). ──
+  app.route("/", createCodeRoutes(env, { ghe, frame: async () => (await page()).frame }));
 
 
   // ── Settings: what's here, the panes (src/config.ts), notifications ──

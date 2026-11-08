@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Env } from "../src/env.ts";
 import { BUDGET_MS, later, Reading, within } from "../src/pages/later.ts";
-import { createViewerRoutes } from "../src/pages/viewer.ts";
+
 import type { Ghe } from "../src/sources/ghe.ts";
 import type { Git } from "../src/viewer/code.ts";
-import { assertInert, H } from "./helpers.ts";
+import { assertInert, H, viewerRoutes } from "./helpers.ts";
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 /** A promise and its resolve/reject, to land a load when the test says. */
@@ -81,7 +81,7 @@ test("Reading: the pending block the client fills in, its text inert", () => {
   assertInert("reading", out);
 });
 
-// ── Through a page: the PR's files (src/pages/viewer.ts) ──
+// ── Through a page: the PR's files (src/packs/core/prs/routes.ts) ──
 const SHA = "a".repeat(40);
 const VIEW = {
   repository: {
@@ -116,7 +116,7 @@ const timed = async (app: { request: (p: string) => Response | Promise<Response>
 
 test("the PR's files: slow on GHE, the page answers within its budget reading, then fills in", async () => {
   const g = gate<unknown>();
-  const app = createViewerRoutes(ENV, { ghe: ghe(() => g.p), frame, checkouts: () => [] });
+  const app = viewerRoutes({ ghe: ghe(() => g.p), checkouts: () => [] });
   const first = await timed(app, "/prs/ACME/web/9/files");
   assert.equal(first.res.status, 200);
   assert.match(first.out, /data-pending/);
@@ -131,12 +131,12 @@ test("the PR's files: slow on GHE, the page answers within its budget reading, t
 });
 
 test("the PR's files: a failed read shows as failed, its text inert; a fast one renders directly", async () => {
-  const bad = createViewerRoutes(ENV, { ghe: ghe(async () => { throw new Error(`GHE 502 ${H}`); }), frame, checkouts: () => [] });
+  const bad = viewerRoutes({ ghe: ghe(async () => { throw new Error(`GHE 502 ${H}`); }), checkouts: () => [] });
   const out = (await timed(bad, "/prs/ACME/web/9/files")).out;
   assert.match(out, /The files didn't load/);
   assert.doesNotMatch(out, /data-pending/, "failed, not reading forever");
   assertInert("failed files", out);
-  const good = createViewerRoutes(ENV, { ghe: ghe(async () => FILES), frame, checkouts: () => [] });
+  const good = viewerRoutes({ ghe: ghe(async () => FILES), checkouts: () => [] });
   const fast = await timed(good, "/prs/ACME/web/9/files");
   assert.doesNotMatch(fast.out, /data-pending/);
   assert.match(fast.out, /new line/);
@@ -146,7 +146,7 @@ test("the PR's files: a failed read shows as failed, its text inert; a fast one 
 test("the PR's files: a slow git in the checkout doesn't hold the page", async () => {
   const g = gate<{ code: number; stdout: string; stderr: string }>();
   const git: Git = () => g.p;
-  const app = createViewerRoutes(ENV, { ghe: ghe(async () => FILES), frame, checkouts: () => [{ dir: "web", repo: "ACME/web" }], git });
+  const app = viewerRoutes({ ghe: ghe(async () => FILES), checkouts: () => [{ dir: "web", repo: "ACME/web" }], git });
   const r = await timed(app, "/prs/ACME/web/9/files");
   assert.match(r.out, /new line/);
   assert.doesNotMatch(r.out, /isn't in your checkout yet/, "no fetch hint while git is still checking");

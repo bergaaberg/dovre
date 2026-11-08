@@ -20,6 +20,7 @@ import { assistantPack } from "../packs/core/assistant/index.ts";
 import { todoPack } from "../packs/core/todo/index.ts";
 import { movementPack } from "../packs/core/movement/index.ts";
 import { deploysPack } from "../packs/core/deploys/index.ts";
+import { prsPack } from "../packs/core/prs/index.ts";
 import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { FORGE_CAN } from "../forge/types.ts";
 import { createDismissed } from "../agents/dismissed.ts";
@@ -261,7 +262,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     const history = historyPack({ history: () => ({ view: () => ({ history: stats.view().history, gathering: false }), refresh: () => {} }) });
     const spend = { days: async () => stats.view().spend ?? [], known: () => stats.view().spend };
     const ghe = makeNoGhe(host);
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), todoPack({ links: () => ({ ghe: host, org }) }), movementPack(), deploysPack({ ghe, owners: () => org, approve: true }), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), todoPack({ links: () => ({ ghe: host, org }) }), movementPack(), prsPack({ ghe, owners: () => org }), deploysPack({ ghe, owners: () => org, approve: true }), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const snapshot = () => gatherer.peek() ?? snapshotFn();
     const route = demoScriptRoute({ snapshot, answers: opts.answers });
     const memory = noMemory("The demo remembers nothing.");

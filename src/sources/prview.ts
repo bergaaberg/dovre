@@ -1,5 +1,5 @@
 /**
- * One pull request, read for its own page (src/pages/viewer.ts): what it is, its checks, reviews
+ * One pull request, read for its own page (src/packs/core/prs/view.ts): what it is, its checks, reviews
  * and review threads, a short timeline, and its files with their patches. Read-only. Cached by
  * the page (memoize): a PR seen before draws at once and is read again in the background.
  */

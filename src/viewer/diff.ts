@@ -1,6 +1,6 @@
 /**
  * A file's patch (as GHE's PR files API gives it) as lines with numbers on both sides, and the
- * review threads placed on the lines they're about. Pure; src/pages/viewer.ts draws it.
+ * review threads placed on the lines they're about. Pure; src/pages/diffview.ts draws it.
  */
 import type { PrFile, Thread } from "../sources/prview.ts";
 

@@ -2,7 +2,7 @@
  * The PR list's views, filters and sorts (dovre#157): pure, from the query string. The page keeps
  * the last choice in a cookie, so each viewer comes back to their own.
  */
-import { prNeeds, type Pr } from "../sources/ghe.ts";
+import { prNeeds, prWeight as weight, type Pr } from "../../../sources/ghe.ts";
 
 export const VIEWS = {
   all: "All",
@@ -75,11 +75,7 @@ const VIEW_TEST: Record<View, { mine: ((p: Pr) => boolean) | null; review: ((p: 
   ready: { mine: (p) => p.review === "APPROVED" && !p.draft, review: null },
 };
 
-/** Mine first where I'm needed: red, changes asked, threads, ready to merge; then the freshest. */
-const weight = (p: Pr) => (failing(p) ? 0 : p.review === "CHANGES_REQUESTED" ? 1 : p.openThreads ? 2 : prNeeds(p)[0]?.startsWith("approved") ? 3 : p.draft ? 5 : 4);
 const newest = (a: Pr, b: Pr) => b.updatedAt.localeCompare(a.updatedAt);
-/** Mine first where I'm needed (the home card's order too). */
-export const prOrder = (prs: Pr[]): Pr[] => [...prs].sort((a, b) => weight(a) - weight(b) || newest(a, b));
 const SORT_BY: Record<Sort, (a: Pr, b: Pr) => number> = {
   attention: (a, b) => weight(a) - weight(b) || newest(a, b),
   updated: newest,

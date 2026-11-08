@@ -2,16 +2,16 @@
  * My own review of a PR (dovre#106), drawn in the PR viewer: the "+" on each line of the Files tab
  * opens a comment form, my pending comments sit at their lines as cards I edit or remove, and the
  * Review tab holds the summary, the verdict, the preview and the Post. Nothing goes to GHE before
- * that Post (src/actions/reviews.ts, the same checks as an agent's draft). Routes: src/pages/viewer.ts.
+ * that Post (src/actions/reviews.ts, the same checks as an agent's draft). Routes: routes.ts.
  */
 import { html } from "hono/html";
-import { type Frame, shell } from "../html.ts";
-import { type LineComment, MAX_BODY, MAX_SUMMARY, type ReviewDraft, type Side, type Verdict, VERDICT_LABEL, VERDICTS } from "../reviews/draft.ts";
-import { type Card, cardLabel, type Check, type CheckMode, lost, targetLabel } from "../reviews/check.ts";
-import type { MyReview, Pending } from "../reviews/mine.ts";
-import { Confirm, type Html, Notice, Panel, Pill, Post } from "../ui/kit.ts";
-import { markdown } from "../ui/markdown.ts";
-import { forgeName, Link } from "./parts.ts";
+import type { PageOpts } from "../../types.ts";
+import { type LineComment, MAX_BODY, MAX_SUMMARY, type ReviewDraft, type Side, type Verdict, VERDICT_LABEL, VERDICTS } from "../../../reviews/draft.ts";
+import { type Card, cardLabel, type Check, type CheckMode, lost, targetLabel } from "../../../reviews/check.ts";
+import type { MyReview, Pending } from "../../../reviews/mine.ts";
+import { Confirm, type Html, Notice, Panel, Pill, Post } from "../../../ui/kit.ts";
+import { markdown } from "../../../ui/markdown.ts";
+import { forgeName, Link } from "../../../pages/parts.ts";
 
 export type Flash = { ok: boolean; message: string; url?: string };
 
@@ -125,7 +125,7 @@ function checkPanel(v: ReviewPageView, comments: Pending[]): Html | "" {
 }
 
 /** The Review tab: my comments, the summary and verdict, then the preview with its Post. */
-export function reviewPage(frame: Frame, v: ReviewPageView): Html {
+export function reviewPage(forge: string, v: ReviewPageView): PageOpts {
   const r = v.review;
   const comments = r?.comments ?? [];
   const moved = !!r && r.sha !== v.head;
@@ -137,7 +137,7 @@ export function reviewPage(frame: Frame, v: ReviewPageView): Html {
 <div class="field"><fieldset><legend class="label">Verdict</legend>${verdicts.map((x) => html`<label class="check"><input type="radio" name="verdict" value="${x}"${x === v.verdict ? html` checked` : ""}> ${VERDICT_LABEL[x]}</label>`)}</fieldset>${v.own ? html`<span class="hint">Your own PR: a Comment only.</span>` : ""}</div>
 <label class="field"><span class="label">Summary</span><textarea name="summary" rows="${rows(v.summary, 5)}" maxlength="${MAX_SUMMARY}" placeholder="Markdown">\n${v.summary}</textarea></label>
 ${list}
-<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" name="mode" value="review" data-busy="Starting">Review with an agent</button>${comments.length || v.summary ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}` : ""}<span class="hint">Nothing goes to ${forgeName(frame.host)} before Post on the preview.</span></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Checking">Preview</button>${v.checker && !moved ? html`<button type="submit" formaction="${v.base}/review/check" name="mode" value="review" data-busy="Starting">Review with an agent</button>${comments.length || v.summary ? html`<button type="submit" formaction="${v.base}/review/check" data-busy="Starting">Check with an agent</button>` : ""}` : ""}<span class="hint">Nothing goes to ${forge} before Post on the preview.</span></div>
 </form>`;
   const p = v.preview;
   const preview = !p
@@ -145,7 +145,7 @@ ${list}
     : "problem" in p
       ? Notice({ tone: "bad", children: p.problem })
       : Panel({
-          title: `What goes to ${forgeName(frame.host)}`,
+          title: `What goes to ${forge}`,
           meta: Pill({ children: VERDICT_LABEL[v.verdict] }),
           children: html`${p.notes.map((n) => Notice({ tone: "warn", children: n }))}${p.draft.summary ? html`<div class="draft-text">${markdown(p.draft.summary)}</div>` : ""}${p.draft.comments.map(
             (c) => html`<div class="draft-card"><code class="draft-where">${whereOf(c)}</code><div class="draft-text">${markdown(c.body)}</div></div>`,
@@ -157,7 +157,7 @@ ${list}
             question: html`Post this review as <strong>${VERDICT_LABEL[v.verdict]}</strong>?`,
           })}</div>`,
         });
-  const flash = v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: html`${v.flash.message}${v.flash.url ? html` ${Link(v.flash.url, `Open it on ${forgeName(frame.host)}`)}` : ""}` }) : "";
+  const flash = v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: html`${v.flash.message}${v.flash.url ? html` ${Link(v.flash.url, `Open it on ${forge}`)}` : ""}` }) : "";
   const agent = v.agent && !moved ? html`<div class="buttons">${Post({ action: `${v.base}/review/import`, label: `Add the agent's ${v.agent} ${v.agent === 1 ? "comment" : "comments"}` })}<span class="hint">Its comments join yours, and its summary fills an empty one: change any of it before you post.</span></div>` : "";
   const movedNote = moved
     ? Notice({ tone: "warn", children: html`Your review is on ${r!.sha.slice(0, 7)}; the PR is now at ${v.head.slice(0, 7)}. ${Post({ action: `${v.base}/review/move`, fields: { sha: v.head }, label: `Move it to ${v.head.slice(0, 7)}` })}` })
@@ -166,5 +166,5 @@ ${list}
     ? html`<div class="buttons">${Confirm({ kind: "review.discard", action: `${v.base}/review/discard`, label: "Discard your review", question: `Throw away your summary and ${comments.length} pending ${comments.length === 1 ? "comment" : "comments"}? Nothing was posted.`, danger: true })}</div>`
     : "";
   const body = html`${v.header}${flash}${movedNote}${agent}${Panel({ title: "Your review", meta: comments.length ? `${comments.length} pending` : undefined, children: form })}${checkPanel(v, comments)}${preview}${discard}`;
-  return shell({ title: `Your review · ${v.title} · Dovre`, frame, current: "/prs", body, head: v.topic ? html`<meta name="u-topics" content="${v.topic}">` : undefined });
+  return { title: `Your review · ${v.title} · Dovre`, current: "/prs", body, head: v.topic ? html`<meta name="u-topics" content="${v.topic}">` : undefined };
 }

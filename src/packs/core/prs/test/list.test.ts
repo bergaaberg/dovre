@@ -1,8 +1,8 @@
 /** The PR list's views, filters, sorts (dovre#157), and the page remembering them per viewer. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyPrQuery, parsePrQuery, prQueryString, viewCounts } from "../src/pages/prlist.ts";
-import { assertInert, H, pr, signedIn, snapshot } from "./helpers.ts";
+import { applyPrQuery, parsePrQuery, prQueryString, viewCounts } from "../list.ts";
+import { assertInert, H, pr, signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const mine = [
   pr({ number: 1, title: "green", updatedAt: "2026-10-22T07:00:00Z", createdAt: "2026-10-20T00:00:00Z", additions: 5 }),

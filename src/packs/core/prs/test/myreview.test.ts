@@ -1,16 +1,15 @@
 /** My own review of a PR (dovre#106): comments on lines kept until I post, then one review on GHE after the same checks as an agent's. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { recentActions } from "../src/actions/deploys.ts";
-import { openDb } from "../src/db.ts";
-import type { Env } from "../src/env.ts";
-import { createViewerRoutes } from "../src/pages/viewer.ts";
-import type { ReviewDraft } from "../src/reviews/draft.ts";
-import { addComment, anchorOf, importDraft, myReview, saveSummary } from "../src/reviews/mine.ts";
-import type { Ghe } from "../src/sources/ghe.ts";
-import type { Complete } from "../src/ai/llm.ts";
-import { checkOf, runCheck, saveCheck } from "../src/reviews/check.ts";
-import { assertInert, H } from "./helpers.ts";
+import { recentActions } from "../../../../actions/deploys.ts";
+import { openDb } from "../../../../db.ts";
+import type { Env } from "../../../../env.ts";
+import type { ReviewDraft } from "../../../../reviews/draft.ts";
+import { addComment, anchorOf, importDraft, myReview, saveSummary } from "../../../../reviews/mine.ts";
+import type { Ghe } from "../../../../sources/ghe.ts";
+import type { Complete } from "../../../../ai/llm.ts";
+import { checkOf, runCheck, saveCheck } from "../../../../reviews/check.ts";
+import { assertInert, H, viewerRoutes } from "../../../../../test/helpers.ts";
 
 const SHA = "a".repeat(40);
 const NEW = "b".repeat(40);
@@ -57,9 +56,8 @@ function setup(o: { author?: string; sha?: string; agent?: { sha: string; draft:
   };
   const db = openDb();
   const runs: { done: Promise<void>; topic: string }[] = [];
-  const app = createViewerRoutes({ GHE_ORG: "ACME", CODE_DIR: "C:/code" } as unknown as Env, {
+  const app = viewerRoutes({
     ghe,
-    frame: async () => ({ operator: "me", nav: [], host: "acme.ghe.com" }),
     checkouts: () => [],
     db: db.DB,
     login: async () => o.me ?? "me",

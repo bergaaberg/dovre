@@ -4,7 +4,8 @@ import { html } from "hono/html";
 import type { Child } from "../src/ui/kit.ts";
 import { test } from "node:test";
 import type { Env } from "../src/env.ts";
-import { createViewerRoutes, fileView } from "../src/pages/viewer.ts";
+import { createCodeRoutes } from "../src/pages/code.ts";
+import { fileView } from "../src/pages/diffview.ts";
 import type { Ghe } from "../src/sources/ghe.ts";
 import { normalizePrView } from "../src/sources/prview.ts";
 import { blob, commitOf, type Git, grep, safePath, safeRef, tree } from "../src/viewer/code.ts";
@@ -16,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertInert, H, signedIn, snapshot } from "./helpers.ts";
+import { assertInert, H, signedIn, snapshot, viewerRoutes } from "./helpers.ts";
 
 const SHA = "a".repeat(40);
 const raw = (o: Record<string, unknown> = {}) => ({
@@ -141,7 +142,7 @@ test("files: binary, renamed, generated and big ones start folded, with why", ()
 
 test("the PR page and its files draw hostile text inert, link nothing unsafe, and a second view doesn't ask GHE again", async () => {
   const { ghe, calls } = fakeGhe();
-  const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [] });
+  const app = viewerRoutes({ ghe, checkouts: () => [] });
   const page = await app.request("/prs/ACME/shop-api/840");
   assert.equal(page.status, 200);
   const out = await page.text();
@@ -164,7 +165,7 @@ test("the PR page and its files draw hostile text inert, link nothing unsafe, an
 test("the PR page draws the pack's facts for that PR, not just its repo", async () => {
   const { ghe } = fakeGhe();
   const facts = (p: { repo: string; number: number; branch: string }) => [["Ticket", html`<a href="https://example.net/${p.number}">${p.branch}</a>`] as [Child, Child]];
-  const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [], facts });
+  const app = viewerRoutes({ ghe, checkouts: () => [], facts });
   const out = await (await app.request("/prs/ACME/shop-api/840")).text();
   assert.match(out, /href="https:\/\/example.net\/840"/, "the fact row is this PR's");
 });
@@ -172,7 +173,7 @@ test("the PR page draws the pack's facts for that PR, not just its repo", async 
 test("the Files tab draws each file's pack buttons, told the file, its status and the head commit", async () => {
   const { ghe } = fakeGhe();
   const fileSlot = (f: { number: number; path: string; status: string; sha: string }) => (f.path.endsWith(".ts") ? html`<a class="btn sm ghost" href="/x/${f.number}/${f.status}/${f.sha}/${f.path}">Read</a>` : "");
-  const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [], fileSlot });
+  const app = viewerRoutes({ ghe, checkouts: () => [], fileSlot });
   const out = await (await app.request("/prs/ACME/shop-api/840/files")).text();
   assert.match(out, new RegExp(`href="/x/840/modified/${SHA}/src/a.ts">Read</a>`));
   assert.equal(out.match(/>Read</g)?.length, 1, "only where the pack answers");
@@ -180,7 +181,7 @@ test("the Files tab draws each file's pack buttons, told the file, its status an
 
 test("only the org's PRs; odd numbers and other owners are a 404 without asking GHE", async () => {
   const { ghe, calls } = fakeGhe();
-  const app = createViewerRoutes(ENV, { ghe, frame, checkouts: () => [] });
+  const app = viewerRoutes({ ghe, checkouts: () => [] });
   for (const p of ["/prs/evil/repo/1", "/prs/ACME/a..b/1", "/prs/ACME/shop-api/1x", "/prs/ACME/shop-api/99999999"]) assert.equal((await app.request(p)).status, 404, p);
   assert.equal(calls.length, 0);
 });
@@ -235,7 +236,7 @@ test("the code explorer through the app: only checkouts it knows, hostile code i
     "cat-file -s": { stdout: "40\n" },
     "cat-file blob": { stdout: `<script>alert(1)</script>\n${H}\n` },
   });
-  const app = createViewerRoutes(ENV, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }], git: g });
+  const app = createCodeRoutes(ENV, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }], git: g });
   assert.equal((await app.request("/code/other")).status, 404);
   assert.equal((await app.request("/code/shop-api?path=../x")).status, 400);
   const res = await app.request("/code/shop-api?path=src/a.ts");
@@ -340,7 +341,7 @@ test("local diff (#105) through the app: hostile code inert, bad refs refused be
   const r = repo();
   try {
     const env = { ...ENV, CODE_DIR: r.code } as Env;
-    const app = createViewerRoutes(env, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }] });
+    const app = createCodeRoutes(env, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }] });
     const res = await app.request("/code/shop-api/diff");
     assert.equal(res.status, 200);
     const out = await res.text();
@@ -362,7 +363,7 @@ test("local diff (#105) through the app: hostile code inert, bad refs refused be
     assert.equal((await app.request("/code/shop-api/diff?head=nope")).status, 404);
     assert.equal((await app.request("/code/other/diff")).status, 404);
     assert.match(await (await app.request("/code/shop-api")).text(), /href="\/code\/shop-api\/diff"/);
-    const hosted = createViewerRoutes({ ...env, IS_HOSTED: "1" } as Env, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }] });
+    const hosted = createCodeRoutes({ ...env, IS_HOSTED: "1" } as Env, { ghe: fakeGhe().ghe, frame, checkouts: () => [{ dir: "shop-api", repo: "ACME/shop-api" }] });
     assert.equal((await hosted.request("/code/shop-api/diff")).status, 404);
   } finally {
     r.done();

@@ -1,17 +1,14 @@
-/** The pull requests page. (Moved is the movement pack's; agents and worktrees the agents pack's.) */
+/** The pull requests page: my PRs and the ones asking for my review, in views, filtered and sorted (list.ts). */
 import { html } from "hono/html";
-import { type Frame, shell } from "../html.ts";
-import type { Snapshot } from "../gather.ts";
-import type { Pr } from "../sources/ghe.ts";
-import { applyPrQuery, choicesOf, CIS, DEFAULT_QUERY, prHref, type PrQuery, SORTS, STATES, type View, viewCounts, VIEWS } from "./prlist.ts";
-import { Empty, List, PageHeader, Panel, Tabs } from "../ui/kit.ts";
-import { type AgentOf, prCard, type PrSlots, type SummaryOf } from "./inline.ts";
-import { failed, prTabs } from "./parts.ts";
-import { type ForgeView, forgeCan, GITHUB_VIEW } from "../forge/types.ts";
+import type { Snapshot } from "../../../gather.ts";
+import type { Pr } from "../../../sources/ghe.ts";
+import { applyPrQuery, choicesOf, CIS, DEFAULT_QUERY, prHref, type PrQuery, SORTS, STATES, type View, viewCounts, VIEWS } from "./list.ts";
+import { Empty, type Html, List, PageHeader, Panel, Tabs } from "../../../ui/kit.ts";
+import { type AgentOf, prCard, type PrSlots, type SummaryOf } from "../../../pages/inline.ts";
+import { failed, prTabs } from "../../../pages/parts.ts";
+import { type ForgeView, forgeCan, GITHUB_VIEW } from "../../../forge/types.ts";
 
-const live = "";
-
-export function prsPage(frame: Frame, s: Snapshot, summary: SummaryOf, agent?: AgentOf, slots?: PrSlots, forge: ForgeView = GITHUB_VIEW, q: PrQuery = DEFAULT_QUERY, /** `false`: that pack is off here, so no tab. */ on: { dependabot?: boolean; stacks?: boolean } = {}) {
+export function prsBody(s: Snapshot, summary: SummaryOf, agent?: AgentOf, slots?: PrSlots, forge: ForgeView = GITHUB_VIEW, q: PrQuery = DEFAULT_QUERY, /** `false`: that pack is off here, so no tab. */ on: { dependabot?: boolean; stacks?: boolean } = {}): Html {
   const p = s.prs.ok ? s.prs.value : { mine: [], review: [] };
   const lists = applyPrQuery(p, q);
   const counts = viewCounts(p, q);
@@ -40,5 +37,5 @@ ${form}
 ${panel("Review requested", lists.review, true, "No reviews asked of you")}
 ${panel("Mine", lists.mine, false, "No open PRs")}
 </div>`;
-  return shell({ title: "Pull requests · Dovre", frame, current: "/prs", body, head: live });
+  return body;
 }
