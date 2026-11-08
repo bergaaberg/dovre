@@ -2,6 +2,7 @@
  * Packs: every pack this instance lists, on or off here and why, how its refreshes and cron runs
  * went, and its settings, a secret one only as set or missing (never its value).
  */
+import { type KeyState, STORES } from "../secretrefs.ts";
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
@@ -15,7 +16,10 @@ import { apiText, parseApi } from "../packs/api.ts";
 /** A pack's own version, as dovre-packs releases it (x.y.z). */
 const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 
-export type PacksView = { /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string } };
+/** A secret setting's store, or why it can't be read. */
+type KeyLookup = (key: string) => KeyState | undefined;
+
+export type PacksView = { /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Local: where each secret setting's key came from, or why it can't be read (#416). */ keys?: KeyLookup };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -91,14 +95,24 @@ const releaseLine = (a: Available) =>
 const releaseNotes = (id: string, a: Available) =>
   html`${a.notes.length ? html`<details><summary class="t2">What changed in ${a.version}</summary>${List(a.notes.flatMap((n) => n.lines.map((l) => Item({ title: l, trail: n.version }))))}</details>` : ""}<p class="t3">Take it in the instance repo with <code>pnpm packs update ${id}</code>, then deploy.</p>`;
 
-/** A setting: its label and key, set or missing; a non-secret one's value beside it. */
-function settingItem(s: PackSetting, env: PacksView["env"]) {
+/** A setting: its label and key, set or missing; a non-secret one's value beside it; a secret one's store, or why it can't be read. */
+function settingItem(s: PackSetting, env: PacksView["env"], keys?: KeyLookup) {
   const v = env[s.key]?.trim();
-  const state = v ? Pill({ tone: "ok", children: "set" }) : Pill({ tone: s.required ? "bad" : undefined, children: s.required ? "missing, needed" : "not set" });
+  const k = s.secret ? keys?.(s.key) : undefined;
+  const unread = k && "unread" in k ? k.unread : undefined;
+  const state = unread
+    ? Pill({ tone: "bad", children: "can't read the key" })
+    : v
+      ? Pill({ tone: "ok", children: "set" })
+      : Pill({ tone: s.required ? "bad" : undefined, children: s.required ? "missing, needed" : "not set" });
   const label = s.choices?.find((c) => c.value === v)?.label;
   const shown = v && !s.secret ? (label ? html` ${label}` : html` <code>${v.length > 80 ? `${v.slice(0, 80)}…` : v}</code>`) : "";
-  return Item({ title: html`${s.label} ${state}`, line: html`<code>${s.key}</code>${s.secret ? " · secret" : ""}${shown}`, clamp: s.help });
+  const from = k && "from" in k ? ` · from ${STORES[k.from]}` : "";
+  return Item({ title: html`${s.label} ${state}`, line: html`<code>${s.key}</code>${s.secret ? " · secret" : ""}${from}${shown}`, clamp: unread ?? s.help });
 }
+
+/** What a secret field takes (#416). */
+const KEY_HINT = "The key, or where it lives: op://…, an Azure Key Vault URL, an AWS ARN or aws://…, projects/…/secrets/…, bw://…. A pasted key goes to the Keychain.";
 
 /** Local editor for a pack's manifest settings (never renders existing secret values). */
 function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]) {
@@ -108,7 +122,7 @@ function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]
     if (s.choices)
       return html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><select name="${s.key}"><option value=""${v ? "" : " selected"}>Its default</option>${s.choices.map((c) => html`<option value="${c.value}"${v === c.value ? " selected" : ""}>${c.label}</option>`)}</select>${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
     return s.secret
-      ? html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="password" name="${s.key}" value="" placeholder="${v ? "(set — leave blank to keep)" : s.help ?? ""}" maxlength="2000" spellcheck="false" autocomplete="off">${v ? html`<label class="check"><input type="checkbox" name="clear.${s.key}" value="1"> Clear saved secret</label>` : ""}${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`
+      ? html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="password" name="${s.key}" value="" placeholder="${v ? "(set — leave blank to keep)" : s.help ?? ""}" maxlength="2000" spellcheck="false" autocomplete="off">${v ? html`<label class="check"><input type="checkbox" name="clear.${s.key}" value="1"> Clear saved secret</label>` : ""}<span class="hint">${s.help ? html`${s.help} ` : ""}${KEY_HINT}</span></label>`
       : html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="text" name="${s.key}" value="${v ?? ""}" placeholder="${s.help ?? ""}" maxlength="2000" spellcheck="false">${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
   })}</div>
   <div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save settings</button></div>
@@ -132,12 +146,14 @@ function withChoices(s: PackSetting): PackSetting {
 }
 
 /** Settings → Packs → a pack: its manifest's settings, set or missing, and (on a machine) the form that keeps them in `.dev.vars`. */
-export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean, session = false) {
+export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean, session = false, keys?: KeyLookup) {
+  // Read again: any of its keys from a store (#416).
+  const stored = !hosted && settings.some((s) => s.secret && keys?.(s.key));
   return Panel({
     title: "Its settings",
     id: "manifest",
     meta: hosted ? "set as the Worker's vars and secrets" : session ? "kept in memory for this session" : "kept in .dev.vars",
-    children: html`${List(settings.map((s) => settingItem(s, env)))}${hosted ? "" : settingsForm(id, settings, env)}`,
+    children: html`${List(settings.map((s) => settingItem(s, env, keys)))}${stored ? html`<form method="post" action="/packs/${encodeURIComponent(id)}/keys"><div class="buttons"><button type="submit" data-busy="Reading">Read the keys again</button></div></form>` : ""}${hosted ? "" : settingsForm(id, settings, env)}`,
   });
 }
 
@@ -176,7 +192,7 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
     title: name,
     meta: id,
     actions: html`${on && v.setups?.has(id) ? html`<a class="btn sm ghost" href="/setup/${encodeURIComponent(id)}">${v.setups.get(id) ? "Set up" : "Set up again"}</a>` : ""}${on ? Pill({ tone: "ok", children: "on" }) : Pill({ tone: "warn", children: "off" })}${o.pack && !heldBy ? Post({ action: `/packs/${encodeURIComponent(id)}/switch`, fields: { on: on ? "" : "1" }, label: on ? "Turn off" : "Turn on" }) : ""}`,
-    children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env))) : ""}${copy ? copyJob(copy, v) : ""}${out ? releaseNotes(id, out) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
+    children: html`${m?.description ? html`<p class="t2">${m.description}</p>` : ""}${KeyValues(pairs)}${settings.length ? List(settings.map((s) => settingItem(s, v.env, v.keys))) : ""}${copy ? copyJob(copy, v) : ""}${out ? releaseNotes(id, out) : ""}${settings.length ? html`<p class="t2"><a href="/settings/packs/${encodeURIComponent(id)}">Change them on Settings</a></p>` : ""}`,
   });
 }
 

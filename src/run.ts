@@ -28,6 +28,7 @@ import { noMemory } from "./packs/core/assistant/bino/memory.ts";
 import { routeOf } from "./packs/core/assistant/bino/route.ts";
 import { apiCompare } from "./packs/api.ts";
 import { resolvePacksRepo } from "./packs/cli.ts";
+import { createKeys } from "./secrets.ts";
 import { activePacks } from "./packs/registry.ts";
 import type { Pack } from "./packs/types.ts";
 import type { Ghe } from "./sources/ghe.ts";
@@ -167,7 +168,10 @@ async function main(args: string[]) {
   const db = openDb();
   const env = { LAUNCH_TOKEN: token, CODE_DIR: dir ? dirname(dir) : "", CLAUDE_DIR: "", GHE_HOST: "github.com", GHE_ORG: "", DB: db.DB } as Env;
   const { values: settings, from } = settingsOf(pack, { flags: flagsOf(pack, sets), env: process.env, instance: instanceVars() });
-  const packs = activePacks([pack], { env: settings, hosted: false, which });
+  // A key given as a store's reference (#416) is read now; one saved on its Settings stays in memory.
+  const keys = createKeys(settings, { log: (l) => console.log(l) });
+  await keys.read();
+  const packs = activePacks([pack], { env: settings, unread: keys.unread(), hosted: false, which });
   // Off only for a setting it lacks: it starts on its Settings page, and turns on once that's given there.
   const waiting = !packs.on.length && packs.off.length === 1 && !!packs.off[0]!.pack && (pack.manifest.settings ?? []).some((s) => s.required && !settings[s.key]);
   if (!packs.on.length && !waiting) throw new Error(`${id} is off here: ${packs.off.map((o) => o.why).join("; ")}`);
@@ -180,7 +184,7 @@ async function main(args: string[]) {
     ghe,
     hub: createHub(),
     bino: { route: routeOf({ via: "off" }), memory: noMemory("off in a pack session") },
-    packs: { ...packs, env: settings },
+    packs: { ...packs, env: settings, keys },
     session: { pack: id, checkout: dir ? basename(dir) : "" },
     mcpTurns: sessionTurn(mcpToken, { id: `session-${id}`, repo: dir ? basename(dir) : id, cwd: dir ?? process.cwd() }),
   });

@@ -61,6 +61,8 @@ pnpm packs update cf-health --into ../my-dovre # to the newest release; merges y
 
 Each pack in dovre-packs has its own version and changelog, released as a tag `<id>@x.y.z`. No checkout of dovre-packs? The CLI keeps its own clone in `~/.cache/dovre/dovre-packs`. On a machine, the Packs page lists the packs you don't have yet, each with **Add** (copied into the instance, checked, rolled back if the checks fail; then restart). Hosted, the Packs page says when a newer release is out and what changed; take it with `pnpm packs update` in the instance repo, then deploy. With `INSTANCE_REPO` set, hosted **Add** opens a PR on the instance repo instead; merge it and deploy.
 
+A pack's secret setting (an API key) can be where the key lives instead of the key: `op://vault/item/field` (1Password), `https://<vault>.vault.azure.net/secrets/<name>`, an AWS Secrets Manager ARN or `aws://<name>`, `projects/<p>/secrets/<name>` (GCP), `bw://<secret id>` (Bitwarden Secrets Manager) or `keychain://<service>/<account>`. `.dev.vars` keeps the reference. Dovre reads the key with that store's CLI (`op`, `az`, `aws`, `gcloud`, `bws`, `security`) when it starts, again when the pack's refresh fails, and on **Read the keys again** in the pack's Settings, and keeps it in memory only. A key pasted on Settings goes to the macOS Keychain (`keychain://dovre/<KEY>`). A key that can't be read leaves its pack off, with why. Hosted doesn't read references yet: set the key itself as the Worker's secret.
+
 A pack can also replace GitHub as the forge (`FORGE=<its id>`). How packs work: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 One pack on its own, in a throw-away session (prototype, [#353](https://github.com/bergaaberg/dovre/issues/353)):
