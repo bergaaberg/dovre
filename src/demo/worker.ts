@@ -19,6 +19,7 @@ import { fixedHere } from "../packs/core/agents/here.ts";
 import { assistantPack } from "../packs/core/assistant/index.ts";
 import { todoPack } from "../packs/core/todo/index.ts";
 import { movementPack } from "../packs/core/movement/index.ts";
+import { deploysPack } from "../packs/core/deploys/index.ts";
 import { noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { FORGE_CAN } from "../forge/types.ts";
 import { createDismissed } from "../agents/dismissed.ts";
@@ -259,7 +260,8 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     // The fixtures' weeks and spend, through the same packs as a real instance; nothing is gathered.
     const history = historyPack({ history: () => ({ view: () => ({ history: stats.view().history, gathering: false }), refresh: () => {} }) });
     const spend = { days: async () => stats.view().spend ?? [], known: () => stats.view().spend };
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), todoPack({ links: () => ({ ghe: host, org }) }), movementPack(), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
+    const ghe = makeNoGhe(host);
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), todoPack({ links: () => ({ ghe: host, org }) }), movementPack(), deploysPack({ ghe, owners: () => org, approve: true }), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const snapshot = () => gatherer.peek() ?? snapshotFn();
     const route = demoScriptRoute({ snapshot, answers: opts.answers });
     const memory = noMemory("The demo remembers nothing.");
@@ -267,7 +269,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     const bino = { remote: demoBino({ route, memory, engine: () => current.getStore() ?? freshEngine() }) };
     app = createApp(env, {
       gatherer,
-      ghe: makeNoGhe(host),
+      ghe,
       // GitHub as the pages name it; packs read nothing from it (no `work`): the avatar keeps its starting shape.
       forge: { id: "github", name: "GitHub", can: FORGE_CAN, host },
       layout: !opts.layout ? fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }) : "get" in opts.layout ? opts.layout : fixedLayout(opts.layout),
@@ -275,7 +277,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
-      packs: { on, off, env: settings, bindings: {}, core: ["agents", "history", "assistant", "todo", "movement"] },
+      packs: { on, off, env: settings, bindings: {}, core: ["agents", "history", "assistant", "todo", "movement", "deploys"] },
     });
     // Packs fed made-up data read it the way they'd read their app: on their schedule, before the page.
     refresh = refresher(on, packsOf(app)!.ctxOf, () => {});

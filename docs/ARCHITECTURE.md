@@ -10,7 +10,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
         │ imports core as `dovre/…`; core never imports an instance
  Core's packs (src/packs/core/)
-   agents, autoreview, history, assistant, terminal, docker, tracker, storybook, movement
+   agents, autoreview, history, assistant, terminal, docker, tracker, storybook, movement, deploys
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
@@ -28,7 +28,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Packs from | `PACKS` folders, each `packs.ts` imported at start (`src/packs/load.ts`) | The instance's worker.ts calls `createWorker({ packs })` |
-| Core's packs | all of them (terminal and docker when enabled, history with GitHub) | agents (over the bridge), autoreview, history (GitHub), assistant, movement, tracker |
+| Core's packs | all of them (terminal and docker when enabled, history with GitHub) | agents (over the bridge), autoreview, history (GitHub), assistant, movement, deploys, tracker |
 | Refresh | interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Extra hooks | `callback`, `ingest`, `acts`, `tools` | `scheduled`, `email` |
 

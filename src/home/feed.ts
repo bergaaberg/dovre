@@ -32,7 +32,8 @@ function moveTone(verb: string): FeedTone {
   return "mute";
 }
 
-export function feedOf(s: Pick<Snapshot, "moves" | "deploys" | "login">, now: number, max = 60): FeedEvent[] {
+/** `deploys: false`: the deploys pack is off here, so a waiting deploy links to its run instead. */
+export function feedOf(s: Pick<Snapshot, "moves" | "deploys" | "login">, now: number, max = 60, o: { deploys?: boolean } = {}): FeedEvent[] {
   const out: FeedEvent[] = [];
   for (const m of s.moves.ok ? s.moves.value : []) {
     if (m.bot && m.verb !== "released") continue;
@@ -40,7 +41,7 @@ export function feedOf(s: Pick<Snapshot, "moves" | "deploys" | "login">, now: nu
     out.push({ key: `m:${m.at}:${m.actor}:${m.type}:${m.url}`, at, tone: moveTone(m.verb), who: m.actor.replace(/\[bot\]$/, ""), what: m.verb.replace(/_/g, " "), title: m.title, href: m.url, repo: m.repo, mine: m.actor === s.login });
   }
   for (const d of s.deploys.ok ? s.deploys.value : []) {
-    out.push({ key: `d:${d.repo}:${d.id}`, at: Date.parse(d.createdAt), tone: "warn", who: d.actor, what: `waits for ${d.envs.map((e) => e.name).join(", ") || "prod"} approval`, title: d.title, href: "/deploys", repo: d.repo, mine: d.actor === s.login });
+    out.push({ key: `d:${d.repo}:${d.id}`, at: Date.parse(d.createdAt), tone: "warn", who: d.actor, what: `waits for ${d.envs.map((e) => e.name).join(", ") || "prod"} approval`, title: d.title, href: o.deploys === false ? d.url : "/deploys", repo: d.repo, mine: d.actor === s.login });
   }
   return out
     .filter((e) => Number.isFinite(e.at) && e.at > 0 && now - e.at < DAY)

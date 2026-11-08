@@ -15,13 +15,12 @@ import { parsePrQuery, PRS_COOKIE, PRS_KEYS, prQueryString } from "./pages/prlis
 import { contextStorage, tryGetContext } from "hono/context-storage";
 import { secureHeaders } from "hono/secure-headers";
 import { type AccessVerifier, COOKIE, allowed, isLocal, isOwnOrigin, publicOriginOf, sameSecret, secureCookie } from "./access.ts";
-import { actionsOf, decide, logAction, recentActions, rejectSuperseded, repoIn, runId } from "./actions/deploys.ts";
+import { actionsOf, logAction, recentActions, repoIn, runId } from "./actions/deploys.ts";
 import { proposeAdd } from "./actions/addpack.ts";
 import type { App, AppEnv, Env } from "./env.ts";
 import type { Gatherer, Snapshot } from "./gather.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell, tabsOf } from "./html.ts";
-import { deploysPage } from "./pages/deploys.ts";
 import { CORE_CARDS, packOrder, homePage } from "./pages/home.ts";
 import { currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
 import { prsPage } from "./pages/pages.ts";
@@ -128,14 +127,12 @@ function pendingPage(path: string, frame: Frame): string {
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
 export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
-  const deploys = s.deploys.ok ? s.deploys.value.length : 0;
   const prs = s.prs.ok ? s.prs.value.mine.length + s.prs.value.review.length : 0;
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
   const items: (NavItem | false)[] = [
     { href: "/", title: "Today", icon: "home" },
     !!opts.stats && { href: "/stats", title: "Stats", icon: "chart" },
     { href: "/prs", title: "Pull requests", short: "PRs", icon: "pr", group: "Code", order: 10, count: prs, hot: s.prs.ok && s.prs.value.review.length > 0 },
-    { href: "/deploys", title: "Deploys", icon: "rocket", group: "Code", order: 20, count: deploys, hot: deploys > 0 },
     !opts.hosted && { href: "/code", title: "Code", icon: "code", group: "Code", order: 40 },
     !!opts.bino && { href: "/bino", title: "Bino", icon: "chat", group: "Agents", order: 20 },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
@@ -146,7 +143,7 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /**
 }
 
 /** A built app's packs, for the composition roots (their refresh schedule, cron, email). */
-const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups }>();
+const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups; /** Whether a page answers here (its pack is on and shown). */ pageOn: (href: string) => boolean }>();
 export const packsOf = (app: App) => appPacks.get(app);
 
 /** In a pack session, the paths that answer: the pack's own (its id and manifest paths), sign-in, assets and the event stream. */
@@ -213,7 +210,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         c.executionCtx.waitUntil(p);
       } catch {}
     });
-  let flash: { ok: boolean; message: string } | undefined;
   const asks = deps.asks ?? createAsks();
   // Bino: what it's told comes from what's gathered, my list and what each pack says it may know, never more (src/packs/core/assistant/bino/context.ts).
   // Hosted, GitHub's snapshot stays out: the apps' packs say what matters there.
@@ -711,7 +707,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       pulsing = false;
     }
   };
-  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), lookups: { specs: () => packLookups().map(({ run: _r, pack: _p, ...spec }) => spec), run: runLookup } });
+  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: () => linkedFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), lookups: { specs: () => packLookups().map(({ run: _r, pack: _p, ...spec }) => spec), run: runLookup }, pageOn: (href) => pageOn(href) });
   if (PACK_CSS)
     app.get(PACK_CSS.path, (c) => {
       c.header("Content-Type", "text/css; charset=utf-8");
@@ -881,7 +877,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
     const found = packFinds();
-    const r = search({ s, hidden: forgeHidden, viewer: can("viewer"), list: await listOf(sharedList()), repos: listRepos(env.CODE_DIR), pages, apps: found.apps, kinds: found, remote }, raw, { only: c.req.query("only"), per: c.req.query("frag") === "1" ? undefined : 10 });
+    const r = search({ s, deploys: pageOn("/deploys"), hidden: forgeHidden, viewer: can("viewer"), list: await listOf(sharedList()), repos: listRepos(env.CODE_DIR), pages, apps: found.apps, kinds: found, remote }, raw, { only: c.req.query("only"), per: c.req.query("frag") === "1" ? undefined : 10 });
     if (c.req.query("frag") === "1") return noStore(await c.html(html`${searchList(r)}`));
     return c.html(searchPage(frame, r, raw));
   });
@@ -1075,72 +1071,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.redirect("/prs/dependabot", 303);
   });
 
-  /** Runs decided here that the snapshot may not know yet: drawn as decided until a gather after the decision lands. */
-  const decided = new Map<number, { state: "approved" | "rejected"; at: number }>();
-  app.get("/deploys", async (c) => {
-    // No waiting on the gather the decision started: what was decided shows from `decided`, and the page swaps when the gather lands.
-    const { s, frame } = await page({ wait: false });
-    for (const [id, d] of decided) if ((s.began ?? s.at) > d.at || Date.now() - d.at > 10 * 60_000) decided.delete(id);
-    const shown = flash;
-    flash = undefined;
-    // Only deploy decisions here; everything else is on Today's Actions card and /actions.
-    const log = (await recentActions(env.DB, 200)).filter((a) => a.kind.startsWith("deploy.")).slice(0, 20);
-    // What's in prod for each repo: the packs' line ("deploy.prod").
-    const prodLine = (repo: string) => html`${fill("deploy.prod", { repo })}`;
-    return c.html(deploysPage(frame, s, { log, flash: shown, decided, summary, rules: packRefs(), ghe: env.GHE_HOST, prodLine, approve: can("deployApproval") }));
-  });
-  for (const state of ["approved", "rejected"] as const) {
-    app.post(`/deploys/${state === "approved" ? "approve" : "reject"}`, async (c) => {
-      const form = await c.req.parseBody();
-      const repo = repoIn(ownersIn(env), form.repo);
-      const run = runId(form.run);
-      flash = repo && run ? await decide(ghe, env.DB, repo, run, state) : { ok: false, message: "That isn't a run in the org." };
-      if (flash.ok && run) decided.set(run, { state, at: Date.now() });
-      gatherer.stale();
-      return c.redirect("/deploys", 303);
-    });
-  }
-  // Bulk (dovre#104): each ticked run decided on its own, checked again and logged; 20 at most.
-  app.post("/deploys/bulk", async (c) => {
-    const form = await c.req.parseBody({ all: true });
-    const state = form.state === "approved" || form.state === "rejected" ? form.state : null;
-    const picks = ([] as unknown[]).concat(form.pick ?? []).filter((v): v is string => typeof v === "string").slice(0, 20);
-    if (!state || !picks.length) {
-      flash = { ok: false, message: "Tick one or more runs first." };
-      return c.redirect("/deploys", 303);
-    }
-    let done = 0;
-    const failed: string[] = [];
-    for (const p of picks) {
-      const at = p.lastIndexOf("#");
-      const repo = repoIn(ownersIn(env), p.slice(0, at));
-      const run = runId(p.slice(at + 1));
-      if (!repo || !run) {
-        failed.push("a run outside the org");
-        continue;
-      }
-      const r = await decide(ghe, env.DB, repo, run, state);
-      if (r.ok) (done++, decided.set(run, { state, at: Date.now() }));
-      else failed.push(r.message);
-    }
-    flash = { ok: !failed.length, message: `${state === "approved" ? "Approved" : "Rejected"} ${done} of ${picks.length}.${failed.length ? ` ${failed.join(" ")}` : ""}` };
-    gatherer.stale();
-    return c.redirect("/deploys", 303);
-  });
-  app.post("/deploys/reject-superseded", async (c) => {
-    const form = await c.req.parseBody();
-    const repo = repoIn(ownersIn(env), form.repo);
-    const workflow = typeof form.workflow === "string" && form.workflow.length < 200 ? form.workflow : null;
-    try {
-      const r = repo && workflow ? await rejectSuperseded(ghe, env.DB, repo, workflow) : { ok: false, message: "That isn't a workflow in the org.", ids: [] };
-      for (const id of r.ids) decided.set(id, { state: "rejected", at: Date.now() });
-      flash = { ok: r.ok, message: r.message };
-    } catch (e) {
-      flash = { ok: false, message: String((e as Error).message ?? e) };
-    }
-    gatherer.stale();
-    return c.redirect("/deploys", 303);
-  });
 
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
   let saved = false;

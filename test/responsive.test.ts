@@ -7,6 +7,7 @@ import type { Gatherer, Snapshot } from "../src/gather.ts";
 import { SERVICE_WORKER } from "../src/pwa.ts";
 import { githubForge } from "../src/forge/github.ts";
 import { appWithAgents, fakeGhe, signedIn, snapshot } from "./helpers.ts";
+import { deploysPack } from "../src/packs/core/deploys/index.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
 
@@ -14,7 +15,9 @@ const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-tok
 const neverGathered = (): Gatherer => ({ get: () => new Promise<Snapshot>(() => {}), stale: () => {}, gathering: () => true, peek: () => undefined });
 
 test("on the very first start a page says it's gathering instead of hanging, and fills itself in later", async () => {
-  const app = appWithAgents({ ...ENV, DB: openDb().DB }, { gatherer: neverGathered(), ghe: fakeGhe({}).ghe });
+  const ghe = fakeGhe({}).ghe;
+  // A pack's page (deploys, agents) as well as core's.
+  const app = appWithAgents({ ...ENV, DB: openDb().DB }, { gatherer: neverGathered(), ghe, extra: [deploysPack({ ghe, owners: () => "ACME", approve: true })] });
   for (const path of ["/", "/deploys", "/agents"]) {
     const started = Date.now();
     const res = await app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
