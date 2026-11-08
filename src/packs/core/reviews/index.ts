@@ -95,6 +95,8 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
       description: "Review a PR, or assess the review on yours, with an agent skill; go through its draft before it's posted",
       domain: "general",
       execution: "local-only",
+      // Links to the agent's session while the agents pack is on (#394).
+      uses: ["agents"],
       settings: [
         { key: "REVIEW_SKILL", label: "Review skill", help: "The skill that reviews someone else's PR (default: review)." },
         { key: "TRIAGE_SKILL", label: "Assessment skill", help: "The skill that assesses the review on my PR (default: review-triage)." },
@@ -116,7 +118,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         const kind = p && s ? kindFor(p, s.login) : null;
         if (!p || !kind) return "";
         const r = now(latest?.get(`${kind}:${prKey(p)}`));
-        return agentBlock(p, kind, r, r?.status === "done" ? lastMessage(r) : undefined, ctx.forge()?.name ?? "GitHub");
+        return agentBlock(p, kind, r, r?.status === "done" ? lastMessage(r) : undefined, ctx.forge()?.name ?? "GitHub", ctx.required("agents", "agent"));
       },
       "review.draft": (a) => {
         const r = now(latest?.get(`review:${prKey(a)}`));
@@ -128,6 +130,8 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
     routes(app, ctx) {
       setSkills({ review: ctx.env.REVIEW_SKILL, triage: ctx.env.TRIAGE_SKILL });
       const forge = () => ctx.forge()?.name ?? "GitHub";
+      /** Where runs are shown, while the agents pack is on (#394); off, a started one is followed on its PR card. */
+      const links = () => ctx.required("agents", "agent");
       /** Confirm-page nonces already used: a double click or a re-post starts one run. */
       const spent = new Map<string, string>();
       const runningOf = async (kind: ReviewKind, p: Pr) => {
@@ -137,7 +141,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
       };
       const page = (c: Context<AppEnv>, title: string, body: Html, code = 200) => ctx.page(c, { title, body, current: "/prs" }).then((res) => status(res, code));
       const confirm = async (c: Context<AppEnv>, p: Pr, kind: ReviewKind, problem?: string, code = 200) =>
-        page(c, KIND_LABEL[kind], confirmPage({ pr: p, kind, dir: deps.dirOf(p.repo), clone: cloneCommand(deps.ghe.host, p.repo, deps.codeDir), harnesses: offered(kind, p), running: await runningOf(kind, p), problem, nonce: randomUUID() }), code);
+        page(c, KIND_LABEL[kind], confirmPage({ links: links(), pr: p, kind, dir: deps.dirOf(p.repo), clone: cloneCommand(deps.ghe.host, p.repo, deps.codeDir), harnesses: offered(kind, p), running: await runningOf(kind, p), problem, nonce: randomUUID() }), code);
 
       app.get("/reviews/agent", async (c) => {
         const s = await ctx.gathered();
@@ -158,7 +162,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         const was = spent.get(nonce);
         if (was) return c.redirect(was, 303);
         const running = await runningOf(kind, p);
-        if (running) return c.redirect(sessionHref(running), 303);
+        if (running) return c.redirect(sessionHref(running, links()) ?? "/prs", 303);
         const h = offered(kind, p).find((x) => x.id === first(form.harness));
         const cwd = deps.dirOf(p.repo);
         if (!h || !cwd) return confirm(c, p, kind, !cwd ? `${p.repo} isn't checked out.` : "That agent can't do this here.", 400);
@@ -168,7 +172,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         await recordReview(ctx.db, r);
         latest?.set(`${kind}:${r.pr}`, r);
         const sid = await runner.sessionOf(run.id, 300);
-        const to = sid ? `/agents/s/${sid}` : `/agents/r/${run.id}`;
+        const to = sessionHref({ ...r, ...(sid ? { sessionId: sid } : {}) }, links()) ?? "/prs";
         spent.set(nonce, to);
         return c.redirect(to, 303);
       });
@@ -207,7 +211,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         if (!d?.base) return c.redirect("/prs", 303);
         const flash = flashes.get(d.r.runId);
         flashes.delete(d.r.runId);
-        return page(c, titleOf(d.base), draftPage(forge(), { r: d.r, pr: d.pr, base: d.base, verdict: "comment", flash, diff: await diffOf(d) }));
+        return page(c, titleOf(d.base), draftPage(forge(), { links: links(), r: d.r, pr: d.pr, base: d.base, verdict: "comment", flash, diff: await diffOf(d) }));
       });
 
       app.post("/reviews/draft/preview", async (c) => {
@@ -218,7 +222,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
         const verdict = d.base.kind === "review" ? verdictOf(form.verdict) : "comment";
         // A POST's page can't fill itself in (it would fetch the URL again): no pending diff here.
         const diff = await diffOf(d);
-        const view = { r: d.r, pr: d.pr, base: d.base, form, verdict, diff: diff === "reading" ? undefined : diff };
+        const view = { links: links(), r: d.r, pr: d.pr, base: d.base, form, verdict, diff: diff === "reading" ? undefined : diff };
         const show = (preview: Parameters<typeof draftPage>[1]["preview"], code = 200) => page(c, titleOf(d.base!), draftPage(forge(), { ...view, preview }), code);
         const edited = editedDraft(d.base, form);
         const problem = postProblem(edited, verdict);

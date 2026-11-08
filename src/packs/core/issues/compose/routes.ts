@@ -46,7 +46,7 @@ import type { Ghe } from "../../../../sources/ghe.ts";
 import { type Child, Grid2, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../../../../ui/kit.ts";
 import { markdown } from "../../../../ui/markdown.ts";
 import { failed, forgeName, Link } from "../../../../pages/parts.ts";
-import type { ListShare } from "../../../types.ts";
+import type { AgentShare, ListShare } from "../../../types.ts";
 import { MAX_TASK_BODY, MAX_TASK_TITLE, type TaskDraft, type TaskErrors, taskDonePage, taskFormPage, taskPickPage, taskPreviewPage } from "./taskpages.ts";
 import {
   agentPanel,
@@ -166,7 +166,7 @@ ${
     ? waysIn(ctx, o.repo, o.templates.value.config.links)
     : html`${Panel({ title: "Everyday", meta: o.templates.ok && !ts.length ? "this repo has no issue forms" : String(everyday.length), flush: true, children: List([...everyday, ...blank]) })}
 ${planning.length ? Panel({ title: "Planning", meta: String(planning.length), flush: true, children: List(planning) }) : ""}
-${agentPanel({ kind: "forms", repo: o.repo })}`
+${agentPanel(ctx, { kind: "forms", repo: o.repo })}`
 }`,
   );
 }
@@ -198,7 +198,7 @@ ${n ? Notice({ tone: "bad", children: `${n} ${n === 1 ? "thing needs" : "things 
 ${failed("Issue Types", o.types)}${failed("Labels", o.labels)}
 ${t?.description ? html`<p class="t2">${t.description}</p>` : ""}
 ${Panel({ title: "The issue", children: form })}
-${agentPanel({ kind: "forms", repo: d.repo, ...(t ? { template: t.file } : {}) })}`,
+${agentPanel(ctx, { kind: "forms", repo: d.repo, ...(t ? { template: t.file } : {}) })}`,
   );
 }
 
@@ -289,6 +289,8 @@ export function createIssueRoutes(
     list?: string;
     /** My list, while its pack is on (`uses: ["todo"]`): what's made can go on it too. */
     myList?: () => ListShare | undefined;
+    /** Where agents start, while the agents pack is on (`uses: ["agents"]`, #394). */
+    agent?: () => AgentShare | undefined;
     prewarm?: boolean;
   },
 ): Hono<AppEnv> {
@@ -309,7 +311,11 @@ export function createIssueRoutes(
   /** One parent, for showing the task form; creating re-reads it. */
   const issueCache = memoize({ ttlMs: 60e3, kept: deps.kept });
   const parents = (login: string) => parentsCache(`parents:${login}`, () => loadParents(ghe, parentRepos, login));
-  const ctx = async (): Promise<Ctx> => ({ ...setup, operator: await deps.operator(), org, ghe: ghe.host, extra: deps.newWork?.(), myList: !!deps.myList?.() });
+  const ctx = async (): Promise<Ctx> => ({ ...setup, operator: await deps.operator(), org, ghe: ghe.host, extra: deps.newWork?.(), myList: !!deps.myList?.(), ...withAgent() });
+  const withAgent = () => {
+    const agent = deps.agent?.();
+    return agent ? { agent } : {};
+  };
   const dirs = () => {
     try {
       return deps.checkouts ? deps.checkouts() : (env.CODE_DIR ? checkouts(env.CODE_DIR, ghe.host, owners) : []);
@@ -551,6 +557,7 @@ export function createIssueRoutes(
     const form = await c.req.parseBody({ all: true });
     const cx = await ctx();
     const kind = first(form.kind) || "forms";
+    if (!cx.agent) return show(c, problemPage(cx, "Agents are off here, so there's nothing to hand the note to."), 404);
     const note = first(form.note).replace(/\r\n?/g, "\n").trim();
     let ask: AgentAsk;
     let back = CURRENT;
@@ -579,7 +586,7 @@ export function createIssueRoutes(
     const list = dirs();
     // Work in a repo starts in its checkout (its conventions); the rest in Dovre's own folder.
     const dir = (target ? checkoutOf(list, target)?.dir : undefined) ?? WORK;
-    return show(c, draftPage(cx, { prompt: agentPrompt(note, ask, setup), dirs: list, dir, back }));
+    return show(c, draftPage({ ...cx, agent: cx.agent }, { prompt: agentPrompt(note, ask, setup), dirs: list, dir, back }));
   });
 
   // Load what these pages need shortly after starting, so the first visit doesn't wait on GHE.

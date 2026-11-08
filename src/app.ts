@@ -78,7 +78,7 @@ import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } 
 import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
 import { forgeName, safeUrl } from "./pages/parts.ts";
-import type { AiSummary, ListShare, Pack, PackContext, PackManifest, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
+import type { AiSummary, ListShare, Pack, PackContext, PackManifest, PackShares, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
 import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
@@ -554,14 +554,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const held = () => heldOff(packs.on, layout.get().packsOff ?? []);
   const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
-  /** My list, from the shown pack that shares it (`list`, #393): Bino and search read it, never its store. */
-  const sharedList = (): ListShare | undefined => {
+  /** What the first shown pack sharing it shares under a name: core reads packs' contracts by name, never their ids. */
+  const shared = <K extends keyof PackShares>(name: K): PackShares[K] | undefined => {
     for (const c of shown()) {
-      const list = c.shares ? safely(() => c.shares!(ctxOf(c)).list, undefined, (e) => packLog(c.manifest.id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
-      if (list) return list;
+      const one = c.shares ? safely(() => c.shares!(ctxOf(c))[name], undefined, (e) => packLog(c.manifest.id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
+      if (one) return one;
     }
     return undefined;
   };
+  /** My list (`list`, #393): Bino and search read it, never its store. */
+  const sharedList = (): ListShare | undefined => shared("list");
   /** The list as search reads it: its items, and where each is shown. */
   const listOf = async (l: ListShare | undefined) => (l ? { items: await l.items().catch(() => []), href: (id: number) => l.href(id) } : undefined);
   // Each pack's styles keep only the rules for its own markup (src/packs/guard.ts): none restyles core.
@@ -1243,7 +1245,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.get("/investigate", async (c) => {
     const { frame } = await page();
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
-    return c.html(investigatePage(frame, v, { bino: binoOn(), agents: shown().some((p) => p.manifest.id === "agents") }));
+    return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
   app.get("/packs", async (c) => {
     const { frame } = await page();

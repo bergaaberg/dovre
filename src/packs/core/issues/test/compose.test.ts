@@ -13,6 +13,7 @@ import { createTask, parseRef } from "../compose/tasks.ts";
 import { remoteRepo } from "../../../../checkouts.ts";
 import { type ComposeEnv, createIssueRoutes } from "../compose/routes.ts";
 import { H, assertInert, fakeGhe } from "../../../../../test/helpers.ts";
+import { testAgentLinks } from "../../../testing.ts";
 
 // Shaped on ACME/FORMS's real forms (read 2026-10-22): enhancement.yml, z2-feature.yml.
 const ENHANCEMENT = `name: 💡 Forbedringsforslag
@@ -152,7 +153,7 @@ const ENV = (db: ReturnType<typeof openDb>, extra: Partial<ComposeEnv> = {}): Co
 const DIRS = [{ dir: "FORMS", repo: "ACME/forms" }, { dir: "shop-api", repo: "ACME/shop-api" }, { dir: "shop-api-pr803", repo: "ACME/shop-api" }, { dir: "intake", repo: "ACME/intake" }];
 
 /** The routes on their own (auth is the parent app's), a fake GHE behind them. */
-function mounted(routes: Record<string, unknown>, opts: { env?: Partial<ComposeEnv> } = {}) {
+function mounted(routes: Record<string, unknown>, opts: { env?: Partial<ComposeEnv>; /** The agents pack is off. */ noAgents?: boolean } = {}) {
   const db = openDb();
   const { ghe, calls } = fakeGhe(routes);
   const gql: string[] = [];
@@ -161,7 +162,7 @@ function mounted(routes: Record<string, unknown>, opts: { env?: Partial<ComposeE
     return (q.includes("projectV2(number:") ? { organization: { projectV2: { id: "PVT_6" } } } : {}) as T;
   };
   const app = new Hono<AppEnv>();
-  app.route("/", createIssueRoutes(ENV(db, opts.env), { ghe, show: (c, p, status) => c.html(html`<title>${p.title}</title>${p.body}`, status as 200), operator: async () => "ola-nordmann", checkouts: () => DIRS, myList: () => ({ items: () => listTodos(db.DB), get: (id) => getTodo(db.DB, id), add: (t) => addTodo(db.DB, t), href: (id) => `/todo#t-${id}` }) }));
+  app.route("/", createIssueRoutes(ENV(db, opts.env), { ghe, show: (c, p, status) => c.html(html`<title>${p.title}</title>${p.body}`, status as 200), operator: async () => "ola-nordmann", checkouts: () => DIRS, myList: () => ({ items: () => listTodos(db.DB), get: (id) => getTodo(db.DB, id), add: (t) => addTodo(db.DB, t), href: (id) => `/todo#t-${id}` }), agent: () => (opts.noAgents ? undefined : testAgentLinks) }));
   const get = (path: string) => app.request(`http://localhost${path}`);
   const post = (path: string, body: [string, string][] | Record<string, string>) =>
     app.request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });
@@ -648,7 +649,7 @@ test("dev task: preview, then the issue in the code repo, hung under the parent,
   assert.deepEqual((await recentActions(db.DB)).map((a) => [a.kind, a.target, a.ok]), [["task.create", "ACME/shop-api#45", 1]]);
   const done = await (await get(created.headers.get("location")!)).text();
   assert.match(done, /<code data-copy="Closes ACME\/shop-api#45">Closes ACME\/shop-api#45<\/code>/);
-  assert.match(done, /href="\/agents\/new\?repo=shop-api&amp;prompt=Work%20on%20ACME%2Fshop-api%2345/, "an agent in the repo's main checkout");
+  assert.match(done, /href="\/agents\/new\?repo=shop-api&amp;prompt=Work\+on\+ACME%2Fshop-api%2345/, "an agent in the repo's main checkout");
   assert.match(done, /under ACME\/intake#6/);
   assert.equal((await post("/issues/task/create", hiddenOf(preview, "/issues/task/create"))).status, 303, "pressed twice");
   assert.equal(calls.filter((c) => c.method === "POST").length, 2, "created once");
@@ -717,4 +718,13 @@ test("dev-task pages render hostile GHE text inert", async () => {
     assertInert(name, out);
     assert.ok(!out.includes('href="javascript:'), `${name}: a javascript: link got through`);
   }
+});
+
+test("the agents pack off: New work offers no agent, and the draft page refuses (#394)", async () => {
+  const { get, post } = mounted({ ...tracker() }, { noAgents: true });
+  const entry = await (await get("/issues/new")).text();
+  assert.doesNotMatch(entry, /Draft with an agent|\/agents\//);
+  const r = await post("/issues/draft", { kind: "any", note: "Something" });
+  assert.equal(r.status, 404);
+  assert.doesNotMatch(await r.text(), /\/agents\//);
 });

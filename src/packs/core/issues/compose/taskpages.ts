@@ -35,7 +35,7 @@ ${o.problem ? Notice({ tone: "bad", children: o.problem }) : ""}
 ${failed("Open issues", o.parents)}
 ${Panel({ title: "Open issues", meta: where ? html`in ${where}` : undefined, flush: true, children: items.length ? List(items) : html`<p class="t3">${o.parents.ok ? "No open issues there." : ""}</p>` })}
 ${Panel({ children: byRef })}
-${agentPanel({ kind: "task" })}`,
+${agentPanel(ctx, { kind: "task" })}`,
   );
 }
 
@@ -77,7 +77,7 @@ ${n ? Notice({ tone: "bad", children: `${n} ${n === 1 ? "thing needs" : "things 
 ${o.closed ?? ""}
 ${failed("Issue Types", o.types)}
 ${Panel({ title: "The task", children: form })}
-${agentPanel({ kind: "task", parent: refText(o.parent), ...(d.repo ? { repo: d.repo } : {}) })}`,
+${agentPanel(ctx, { kind: "task", parent: refText(o.parent), ...(d.repo ? { repo: d.repo } : {}) })}`,
   );
 }
 
@@ -111,7 +111,7 @@ export function taskDonePage(ctx: Ctx, o: { repo: string; number: number; url: s
   const closes = `Closes ${ref}`;
   const parent = o.result ? refText(o.result.parent) : undefined;
   const prompt = `Work on ${ref}${o.result ? ` (${o.result.title})` : ""}. Read the issue${parent ? ` and the one it hangs under, ${parent}` : ""} first. Close it from the PR with "${closes}".`;
-  const agent = o.dir ? html`<a class="btn" href="${safeUrl(`/agents/new?repo=${encodeURIComponent(o.dir)}&prompt=${encodeURIComponent(prompt)}`)}">Start an agent on it</a>` : "";
+  const agent = o.dir && ctx.agent ? html`<a class="btn" href="${safeUrl(ctx.agent.start({ repo: o.dir, prompt }))}">Start an agent on it</a>` : "";
   const more: Child = parent ? html`<a class="btn ghost" href="${taskHref(parent)}">Another task under ${parent}</a>` : "";
   return page(
     ctx,

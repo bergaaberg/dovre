@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../../../env.ts";
 import type { IssueSets } from "../../../../forge/types.ts";
-import { testContext } from "../../../testing.ts";
+import { testAgentLinks, testContext } from "../../../testing.ts";
 import { issuesPack } from "../index.ts";
 import { setOf, staleDaysOf, staleFor, triageReposOf } from "../model.ts";
 import { agentHref, agentPromptOf, issueRow } from "../view.ts";
@@ -12,7 +12,7 @@ import { issue, NOW } from "./fixtures.ts";
 
 const sets = (o: Partial<IssueSets> = {}): IssueSets => ({ assigned: [issue()], mentioned: [], authored: [], triage: [], ...o });
 
-function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: string[] }) => Promise<IssueSets>; can?: string[]; env?: Record<string, string>; agents?: () => (repo: string) => string | undefined } = {}) {
+function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: string[] }) => Promise<IssueSets>; can?: string[]; env?: Record<string, string>; agents?: () => (repo: string) => string | undefined; /** The agents pack is off. */ noAgents?: boolean } = {}) {
   const asked: { login: string; owners: string; triage?: string[] }[] = [];
   const published: string[][] = [];
   const pack = issuesPack({
@@ -30,7 +30,7 @@ function setup(o: { issues?: (login: string, owners: string, opts?: { triage?: s
     now: () => NOW,
     ...(o.agents ? { agents: o.agents } : {}),
   });
-  const ctx = testContext({ env: o.env ?? {}, publish: (t) => published.push(t), page: async (_c, p) => new Response(String(p.body)) });
+  const ctx = testContext({ env: o.env ?? {}, publish: (t) => published.push(t), page: async (_c, p) => new Response(String(p.body)), required: ((id: string, name: string) => (id === "agents" && name === "agent" && !o.noAgents ? testAgentLinks : undefined)) as never });
   const app = new Hono<AppEnv>();
   pack.routes!(app, ctx);
   const get = async (path: string) => (await app.request(`http://localhost${path}`)).text();
@@ -188,14 +188,14 @@ test("a row starts a new agent session on its issue: the form filled in, in the 
   assert.match(prompt, /^Work on bergaaberg\/dovre#33: Today header on a wide screen\n/);
   assert.match(prompt, /https:\/\/github\.com\/bergaaberg\/dovre\/issues\/33/);
   assert.match(prompt, /"Closes bergaaberg\/dovre#33"/);
-  const href = new URL(agentHref(i, "dovre-wt"), "http://localhost");
+  const href = new URL(agentHref(testAgentLinks, i, "dovre-wt"), "http://localhost");
   assert.equal(href.pathname, "/agents/new");
   assert.equal(href.searchParams.get("repo"), "dovre-wt");
   assert.equal(href.searchParams.get("prompt"), prompt);
-  assert.equal(new URL(agentHref(i), "http://localhost").searchParams.has("repo"), false, "no checkout: the form starts in Dovre's own folder");
+  assert.equal(new URL(agentHref(testAgentLinks, i), "http://localhost").searchParams.has("repo"), false, "no checkout: the form starts in Dovre's own folder");
 
   const asked: string[] = [];
-  const acts = { me: "kari", task: false, set: "assigned" as const, write: true, agent: (repo: string) => (asked.push(repo), "dovre") };
+  const acts = { me: "kari", task: false, set: "assigned" as const, write: true, agent: { links: testAgentLinks, dirOf: (repo: string) => (asked.push(repo), "dovre") } };
   const out = String(issueRow(i, { staleDays: 14, now: NOW, acts }));
   assert.deepEqual(asked, ["bergaaberg/dovre"]);
   assert.match(out, /<a class="btn" href="\/agents\/new\?repo=dovre&amp;prompt=Work\+on\+bergaaberg%2Fdovre%2333/);
@@ -204,7 +204,7 @@ test("a row starts a new agent session on its issue: the form filled in, in the 
 });
 
 test("a hostile title stays text in the agent link", () => {
-  const out = String(issueRow(issue({ title: `"><script>alert(1)</script>` }), { staleDays: 14, now: NOW, acts: { me: "kari", task: false, set: "assigned", write: false, agent: () => undefined } }));
+  const out = String(issueRow(issue({ title: `"><script>alert(1)</script>` }), { staleDays: 14, now: NOW, acts: { me: "kari", task: false, set: "assigned", write: false, agent: { links: testAgentLinks, dirOf: () => undefined } } }));
   assert.doesNotMatch(out, /<script>/);
   const href = out.match(/href="(\/agents\/new\?[^"]*)"/)?.[1]?.replace(/&amp;/g, "&");
   assert.ok(href);
@@ -220,6 +220,9 @@ test("a read-only forge still offers an agent on each issue, and no writes", asy
   const none = setup();
   await none.pack.refresh!(none.ctx);
   assert.doesNotMatch(await none.get("/tracker"), /Start an agent|Act on it/);
+  const off = setup({ agents: () => () => "dovre", noAgents: true });
+  await off.pack.refresh!(off.ctx);
+  assert.doesNotMatch(await off.get("/tracker"), /\/agents\/|Start an agent|Act on it/, "the agents pack is off: no link to its pages (#394)");
 });
 
 test("bulk (dovre#104): tick several, close or take them at once; each re-checked and logged; outsiders and junk refused", async () => {

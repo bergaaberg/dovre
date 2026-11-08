@@ -12,11 +12,12 @@ import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel
 import { found } from "../../../../tools.ts";
 import { type Res, settle } from "../../../../pages/later.ts";
 import { HARNESS_NAME, Link, safeUrl } from "../../../../pages/parts.ts";
+import type { AgentShare } from "../../../types.ts";
 
 export const CURRENT = "/issues/new";
 export const MAX_NOTE = 4000;
 
-export type Ctx = Setup & { /** Who I am on the forge. */ operator: string; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: a catalog pack's Projects). */ extra?: Child[]; /** My list is here (its pack shares it): the preview offers putting what's made on it too. */ myList?: boolean };
+export type Ctx = Setup & { /** Who I am on the forge. */ operator: string; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: a catalog pack's Projects). */ extra?: Child[]; /** My list is here (its pack shares it): the preview offers putting what's made on it too. */ myList?: boolean; /** Where agents start, while the agents pack is on (#394): without it nothing offers one. */ agent?: AgentShare };
 export { type Res, settle };
 /** On the preview, while My list is here: ticked, what's made goes on it too. */
 export const myListBox = (ctx: Ctx) => (ctx.myList ? html`<label class="check mylist"><input type="checkbox" name="mylist" value="1" checked> Also put it on My list</label>` : "");
@@ -42,9 +43,9 @@ export function page(_ctx: Ctx, title: string, body: Child): Page {
 export const crumbs = (label: string) => [{ href: CURRENT, label: "New work" }, { label }];
 
 /** "Describe it roughly": the note goes to a page that shows the agent's prompt before anything starts. */
-export function agentPanel(ask: AgentAsk, o: { title?: string; hint?: Child } = {}): Html | "" {
-  // No agent CLI on this machine: nothing to hand the note to.
-  if (found.harnesses && !found.harnesses.length) return "";
+export function agentPanel(ctx: Ctx, ask: AgentAsk, o: { title?: string; hint?: Child } = {}): Html | "" {
+  // The agents pack is off, or no agent CLI on this machine: nothing to hand the note to.
+  if (!ctx.agent || (found.harnesses && !found.harnesses.length)) return "";
   const pairs: [string, string][] = [["kind", ask.kind]];
   if (ask.kind === "forms") pairs.push(["repo", ask.repo], ...(ask.template ? ([["template", ask.template]] as [string, string][]) : []));
   if (ask.kind === "task") pairs.push(...(ask.parent ? ([["parent", ask.parent]] as [string, string][]) : []), ...(ask.repo ? ([["repo", ask.repo]] as [string, string][]) : []));
@@ -65,7 +66,7 @@ export function entryPage(ctx: Ctx): Page {
     html`${PageHeader({ title: "New work", sub: "Pick the kind. Forms, types and fields come live from GitHub." })}
 ${ctx.extra ?? ""}
 ${Panel({ title: "What is it?", flush: true, children: List([task, ...forms]) })}
-${agentPanel({ kind: "any" }, { title: "Not sure which? Describe it", hint: html`An agent picks the kind, drafts it, and files it only after your go:<br>${kindsOf(ctx).split("\n").map((l) => html`${l}<br>`)}` })}`,
+${agentPanel(ctx, { kind: "any" }, { title: "Not sure which? Describe it", hint: html`An agent picks the kind, drafts it, and files it only after your go:<br>${kindsOf(ctx).split("\n").map((l) => html`${l}<br>`)}` })}`,
   );
 }
 
@@ -77,7 +78,7 @@ function harnessField(): Html | "" {
 }
 
 /** The agent's prompt, shown before it starts (the second click), and where it runs. */
-export function draftPage(ctx: Ctx, o: { prompt: string; dirs: Checkout[]; dir?: string; back: string }): Page {
+export function draftPage(ctx: Ctx & { agent: AgentShare }, o: { prompt: string; dirs: Checkout[]; dir?: string; back: string }): Page {
   const options = [
     html`<option value="${WORK}"${o.dir === WORK || !o.dir ? html` selected` : ""}>${WORK_LABEL}</option>`,
     ...o.dirs.map((c) => html`<option value="${c.dir}"${c.dir === o.dir ? html` selected` : ""}>${c.dir}${c.dir.toLowerCase() !== short(ctx.org, c.repo).toLowerCase() ? ` (${short(ctx.org, c.repo)})` : ""}</option>`),
@@ -88,7 +89,7 @@ export function draftPage(ctx: Ctx, o: { prompt: string; dirs: Checkout[]; dir?:
     html`${PageHeader({ title: "Draft with an agent", crumbs: crumbs("Agent") })}
 ${Panel({
   title: "Start an agent",
-  children: html`${KeyValues([["Prompt", html`<pre class="code">${o.prompt}</pre>`]])}<form method="post" action="/agents/new">${hidden([["mode", "default"], ["prompt", o.prompt]])}${harnessField()}<div class="field"><label class="label" for="dir">Runs in</label><select id="dir" name="repo" required>${options}</select><span class="hint">Dovre's own folder keeps it out of your repos; you can clear it away from Agents when it's done. Skills and MCP servers are the agent's own, so they work anywhere; a repo's checkout adds that repo's conventions.</span></div><div class="buttons"><button type="submit" class="primary">Start agent</button><a class="btn ghost" href="${safeUrl(o.back)}">Back</a></div></form>`,
+  children: html`${KeyValues([["Prompt", html`<pre class="code">${o.prompt}</pre>`]])}<form method="post" action="${safeUrl(ctx.agent.start())}">${hidden([["mode", "default"], ["prompt", o.prompt]])}${harnessField()}<div class="field"><label class="label" for="dir">Runs in</label><select id="dir" name="repo" required>${options}</select><span class="hint">Dovre's own folder keeps it out of your repos; you can clear it away from Agents when it's done. Skills and MCP servers are the agent's own, so they work anywhere; a repo's checkout adds that repo's conventions.</span></div><div class="buttons"><button type="submit" class="primary">Start agent</button><a class="btn ghost" href="${safeUrl(o.back)}">Back</a></div></form>`,
 })}`,
   );
 }

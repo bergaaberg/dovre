@@ -12,6 +12,7 @@ import { newAgentPage } from "../src/packs/core/agents/session.view.ts";
 import { resumeCommand } from "../src/pages/parts.ts";
 import { setupLines } from "../src/pages/settings.ts";
 import { agentPanel } from "../src/packs/core/issues/compose/work.ts";
+import { testAgentLinks } from "../src/packs/testing.ts";
 import { setupApp, setupPage } from "../src/setup.ts";
 import { findTool, found, shimTarget, summariesWanted, which } from "../src/tools.ts";
 import { H, assertInert, pr, session, signedIn, snapshot } from "./helpers.ts";
@@ -169,9 +170,11 @@ test("only the harnesses found are offered and run; with none, the pages say so 
   const was = found.harnesses;
   try {
     found.harnesses = [];
-    assert.equal(agentPanel({ kind: "any" }), "", "nothing to hand a note to");
+    const cx = { sortingRepos: [], formRepos: [], operator: "kari", org: "ACME", ghe: "acme.ghe.com", agent: testAgentLinks };
+    assert.equal(agentPanel(cx, { kind: "any" }), "", "nothing to hand a note to");
     found.harnesses = ["omp"];
-    assert.match(String(agentPanel({ kind: "any" })), /Draft with an agent/);
+    assert.match(String(agentPanel(cx, { kind: "any" })), /Draft with an agent/);
+    assert.equal(agentPanel({ ...cx, agent: undefined }, { kind: "any" }), "", "the agents pack is off: nothing offers one (#394)");
   } finally {
     found.harnesses = was;
   }

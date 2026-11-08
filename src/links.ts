@@ -8,7 +8,7 @@ import { html } from "hono/html";
 import type { Html } from "./ui/kit.ts";
 import { Pill } from "./ui/kit.ts";
 import { safeUrl } from "./pages/parts.ts";
-import type { RefRule } from "./packs/types.ts";
+import type { AgentShare, RefRule } from "./packs/types.ts";
 
 export type LinkCtx = {
   ghe: string;
@@ -17,6 +17,8 @@ export type LinkCtx = {
   rules?: RefRule[];
   /** What's known about PRs, by "owner/repo#n". */
   prs: Map<string, { state: string; title?: string }>;
+  /** Where agents' pages are, while the agents pack is on: session ids link there only then (#394). */
+  agent?: AgentShare;
 };
 
 export type Ref =
@@ -82,11 +84,12 @@ export function refsIn(text: string, ctx: LinkCtx): Piece[] {
     if (free(at, end)) hits.push({ at, end, ref: ghRef(ctx, m[1] ?? ctx.org, m[2]!, Number(m[3])) });
   }
   for (const m of appRefs(text, ctx.rules)) if (free(m.at, m.end)) hits.push(m);
-  for (const m of text.matchAll(SID_RE)) {
-    const at = m.index!;
-    const end = at + m[0].length;
-    if (free(at, end)) hits.push({ at, end, ref: { kind: "agent", id: m[0], url: `/agents/s/${m[0]}` } });
-  }
+  if (ctx.agent)
+    for (const m of text.matchAll(SID_RE)) {
+      const at = m.index!;
+      const end = at + m[0].length;
+      if (free(at, end)) hits.push({ at, end, ref: { kind: "agent", id: m[0], url: ctx.agent.session(m[0]) } });
+    }
   hits.sort((a, b) => a.at - b.at);
   const out: Piece[] = [];
   let i = 0;

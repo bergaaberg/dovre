@@ -17,21 +17,28 @@ import { modelSelect } from "../../../pages/models.ts";
 import { Ago, harnessTag, HARNESS_NAME, Link, safeUrl } from "../../../pages/parts.ts";
 import { KIND_LABEL, prKey, type ReviewKind, SKILL } from "./agent.ts";
 import type { AgentReview } from "./store.ts";
+import type { AgentShare } from "../../types.ts";
 
 const startHref = (p: Pr, kind: ReviewKind) => safeUrl(`/reviews/agent?pr=${encodeURIComponent(prKey(p))}&kind=${kind}`);
-export const sessionHref = (r: AgentReview) => safeUrl(r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.runId}`);
+/** Where the run is shown, while the agents pack is on (#394). */
+export const sessionHref = (r: AgentReview, links: AgentShare | undefined) => (links ? safeUrl(r.sessionId ? links.session(r.sessionId) : links.run(r.runId)) : undefined);
+/** A link to the run with what goes before it, or nothing while the agents pack is off. */
+const sessionLink = (r: AgentReview, links: AgentShare | undefined, before: string, label: string, after = "") => {
+  const href = sessionHref(r, links);
+  return href ? html`${before}<a href="${href}">${label}</a>${after}` : "";
+};
 
 /** The block on a PR card. `report`: the agent's last message, once it's done. */
-export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, report: string | undefined, forge: string): Html {
+export function agentBlock(p: Pr, kind: ReviewKind, r: AgentReview | undefined, report: string | undefined, forge: string, links?: AgentShare): Html {
   const start = (label: string) => html`<a class="btn" href="${startHref(p, kind)}">${label}</a>`;
   if (!r) return html`<div class="agent-review"><div class="buttons">${start(`${KIND_LABEL[kind]}…`)}</div></div>`;
   const what = kind === "review" ? "Agent review" : "Agent assessment";
   const older = r.headSha !== p.headSha ? html` <span class="t3">(for an older commit)</span>` : "";
-  const open = html`<a href="${sessionHref(r)}">Open the session</a>`;
+  const open = sessionLink(r, links, " · ", "Open the session");
   if (r.status === "running")
-    return html`<div class="agent-review"><p class="agent-review-h"><span class="spark">${what}</span> running, for ${Ago(r.startedAt)} ${harnessTag(r.harness)} · ${open}</p></div>`;
+    return html`<div class="agent-review"><p class="agent-review-h"><span class="spark">${what}</span> running, for ${Ago(r.startedAt)} ${harnessTag(r.harness)}${open}</p></div>`;
   const ended = r.endedAt ?? r.startedAt;
-  const head = html`<p class="agent-review-h"><span class="spark">${what}</span> ${r.status === "done" ? html`done · ${Ago(ended)}` : r.status === "failed" ? "failed" : "stopped"}${older} ${harnessTag(r.harness)} · ${open}</p>`;
+  const head = html`<p class="agent-review-h"><span class="spark">${what}</span> ${r.status === "done" ? html`done · ${Ago(ended)}` : r.status === "failed" ? "failed" : "stopped"}${older} ${harnessTag(r.harness)}${open}</p>`;
   const split = r.status === "done" && report?.trim() ? splitDraft(kind, report) : undefined;
   const body = split?.text ? html`<details class="agent-report"${older ? "" : html` open`}><summary>The ${kind === "review" ? "report" : "assessment"}</summary><div class="agent-report-body">${markdown(split.text, { headingOffset: 3 })}</div></details>` : "";
   const again = start(r.status === "done" ? (kind === "review" ? "Review again…" : "Assess again…") : "Try again…");
@@ -63,6 +70,8 @@ export type DraftDiff = { ok: true; files: PrFile[]; threads: Thread[] } | { ok:
 
 export type DraftView = {
   diff?: DraftDiff;
+  /** Where the session is shown, while the agents pack is on. */
+  links?: AgentShare;
   r: AgentReview;
   pr: { repo: string; number: number; url: string; title?: string; author?: string };
   base: Draft;
@@ -126,7 +135,7 @@ ${p.draft.kind === "review"
   const body = html`${PageHeader({
     title: review ? "The agent's review" : "The agent's replies",
     crumbs: [{ href: "/prs", label: "Pull requests" }],
-    sub: html`${Link(pr.url, html`${pr.repo}#${pr.number}${pr.title ? html` ${pr.title}` : ""}`)}${pr.author ? html` <span class="t3">by ${pr.author}</span>` : ""} · <a href="${safeUrl(r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.runId}`)}">the session</a>${review && !r.posted ? html` · <a href="${safeUrl(`/prs/${pr.repo}/${pr.number}/review`)}">start your own review from it</a>` : ""}`,
+    sub: html`${Link(pr.url, html`${pr.repo}#${pr.number}${pr.title ? html` ${pr.title}` : ""}`)}${pr.author ? html` <span class="t3">by ${pr.author}</span>` : ""}${sessionLink(r, v.links, " · ", "the session")}${review && !r.posted ? html` · <a href="${safeUrl(`/prs/${pr.repo}/${pr.number}/review`)}">start your own review from it</a>` : ""}`,
   })}
 ${v.flash ? Notice({ tone: v.flash.ok ? "ok" : "bad", children: v.flash.message }) : ""}
 ${r.posted
@@ -136,6 +145,8 @@ ${r.posted
 }
 
 export type ConfirmView = {
+  /** Where the running session is shown, while the agents pack is on. */
+  links?: AgentShare;
   pr: Pr;
   kind: ReviewKind;
   dir?: string;
@@ -157,7 +168,7 @@ export function confirmPage(c: ConfirmView): Html {
     sub: html`${Link(pr.url, html`${pr.repo}#${pr.number} ${pr.title}`)} <span class="t3">by ${pr.author}</span>`,
   })}
 ${c.problem ? Notice({ tone: "bad", children: c.problem }) : ""}
-${c.running ? Notice({ children: html`An agent is on it already (for ${Ago(c.running.startedAt)}). <a href="${sessionHref(c.running)}">Open the session</a>.` }) : ""}
+${c.running ? Notice({ children: html`An agent is on it already (for ${Ago(c.running.startedAt)}).${sessionLink(c.running, c.links, " ", "Open the session", ".")}` }) : ""}
 ${!c.dir ? Notice({ tone: "warn", children: html`${pr.repo} isn't checked out in your code folder, and the agent works in a checkout. Clone it, then come back: <code data-copy="${c.clone ?? ""}">${c.clone ?? ""}</code>` }) : ""}
 ${!first ? Notice({ tone: "warn", children: html`No agent here has the <code>${SKILL[kind]}</code> skill. Install it for Claude Code (~/.claude/skills) or omp (~/.agents/skills), clone a checkout of skills into your code folder as agent-skills, or name another skill in <code>.dev.vars</code> (REVIEW_SKILL, TRIAGE_SKILL).` }) : ""}
 ${Panel({

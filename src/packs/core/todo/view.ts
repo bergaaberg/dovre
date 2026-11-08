@@ -10,7 +10,7 @@ import { html } from "hono/html";
 import type { AppEnv } from "../../../env.ts";
 import type { Snapshot } from "../../../gather.ts";
 import { type LinkCtx, linked, refLink, refsOnly } from "../../../links.ts";
-import type { PackContext, RefRule } from "../../types.ts";
+import type { AgentShare, PackContext, RefRule } from "../../types.ts";
 import {
   addTodo,
   daysUntil,
@@ -40,13 +40,13 @@ const DONE_SHOWN_MS = 3 * 86_400_000;
 const LABEL: Record<State, string> = { doing: "Doing", next: "Next", waiting: "Waiting", done: "Done" };
 
 /** What links in my list can say about PRs, from what's already gathered; `rules`: the packs' kinds of reference. */
-export function linkCtxOf(at: { ghe: string; org: string }, s?: Snapshot, rules: RefRule[] = []): LinkCtx {
+export function linkCtxOf(at: { ghe: string; org: string }, s?: Snapshot, rules: RefRule[] = [], agent?: AgentShare): LinkCtx {
   const prs = new Map<string, { state: string; title?: string }>();
   if (s) {
     for (const [k, r] of s.refs) prs.set(k, { state: r.state, title: r.title });
     if (s.prs.ok) for (const p of [...s.prs.value.mine, ...s.prs.value.review]) prs.set(`${p.repo}#${p.number}`, { state: "OPEN", title: p.title });
   }
-  return { ghe: at.ghe, org: at.org, rules, prs };
+  return { ghe: at.ghe, org: at.org, rules, prs, ...(agent ? { agent } : {}) };
 }
 
 const WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" });
@@ -64,7 +64,7 @@ export function dueOf(due: string | null, today: string, done = false): Html | "
 const tick = (t: Todo, back: string) =>
   html`<form method="post" action="/todo/${t.id}/toggle" class="todo-tick-f"><input type="hidden" name="back" value="${back}"><button type="submit" class="todo-tick${t.state === "done" ? " on" : ""}" aria-pressed="${t.state === "done" ? "true" : "false"}" aria-label="${t.state === "done" ? "Not done" : "Done"}: ${t.title}" title="${t.state === "done" ? "Not done after all" : "Done"}"></button></form>`;
 
-const agentHref = (t: Todo) => safeUrl(`/agents/new?prompt=${encodeURIComponent(`${t.title}${t.notes ? `\n\n${t.notes.slice(0, 1500)}` : ""}`)}`);
+const agentHref = (t: Todo, agent: AgentShare) => safeUrl(agent.start({ prompt: `${t.title}${t.notes ? `\n\n${t.notes.slice(0, 1500)}` : ""}` }));
 
 function editor(t: Todo, ctx: LinkCtx, back: string, isChild: boolean, bino = false): Html {
   const refs = refsOnly(t.notes, ctx);
@@ -80,7 +80,7 @@ ${t.notes ? html`<div class="todo-notes">${markdown(t.notes, { headingOffset: 3 
 <div class="todo-acts">
 <form method="post" action="/todo/${t.id}/move"><input type="hidden" name="back" value="${back}"><input type="hidden" name="dir" value="up"><button type="submit" class="sm ghost">Move up</button></form>
 <form method="post" action="/todo/${t.id}/move"><input type="hidden" name="back" value="${back}"><input type="hidden" name="dir" value="down"><button type="submit" class="sm ghost">Move down</button></form>
-<a class="btn sm ghost" href="${agentHref(t)}">Start an agent on this</a>
+${ctx.agent ? html`<a class="btn sm ghost" href="${agentHref(t, ctx.agent)}">Start an agent on this</a>` : ""}
 ${bino ? html`<form method="post" action="/bino/new"><input type="hidden" name="todo" value="${t.id}"><button type="submit" class="sm ghost" data-busy="Asking Bino">Break it down with Bino</button></form>` : ""}
 ${Confirm({ kind: "todo.delete", action: `/todo/${t.id}/delete`, fields: { back }, label: "Delete", question: isChild ? "Delete this step?" : "Delete this, and the steps under it?", danger: true })}
 </div></details>`;
@@ -179,7 +179,7 @@ export function mountTodo(app: Hono<AppEnv>, deps: TodoRoutesDeps): void {
   const show = async (c: Context<AppEnv>) => {
     const s = await ctx.gathered();
     const proposals = html`${ctx.fill("todo.proposals", {})}`;
-    return ctx.page(c, { title: "My list · Dovre", current: "/todo", body: todoPage(await listTodos(db), linkCtxOf(deps.links(), s, ctx.refs()), { now: now(), bino: deps.bino?.(), adding: c.req.query("add") !== undefined, proposals }) });
+    return ctx.page(c, { title: "My list · Dovre", current: "/todo", body: todoPage(await listTodos(db), linkCtxOf(deps.links(), s, ctx.refs(), ctx.required("agents", "agent")), { now: now(), bino: deps.bino?.(), adding: c.req.query("add") !== undefined, proposals }) });
   };
 
   app.get("/todo", (c) => show(c));

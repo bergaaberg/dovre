@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
 import { linkCtxOf, todoCard, todoPage } from "../view.ts";
 import { refsIn } from "../../../../links.ts";
+import { testAgentLinks } from "../../../testing.ts";
 import { addTodo, deleteTodo, listTodos, moveTodo, osloDate, parseQuick, toggleDone, treeOf, updateTodo } from "../store.ts";
 import { assertInert, H, pr, signedIn, snapshot } from "../../../../../test/helpers.ts";
 
@@ -47,7 +48,7 @@ test("items keep order, state and steps; done folds steps' count; delete takes t
 
 /** A pack's kind of reference: ticket keys of two projects, so UTF-8 isn't one. */
 const TICKETS = [{ pattern: /\b(?:DEV|FS)-\d+\b/, href: (k: string) => `https://example.atlassian.net/browse/${k}` }];
-const ctx = linkCtxOf({ ghe: "acme.ghe.com", org: "ACME" }, snapshot({ prs: { ok: true, value: { mine: [pr({ repo: "ACME/shop-api", number: 840, title: "Stack base" })], review: [] } } }), TICKETS);
+const ctx = linkCtxOf({ ghe: "acme.ghe.com", org: "ACME" }, snapshot({ prs: { ok: true, value: { mine: [pr({ repo: "ACME/shop-api", number: 840, title: "Stack base" })], review: [] } } }), TICKETS, testAgentLinks);
 
 test("references become links: PRs with their state, a pack's kinds (ticket keys), agent sessions, plain links", () => {
   const kinds = (s: string) => refsIn(s, ctx).map((p) => (typeof p === "string" ? "text" : p.kind));
@@ -60,6 +61,9 @@ test("references become links: PRs with their state, a pack's kinds (ticket keys
   assert.deepEqual(kinds("UTF-8 isn't a ticket"), ["text"]);
   assert.deepEqual(kinds("https://acme.ghe.com/ACME/people/pull/12."), ["gh", "text"], "trailing punctuation isn't the link");
   assert.deepEqual(kinds("agent 149b2627-6461-4857-8a90-2f4522ba4529 done"), ["text", "agent", "text"]);
+  assert.equal((refsIn("149b2627-6461-4857-8a90-2f4522ba4529", ctx)[0] as { url: string }).url, "/agents/s/149b2627-6461-4857-8a90-2f4522ba4529");
+  const off = linkCtxOf({ ghe: "acme.ghe.com", org: "ACME" });
+  assert.deepEqual(refsIn("agent 149b2627-6461-4857-8a90-2f4522ba4529 done", off), ["agent 149b2627-6461-4857-8a90-2f4522ba4529 done"], "the agents pack is off: a session id stays text (#394)");
   assert.deepEqual(kinds("see https://example.com/x"), ["text", "url"]);
 });
 

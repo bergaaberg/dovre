@@ -66,6 +66,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    never by importing it. Each shared contract's shape is core's (`PackShares` in types.ts).
    A pack that only `uses` another (1.11) reads its shares the same way while it's on, and stays
    on without it. Core reads shares too: Bino, search and New work find My list as `list`.
+   Links to the agents pack's pages come from its `agent` share (1.12), so they go away with it.
 4. **Mounted** (`createApp`). Each pack gets its own `PackContext`. If `available` says no or
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
@@ -282,6 +283,7 @@ Also:
 | 1.9 | Slots `pr.agent` (a block on a PR card) and `review.draft` (an agent's draft for my own review); agent reviews became the `reviews` pack (#389) |
 | 1.10 | Slot `ai.summary` (a PR's or deploy's summary by key, drawn by core); AI summaries became the `summaries` pack (#390) |
 | 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
+| 1.12 | Share `agent` (where the agents pack starts an agent and shows a session or run): My list, New work, reviews and core link through it and leave the link out while agents is off (#394) |
 
 ## Open questions
 
@@ -289,10 +291,7 @@ Teams and Data moved to instance packs (2026-10-26), the avatar to dovre-packs (
 2026-10-27); `test/boundary.test.ts` keeps them out of core. Pack options live in manifest
 `settings`; `src/config.ts` `KEYS` is core's only.
 
-1. **Core links to agents routes.** My list, New work, tasks, reviews and the desk link to
-   `/agents/new` and `/agents/s/…`, which 404 with `PACK_AGENTS=off`. Fine while agents is a
-   core pack. If it ever becomes truly optional, those links become a slot.
-2. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs, so
+1. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs, so
    `acts` are local only. It does get packs' `bino` lines through the page context, and it
    looks up through the Worker: the instance exports a `BinoLookups` entrypoint and binds it to
    itself as `BINO_LOOKUPS` (`src/hosted/lookups.ts`).

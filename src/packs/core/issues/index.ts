@@ -97,7 +97,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       // /issues: New work, and /issues itself, which goes to /tracker.
       paths: ["issues"],
       // New work's "Also put it on My list", while that pack is on.
-      uses: ["todo"],
+      uses: ["todo", "agents"],
       everyMs: 5 * 60_000,
       settings: [
         { key: "ISSUES_TRIAGE_REPOS", label: "Repos to triage", help: "owner/repo, comma-separated: their open issues with no assignee and no label" },
@@ -177,6 +177,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
               newWork: () => ctx.fill("work.new", {}),
               list: HREF,
               myList: () => ctx.required("todo", "list"),
+              agent: () => ctx.required("agents", "agent"),
               prewarm: c.prewarm,
             },
           ),
@@ -271,8 +272,14 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         return c.redirect(`${HREF}?${q}`, 303);
       });
 
-      app.get(HREF, (c) =>
-        ctx.page(c, {
+      /** Rows offer an agent while the agents pack is on and agents run here. */
+      const agentActs = () => {
+        const links = o.agents ? ctx.required("agents", "agent") : undefined;
+        return links && o.agents ? { links, dirOf: o.agents() } : undefined;
+      };
+      app.get(HREF, (c) => {
+        const agent = agentActs();
+        return ctx.page(c, {
           title: "Issues",
           current: HREF,
           head: html`<meta name="u-topics" content="${ISSUES_PACK_ID}">`,
@@ -284,12 +291,12 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
             now: now(),
             host: o.forge.host,
             newHref: o.newHref,
-            acts: canAct() || o.agents ? { me: me(), task: !!o.tasks && canAct(), write: canAct(), agent: o.agents?.() } : undefined,
+            acts: canAct() || agent ? { me: me(), task: !!o.tasks && canAct(), write: canAct(), ...(agent ? { agent } : {}) } : undefined,
             done: doneOf({ done: c.req.query("done"), ref: c.req.query("ref"), reason: c.req.query("reason") }),
             bulk: bulkOf({ bulk: c.req.query("bulk"), done: c.req.query("done"), of: c.req.query("of"), why: c.req.queries("why") }),
           }),
-        }),
-      );
+        });
+      });
     },
   };
 }

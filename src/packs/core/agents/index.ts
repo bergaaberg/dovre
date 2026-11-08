@@ -20,7 +20,7 @@ import type { Desk } from "../../../agents/desk.ts";
 import type { Dismissed } from "../../../agents/dismissed.ts";
 import type { Run } from "../../../agents/runner.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
-import { type Pack, PACK_API, type PackContext } from "../../types.ts";
+import { type AgentShare, type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { loadPolicy } from "../../../notify.ts";
 import type { Quiet } from "../../../quiet.ts";
 import { agentAsksOf } from "./asks.ts";
@@ -60,6 +60,16 @@ export type AgentsDeps = {
 };
 
 const NONE: Sessions = { live: [], recent: [] };
+
+/** Where its pages are, for the packs and core pages that link here (#394). */
+export const AGENT_LINKS: AgentShare = {
+  start: (o = {}) => {
+    const q = new URLSearchParams({ ...(o.repo ? { repo: o.repo } : {}), ...(o.prompt !== undefined ? { prompt: o.prompt } : {}) }).toString();
+    return q ? `/agents/new?${q}` : "/agents/new";
+  },
+  session: (sid) => `/agents/s/${encodeURIComponent(sid)}`,
+  run: (id) => `/agents/r/${encodeURIComponent(id)}`,
+};
 
 /** The sessions the pages show: hosted the Mac's as it last said, else this machine's; without the ended ones I cleared away. */
 export function sessionsOf(desk: Desk, here: Here | undefined, dismissed?: Pick<Dismissed, "has">): Sessions {
@@ -116,8 +126,8 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       await followFixes({ db: ctx.db, desk }).catch(() => {});
       if (JSON.stringify(pass) !== before) ctx.publish(["agents"]);
     },
-    // Its auto runs, for Auto review (#326): only with the forge, where they run at all.
-    shares: (ctx) => (github ? { auto: autoShare(ctx.db, desk, { owners: github.owners, ...(ctx.env.TZ_NAME ? { tz: ctx.env.TZ_NAME } : {}) }) } : {}),
+    // Where its pages are (#394), and its auto runs for Auto review (#326): only with the forge, where they run at all.
+    shares: (ctx) => ({ agent: AGENT_LINKS, ...(github ? { auto: autoShare(ctx.db, desk, { owners: github.owners, ...(ctx.env.TZ_NAME ? { tz: ctx.env.TZ_NAME } : {}) }) } : {}) }),
     settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME, notifyQuiet) : ""),
     // Agent spend on /stats, where it's read (#387): read again when Stats asks and it's older than ten minutes.
     ...(spend
