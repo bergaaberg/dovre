@@ -1,11 +1,10 @@
 /** Dependabot (dovre#108): the open bumps across the owners' repos, and combining a repo's into one PR. */
 import { html } from "hono/html";
-import { type Frame, shell } from "../html.ts";
-import type { Combined, RepoQueue } from "../actions/dependabot.ts";
-import { combinedReady, MAX_COMBINE } from "../actions/dependabot.ts";
-import { BulkBar, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill } from "../ui/kit.ts";
-import { ago } from "../format.ts";
-import { Link, prTabs, safeUrl } from "./parts.ts";
+import type { Combined, RepoQueue } from "./act.ts";
+import { combinedReady, MAX_COMBINE } from "./act.ts";
+import { BulkBar, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill } from "../../../ui/kit.ts";
+import { ago } from "../../../format.ts";
+import { Link, safeUrl } from "../../../pages/parts.ts";
 
 /** A write running after the redirect: combining a repo's bumps, or adding groups to its dependabot.yml. */
 export type Job = { repo: string; what: "combine" | "groups" | "merge" | "relock" } & ({ state: "running" } | { state: "done"; ok: boolean; message: string; url?: string });
@@ -30,7 +29,7 @@ function combinedPanel(repos: RepoQueue[], running: boolean): Html {
     running
       ? html`<p class="t3">Merging…</p>`
       : ready
-        ? BulkBar({ id: "dependabot-merge", action: "/prs/dependabot/merge", label: "Ticked:", buttons: [{ name: "go", value: "1", label: "Merge ticked", kind: "pr.merge-combined", question: "Squash-merge every ticked combined PR? Each is checked again first: still open, mergeable, its checks green." }] })
+        ? BulkBar({ id: "dependabot-merge", action: "/dependabot/merge", label: "Ticked:", buttons: [{ name: "go", value: "1", label: "Merge ticked", kind: "pr.merge-combined", question: "Squash-merge every ticked combined PR? Each is checked again first: still open, mergeable, its checks green." }] })
         : "";
   return Panel({
     title: "Combined PRs",
@@ -56,7 +55,7 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: bool
     ? html`<span class="t3">Combining…</span>`
     : n >= 2
       ? Confirm({ kind: "pr.combine-dependabot",
-          action: "/prs/dependabot/combine",
+          action: "/dependabot/combine",
           fields: { repo: r.repo },
           label: `Combine ${take}`,
           question: html`Open one PR in ${r.repo} with ${take} Dependabot bump${take === 1 ? "" : "s"}? Each is merged onto a new branch from the default branch; ones that conflict are left out and listed.${r.security ? html` The ${r.security} security fix${r.security === 1 ? "" : "es"} are listed first.` : ""}`,
@@ -65,7 +64,7 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: bool
   const groups = running.has(`groups:${r.repo}`)
     ? html`<span class="t3">Adding groups…</span>`
     : Confirm({ kind: "pr.dependabot-groups",
-        action: "/prs/dependabot/groups",
+        action: "/dependabot/groups",
         fields: { repo: r.repo },
         label: "Group future bumps",
         question: html`Open a PR in ${r.repo} that adds a minor-and-patch group to each update in .github/dependabot.yml? Once it merges, Dependabot opens one PR per ecosystem for those bumps itself.`,
@@ -76,7 +75,7 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: bool
     : running.has(`relock:${r.repo}`)
       ? html`<span class="t3">Adding left-out bumps…</span>`
       : Confirm({ kind: "pr.relock-dependabot",
-          action: "/prs/dependabot/relock",
+          action: "/dependabot/relock",
           fields: { repo: r.repo, number: String(c.number) },
           label: "Add left-out bumps",
           question: html`Merge the Dependabot PRs that aren't in ${r.repo}#${c.number} yet into it? This runs in your checkout of ${r.repo}, in a temporary worktree. Where only lockfiles conflict, they're made again: pnpm and npm with install scripts off, go mod tidy, uv, Poetry, PDM and dotnet restore. Python tools may build a package to read its metadata. Then the branch is pushed with your git credentials.`,
@@ -98,7 +97,7 @@ function repoPanel(r: RepoQueue, now: number, running: Set<string>, relock: bool
   });
 }
 
-export function dependabotPage(frame: Frame, o: { org: string; /** Local mode: left-out bumps can be added to a combined PR. */ relock?: boolean; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number }): string {
+export function dependabotBody(o: { org: string; /** Local mode: left-out bumps can be added to a combined PR. */ relock?: boolean; repos?: RepoQueue[]; alertsUnread?: string[]; error?: string; pending?: boolean; jobs?: Job[]; now?: number; /** The tabs over it: PRs and their stacks, when they're on here. */ tabs?: Html | "" }): Html {
   const now = o.now ?? Date.now();
   const jobs = o.jobs ?? [];
   const running = new Set(jobs.filter((j) => j.state === "running").map((j) => `${j.what}:${j.repo}`));
@@ -117,12 +116,5 @@ export function dependabotPage(frame: Frame, o: { org: string; /** Local mode: l
           ? Empty({ title: "No Dependabot PRs", children: html`<p class="t2">Nothing open from Dependabot in ${o.org}.</p>` })
           : html`${combinedPanel(o.repos ?? [], running.has("merge:combined PRs"))}${(o.repos ?? []).map((r) => repoPanel(r, now, running, !!o.relock))}`
       }`;
-  return String(
-    shell({
-      title: "Dependabot · Dovre",
-      frame,
-      current: "/prs/dependabot",
-      body: html`${PageHeader({ title: "Pull requests", sub: o.repos ? `Dependabot: ${total} open bump${total === 1 ? "" : "s"} in ${o.repos.length} repo${o.repos.length === 1 ? "" : "s"}, security fixes first.` : "Dependabot's open bumps, by repo.", tabs: prTabs("dependabot") })}<div data-live id="dependabot">${body}</div>`,
-    }),
-  );
+  return html`${PageHeader({ title: "Pull requests", sub: o.repos ? `Dependabot: ${total} open bump${total === 1 ? "" : "s"} in ${o.repos.length} repo${o.repos.length === 1 ? "" : "s"}, security fixes first.` : "Dependabot's open bumps, by repo.", tabs: o.tabs })}<div data-live id="dependabot">${body}</div>`;
 }

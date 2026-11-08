@@ -11,11 +11,11 @@ import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import type { D1 } from "../db.ts";
-import { listRepos } from "../sources/claude.ts";
-import type { Ghe } from "../sources/ghe.ts";
-import { BRANCH, type CombineResult, DEPENDABOT, MAX_COMBINE } from "./dependabot.ts";
-import { logAction } from "./deploys.ts";
+import type { D1 } from "../../../db.ts";
+import { listRepos } from "../../../sources/claude.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
+import { BRANCH, type CombineResult, DEPENDABOT, MAX_COMBINE } from "./act.ts";
+import { logAction } from "../../../actions/deploys.ts";
 
 /** Runs a program (never a shell); resolves with its exit code and output. */
 export type Run = (cmd: string, args: string[], cwd: string) => Promise<{ code: number; out: string }>;

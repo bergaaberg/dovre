@@ -45,7 +45,8 @@ import { gitTurnDiff } from "./agents/turndiff.ts";
 import { appleContainer } from "./agents/sandbox.ts";
 import { findHarnessTools, harnessesFor, useFoundModels } from "./agents/harnesses/index.ts";
 import { foundModels } from "./agents/harnesses/found.ts";
-import { addLeftOut } from "./actions/relock.ts";
+import { addLeftOut } from "./packs/core/dependabot/relock.ts";
+import { dependabotPack } from "./packs/core/dependabot/index.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
 import { createHub, startRefresher, throttle } from "./live.ts";
@@ -422,6 +423,8 @@ const corePacks = [
   assistantPack(),
   // Moved (/movement): what people did in the org lately, from the gather.
   movementPack(),
+  // Dependabot's bumps across the repos (/dependabot), where the forge has them; left-out bumps added in a checkout.
+  ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n), stacks: forgeCan(forge, "stacks"), stale: () => gatherer.stale() })] : []),
   // Deploys waiting for my approval (/deploys), decided from here where the forge lets me.
   deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }),
   // My list (/todo), shared with Bino, search and New work.
@@ -506,7 +509,6 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
     }),
     register: (h) => registerTools(h, { home: homedir(), want: toolsEntry, agy: agy ? [agy.bin, ...agy.pre] : undefined }),
   },
-  relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n),
   openUrl: systemOpener(),
   hub,
   notify,
