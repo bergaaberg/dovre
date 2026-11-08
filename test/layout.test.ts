@@ -164,11 +164,12 @@ test("Bino's button: the assistant icon without an avatar; with one, the avatar 
   const { createApp } = await import("../src/app.ts");
   const { noMemory } = await import("../src/packs/core/assistant/bino/memory.ts");
   const { fakeGhe, fixedGatherer } = await import("./helpers.ts");
+  const { withAssistant } = await import("../src/packs/core/assistant/test/withAssistant.ts");
   const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
   const bino = { route: { via: "claude" as const, ready: true, model: "sonnet", reflectModel: "haiku", ask: async () => ({ text: "", cost: 0 }) }, memory: noMemory("no") };
   const face = pack("face", "Face", { slots: () => ({ "bino.face": () => html`<img class="av-face" alt="">` }) });
   const appWith = (packs: Pack[]) => {
-    const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino, packs: { on: packs, off: [], env: {} } });
+    const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino, packs: withAssistant(packs) });
     const get = (path: string) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
     const post = (path: string, body: Record<string, string>) => app.request(`http://localhost${path}`, { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
     return { get, post };
@@ -180,7 +181,7 @@ test("Bino's button: the assistant icon without an avatar; with one, the avatar 
   assert.match(icon, /aria-label="Bino"/);
   const { get, post } = appWith([face]);
   assert.match(button(await (await get("/prs")).text()), /face-btn[^]*av-face/);
-  await post("/settings/layout", { binoButton: "icon" });
+  await post("/settings/layout", { part: "look", binoButton: "icon" });
   assert.match(button(await (await get("/prs")).text()), /href="#i-bino"/);
   assert.match(await (await get("/settings/look")).text(), /name="binoButton" value="icon" checked>[^]*?The assistant icon/);
   assert.deepEqual(layoutOf({ binoButton: "face" }), {}, "only what it knows");

@@ -368,10 +368,10 @@ export function planFromForm(form: Record<string, unknown>): Plan | null {
   return planOf({ title: first(form.title), notes: first(form.notes), steps: titles.map((title, i) => ({ title, state: states[i], due: dues[i] || undefined })) });
 }
 
-export function createBinoRoutes(env: Env, deps: {
+export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   bino: Bino;
   page: () => Promise<{ frame: Frame }>;
-  hub?: Hub;
+  hub?: Pick<Hub, "publish">;
   /** The newest gathered snapshot, for what a page I ask from shows. */
   peek?: () => Snapshot | undefined;
   /** What Bino knows right now, sent with each message when Bino answers elsewhere (hosted: the Durable Object). */

@@ -13,8 +13,9 @@ import type { Route } from "../bino/route.ts";
 import { lookupsVia } from "../../../../hosted/lookups.ts";
 import { offered } from "../../../../mcp.ts";
 import { openDb } from "../../../../db.ts";
-import { activePacks, lookupsFrom, MAX_PACK_LOOKUPS } from "../../../registry.ts";
+import { lookupsFrom, MAX_PACK_LOOKUPS } from "../../../registry.ts";
 import { PACK_API, type Pack, type PackContext } from "../../../types.ts";
+import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
@@ -156,9 +157,8 @@ test("in the app: a lookup is logged by kind and fields' names only, and what Bi
     manifest: { api: PACK_API, id: "evil", name: H, description: "test", domain: "general" },
     lookups: () => [{ kind: "find", when: "Finds.", fields: [{ name: "q", about: "what", required: true }], run: () => "RESULT-TEXT" }],
   };
-  const packs = activePacks([hostile], { env: {}, hosted: false });
   const route = scripted([block({ kind: "evil.find", q: H }), "Done."]);
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: { ...packs, env: {} } });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant([hostile]) });
   const req = (path: string, body?: string) => app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body });
   const at = (await req("/bino/new", "text=Find+it")).headers.get("location")!;
   let page = "";

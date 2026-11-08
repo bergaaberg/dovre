@@ -16,6 +16,7 @@ import { activePacks, binoOf, heldOff, initAll, pulseFrom, actsFrom, briefingFro
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
+import { withAssistant } from "../src/packs/core/assistant/test/withAssistant.ts";
 import { packApp, testContext } from "../src/packs/testing.ts";
 import { apiCompare, apiGap, parseApi } from "../src/packs/api.ts";
 import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
@@ -640,7 +641,7 @@ test("the Packs page: each pack on or off and why, what it answers, its refreshe
   assertInert("packs page", page);
   assert.match(page, /href="\/packs" title="Packs"/, "in the menu");
   assert.match(page, /<meta name="u-topics" content="packs">/);
-  assert.match(page, /3 on, 1 off · this machine/, "these two, and Dovre's own agents and terminal");
+  assert.match(page, /4 on, 1 off · this machine/, "these two, and Dovre's own agents, terminal and assistant");
   assert.doesNotMatch(page, /sekrit-token-value/, "a secret's value is never shown");
   assert.match(page, /Cloudflare token <span class="pill ok">set<\/span>/);
   assert.match(page, /Key <span class="pill bad">missing, needed<\/span>/);
@@ -1146,7 +1147,7 @@ test("acts with Bino: a pack's block becomes its card, two clicks; run on my pre
   const asked: { system: string; user: string }[] = [];
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async (p) => (asked.push(p), { text: reply, cost: 0 }) };
   const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
-  const app = createApp({ ...env, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: { ...activePacks([track], { env: {}, hosted: false }), env: {} } });
+  const app = createApp({ ...env, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant([track]) });
   const req = (path: string, body?: Record<string, string>) =>
     app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
   const until = async (at: string, re: RegExp) => {

@@ -9,6 +9,7 @@ import { noMemory } from "../bino/memory.ts";
 import type { Route } from "../bino/route.ts";
 import { viewOf } from "../bino/view.ts";
 import { openDb } from "../../../../db.ts";
+import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
@@ -58,7 +59,7 @@ test("the page I'm on, as Bino hears it: names and states, never a body, a promp
 function setup(reply = "Ok.") {
   const asked: { system: string; user: string }[] = [];
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async (p) => (asked.push(p), { text: reply, cost: 0 }) };
-  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(S), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") } });
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(S), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
   const req = (path: string, body?: Record<string, string>) =>
     app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
   const until = async (ok: () => boolean) => {
