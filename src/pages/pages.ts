@@ -11,7 +11,7 @@ import { type ForgeView, forgeCan, GITHUB_VIEW } from "../forge/types.ts";
 
 const live = "";
 
-export function prsPage(frame: Frame, s: Snapshot, summary: SummaryOf, agent?: AgentOf, slots?: PrSlots, forge: ForgeView = GITHUB_VIEW, q: PrQuery = DEFAULT_QUERY, /** `dependabot: false`: its pack is off here, so no tab. */ on: { dependabot?: boolean } = {}) {
+export function prsPage(frame: Frame, s: Snapshot, summary: SummaryOf, agent?: AgentOf, slots?: PrSlots, forge: ForgeView = GITHUB_VIEW, q: PrQuery = DEFAULT_QUERY, /** `false`: that pack is off here, so no tab. */ on: { dependabot?: boolean; stacks?: boolean } = {}) {
   const p = s.prs.ok ? s.prs.value : { mine: [], review: [] };
   const lists = applyPrQuery(p, q);
   const counts = viewCounts(p, q);
@@ -32,7 +32,7 @@ ${select("ci", "CI", Object.entries(CIS), q.ci, "Any")}
 </div></form>`;
   const panel = (title: string, list: Pr[] | null, showAuthor: boolean, empty: string) =>
     list === null ? "" : Panel({ title, meta: String(list.length), flush: true, children: list.length ? List(list.map((x) => prCard(x, { org: s.org, summary, agent, showAuthor, slots, forge }))) : Empty({ title: filtered || q.view !== "all" ? "None match" : empty }) });
-  const body = html`${PageHeader({ title: "Pull requests", sub: `${p.review.length} to review · ${p.mine.length} open`, tabs: prTabs("list", forgeCan(forge, "stacks"), forgeCan(forge, "dependabot") && on.dependabot !== false) })}
+  const body = html`${PageHeader({ title: "Pull requests", sub: `${p.review.length} to review · ${p.mine.length} open`, tabs: prTabs("list", forgeCan(forge, "stacks") && on.stacks !== false, forgeCan(forge, "dependabot") && on.dependabot !== false) })}
 ${failed("Pull requests", s.prs)}
 <div data-live id="prs-views" class="pr-views">${views}</div>
 ${form}

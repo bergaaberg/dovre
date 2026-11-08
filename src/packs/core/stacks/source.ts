@@ -4,10 +4,10 @@
  * the open PRs built on a head branch), each round one GraphQL query. Cached with the kept
  * memoize (src/kept.ts): answered at once, loaded again in the background.
  */
-import { ownerQuery, owns } from "../owners.ts";
-import type { StackPr } from "../home/stacks.ts";
-import { type Kept, memoize } from "../kept.ts";
-import type { Ghe } from "./ghe.ts";
+import { ownerQuery, owns } from "../../../owners.ts";
+import type { StackPr } from "./model.ts";
+import { type Kept, memoize } from "../../../kept.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
 
 const FIELDS = `number title url isDraft state mergedAt closedAt updatedAt baseRefName headRefName baseRef{name} author{login}
   repository{nameWithOwner defaultBranchRef{name}} reviewDecision mergeStateStatus

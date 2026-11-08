@@ -1,10 +1,9 @@
 /** Stacked PRs: every stack around my PRs and my review requests, bottom first, problems first. */
 import { html } from "hono/html";
-import { type Frame, shell } from "../html.ts";
-import { type Problem, problemText, type Stack, type StackNode, type StackPr, waitText } from "../home/stacks.ts";
-import { Confirm, Empty, type Html, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
-import { Reading } from "./later.ts";
-import { forgeName, Link, prTabs } from "./parts.ts";
+import { Reading } from "../../../pages/later.ts";
+import { Link } from "../../../pages/parts.ts";
+import { Confirm, Empty, type Html, Notice, PageHeader, Panel, Pill } from "../../../ui/kit.ts";
+import { type Problem, problemText, type Stack, type StackNode, type StackPr, waitText } from "./model.ts";
 
 const short = (org: string, repo: string) => repo.replace(`${org}/`, "");
 /** A branch steps right; past three it stays there. */
@@ -29,7 +28,7 @@ function problemLine(s: Stack, x: Problem, forge: string): Html {
   const pr = s.nodes.find((n) => n.pr.number === x.pr)?.pr;
   return Notice({
     tone: "warn",
-    children: html`${text} ${pr ? Confirm({ kind: "pr.retarget", action: "/prs/stacks/retarget", fields: { repo: s.repo, number: String(pr.number), from: pr.base }, label: `Retarget onto ${x.onto}`, question: html`Change #${pr.number}'s base from <code>${pr.base}</code> to <code>${x.onto}</code> on ${forge}?` }) : ""}`,
+    children: html`${text} ${pr ? Confirm({ kind: "pr.retarget", action: "/stacks/retarget", fields: { repo: s.repo, number: String(pr.number), from: pr.base }, label: `Retarget onto ${x.onto}`, question: html`Change #${pr.number}'s base from <code>${pr.base}</code> to <code>${x.onto}</code> on ${forge}?` }) : ""}`,
   });
 }
 
@@ -43,20 +42,13 @@ function stackPanel(s: Stack, org: string, me: string, forge: string): Html {
   });
 }
 
-export function stacksPage(frame: Frame, o: { org: string; me: string; stacks?: Stack[]; error?: string; pending?: boolean; flash?: { ok: boolean; message: string }; /** The Dependabot tab: its pack is on here. Default yes. */ dependabot?: boolean }): string {
+export function stacksBody(o: { org: string; me: string; /** The forge's name ("GitHub"). */ forge: string; stacks?: Stack[]; error?: string; pending?: boolean; flash?: { ok: boolean; message: string }; /** The tabs over it: the PR list, Dependabot. */ tabs?: Html | "" }): Html {
   const body = o.pending
     ? Reading({ title: "Reading stacks", text: "Your open PRs and review requests, and the chains they're in. The page fills in by itself." })
     : html`${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${o.error ? Notice({ tone: "bad", children: html`Stacks didn't load: ${o.error}` }) : ""}${
         o.stacks && !o.stacks.length
           ? Empty({ title: "No stacks", children: html`<p class="t2">None of your open PRs or review requests sit on another PR's branch.</p>` })
-          : (o.stacks ?? []).map((s) => stackPanel(s, o.org, o.me, forgeName(frame.host)))
+          : (o.stacks ?? []).map((s) => stackPanel(s, o.org, o.me, o.forge))
       }`;
-  return String(
-    shell({
-      title: "Stacks · Dovre",
-      frame,
-      current: "/prs/stacks",
-      body: html`${PageHeader({ title: "Pull requests", sub: html`Stacks: pull requests built on other pull requests, in ${o.org}, yours and the ones you're asked to review.`, tabs: prTabs("stacks", true, o.dependabot !== false) })}<div data-live id="stacks">${body}</div>`,
-    }),
-  );
+  return html`${PageHeader({ title: "Pull requests", sub: html`Stacks: pull requests built on other pull requests, in ${o.org}, yours and the ones you're asked to review.`, tabs: o.tabs })}<div data-live id="stacks">${body}</div>`;
 }

@@ -15,7 +15,7 @@ const PRIVATE: [string, string][] = [
 ];
 
 const PAGES: [string, string][] = [
-  ["/prs/stacks", "Pull requests: stacks"],
+  ["/stacks", "Pull requests: stacks"],
   ["/prs", "Pull requests"],
   ["/deploys", "Deploys"],
   ["/movement", "Moved (what changed lately)"],

@@ -87,14 +87,10 @@ import { GO_KEYS, SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
 import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./packs/guard.ts";
-import { branchName, retarget } from "./actions/stacks.ts";
-import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
 import { settle, within } from "./pages/later.ts";
 import { draftOf } from "./reviews/draft.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
-import { createStacks } from "./sources/stacks.ts";
-import { stacksPage } from "./pages/stacks.ts";
 import { DEFAULT_KEYS, KEY_GROUPS, keyPrefsStore } from "./keys.ts";
 import { keysPanel } from "./pages/keys.ts";
 
@@ -106,7 +102,6 @@ const PANE_PATHS: [PaneId, RegExp][] = [
 /** Core pages only some forges serve (src/forge/types.ts): not here at all when this one can't. */
 const FORGE_PATHS: [ForgeCan, RegExp][] = [
   ["viewer", /^\/prs\/[^/]+\/[^/]+\/\d+(\/files)?$/],
-  ["stacks", /^\/prs\/stacks(\/|$)/],
   ["deployApproval", /^\/deploys\/(approve|reject|reject-superseded)$/],
 ];
 
@@ -482,6 +477,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           snapshot: () => gatherer.peek(),
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),
           fill: (name, arg) => fill(name, arg),
+          pageOn: (href) => pageOn(href),
           pulse: () => pulseNow(),
           forge: () => {
             const login = gatherer.peek()?.login;
@@ -897,21 +893,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       if (url.search.slice(1) !== str) return c.redirect(str ? `/prs?${str}` : "/prs", 303);
     }
     const { s, frame } = await page();
-    return c.html(prsPage(frame, s, summary, agentOf, { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge, q, { dependabot: pageOn("/dependabot") }));
+    return c.html(prsPage(frame, s, summary, agentOf, { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge, q, { dependabot: pageOn("/dependabot"), stacks: pageOn("/stacks") }));
   });
-  // ── Stacked PRs (src/home/stacks.ts, src/sources/stacks.ts) ──
-  const stackSource = createStacks(ghe, ownersIn(env), { kept: deps.kept });
-  let stackFlash: { ok: boolean; message: string } | undefined;
-  app.get("/prs/stacks", async (c) => {
-    const { s, frame } = await page();
-    const shown = stackFlash;
-    stackFlash = undefined;
-    // A first read walks every chain (seconds): the page says so and fills itself in.
-    const got = await within(settle(stackSource.load(s.login)));
-    if (!got) return c.html(stacksPage(frame, { org: env.GHE_ORG, me: s.login, pending: true, dependabot: pageOn("/dependabot") }));
-    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
-    return c.html(stacksPage(frame, { org: env.GHE_ORG, me: s.login, dependabot: pageOn("/dependabot"), flash: shown, ...(got.ok ? { stacks: stacksOf(got.value, { since }) } : { error: got.error }) }));
-  });
+  // Stacks' pages are its pack's (#408), at /stacks since.
+  app.get("/prs/stacks", (c) => c.redirect("/stacks", 301));
   // ── Dovre's own PR viewer, diff viewer and code explorer (src/pages/viewer.ts) ──
   app.route(
     "/",
@@ -946,28 +931,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         }
         return undefined;
       },
-      stackFor: async (repo, n) => {
-        const { s } = await page();
-        // Only when the stacks are already known: the page never waits for the walk.
-        const got = await Promise.race([stackSource.load(s.login).catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 30))]);
-        if (!got) return undefined;
-        for (const st of stacksOf(got)) {
-          const node = st.nodes.find((x) => x.pr.repo === repo && x.pr.number === n);
-          if (node && st.nodes.length > 1) return html`<a href="/prs/stacks">${node.position} of ${st.nodes.length} in a stack</a>${node.waits ? ` · ${waitText(node.waits)}` : ""}`;
-        }
-        return undefined;
-      },
+      // Where it sits in a stack: the stacks pack's line (#408), from memory.
+      stackFor: async (repo, n) => fill("pr.stack", { repo, number: n }).find((x) => !!x) || undefined,
     }),
   );
-  app.post("/prs/stacks/retarget", async (c) => {
-    const form = await c.req.parseBody();
-    const repo = repoIn(ownersIn(env), form.repo);
-    const number = runId(form.number);
-    const from = branchName(form.from);
-    stackFlash = repo && number && from ? await retarget(ghe, env.DB, repo, number, from) : { ok: false, message: "That isn't a PR in the org." };
-    if (stackFlash.ok) void gatherer.get().then((s) => stackSource.load(s.login, { fresh: true })).catch(() => undefined);
-    return c.redirect("/prs/stacks", 303);
-  });
   // Dependabot's pages are its pack's (#407), at /dependabot since.
   app.get("/prs/dependabot", (c) => c.redirect("/dependabot", 301));
 

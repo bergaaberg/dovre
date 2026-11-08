@@ -47,6 +47,7 @@ import { findHarnessTools, harnessesFor, useFoundModels } from "./agents/harness
 import { foundModels } from "./agents/harnesses/found.ts";
 import { addLeftOut } from "./packs/core/dependabot/relock.ts";
 import { dependabotPack } from "./packs/core/dependabot/index.ts";
+import { stacksPack } from "./packs/core/stacks/index.ts";
 import { ompProfileOf } from "./sources/omp.ts";
 import { liveAgents } from "./sources/claude.ts";
 import { createHub, startRefresher, throttle } from "./live.ts";
@@ -423,8 +424,10 @@ const corePacks = [
   assistantPack(),
   // Moved (/movement): what people did in the org lately, from the gather.
   movementPack(),
+  // Stacked PRs (/stacks), where the forge has them; the viewer's "2 of 3 in a stack".
+  ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env), kept: keptAnswers })] : []),
   // Dependabot's bumps across the repos (/dependabot), where the forge has them; left-out bumps added in a checkout.
-  ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n), stacks: forgeCan(forge, "stacks"), stale: () => gatherer.stale() })] : []),
+  ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), relock: (repo, n) => addLeftOut(ghe, db.DB, env.CODE_DIR, repo, n), stale: () => gatherer.stale() })] : []),
   // Deploys waiting for my approval (/deploys), decided from here where the forge lets me.
   deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }),
   // My list (/todo), shared with Bino, search and New work.

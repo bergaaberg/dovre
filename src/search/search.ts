@@ -58,7 +58,6 @@ export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ 
     { title: "Today", href: "/", icon: "◐", about: "What needs you, the last 24 hours", also: ["home", "morning", "i dag", "oversikt", "feed"] },
     { title: "Stats", href: "/stats", icon: "▥", about: "The packs' numbers and charts, by week or day", also: ["statistics", "statistikk", "charts", "metrics", "numbers", "spend", "cost"], need: "stats" },
     { title: "Pull requests", href: "/prs", icon: "⇄", about: "Asking for your review, and yours", also: ["pr", "prs", "reviews", "pull"] },
-    { title: "Stacks", href: "/prs/stacks", icon: "≡", about: "Stacked PRs, bottom first", also: ["stacked", "chain", "retarget"] },
     { title: "Actions", href: "/actions", icon: "✓", about: "What Dovre did for you: deploys, messages, issues, production", also: ["log", "history", "decided", "logg", "historikk"] },
     { title: "Code", href: "/code", icon: "{}", about: "Your checkouts at any commit", also: ["browse", "explorer", "files", "source", "kode"] },
     { title: "Bino", href: "/bino", icon: "◍", about: "Talk a piece of work through", also: ["assistant", "chat", "ask"], need: "bino" },

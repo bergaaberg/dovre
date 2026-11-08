@@ -10,11 +10,11 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
         │ imports core as `dovre/…`; core never imports an instance
  Core's packs (src/packs/core/)
-   agents, autoreview, history, assistant, terminal, docker, tracker, storybook, movement, deploys, dependabot
+   agents, autoreview, history, assistant, terminal, docker, tracker, storybook, movement, deploys, dependabot, stacks
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.9")
+   src/packs/types.ts     the contract (PACK_API = "1.13")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -28,7 +28,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Packs from | `PACKS` folders, each `packs.ts` imported at start (`src/packs/load.ts`) | The instance's worker.ts calls `createWorker({ packs })` |
-| Core's packs | all of them (terminal and docker when enabled, history with GitHub) | agents (over the bridge), autoreview, history (GitHub), assistant, movement, deploys, dependabot (GitHub), tracker |
+| Core's packs | all of them (terminal and docker when enabled, history with GitHub) | agents (over the bridge), autoreview, history (GitHub), assistant, movement, deploys, dependabot and stacks (GitHub), tracker |
 | Refresh | interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Extra hooks | `callback`, `ingest`, `acts`, `tools` | `scheduled`, `email` |
 
@@ -284,6 +284,7 @@ Also:
 | 1.10 | Slot `ai.summary` (a PR's or deploy's summary by key, drawn by core); AI summaries became the `summaries` pack (#390) |
 | 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
 | 1.12 | Share `agent` (where the agents pack starts an agent and shows a session or run): My list, New work, reviews and core link through it and leave the link out while agents is off (#394) |
+| 1.13 | `ctx.pageOn(href)`: whether a page answers here, so a pack leaves out a tab to another pack's page that's off; slot `pr.stack` (the viewer's "2 of 3 in a stack", from the stacks pack) (#408) |
 
 ## Open questions
 

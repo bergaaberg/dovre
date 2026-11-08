@@ -298,5 +298,5 @@ test("a pack (#407): at /dependabot, the old address redirects, the PR tabs link
   assert.equal((await off.get("/dependabot")).status, 404);
   assert.equal((await off.post("/dependabot/combine", { repo: "ACME/web" })).status, 404);
   assert.doesNotMatch(await (await off.get("/prs")).text(), /href="\/dependabot"/);
-  assert.doesNotMatch(await (await off.get("/prs/stacks")).text(), /href="\/dependabot"/);
+  assert.doesNotMatch(await (await off.get("/stacks")).text(), /href="\/dependabot"/);
 });

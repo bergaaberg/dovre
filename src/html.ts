@@ -185,7 +185,7 @@ function tabBar(nav: NavItem[], here: NavItem | undefined, gap = false): Html | 
 
 export function shell(opts: { title: string; frame: Frame; current?: string; body: Html | string; head?: Html | string; read?: boolean }): Html {
   const { title, frame, current = "/", body, head = "" } = opts;
-  // The current page: the longest href it's within (so /prs/stacks is Pull requests, /issues/new New work).
+  // The current page: the longest href it's within (so /prs/agent is Pull requests, /issues/new New work).
   const here = frame.nav.filter((p) => within(p.href, current)).sort((a, b) => b.href.length - a.href.length)[0];
   // A tab in the phone's bar is left out of the More sheet (the bar already holds it).
   const tabs = new Set(tabsOf(frame.nav));

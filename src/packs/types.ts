@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.12";
+export const PACK_API = "1.13";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -219,6 +219,8 @@ export type SlotMap = {
   "pr.lead": { arg: PrSlotArg; out: Html | "" };
   /** A PR opened in place (the /prs list or the viewer): rows for its facts (label, value). */
   "pr.facts": { arg: PrSlotArg; out: [string, Html][] };
+  /** The viewer's PR, under its title (API 1.13): where it sits in a stack of PRs (the stacks pack: "2 of 3 in a stack"). */
+  "pr.stack": { arg: { repo: string; number: number }; out: Html | "" };
   /** A PR's card (/prs, Today): a block under its summary (agent reviews: start one, or its report). API 1.9. */
   "pr.agent": { arg: PrSlotArg; out: Html | "" };
   /**
@@ -340,6 +342,11 @@ export type PackContext = {
   required<K extends keyof PackShares>(id: string, name: K): PackShares[K] | undefined;
   /** Every shown pack's kinds of reference (`refs`, API 1.11), for linking what I write. */
   refs(): RefRule[];
+  /**
+   * Whether a page answers here (API 1.13): a core path, or one a shown pack holds. A link to another
+   * pack's page (a tab beside its own) is left out when this says no.
+   */
+  pageOn(href: string): boolean;
 };
 
 // ── What packs share with the packs that require them (#326) ──
