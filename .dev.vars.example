@@ -16,9 +16,9 @@
 # GHE_TOKEN=
 # GITHUB_TOKEN=
 # GHE_LOGIN=
+# The Issues pack (tracker) and its New work, also set on Packs.
 # Your team's slug on GHE, for grouping work by the people in it.
 # TEAM=
-
 # Lists, comma-separated. Unset or empty is off.
 # Repos where work is planned (dev tasks go under their issues), and repos with their own issue forms.
 # SORTING_REPOS=

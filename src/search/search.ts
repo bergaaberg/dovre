@@ -62,7 +62,6 @@ export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ 
     { title: "Deploys", href: "/deploys", icon: "⇡", about: "Waiting for prod, and what ships", also: ["release", "prod", "approve", "ship", "utrulling"] },
     { title: "My list", href: "/todo", icon: "☐", about: "Your own list, with dates", also: ["todo", "tasks", "liste", "huskeliste"] },
     { title: "Actions", href: "/actions", icon: "✓", about: "What Dovre did for you: deploys, messages, issues, production", also: ["log", "history", "decided", "logg", "historikk"] },
-    { title: "New work", href: "/issues/new", icon: "+", about: "A dev task, or an issue", also: ["issue", "dev task", "create", "ny sak", "new"] },
     { title: "Moved", href: "/movement", icon: "↯", about: "What people did in the org, 24 h", also: ["movement", "activity", "people", "team", "timeline"] },
     { title: "Code", href: "/code", icon: "{}", about: "Your checkouts at any commit", also: ["browse", "explorer", "files", "source", "kode"] },
     { title: "Bino", href: "/bino", icon: "◍", about: "Talk a piece of work through", also: ["assistant", "chat", "ask"], need: "bino" },
@@ -73,7 +72,6 @@ export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ 
 }
 
 const ACTIONS: Row[] = [
-  { title: "New dev task under an issue", icon: "+", href: "/issues/new?kind=task", also: ["task", "sub-issue", "oppgave"] },
   { title: "Add to My list", icon: "☐", href: "/todo", also: ["todo", "remember", "husk"] },
   { title: "Refresh everything", icon: "↻", href: "/?fresh=1", also: ["sync", "reload", "fetch", "oppdater"] },
 ];

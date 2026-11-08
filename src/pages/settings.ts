@@ -116,12 +116,12 @@ export function restartingNote(started: number, then: string, text: string) {
   return html`<div data-restarting="${started}" data-then="${then}">${Notice({ tone: "ok", children: text })}</div>`;
 }
 
-export function workPanel(v: PanesView, canRestart: boolean, teams?: Choice[]) {
+export function workPanel(v: PanesView, canRestart: boolean) {
   return Panel({
     title: "Work",
     id: "work",
     children: html`<form method="post" action="/settings/work">
-<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, v.values[g.key], v.fixed.has(g.key), g.key === "TEAM" ? teams : undefined))}</div>
+<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, v.values[g.key], v.fixed.has(g.key)))}</div>
 <div class="buttons"><button type="submit" class="primary" data-busy="Saving">${canRestart ? "Save and restart" : "Save"}</button></div>
 </form>`,
   });

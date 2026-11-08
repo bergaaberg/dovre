@@ -48,10 +48,6 @@ export type Env = {
   INSTANCE_REPO?: string;
   /** Who "me" is on GHE; looked up from the token when unset. */
   GHE_LOGIN?: string;
-  /** Comma-separated repos (in GHE_ORG) where the work is planned: their issues are parents for dev tasks, and take none by hand. */
-  SORTING_REPOS?: string;
-  /** Comma-separated repos that take issues through their own forms. */
-  FORM_REPOS?: string;
   /** Where the repos are checked out. */
   CODE_DIR: string;
   /** Where agents started here run when no repo is picked (default ~/.dovre/agents; src/agents/workdir.ts). */
@@ -96,15 +92,11 @@ export type Env = {
   TERMINAL?: string;
   STATS?: string;
   REVIEWS?: string;
-  /** My team on GHE (its slug), for grouping work by the people in it. */
-  TEAM?: string;
   /** Who Bino is told I am, e.g. "a tech lead at an insurance company". Unset: a developer. */
   ABOUT_ME?: string;
   /** The skills agent reviews use: reviewing someone else's PR, and assessing a review on mine. */
   REVIEW_SKILL?: string;
   TRIAGE_SKILL?: string;
-  /** The skill that drafts an issue through a repo's own forms (FORM_REPOS). Unset: plain instructions. */
-  FORM_SKILL?: string;
   /** Cloudflare Workers / Hosted Mode settings */
   IS_HOSTED?: string;
   CF_ACCESS_AUD?: string;
@@ -183,9 +175,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     GHE_TOKEN: v.GHE_TOKEN || (/^(api\.)?github\.com$/i.test(host.trim()) ? v.GITHUB_TOKEN : undefined) || ghToken(host),
     GITHUB_TOKEN: v.GITHUB_TOKEN,
     GHE_LOGIN: v.GHE_LOGIN,
-    // The lists below: unset or empty is off.
-    SORTING_REPOS: v.SORTING_REPOS ?? "",
-    FORM_REPOS: v.FORM_REPOS ?? "",
     CODE_DIR: v.CODE_DIR || join(homedir(), "Code"),
     AGENT_DIR: v.AGENT_DIR || undefined,
     CLAUDE_DIR: v.CLAUDE_DIR || join(homedir(), ".claude"),
@@ -221,11 +210,9 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     TERMINAL: v.TERMINAL || undefined,
     STATS: v.STATS || undefined,
     REVIEWS: v.REVIEWS || undefined,
-    TEAM: v.TEAM || undefined,
     ABOUT_ME: v.ABOUT_ME || undefined,
     REVIEW_SKILL: v.REVIEW_SKILL || undefined,
     TRIAGE_SKILL: v.TRIAGE_SKILL || undefined,
-    FORM_SKILL: v.FORM_SKILL || undefined,
     SETUP_DONE: v.SETUP_DONE || undefined,
   };
 }

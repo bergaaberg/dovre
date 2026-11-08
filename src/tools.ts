@@ -58,7 +58,7 @@ export function findTool(name: string, override?: string, opts: { env?: { PATH?:
 
 /**
  * What this run found, set once at start (src/index.ts) for pages that offer an agent without a
- * runner at hand (src/pages/work.ts). `harnesses` unset: not looked yet (tests), offered as before.
+ * runner at hand (src/packs/core/issues/compose/work.ts). `harnesses` unset: not looked yet (tests), offered as before.
  */
 export const found: { harnesses?: ("claude" | "omp" | "agy" | "codex")[]; paths?: { claude?: string; omp?: string; copilot?: string; agy?: string; codex?: string; pwsh?: string; db?: string }; /** Copilot through omp: "ready", or what's missing (undefined: no omp). */ copilot?: string } = {};
 

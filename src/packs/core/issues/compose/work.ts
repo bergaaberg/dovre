@@ -5,24 +5,19 @@
  * pack, not from here.
  */
 import { html } from "hono/html";
-import { type AgentAsk, type Setup, kindsOf } from "../issues/compose.ts";
-import { WORK, WORK_LABEL } from "../agents/workdir.ts";
-import { type Checkout, inRepos } from "../issues/tasks.ts";
-import { type Frame, shell } from "../html.ts";
-import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
-import { found } from "../tools.ts";
-import { HARNESS_NAME, Link, safeUrl } from "./parts.ts";
+import { type AgentAsk, type Setup, kindsOf } from "./compose.ts";
+import { WORK, WORK_LABEL } from "../../../../agents/workdir.ts";
+import { type Checkout, inRepos } from "../../../../checkouts.ts";
+import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill } from "../../../../ui/kit.ts";
+import { found } from "../../../../tools.ts";
+import { type Res, settle } from "../../../../pages/later.ts";
+import { HARNESS_NAME, Link, safeUrl } from "../../../../pages/parts.ts";
 
 export const CURRENT = "/issues/new";
 export const MAX_NOTE = 4000;
 
-export type Ctx = Setup & { frame: Frame; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: a catalog pack's Projects). */ extra?: Child[] };
-export type Res<T> = { ok: true; value: T } | { ok: false; error: string };
-export const settle = <T>(p: Promise<T>): Promise<Res<T>> =>
-  p.then(
-    (value) => ({ ok: true as const, value }),
-    (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }),
-  );
+export type Ctx = Setup & { /** Who I am on the forge. */ operator: string; org: string; ghe: string; /** What packs put on New work, above "What is it?" (the "work.new" slot: a catalog pack's Projects). */ extra?: Child[] };
+export { type Res, settle };
 export const first = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v) ? (v.find((x) => typeof x === "string") ?? "") : "");
 
 export const short = (org: string, repo: string) => repo.replace(`${org}/`, "");
@@ -35,8 +30,11 @@ const q = (pairs: [string, string | undefined][]) => pairs.filter(([, v]) => v !
 export const newHref = (repo: string, template?: string) => safeUrl(`${CURRENT}?${q([["repo", repo], ["template", template]])}`);
 export const taskHref = (parent?: string, repo?: string) => safeUrl(`${CURRENT}?${q([["kind", "task"], ["parent", parent], ["repo", repo]])}`);
 
-export function page(ctx: Ctx, title: string, body: Child): Html {
-  return shell({ title: `${title} · Dovre`, frame: ctx.frame, current: CURRENT, body: html`${body}` });
+/** A New work page, before the pack's frame goes round it (the pack context's `page`). */
+export type Page = { title: string; body: Html };
+
+export function page(_ctx: Ctx, title: string, body: Child): Page {
+  return { title: `${title} · Dovre`, body: html`${body}` };
 }
 
 export const crumbs = (label: string) => [{ href: CURRENT, label: "New work" }, { label }];
@@ -55,7 +53,7 @@ export function agentPanel(ask: AgentAsk, o: { title?: string; hint?: Child } = 
 }
 
 /** The entry: which kind of work this is. */
-export function entryPage(ctx: Ctx): Html {
+export function entryPage(ctx: Ctx): Page {
   const sorting = ctx.sortingRepos.map((r) => short(ctx.org, r)).join(", ");
   const task = Item({ href: taskHref(), title: html`<strong>Dev task</strong> under an issue`, line: "A piece of a planned issue, in the code repo where the work happens.", more: html`A sub-issue of the planned one${sorting ? ` (in ${sorting})` : ""}; the PR closes it.` });
   const forms = ctx.formRepos.map((r) => Item({ href: newHref(r), title: html`<strong>Issue</strong> in ${short(ctx.org, r)}`, line: html`Through ${short(ctx.org, r)}'s own issue forms.` }));
@@ -77,7 +75,7 @@ function harnessField(): Html | "" {
 }
 
 /** The agent's prompt, shown before it starts (the second click), and where it runs. */
-export function draftPage(ctx: Ctx, o: { prompt: string; dirs: Checkout[]; dir?: string; back: string }): Html {
+export function draftPage(ctx: Ctx, o: { prompt: string; dirs: Checkout[]; dir?: string; back: string }): Page {
   const options = [
     html`<option value="${WORK}"${o.dir === WORK || !o.dir ? html` selected` : ""}>${WORK_LABEL}</option>`,
     ...o.dirs.map((c) => html`<option value="${c.dir}"${c.dir === o.dir ? html` selected` : ""}>${c.dir}${c.dir.toLowerCase() !== short(ctx.org, c.repo).toLowerCase() ? ` (${short(ctx.org, c.repo)})` : ""}</option>`),
@@ -93,7 +91,7 @@ ${Panel({
   );
 }
 
-export function problemPage(ctx: Ctx, message: Child, back = CURRENT): Html {
+export function problemPage(ctx: Ctx, message: Child, back = CURRENT): Page {
   return page(ctx, "New work", html`${PageHeader({ title: "New work" })}${Notice({ tone: "bad", children: message })}<div class="buttons"><a class="btn" href="${safeUrl(back)}">Start over</a></div>`);
 }
 

@@ -27,7 +27,7 @@ export type Picks = {
 };
 
 /**
- * `repoOf`: locally, the checkout's own origin (src/issues/tasks.ts). Without it (hosted: the
+ * `repoOf`: locally, the checkout's own origin (src/checkouts.ts). Without it (hosted: the
  * checkouts are the Mac's), a checkout named like a repo is that repo in the first owner that has it.
  */
 export function issuePicks(o: { ghe: Pick<Ghe, "rest">; owners: () => string; repoOf?: (dir: string) => string | undefined; now?: () => number }): Picks {

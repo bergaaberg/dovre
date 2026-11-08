@@ -41,7 +41,6 @@ import { actionsCard, actionsPage } from "./pages/actions.ts";
 import { pagesOf, parseQuery, type Row as SearchRow, search } from "./search/search.ts";
 import { createGheSearch } from "./search/ghe.ts";
 import { searchList, searchPage } from "./pages/search.ts";
-import { createIssueRoutes } from "./pages/issues.ts";
 import { createBugRoutes } from "./pages/bug.ts";
 import { HOME_SOURCE as PACKS_HOME } from "./packs/releases.ts";
 import { type Asks, askInBar, createAsks } from "./relay/asks.ts";
@@ -52,7 +51,7 @@ import { investigateOf, investigatePage } from "./pages/investigate.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { hostAssistant } from "./packs/core/assistant/bino/host.ts";
-import type { Kept } from "./issues/templates.ts";
+import type { Kept } from "./kept.ts";
 import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
 import { speedPanels } from "./pages/speed.ts";
@@ -60,7 +59,7 @@ import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
 import { splashPage, welcomePage } from "./pages/welcome.ts";
-import { type Choice, type Config, configFromForm, type PaneId, type PanesOn, type PaneState, saveConfig } from "./config.ts";
+import { type Config, configFromForm, type PaneId, type PanesOn, type PaneState, saveConfig } from "./config.ts";
 import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
@@ -111,7 +110,6 @@ const PANE_PATHS: [PaneId, RegExp][] = [
 
 /** Core pages only some forges serve (src/forge/types.ts): not here at all when this one can't. */
 const FORGE_PATHS: [ForgeCan, RegExp][] = [
-  ["issues", /^\/issues(\/|$)/],
   ["viewer", /^\/prs\/[^/]+\/[^/]+\/\d+(\/files)?$/],
   ["stacks", /^\/prs\/stacks(\/|$)/],
   ["dependabot", /^\/prs\/dependabot(\/|$)/],
@@ -131,7 +129,7 @@ function pendingPage(path: string, frame: Frame): string {
 /** Nothing gathered yet: what the frame is drawn from on the "Gathering" page. */
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
-export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
+export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
   const deploys = s.deploys.ok ? s.deploys.value.length : 0;
   const prs = s.prs.ok ? s.prs.value.mine.length + s.prs.value.review.length : 0;
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
@@ -144,7 +142,6 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /**
     !opts.hosted && { href: "/movement", title: "Moved", icon: "health", group: "Code", order: 50 },
     !!opts.bino && { href: "/bino", title: "Bino", icon: "chat", group: "Agents", order: 20 },
     !opts.hosted && { href: "/todo", title: "My list", icon: "list", group: "Plan" },
-    !opts.hosted && opts.issues !== false && { href: "/issues/new", title: "New work", icon: "plus", group: "Plan" },
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
     { href: "/bug", title: "Report a bug", icon: "alert", group: "You" },
@@ -747,7 +744,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
   const binoOn = () => !!bino?.route.ready && !!assistant && packs.on.includes(assistant) && !hidden("assistant");
-  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
   // On or off: a pack waiting for its settings is still the session's (#369).
   const sessionManifest = () => (deps.session ? (packs.on.find((x) => x.manifest.id === deps.session!.pack)?.manifest ?? packs.off.find((x) => x.id === deps.session!.pack)?.manifest) : undefined);
@@ -1139,22 +1136,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   let restarting: number | undefined;
   let settingsBad: string[] | undefined;
   const startedAt = deps.info?.startedAt ?? Date.now();
-  /** My teams in the org on GHE, to pick from (asked once, kept 10 minutes; never waited on long). */
-  let teamsKept: { at: number; list: Choice[] } | undefined;
-  const myTeams = async (): Promise<Choice[] | undefined> => {
-    if (teamsKept && Date.now() - teamsKept.at < 10 * 60_000) return teamsKept.list;
-    const ask = ghe
-      .rest<{ slug?: unknown; name?: unknown; organization?: { login?: unknown } }[]>("/user/teams?per_page=100")
-      .then((r) => {
-        const list = (Array.isArray(r) ? r : [])
-          .filter((t) => String(t.organization?.login ?? "").toLowerCase() === env.GHE_ORG.toLowerCase() && typeof t.slug === "string" && /^[\w.-]{1,100}$/.test(t.slug))
-          .map((t) => ({ value: String(t.slug), label: typeof t.name === "string" && t.name ? `${t.name} (${t.slug})` : String(t.slug) }));
-        teamsKept = { at: Date.now(), list };
-        return list;
-      })
-      .catch(() => undefined);
-    return Promise.race([ask, new Promise<undefined>((res) => setTimeout(res, 1500))]);
-  };
   const setupNow = (login: string) =>
     setupLines({
       ghe: { host: env.GHE_HOST, org: env.GHE_ORG, login },
@@ -1456,7 +1437,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       case "panes":
         return panesPanel(panesView()!, !!deps.restart);
       case "work":
-        return workPanel(panesView()!, !!deps.restart, await myTeams());
+        return workPanel(panesView()!, !!deps.restart);
       case "agents": {
         // One area for agents (#272): their tools here, the long-turn ring, and the auto runs' limits.
         const agents = shown().find((p) => p.manifest.id === "agents");
@@ -1580,7 +1561,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const started = c.req.query("started") === "1" && restarting ? restarting : undefined;
     // The splash first; Get started opens the setup.
     if (!started && !bad && c.req.query("go") !== "1") return c.html(splashPage({ version: deps.info?.version ?? "dev" }));
-    return c.html(welcomePage(frame, { setup: setupNow(frame.operator), panes: view, teams: started ? undefined : await myTeams(), canRestart: !!deps.restart, bad, started }));
+    return c.html(welcomePage(frame, { setup: setupNow(frame.operator), panes: view, canRestart: !!deps.restart, bad, started }));
   });
   app.post("/welcome", async (c) => {
     if (!deps.config) return c.notFound();
@@ -1646,7 +1627,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.redirect("/settings/notifications#rang-lately", 303);
   });
 
-  app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), list: () => (shown().some((x) => x.manifest.id === "tracker") ? "/tracker" : undefined), prewarm: deps.prewarm }));
   // ── Report a bug (#384): to the repo behind the page it came from ──
   const packHomeOf = (seg: string) => {
     const p = (deps.packs?.on ?? []).find((x) => x.manifest.id === seg || (x.manifest.paths ?? []).includes(seg));

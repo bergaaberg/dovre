@@ -4,7 +4,7 @@
  * everything on it can be changed later on Settings.
  */
 import { html } from "hono/html";
-import { type Choice, GENERAL } from "../config.ts";
+import { GENERAL } from "../config.ts";
 import { type Frame, shell } from "../html.ts";
 import { MARK, RIDGE_ART } from "../ui/splash.ts";
 import { STYLE_PATH } from "../ui/style.ts";
@@ -38,14 +38,14 @@ ${RIDGE_ART}
 </html>`;
 }
 
-export function welcomePage(frame: Frame, o: { setup: SetupLine[]; panes: PanesView; teams?: Choice[]; canRestart: boolean; bad?: string[]; started?: number }) {
+export function welcomePage(frame: Frame, o: { setup: SetupLine[]; panes: PanesView; canRestart: boolean; bad?: string[]; started?: number }) {
   if (o.started)
     return shell({ title: "Starting · Dovre", frame, current: "/welcome", body: html`${PageHeader({ title: "Starting Dovre" })}${restartingNote(o.started, "/", "Saved. Dovre is starting again with your choices; Today opens when it's up.")}` });
   const body = html`${PageHeader({ title: "Set up Dovre", sub: "What it found here, and what to turn on. Settings changes any of it later." })}
 ${o.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${o.bad.join(", ")} ${o.bad.length > 1 ? "aren't values they take" : "isn't a value it takes"}.` }) : ""}
 ${setupPanel(o.setup, "Found here")}
 <form method="post" action="/welcome" id="welcome">
-${Panel({ title: "Your work", children: html`<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, o.panes.values[g.key], o.panes.fixed.has(g.key), g.key === "TEAM" ? o.teams : undefined))}</div>` })}
+${Panel({ title: "Your work", children: html`<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, o.panes.values[g.key], o.panes.fixed.has(g.key)))}</div>` })}
 ${Panel({ title: "Bino", children: html`<p class="notes">How the assistant answers. Everything else is a pack, switched on or off on Packs.</p>${paneSets(o.panes)}` })}
 <div class="buttons"><button type="submit" class="primary" data-busy="Starting">Start</button></div>
 </form>

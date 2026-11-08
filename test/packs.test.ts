@@ -2,6 +2,7 @@
  * Packs (src/packs/, PLAN D23): which run where, and the core's side of each hook — mounted under
  * their own path, isolated, time-boxed, escaped — locally and in the Worker.
  */
+import { trackerPack } from "../src/packs/core/issues/test/withTracker.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -722,7 +723,7 @@ test("slots: each pack fills a core page's place; one that throws fills nothing,
   assert.deepEqual(fill("pr.facts", { repo: "x", number: 1, branch: "b", title: "t", url: "https://x" }), []);
   assert.deepEqual(logged, ["boom: slot pr.lead: no slots today", "half: slot pr.lead: lead broke", "boom: slot pr.facts: no slots today"]);
 
-  const { get } = signedIn(snapshot(), {}, { packs: [boom, ok] });
+  const { get } = signedIn(snapshot(), {}, { packs: [boom, ok, trackerPack()] });
   const res = await get("/issues/new");
   assert.equal(res.status, 200);
   assert.match(await res.text(), /from ok/);

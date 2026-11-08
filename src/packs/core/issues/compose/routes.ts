@@ -9,10 +9,10 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { logAction, repoIn } from "../actions/deploys.ts";
-import { type AppEnv, type Env, reposOf } from "../env.ts";
-import { ownersIn } from "../owners.ts";
-import type { Frame } from "../html.ts";
+import { logAction, repoIn } from "../../../../actions/deploys.ts";
+import type { Context } from "hono";
+import type { D1 } from "../../../../db.ts";
+import { type AppEnv, reposOf } from "../../../../env.ts";
 import {
   type AgentAsk,
   agentPrompt,
@@ -35,17 +35,19 @@ import {
   untouched,
   validate,
   type Value,
-} from "../issues/compose.ts";
-import { WORK } from "../agents/workdir.ts";
-import { type Created, createIssue, msg } from "../issues/create.ts";
-import { type Checkout, checkoutOf, checkouts, createTask, inRepos, loadIssue, loadParents, type Parent, parseRef, refText, type TaskCreated } from "../issues/tasks.ts";
-import { createCatalog, type Field, type IssueType, type Kept, memoize, type Template, type Templates, takesIssues } from "../issues/templates.ts";
-import type { Ghe } from "../sources/ghe.ts";
-import { type Child, Grid2, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
-import { markdown } from "../ui/markdown.ts";
-import { failed, forgeName, Link, MyListBox } from "./parts.ts";
-import { addTodo } from "../todo/store.ts";
-import { MAX_TASK_BODY, MAX_TASK_TITLE, type TaskDraft, type TaskErrors, taskDonePage, taskFormPage, taskPickPage, taskPreviewPage } from "./tasks.ts";
+} from "./compose.ts";
+import { WORK } from "../../../../agents/workdir.ts";
+import { type Created, createIssue, msg } from "./create.ts";
+import { type Checkout, checkoutOf, checkouts, inRepos } from "../../../../checkouts.ts";
+import { createTask, loadIssue, loadParents, type Parent, parseRef, refText, type TaskCreated } from "./tasks.ts";
+import { type Kept, memoize } from "../../../../kept.ts";
+import { createCatalog, type Field, type IssueType, type Template, type Templates, takesIssues } from "./templates.ts";
+import type { Ghe } from "../../../../sources/ghe.ts";
+import { type Child, Grid2, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Tabs } from "../../../../ui/kit.ts";
+import { markdown } from "../../../../ui/markdown.ts";
+import { failed, forgeName, Link, MyListBox } from "../../../../pages/parts.ts";
+import { addTodo } from "../../../../todo/store.ts";
+import { MAX_TASK_BODY, MAX_TASK_TITLE, type TaskDraft, type TaskErrors, taskDonePage, taskFormPage, taskPickPage, taskPreviewPage } from "./taskpages.ts";
 import {
   agentPanel,
   CURRENT,
@@ -58,6 +60,7 @@ import {
   MAX_NOTE,
   newHref,
   page,
+  type Page,
   problemPage,
   type Res,
   rows,
@@ -141,7 +144,7 @@ function repoTabs(ctx: Ctx, repo: string): Html {
 }
 
 /** Step 1: which repo, which form. A repo that takes no hand-made issues shows its own ways in. */
-export function pickPage(ctx: Ctx, o: { repo: string; templates: Res<Templates>; types: Res<IssueType[]>; notice?: string }): Html {
+export function pickPage(ctx: Ctx, o: { repo: string; templates: Res<Templates>; types: Res<IssueType[]>; notice?: string }): Page {
   const types = o.types.ok ? new Map(o.types.value.map((t) => [t.name, t])) : null;
   const ts = o.templates.ok ? o.templates.value.templates : [];
   const everyday = ts.filter((t) => !t.planning).map((t) => templateItem(o.repo, t, types));
@@ -153,7 +156,7 @@ export function pickPage(ctx: Ctx, o: { repo: string; templates: Res<Templates>;
   return page(
     ctx,
     "Issue",
-    html`${PageHeader({ title: "Issue", sub: html`In <strong>${o.repo}</strong>, through its own forms. Forms, types and labels come live from ${forgeName(ctx.frame.host)}.`, crumbs: crumbs("Issue"), tabs: repoTabs(ctx, o.repo) })}
+    html`${PageHeader({ title: "Issue", sub: html`In <strong>${o.repo}</strong>, through its own forms. Forms, types and labels come live from ${forgeName(ctx.ghe)}.`, crumbs: crumbs("Issue"), tabs: repoTabs(ctx, o.repo) })}
 ${o.notice ? Notice({ tone: "bad", children: o.notice }) : ""}
 ${failed("Templates", o.templates)}${failed("Issue Types", o.types)}
 ${broken.length ? Notice({ tone: "warn", children: html`<strong>Some templates didn't parse.</strong> ${broken.map((b) => html`${b.file}: ${b.error}. `)}` }) : ""}
@@ -168,7 +171,7 @@ ${agentPanel({ kind: "forms", repo: o.repo })}`
 }
 
 /** Step 2: the form itself, with what failed validation marked. */
-export function formPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; offered: Offered; labels: Res<string[]>; errors?: Errors }): Html {
+export function formPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; offered: Offered; labels: Res<string[]>; errors?: Errors }): Page {
   const d = o.draft;
   const e = o.errors ?? { fields: [] };
   const t = d.template;
@@ -199,7 +202,7 @@ ${agentPanel({ kind: "forms", repo: d.repo, ...(t ? { template: t.file } : {}) }
 }
 
 /** Step 3: what will be created, and the button that creates it (the confirm step). */
-export function previewPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; nonce: string; problem?: string }): Html {
+export function previewPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; nonce: string; problem?: string }): Page {
   const d = o.draft;
   const body = composeBody(d);
   const labels = labelsOf(d);
@@ -229,14 +232,14 @@ ${Grid2([
 }
 
 /** After: the link, what didn't stick, and the way to the next one. */
-export function donePage(ctx: Ctx, o: { repo: string; number: number; url: string; result?: Extract<Created, { ok: true }> }): Html {
+export function donePage(ctx: Ctx, o: { repo: string; number: number; url: string; result?: Extract<Created, { ok: true }> }): Page {
   return page(
     ctx,
     "Issue created",
     html`${PageHeader({ title: "Issue created", sub: o.result?.title, crumbs: [{ href: CURRENT, label: "New work" }, { href: newHref(o.repo), label: short(ctx.org, o.repo) }] })}
 ${Notice({ tone: "ok", children: html`Created ${Link(o.url, `${o.repo}#${o.number}`)}.` })}
 ${(o.result?.warnings ?? []).map((w) => Notice({ tone: "warn", children: w }))}
-<div class="buttons">${Link(o.url, `Open it on ${forgeName(ctx.frame.host)}`, "btn primary")}<a class="btn" href="${newHref(o.repo)}">File another</a></div>`,
+<div class="buttons">${Link(o.url, `Open it on ${forgeName(ctx.ghe)}`, "btn primary")}<a class="btn" href="${newHref(o.repo)}">File another</a></div>`,
   );
 }
 
@@ -249,18 +252,48 @@ const remember = <K, V>(m: Map<K, V>, k: K, v: V) => {
 };
 const isNonce = (s: string) => /^[0-9a-f-]{36}$/.test(s);
 
-/** /issues/…: mounted at "/" by app.ts, behind its cookie and same-origin checks. */
+/** What New work reads: the owners, the code folder, and the tracker pack's settings for it. */
+export type ComposeEnv = {
+  DB: D1;
+  GHE_ORG: string;
+  /** Every owner tracked: what a repo may belong to (src/owners.ts). `GHE_ORG` is the first, for org-only things. */
+  owners: string;
+  CODE_DIR?: string;
+  /** Repos where work is planned: dev tasks go under their issues. */
+  SORTING_REPOS?: string;
+  /** Repos with their own issue forms. */
+  FORM_REPOS?: string;
+  /** The skill that drafts an issue through a repo's own forms. Unset: plain instructions. */
+  FORM_SKILL?: string;
+};
+
 /**
- * `kept`: where GHE's answers are kept between runs (data/catalog.json), so these pages
- * answer at once after a restart. `prewarm`: load what the pages need shortly after starting.
+ * /issues/…: the tracker pack's routes (index.ts), behind core's cookie and same-origin checks.
+ * `show` puts a page in the pack's frame. `kept`: where GHE's answers are kept between runs
+ * (data/catalog.json), so these pages answer at once after a restart. `prewarm`: load what the
+ * pages need shortly after starting.
  */
-export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promise<Frame>; checkouts?: () => Checkout[]; kept?: Kept; /** What packs put on New work (the "work.new" slot). */ newWork?: () => Child[]; /** The issues list, when a pack shows one (the Issues pack's /tracker): /issues goes there. */ list?: () => string | undefined; prewarm?: boolean }): Hono<AppEnv> {
+export function createIssueRoutes(
+  env: ComposeEnv,
+  deps: {
+    ghe: Ghe;
+    show: (c: Context<AppEnv>, p: Page, status: number) => Response | Promise<Response>;
+    /** Who I am on the forge ("" while nobody knows yet). */
+    operator: () => Promise<string>;
+    checkouts?: () => Checkout[];
+    kept?: Kept;
+    /** What packs put on New work (the "work.new" slot). */
+    newWork?: () => Child[];
+    /** The issues list (the tracker's /tracker): /issues goes there. */
+    list?: string;
+    prewarm?: boolean;
+  },
+): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
-  if (env.IS_HOSTED === "1") return app;
   const { ghe } = deps;
+  const show = (c: Context<AppEnv>, p: Page, status = 200) => deps.show(c, p, status);
   const org = env.GHE_ORG;
-  /** Every owner tracked: what a repo may belong to (src/owners.ts). `org` is the first, for org-only things. */
-  const owners = ownersIn(env);
+  const owners = env.owners;
   const catalog = createCatalog(ghe, org, { kept: deps.kept });
   const setup: Setup = {
     sortingRepos: reposOf(owners, env.SORTING_REPOS, ""),
@@ -273,10 +306,10 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
   /** One parent, for showing the task form; creating re-reads it. */
   const issueCache = memoize({ ttlMs: 60e3, kept: deps.kept });
   const parents = (login: string) => parentsCache(`parents:${login}`, () => loadParents(ghe, parentRepos, login));
-  const ctx = async (): Promise<Ctx> => ({ ...setup, frame: await deps.frame(), org, ghe: ghe.host, extra: deps.newWork?.() });
+  const ctx = async (): Promise<Ctx> => ({ ...setup, operator: await deps.operator(), org, ghe: ghe.host, extra: deps.newWork?.() });
   const dirs = () => {
     try {
-      return deps.checkouts ? deps.checkouts() : checkouts(env.CODE_DIR, ghe.host, owners);
+      return deps.checkouts ? deps.checkouts() : (env.CODE_DIR ? checkouts(env.CODE_DIR, ghe.host, owners) : []);
     } catch {
       return [];
     }
@@ -325,61 +358,61 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
       console.error(`my list: ${msg(e)}`);
     }
   };
-  app.get("/issues", (c) => c.redirect(deps.list?.() ?? CURRENT, 303));
+  app.get("/issues", (c) => c.redirect(deps.list ?? CURRENT, 303));
 
   app.get("/issues/new", async (c) => {
     const kind = c.req.query("kind");
     if (kind === "task") return taskNew(c.req.query("parent"), c.req.query("repo"));
     const q = c.req.query("repo");
     const file = c.req.query("template");
-    if (kind !== "forms" && q === undefined && file === undefined) return c.html(entryPage(await ctx()));
+    if (kind !== "forms" && q === undefined && file === undefined) return show(c, entryPage(await ctx()));
     const repo = q === undefined ? defaultFormRepo : repoIn(owners, q);
-    if (!repo) return c.html(pickPage(await ctx(), { repo: defaultFormRepo, templates: { ok: true, value: { templates: [], broken: [], config: { blank: true, links: [] } } }, types: { ok: true, value: [] }, notice: `That isn't a repo in ${owners.replace(/,/g, ", ")}.` }), 400);
+    if (!repo) return show(c, pickPage(await ctx(), { repo: defaultFormRepo, templates: { ok: true, value: { templates: [], broken: [], config: { blank: true, links: [] } } }, types: { ok: true, value: [] }, notice: `That isn't a repo in ${owners.replace(/,/g, ", ")}.` }), 400);
     const [templates, types] = await Promise.all([settle(catalog.templates(repo)), settle(catalog.types())]);
-    if (!file) return c.html(pickPage(await ctx(), { repo, templates, types }));
+    if (!file) return show(c, pickPage(await ctx(), { repo, templates, types }));
     const template = file === BLANK ? (templates.ok && !templates.value.config.blank ? undefined : null) : templates.ok ? templates.value.templates.find((t) => t.file === file) : undefined;
-    if (template === undefined) return c.html(pickPage(await ctx(), { repo, templates, types, notice: file === BLANK ? `${repo} takes no blank issues.` : `${repo} has no issue form «${file}».` }), 404);
+    if (template === undefined) return show(c, pickPage(await ctx(), { repo, templates, types, notice: file === BLANK ? `${repo} takes no blank issues.` : `${repo} has no issue form «${file}».` }), 404);
     const labels = await settle(catalog.labels(repo));
     const offered = labels.ok ? offeredLabels(labels.value) : NOTHING_OFFERED;
-    return c.html(formPage(await ctx(), { draft: emptyDraft(repo, template, offered), types, offered, labels }));
+    return show(c, formPage(await ctx(), { draft: emptyDraft(repo, template, offered), types, offered, labels }));
 
     // ── A dev task: which issue it hangs under, then the task ──
     async function taskNew(parentQ: string | undefined, repoQ: string | undefined) {
       const cx = await ctx();
       const pick = async (problem?: string, status: 200 | 400 | 404 | 409 | 502 = 200, typed?: string) =>
-        c.html(taskPickPage(cx, { parents: await settle(parents(cx.frame.operator)), problem, typed }), status);
+        show(c, taskPickPage(cx, { parents: await settle(parents(cx.operator)), problem, typed }), status);
       if (!parentQ) return pick();
-      const parent = await resolveParent(parentQ, cx.frame.operator, true);
+      const parent = await resolveParent(parentQ, cx.operator, true);
       if ("problem" in parent) return pick(parent.problem, parent.status, parentQ);
       const types = await settle(catalog.types());
       const draft: TaskDraft = { repo: repoIn(owners, repoQ) ?? "", title: "", body: "", type: types.ok && types.value.some((t) => t.name === "Task") ? "Task" : "", assign: true };
-      return c.html(taskFormPage(cx, { parent: parent.parent, draft, dirs: dirs(), types }));
+      return show(c, taskFormPage(cx, { parent: parent.parent, draft, dirs: dirs(), types }));
     }
   });
 
   app.post("/issues/preview", async (c) => {
     const form = await c.req.parseBody({ all: true });
     const got = await fromForm(form);
-    if ("problem" in got) return c.html(problemPage(await ctx(), got.problem, newHref(got.repo)), 400);
-    if (first(form.edit) === "1") return c.html(formPage(await ctx(), got));
-    if (!isValid(got.errors)) return c.html(formPage(await ctx(), got), 422);
-    return c.html(previewPage(await ctx(), { draft: got.draft, types: got.types, nonce: randomUUID() }));
+    if ("problem" in got) return show(c, problemPage(await ctx(), got.problem, newHref(got.repo)), 400);
+    if (first(form.edit) === "1") return show(c, formPage(await ctx(), got));
+    if (!isValid(got.errors)) return show(c, formPage(await ctx(), got), 422);
+    return show(c, previewPage(await ctx(), { draft: got.draft, types: got.types, nonce: randomUUID() }));
   });
 
   app.post("/issues/create", async (c) => {
     const form = await c.req.parseBody({ all: true });
     // Filing re-checks against GHE, not what's cached.
     const got = await fromForm(form, true);
-    if ("problem" in got) return c.html(problemPage(await ctx(), got.problem, newHref(got.repo)), 400);
+    if ("problem" in got) return show(c, problemPage(await ctx(), got.problem, newHref(got.repo)), 400);
     const nonce = first(form.nonce);
     const ctxNow = await ctx();
     // Only from a preview: the preview is the confirm step, and its nonce stops a second filing.
-    if (!isNonce(nonce)) return c.html(previewPage(ctxNow, { draft: got.draft, types: got.types, nonce: randomUUID(), problem: "Create from the preview: nothing was created." }), 400);
-    if (!isValid(got.errors)) return c.html(formPage(ctxNow, got), 422);
-    if (!got.types.ok) return c.html(previewPage(ctxNow, { draft: got.draft, types: got.types, nonce, problem: `The org's Issue Types didn't load, so the type can't be checked: nothing was created. ${got.types.error}` }), 502);
+    if (!isNonce(nonce)) return show(c, previewPage(ctxNow, { draft: got.draft, types: got.types, nonce: randomUUID(), problem: "Create from the preview: nothing was created." }), 400);
+    if (!isValid(got.errors)) return show(c, formPage(ctxNow, got), 422);
+    if (!got.types.ok) return show(c, previewPage(ctxNow, { draft: got.draft, types: got.types, nonce, problem: `The org's Issue Types didn't load, so the type can't be checked: nothing was created. ${got.types.error}` }), 502);
     const was = take(nonce);
     if (was) return c.redirect(was, 303);
-    if (was === "") return c.html(problemPage(ctxNow, "That issue is being created already.", newHref(got.draft.repo)), 409);
+    if (was === "") return show(c, problemPage(ctxNow, "That issue is being created already.", newHref(got.draft.repo)), 409);
     const d = got.draft;
     const r = await createIssue(ghe, env.DB, org, {
       repo: d.repo,
@@ -392,7 +425,7 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
     });
     if (!r.ok) {
       spent.delete(nonce);
-      return c.html(previewPage(ctxNow, { draft: d, types: got.types, nonce, problem: r.message }), 502);
+      return show(c, previewPage(ctxNow, { draft: d, types: got.types, nonce, problem: r.message }), 502);
     }
     await onMyList(form, d.title, `${r.repo}#${r.number}`);
     const done = `/issues/done?repo=${encodeURIComponent(r.repo)}&number=${r.number}`;
@@ -404,9 +437,9 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
   app.get("/issues/done", async (c) => {
     const repo = repoIn(owners, c.req.query("repo"));
     const n = c.req.query("number") ?? "";
-    if (!repo || !/^\d{1,9}$/.test(n)) return c.html(problemPage(await ctx(), "That isn't an issue in the org."), 400);
+    if (!repo || !/^\d{1,9}$/.test(n)) return show(c, problemPage(await ctx(), "That isn't an issue in the org."), 400);
     const result = results.get(`${repo}#${n}`);
-    return c.html(donePage(await ctx(), { repo, number: Number(n), url: result?.url ?? `https://${ghe.host}/${repo}/issues/${n}`, result }));
+    return show(c, donePage(await ctx(), { repo, number: Number(n), url: result?.url ?? `https://${ghe.host}/${repo}/issues/${n}`, result }));
   });
 
   // ── Dev tasks ──
@@ -427,7 +460,7 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
 
   type GotTask = { problem: string; status: 400 | 404 | 409 | 502 } | { parent: Parent; draft: TaskDraft; types: Res<IssueType[]>; errors: TaskErrors; closed?: Html };
   async function taskFromForm(form: Record<string, unknown>, cx: Ctx): Promise<GotTask> {
-    const parent = await resolveParent(first(form.parent), cx.frame.operator);
+    const parent = await resolveParent(first(form.parent), cx.operator);
     if ("problem" in parent) return parent;
     const other = first(form.repo_other).trim();
     const repoText = other ? (other.includes("/") ? other : `${org}/${other}`) : first(form.repo);
@@ -461,25 +494,25 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
     const cx = await ctx();
     // The preview is the confirm step: it shows the parent issue as it is now.
     const got = await taskFromForm(form, cx);
-    if ("problem" in got) return c.html(problemPage(cx, got.problem, taskHref()), got.status);
+    if ("problem" in got) return show(c, problemPage(cx, got.problem, taskHref()), got.status);
     const again = { parent: got.parent, draft: got.draft, dirs: dirs(), types: got.types, errors: got.errors, closed: got.closed };
-    if (first(form.edit) === "1") return c.html(taskFormPage(cx, { ...again, errors: {}, closed: undefined }));
-    if (!taskValid(got.errors)) return c.html(taskFormPage(cx, again), 422);
-    return c.html(taskPreviewPage(cx, { parent: got.parent, draft: got.draft, types: got.types, nonce: randomUUID() }));
+    if (first(form.edit) === "1") return show(c, taskFormPage(cx, { ...again, errors: {}, closed: undefined }));
+    if (!taskValid(got.errors)) return show(c, taskFormPage(cx, again), 422);
+    return show(c, taskPreviewPage(cx, { parent: got.parent, draft: got.draft, types: got.types, nonce: randomUUID() }));
   });
 
   app.post("/issues/task/create", async (c) => {
     const form = await c.req.parseBody({ all: true });
     const cx = await ctx();
     const got = await taskFromForm(form, cx);
-    if ("problem" in got) return c.html(problemPage(cx, got.problem, taskHref()), got.status);
+    if ("problem" in got) return show(c, problemPage(cx, got.problem, taskHref()), got.status);
     const nonce = first(form.nonce);
-    if (!isNonce(nonce)) return c.html(taskPreviewPage(cx, { parent: got.parent, draft: got.draft, types: got.types, nonce: randomUUID(), problem: "Create from the preview: nothing was created." }), 400);
-    if (!taskValid(got.errors)) return c.html(taskFormPage(cx, { parent: got.parent, draft: got.draft, dirs: dirs(), types: got.types, errors: got.errors, closed: got.closed }), 422);
-    if (!got.types.ok) return c.html(taskPreviewPage(cx, { parent: got.parent, draft: got.draft, types: got.types, nonce, problem: `The org's Issue Types didn't load: nothing was created. ${got.types.error}` }), 502);
+    if (!isNonce(nonce)) return show(c, taskPreviewPage(cx, { parent: got.parent, draft: got.draft, types: got.types, nonce: randomUUID(), problem: "Create from the preview: nothing was created." }), 400);
+    if (!taskValid(got.errors)) return show(c, taskFormPage(cx, { parent: got.parent, draft: got.draft, dirs: dirs(), types: got.types, errors: got.errors, closed: got.closed }), 422);
+    if (!got.types.ok) return show(c, taskPreviewPage(cx, { parent: got.parent, draft: got.draft, types: got.types, nonce, problem: `The org's Issue Types didn't load: nothing was created. ${got.types.error}` }), 502);
     const was = take(nonce);
     if (was) return c.redirect(was, 303);
-    if (was === "") return c.html(problemPage(cx, "That task is being created already.", taskHref(refText(got.parent))), 409);
+    if (was === "") return show(c, problemPage(cx, "That task is being created already.", taskHref(refText(got.parent))), 409);
     const d = got.draft;
     const r = await createTask(ghe, env.DB, owners, {
       repo: d.repo,
@@ -487,12 +520,12 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
       body: d.body.trim(),
       type: d.type,
       typeNodeId: got.types.value.find((t) => t.name === d.type)?.nodeId,
-      assignees: d.assign ? [cx.frame.operator] : [],
+      assignees: d.assign ? [cx.operator] : [],
       parent: { repo: got.parent.repo, number: got.parent.number },
     });
     if (!r.ok) {
       spent.delete(nonce);
-      return c.html(taskPreviewPage(cx, { parent: got.parent, draft: d, types: got.types, nonce, problem: r.message }), 502);
+      return show(c, taskPreviewPage(cx, { parent: got.parent, draft: d, types: got.types, nonce, problem: r.message }), 502);
     }
     await onMyList(form, d.title, `${r.repo}#${r.number}, under ${refText(got.parent)}`);
     const done = `/issues/task/done?repo=${encodeURIComponent(r.repo)}&number=${r.number}`;
@@ -504,9 +537,9 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
   app.get("/issues/task/done", async (c) => {
     const repo = repoIn(owners, c.req.query("repo"));
     const n = c.req.query("number") ?? "";
-    if (!repo || !/^\d{1,9}$/.test(n)) return c.html(problemPage(await ctx(), "That isn't an issue in the org."), 400);
+    if (!repo || !/^\d{1,9}$/.test(n)) return show(c, problemPage(await ctx(), "That isn't an issue in the org."), 400);
     const result = tasks.get(`${repo}#${n}`);
-    return c.html(taskDonePage(await ctx(), { repo, number: Number(n), url: result?.url ?? `https://${ghe.host}/${repo}/issues/${n}`, result, dir: checkoutOf(dirs(), repo)?.dir }));
+    return show(c, taskDonePage(await ctx(), { repo, number: Number(n), url: result?.url ?? `https://${ghe.host}/${repo}/issues/${n}`, result, dir: checkoutOf(dirs(), repo)?.dir }));
   });
 
   // ── An agent drafts it: the prompt is shown before it starts ──
@@ -520,7 +553,7 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
     let target: string | undefined;
     if (kind === "forms") {
       const repo = repoIn(owners, first(form.repo));
-      if (!repo) return c.html(problemPage(cx, `That isn't a repo in ${owners.replace(/,/g, ", ")}.`), 400);
+      if (!repo) return show(c, problemPage(cx, `That isn't a repo in ${owners.replace(/,/g, ", ")}.`), 400);
       const file = first(form.template);
       // The name the prompt carries is the live template's, never what the form says it is.
       const templates = file && file !== BLANK ? await settle(catalog.templates(repo)) : null;
@@ -536,19 +569,19 @@ export function createIssueRoutes(env: Env, deps: { ghe: Ghe; frame: () => Promi
       back = taskHref(parent, repo);
       target = repo;
     } else if (kind === "any") ask = { kind: "any" };
-    else return c.html(problemPage(cx, "That isn't a kind of work."), 400);
-    if (!note) return c.html(problemPage(cx, "Describe it first: the agent starts from your note.", back), 400);
-    if (note.length > MAX_NOTE) return c.html(problemPage(cx, `Keep the note under ${MAX_NOTE} characters.`, back), 400);
+    else return show(c, problemPage(cx, "That isn't a kind of work."), 400);
+    if (!note) return show(c, problemPage(cx, "Describe it first: the agent starts from your note.", back), 400);
+    if (note.length > MAX_NOTE) return show(c, problemPage(cx, `Keep the note under ${MAX_NOTE} characters.`, back), 400);
     const list = dirs();
     // Work in a repo starts in its checkout (its conventions); the rest in Dovre's own folder.
     const dir = (target ? checkoutOf(list, target)?.dir : undefined) ?? WORK;
-    return c.html(draftPage(cx, { prompt: agentPrompt(note, ask, setup), dirs: list, dir, back }));
+    return show(c, draftPage(cx, { prompt: agentPrompt(note, ask, setup), dirs: list, dir, back }));
   });
 
   // Load what these pages need shortly after starting, so the first visit doesn't wait on GHE.
   if (deps.prewarm)
     setTimeout(async () => {
-      const login = (await deps.frame().catch(() => undefined))?.operator ?? "";
+      const login = await deps.operator().catch(() => "");
       const quiet = (p: Promise<unknown>) => p.catch(() => undefined);
       await Promise.all([
         quiet(catalog.types()),

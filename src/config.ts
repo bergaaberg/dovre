@@ -66,12 +66,10 @@ export const PANES: Pane[] = [
   },
 ];
 
-/** The settings that aren't a pane: where things are, and who I work with. */
+/** The settings that aren't a pane or a pack's: where things are, and how Dovre talks. */
 export const GENERAL: Field[] = [
   { key: "REPO_OWNERS", label: "Owners to track", hint: "Orgs and users on the host, comma-separated; the first is where short names (repo#12) belong", kind: "text", pattern: LIST, placeholder: "my-org, my-user" },
   { key: "CODE_DIR", label: "Code folder", hint: "Your checkouts sit right in it (<folder>/<repo>)", kind: "text", pattern: /^[^"<>|?*\r\n]{1,260}$/ },
-  { key: "TEAM", label: "Your team", hint: "The team's slug, for grouping work by the people in it", kind: "text", pattern: /^[\w.\-]{1,100}$/, placeholder: "my-team" },
-  { key: "FORM_REPOS", label: "Repos with their own issue forms", hint: "comma-separated", kind: "text", pattern: LIST, placeholder: "forms-repo" },
   {
     key: "AGENT_HARNESSES",
     label: "Agent CLIs to use",
@@ -79,7 +77,6 @@ export const GENERAL: Field[] = [
     kind: "set",
     choices: [{ value: "claude", label: "Claude Code" }, { value: "omp", label: "Copilot · omp" }, { value: "copilot", label: "Copilot CLI" }, { value: "agy", label: "Antigravity · agy" }, { value: "codex", label: "Codex" }],
   },
-  { key: "SORTING_REPOS", label: "Repos where work is planned", hint: "comma-separated; dev tasks go under their issues", kind: "text", pattern: LIST, placeholder: "intake" },
   { key: "GREETING", label: "Greeting language", hint: "en (Good morning) or no (God morgen)", kind: "choice", choices: [{ value: "en", label: "English" }, { value: "no", label: "Norsk" }] },
   { key: "TZ_NAME", label: "Timezone", hint: "An IANA timezone name (e.g. Europe/Oslo). Empty or invalid: this machine's own zone (UTC when hosted)", kind: "text", pattern: /^[A-Za-z0-9_+\/-]{1,64}$/, placeholder: "this machine's zone" },
 ];

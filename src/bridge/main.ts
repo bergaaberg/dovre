@@ -27,7 +27,7 @@ import { appleContainer } from "../agents/sandbox.ts";
 import { findHarnessTools, harnessesFor, useFoundModels } from "../agents/harnesses/index.ts";
 import { foundModels } from "../agents/harnesses/found.ts";
 import { loadEnv, rawVars } from "../env.ts";
-import { checkoutOf, checkouts } from "../issues/tasks.ts";
+import { checkoutOf, checkouts } from "../checkouts.ts";
 import { ownersIn } from "../owners.ts";
 import { localSessions } from "../sources/sessions.ts";
 import { liveAgents, type Session } from "../sources/claude.ts";

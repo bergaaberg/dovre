@@ -90,7 +90,7 @@ test("programs start on a worker thread: the server's thread never stalls while 
 });
 
 test("cached GHE answers: known ones come at once and load again in the background; kept ones survive a restart; a write reads fresh", async () => {
-  const { memoize } = await import("../src/issues/templates.ts");
+  const { memoize } = await import("../src/kept.ts");
   const clock = { t: 0 };
   const store = new Map<string, { at: number; value: unknown }>();
   const kept = { get: (k: string) => store.get(k), set: (k: string, v: { at: number; value: unknown }) => void store.set(k, v) };

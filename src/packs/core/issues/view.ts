@@ -3,7 +3,7 @@ import { html } from "hono/html";
 import type { Issue } from "../../../forge/types.ts";
 import { ago } from "../../../format.ts";
 import { Link, safeUrl } from "../../../pages/parts.ts";
-import { taskHref } from "../../../pages/work.ts";
+import { taskHref } from "./compose/work.ts";
 import { BulkBar, Confirm, Empty, Gauge, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill, Tabs } from "../../../ui/kit.ts";
 import { ACT_KINDS, type ActKindId, doneText, MAX_COMMENT } from "./act.ts";
 import { ISSUE_SETS, type IssuesKept, keyOf, SET_LABEL, type SetId, staleFor } from "./model.ts";

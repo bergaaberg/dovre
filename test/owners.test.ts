@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { repoIn } from "../src/actions/deploys.ts";
 import { reposOf } from "../src/env.ts";
-import { parseRef } from "../src/issues/tasks.ts";
+import { parseRef } from "../src/packs/core/issues/compose/tasks.ts";
 import { ownerQuery, owns, ownersIn, ownersOf, primaryOf } from "../src/owners.ts";
 import { loadMoves } from "../src/sources/ghe.ts";
 import { fakeGhe } from "./helpers.ts";

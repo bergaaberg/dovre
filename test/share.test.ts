@@ -7,11 +7,11 @@ import { test } from "node:test";
 import { createRunner } from "../src/agents/runner.ts";
 import { ompHarness } from "../src/agents/harnesses/omp/harness.ts";
 import { launchToken, maskedLogin, serveSetup } from "../src/boot.ts";
-import { loadEnv, reposOf } from "../src/env.ts";
+import { loadEnv, rawVars, reposOf } from "../src/env.ts";
 import { newAgentPage } from "../src/packs/core/agents/session.view.ts";
 import { resumeCommand } from "../src/pages/parts.ts";
 import { setupLines } from "../src/pages/settings.ts";
-import { agentPanel } from "../src/pages/work.ts";
+import { agentPanel } from "../src/packs/core/issues/compose/work.ts";
 import { setupApp, setupPage } from "../src/setup.ts";
 import { findTool, found, shimTarget, summariesWanted, which } from "../src/tools.ts";
 import { H, assertInert, pr, session, signedIn, snapshot } from "./helpers.ts";
@@ -112,7 +112,7 @@ test("a list set to nothing is off, and so is one left unset", () => {
     process.env.GHE_TOKEN = "t";
     process.env.FORM_REPOS = "";
     delete process.env.SORTING_REPOS;
-    const env = loadEnv();
+    const env = rawVars();
     assert.deepEqual(reposOf("ACME", env.FORM_REPOS, "FORMS"), []);
     assert.deepEqual(reposOf("ACME", env.SORTING_REPOS, ""), []);
   } finally {

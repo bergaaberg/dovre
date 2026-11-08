@@ -5,9 +5,9 @@
  * GraphQL. A template's `projects:` the UI would have added it to are added here the same way.
  * Logged whether it worked or not.
  */
-import { logAction } from "../actions/deploys.ts";
-import type { D1 } from "../db.ts";
-import type { Ghe } from "../sources/ghe.ts";
+import { logAction } from "../../../../actions/deploys.ts";
+import type { D1 } from "../../../../db.ts";
+import type { Ghe } from "../../../../sources/ghe.ts";
 
 export type NewIssue = { repo: string; title: string; body: string; type: string; typeNodeId?: string; labels: string[]; projects: string[] };
 export type Created = { ok: true; url: string; number: number; repo: string; title: string; warnings: string[] } | { ok: false; message: string };

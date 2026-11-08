@@ -23,7 +23,7 @@ import { setWhen } from "./when.ts";
 import { ompAsker } from "./ai/omp.ts";
 import { runOff } from "./spawn.ts";
 import { createGatherer, SNAPSHOT_SHAPE, type Snapshot, snapshotStore } from "./gather.ts";
-import { keptFile } from "./issues/templates.ts";
+import { keptFile } from "./kept.ts";
 import { logAction } from "./actions/deploys.ts";
 import { createAsks } from "./relay/asks.ts";
 import { createQueue } from "./agents/queue.ts";
@@ -37,7 +37,7 @@ import { createGhe, missingGhe, viewer } from "./sources/ghe.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeCan } from "./forge/types.ts";
-import { checkoutOf, checkouts } from "./issues/tasks.ts";
+import { checkoutOf, checkouts } from "./checkouts.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createRunner, HARNESSES, repoDir, type Run } from "./agents/runner.ts";
@@ -423,7 +423,8 @@ const corePacks = [
     forge,
     owners: () => ownersIn(env),
     login: () => gatherer.peek()?.login,
-    ...(forgeCan(forge, "issues") ? { newHref: "/issues/new", tasks: true } : {}),
+    // New work (/issues/new), where the forge takes GitHub's issue forms.
+    ...(forgeCan(forge, "issues") ? { newHref: "/issues/new", tasks: true, compose: { ghe, org: env.GHE_ORG, kept: keptAnswers, prewarm: true } } : {}),
     ...(found.harnesses.length
       ? {
           agents: () => {
