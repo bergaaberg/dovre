@@ -133,6 +133,12 @@ test("hosted: the object's lookups go through the binding, its answers checked, 
   assert.deepEqual(await lookupsVia({ specs: async () => ({}), run: async () => ({}) }).specs(), []);
 });
 
+test("the hosted binding passes as many lookups as the registry allows, not fewer", async () => {
+  const many = Array.from({ length: MAX_PACK_LOOKUPS + 3 }, (_, i) => ({ kind: `p.k${i}`, app: "P", when: "w", fields: [] }));
+  const got = await lookupsVia({ specs: async () => many, run: async () => ({}) }).specs();
+  assert.equal(got.length, MAX_PACK_LOOKUPS);
+});
+
 test("agent turns get the lookups as read-only tools, unless a tool has the name", async () => {
   const p: Pack = { ...tracker(), tools: () => [{ name: "mine", description: "Its own.", input: { type: "object" }, run: () => ({ text: "tool" }) }] };
   const tools = offered([p], () => ctx, () => {});

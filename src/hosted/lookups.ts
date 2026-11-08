@@ -17,6 +17,7 @@
  * and binds it: `"services": [{ "binding": "BINO_LOOKUPS", "service": "<this worker>", "entrypoint": "BinoLookups" }]`.
  */
 import type { Lookup, Lookups, LookupSpec } from "../packs/core/assistant/bino/lookups.ts";
+import { MAX_PACK_LOOKUPS } from "../packs/registry.ts";
 
 let host: ((env: unknown) => Promise<Lookups>) | undefined;
 
@@ -42,7 +43,7 @@ export function lookupsVia(b: LookupsBinding): Lookups {
     async specs(): Promise<LookupSpec[]> {
       const got = await b.specs().catch(() => []);
       if (!Array.isArray(got)) return [];
-      return got.slice(0, 16).flatMap((x): LookupSpec[] => {
+      return got.slice(0, MAX_PACK_LOOKUPS).flatMap((x): LookupSpec[] => {
         const s = x as Partial<LookupSpec>;
         if (!s || typeof s.kind !== "string" || !Array.isArray(s.fields)) return [];
         const fields = s.fields.slice(0, 6).map((f) => ({ name: str(f?.name, 32), about: str(f?.about, 160), required: f?.required === true, max: Math.max(1, Math.min(1000, Number(f?.max) || 200)) })).filter((f) => f.name);
