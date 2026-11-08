@@ -2,7 +2,7 @@
  * What I'm looking at when I ask Bino from its pane: the page's address, turned here into a line of
  * names and states from what's gathered, under the same rule as the rest of Bino's context
  * (src/packs/core/assistant/bino/context.ts): never a PR body, an agent's prompt or recap, a tool result, or anything a
- * private page shows. Terminal and the Lab are named, never described, and so is a private
+ * private page shows. Terminal is named, never described, and so is a private
  * pack's page (manifest `private`: chats, mail, query results). Another pack's page is described by the pack (`about`),
  * under the same rule.
  */
@@ -12,7 +12,6 @@ import { inFiles } from "../../../../sources/ghe.ts";
 /** Pages whose content never reaches Bino: shells, artifacts (and private packs' pages, below). */
 const PRIVATE: [string, string][] = [
   ["/terminal", "Terminal"],
-  ["/lab", "Lab"],
 ];
 
 const PAGES: [string, string][] = [

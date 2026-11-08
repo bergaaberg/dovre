@@ -45,7 +45,7 @@ test("the page I'm on, as Bino hears it: names and states, never a body, a promp
   // A private pack (Teams: chats, mail): named, never described, whatever its `about` would say, and never its path.
   const chats = { id: "chats", name: "Chats", paths: ["inbox"], private: true, about: () => "the chat with Kari: «secret»" };
   for (const path of ["/chats/c/19%3Aabc%40thread.v2", "/chats", "/inbox/m/7"]) assert.equal(await viewOf(path, S, [chats]), "a page of their app Chats. What it shows is kept from you: don't guess at it.", path);
-  for (const [path, name] of [["/terminal/3", "Terminal"], ["/lab/x.html", "Lab"]] as const) {
+  for (const [path, name] of [["/terminal/3", "Terminal"]] as const) {
     const v = await viewOf(path, S);
     assert.equal(v, `the ${name} page. What it shows is kept from you: don't guess at it.`, path);
   }

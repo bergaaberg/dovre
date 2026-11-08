@@ -96,7 +96,6 @@ export type Env = {
   TERMINAL?: string;
   STATS?: string;
   REVIEWS?: string;
-  LAB?: string;
   /** My team on GHE (its slug), for grouping work by the people in it. */
   TEAM?: string;
   /** Who Bino is told I am, e.g. "a tech lead at an insurance company". Unset: a developer. */
@@ -222,7 +221,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     TERMINAL: v.TERMINAL || undefined,
     STATS: v.STATS || undefined,
     REVIEWS: v.REVIEWS || undefined,
-    LAB: v.LAB || undefined,
     TEAM: v.TEAM || undefined,
     ABOUT_ME: v.ABOUT_ME || undefined,
     REVIEW_SKILL: v.REVIEW_SKILL || undefined,

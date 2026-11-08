@@ -6,9 +6,7 @@ import { checkoutIn, checkoutsIn } from "./packs/checkouts.ts";
 import { ownersIn } from "./owners.ts";
 import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { slowLog } from "./slow.ts";
 import { createSpeed, routeOk, type Speed, speedLog, WAITED } from "./speed.ts";
 import { type Context, Hono } from "hono";
@@ -113,7 +111,6 @@ import { addGroups, combine, loadQueue, MAX_MERGE, mergeCombined } from "./actio
 const PANE_PATHS: [PaneId, RegExp][] = [
   ["bino", /^\/bino(\/|$)/],
   ["reviews", /^\/prs\/(agent|draft)(\/|$)/],
-  ["lab", /^\/lab(\/|$)/],
 ];
 
 /** Core pages only some forges serve (src/forge/types.ts): not here at all when this one can't. Reviews go with their pane. */
@@ -138,7 +135,7 @@ function pendingPage(path: string, frame: Frame): string {
 /** Nothing gathered yet: what the frame is drawn from on the "Gathering" page. */
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
-export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
+export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** The forge takes new issues (default yes). */ issues?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
   const deploys = s.deploys.ok ? s.deploys.value.length : 0;
   const prs = s.prs.ok ? s.prs.value.mine.length + s.prs.value.review.length : 0;
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
@@ -155,7 +152,6 @@ export function navOf(s: Snapshot, opts: { hosted?: boolean; lab?: boolean; bino
     !!opts.packs && { href: "/packs", title: "Packs", icon: "layers", group: "You" },
     { href: "/settings", title: "Settings", icon: "gear", group: "You" },
     { href: "/bug", title: "Report a bug", icon: "alert", group: "You" },
-    !opts.hosted && !!opts.lab && { href: "/lab", title: "Lab", icon: "flask", group: "You" },
   ];
   return items.filter((x): x is NavItem => !!x);
 }
@@ -259,8 +255,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         })
       : undefined;
   const bino: Bino | undefined = binoDeps && "remote" in binoDeps ? binoDeps.remote : engine;
-  // ── The lab: prototypes and artifacts, kept in data/lab (never committed); in the nav only when there is one ──
-  const labDir = resolve(env.U_DB ? dirname(env.U_DB) : "data", "lab");
   /** What this instance's forge can do beyond the gather (GitHub: everything). */
   const forge = deps.forge ?? githubForge(ghe);
   // What packs may read from the owners' repos (#139): checked and kept a few minutes, shared by every pack.
@@ -277,7 +271,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const path = href.split(/[?#]/)[0]!;
     return FORGE_PATHS.some(([what, re]) => !can(what) && re.test(path));
   };
-  const hasLab = () => env.IS_HOSTED !== "1" && !off("lab") && existsSync(resolve(labDir, "index.html"));
 
   // Packs' WebAssembly (Pack.wasm) and big files (Pack.files): checked, hashed, served below. Bytes
   // are served from memory; a file locally from its `load` (checked on first use), hosted from the
@@ -372,14 +365,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       objectSrc: ["'none'"],
     },
   });
-  // The lab's policy is set per page (below): it needs the page's own origin to name /lab/.
-  const labHeaders = secureHeaders({ referrerPolicy: "same-origin", contentSecurityPolicy: undefined });
   /** A dock's page: Bino's, or one under a pack's /<id>/dock when that pack has a dock. */
   const dockPath = (path: string) => {
     const m = /^\/([a-z][a-z0-9-]*)\/dock(\/|$)/.exec(path);
     return !!m && (m[1] === "bino" || packs.on.some((x) => x.manifest.id === m[1] && !!x.dock));
   };
-  app.use((c, next) => (c.req.path.startsWith("/lab/") ? labHeaders(c, next) : dockPath(c.req.path) ? dockHeaders(c, next) : withPackFrames(c, next)));
+  app.use((c, next) => (dockPath(c.req.path) ? dockHeaders(c, next) : withPackFrames(c, next)));
 
   /** Exchanges the launch token for a cookie, on localhost only. */
   mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1" });
@@ -758,7 +749,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
   const binoOn = () => !!bino?.route.ready && !hidden("assistant");
-  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", lab: hasLab(), bino: binoOn(), stats: statsOn(), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
+  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
   // On or off: a pack waiting for its settings is still the session's (#369).
   const sessionManifest = () => (deps.session ? (packs.on.find((x) => x.manifest.id === deps.session!.pack)?.manifest ?? packs.off.find((x) => x.id === deps.session!.pack)?.manifest) : undefined);
@@ -891,7 +882,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.get("/search", async (c) => {
     const { s, frame } = await page();
     const raw = (c.req.query("q") ?? "").slice(0, 200);
-    const pages = pagesOf({ bino: binoOn(), lab: hasLab(), stats: statsOn() }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages(), settingsAreas().map((id) => { const a = AREAS.find((x) => x.id === id)!; return { title: `Settings: ${a.title}`, href: `/settings/${id}`, icon: "⚙", about: a.about, also: ["settings", ...a.also] }; }));
+    const pages = pagesOf({ bino: binoOn(), stats: statsOn() }).concat(packs.on.length + packs.off.length ? [{ title: "Packs", href: "/packs", icon: "▦", about: "This instance's apps: on or off here and why, refreshes, settings", also: ["apps", "plugins", "modules", "manifest"] }] : [], packPages(), settingsAreas().map((id) => { const a = AREAS.find((x) => x.id === id)!; return { title: `Settings: ${a.title}`, href: `/settings/${id}`, icon: "⚙", about: a.about, also: ["settings", ...a.also] }; }));
     // GHE's own search too: on the page, and in the palette once typing pauses (remote=1). At most 3.5 s.
     const parsed = parseQuery(raw, c.req.query("only"));
     const remote = (c.req.query("frag") !== "1" || c.req.query("remote") === "1") && can("search") && (!parsed.only || parsed.only === "issues") ? await Promise.race([gheSearch(parsed.q).catch(() => []), new Promise<[]>((res) => setTimeout(() => res([]), 3500))]) : [];
@@ -1721,40 +1712,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           })),
       }),
     );
-
-  // ── The lab: design prototypes made from real data, kept in data/lab (never committed) ──
-  // Lab pages are inline-scripted prototypes and artifacts. They may show and frame each other,
-  // and nothing else: no fetch, no forms, no frames of the app's own pages, so a page in data/lab
-  // can't act (or read) as me. They get a way back to the app.
-  const labCsp = (origin: string) =>
-    [
-      "default-src 'none'",
-      "script-src 'unsafe-inline'",
-      "style-src 'unsafe-inline'",
-      `img-src data: ${origin}/assets/ ${origin}/lab/`,
-      "font-src data:",
-      `frame-src ${origin}/lab/`,
-      "connect-src 'none'",
-      "form-action 'none'",
-      "frame-ancestors 'self'",
-      "base-uri 'none'",
-      "object-src 'none'",
-    ].join("; ");
-  const LAB_EXIT = `<a href="/" target="_top" id="u-lab-exit" style="position:fixed;z-index:2147483647;left:12px;bottom:12px;padding:6px 11px;border-radius:8px;background:#0e1922;color:#e6ecf0;font:600 13px/1.2 'Segoe UI',system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 10px rgb(0 0 0 / .3);opacity:.85">← Dovre</a><script>if (window.top !== window) document.getElementById("u-lab-exit").remove();</script>`;
-  app.get("/lab", (c) => c.redirect("/lab/index.html", 303));
-  app.get("/lab/*", async (c) => {
-    const rel = decodeURIComponent(c.req.path.slice("/lab/".length));
-    const file = resolve(labDir, rel);
-    if (!/^[\w/-]+\.html$/.test(rel) || !file.startsWith(labDir + sep) || !existsSync(file)) return c.notFound();
-    let body = await readFile(file, "utf8");
-    // Pages written for the artifact viewer leave out the document skeleton it adds.
-    if (!/^\s*<!doctype/i.test(body))
-      body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;font:14px system-ui}[hidden]{display:none!important}</style></head><body>${body}</body></html>`;
-    // The way back, on every lab page shown on its own (a page framed by the lab's index has the index's).
-    body = /<body[^>]*>/i.test(body) ? body.replace(/<body[^>]*>/i, (m) => m + LAB_EXIT) : LAB_EXIT + body;
-    c.header("Content-Security-Policy", labCsp(new URL(c.req.url).origin));
-    return c.html(body);
-  });
 
   // ── The relay (launcher/relay.go): an MCP server's question, answered here and only here ──
   app.post("/relay/ask", async (c) => {
