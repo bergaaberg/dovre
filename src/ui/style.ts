@@ -724,6 +724,13 @@ code.secret { user-select: all; overflow-wrap: anywhere; }
 .empty strong { display: block; font: 400 18px/1.3 var(--serif); font-style: normal; color: var(--ink-2); margin-bottom: .15rem; }
 ul.list { list-style: none; margin: 0; padding: 0; }
 ul.list > li { border-top: 1px solid var(--line); }
+.check-rows { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; }
+.check-rows > legend { padding: 0 0 6px; }
+.check-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 11px 2px; border-top: 1px solid var(--line); cursor: pointer; }
+.check-row input { accent-color: var(--accent); margin: 0; }
+.check-row b { font-weight: 600; overflow-wrap: anywhere; }
+.check-row small { display: block; color: var(--ink-3); font-size: 13px; }
+.check-row:hover b { color: var(--accent); }
 .item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 .9rem; align-items: start; padding: 12px 0; text-decoration: none; color: inherit; }
 a.item:hover .title { color: var(--accent); }
 .item > .lead { padding-top: .25rem; display: flex; align-items: center; min-width: 8px; }

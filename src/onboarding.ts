@@ -1,6 +1,6 @@
 /**
  * What the climb (#417, src/pages/welcome.ts) was told: the role, where code lives, the two
- * answers, the packs picked, and whether it's done. Kept in the settings table under "onboarding",
+ * answers, the packs picked, whether it's done, and the steps done of each pack's own setup (#418). Kept in the settings table under "onboarding",
  * the same hosted and here, so Bino and "Suggest packs again" can read it back. Read strictly: an
  * old or edited row can't set anything this file doesn't know.
  */
@@ -23,6 +23,8 @@ export type Onboarding = {
   picked?: string[];
   /** The climb was finished or skipped: Today stops sending here. */
   done?: boolean;
+  /** Each pack's own setup (/setup/<id>): the ids of the steps done, by pack id. */
+  setup?: Record<string, string[]>;
 };
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -50,6 +52,12 @@ export function onboardingOf(raw: unknown): Onboarding {
   if (FORGES.some(([f]) => f === v.forge)) out.forge = v.forge as ForgeChoice;
   if (Array.isArray(v.picked)) out.picked = [...new Set(v.picked.filter((x): x is string => typeof x === "string" && ID.test(x)))].slice(0, 200);
   if (v.done === true) out.done = true;
+  if (v.setup && typeof v.setup === "object" && !Array.isArray(v.setup)) {
+    const setup: Record<string, string[]> = {};
+    for (const [id, steps] of Object.entries(v.setup as Record<string, unknown>).slice(0, 200))
+      if (ID.test(id) && Array.isArray(steps)) setup[id] = [...new Set(steps.filter((x): x is string => typeof x === "string" && ID.test(x)))].slice(0, 3);
+    if (Object.keys(setup).length) out.setup = setup;
+  }
   return out;
 }
 

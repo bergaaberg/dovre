@@ -146,7 +146,7 @@ function summit(v: ClimbView) {
 <h2>You made it.</h2>
 <p class="climb-lede">${n} flag${n === 1 ? "" : "s"} on the ridge. Today's ready${s.restarts ? " once Dovre restarts, in a few seconds" : ""}.</p>
 ${s.waits ? html`<p class="climb-small">What runs on your laptop waits for it.</p>` : ""}
-${s.later.length ? html`<div class="climb-card"><h3>A little more, when you get there</h3><p class="climb-small">These packs have a short setup of their own.</p><ul class="climb-later">${s.later.map((l) => html`<li><b>${l.name}</b> · ${l.steps.join(", ").toLowerCase()}</li>`)}</ul></div>` : ""}
+${s.later.length ? html`<div class="climb-card"><h3>A little more, when you get there</h3><p class="climb-small">These packs have a short setup of their own. Today lists them until they're done.</p><ul class="climb-later">${s.later.map((l) => html`<li><a href="/setup/${l.id}"><b>${l.name}</b></a> · ${l.steps.join(", ").toLowerCase()}</li>`)}</ul></div>` : ""}
 <div class="climb-row"><form method="post" action="/welcome/done"><button type="submit" class="climb-go">Open Today ${arrow}</button></form><a class="climb-link" href="/welcome?at=role">Climb again</a></div>
 <p class="climb-small">Fonts, colours and the rest are under Settings → Look.</p>`;
 }
@@ -158,22 +158,27 @@ export function climbPage(v: ClimbView, steps: Step[], o: { refresh?: number } =
   const next = steps[Math.min(steps.length - 1, i + 1)]!;
   const body =
     v.step === "welcome" ? welcome(v) : v.step === "role" ? role(v) : v.step === "machine" ? machine(v, next) : v.step === "q0" || v.step === "q1" ? question(v, prev) : v.step === "packs" ? packs(v, prev) : summit(v);
-  const l = v.look ?? {};
+  return climbDoc({ title: "Set up · Dovre", look: v.look, scene: climbArt(v.step, v.flags, v.from), body, refresh: o.refresh });
+}
+
+/** A page of the climb's kind (no menu): the scene behind, one column over it. The setup pages (#418) are one too. */
+export function climbDoc(o: { title: string; look?: Frame["look"]; scene: unknown; body: unknown; refresh?: number }) {
+  const l = o.look ?? {};
   return html`<!doctype html>
 <html lang="en"${l.theme ? html` data-theme="${l.theme}"` : ""}${l.accent ? html` data-accent="${l.accent}"` : ""}${l.motion ? html` data-motion="${l.motion}"` : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Set up · Dovre</title>
+<title>${o.title}</title>
 <link rel="stylesheet" href="${STYLE_PATH}">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0e1922">${o.refresh ? html`
 <meta http-equiv="refresh" content="${o.refresh}">` : ""}
 </head>
 <body class="climb-page">
-<div class="climb-scene">${climbArt(v.step, v.flags, v.from)}</div>
-<main class="climb"><div class="climb-col">${body}</div></main>
+<div class="climb-scene">${o.scene}</div>
+<main class="climb"><div class="climb-col">${o.body}</div></main>
 </body>
 </html>`;
 }

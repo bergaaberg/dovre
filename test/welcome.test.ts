@@ -89,7 +89,7 @@ test("the climb, locally: role, scan, two questions, the kit, the summit; what's
   assertInert("summit", top);
   assert.match(top, /You made it\./);
   assert.match(top, /2 flags on the ridge/);
-  assert.match(top, /<b>Dependabot<\/b> · pick which bumps merge on green/);
+  assert.doesNotMatch(top, /A little more/, "neither has a setup page of its own");
   assert.match(top, /cl-summit/);
 
   assert.equal((await post("/welcome/done", {})).headers.get("location"), "/", "no supervisor in a test: straight to Today");
@@ -159,4 +159,5 @@ test("hosted: the bridge's commands while it listens, and Hi once a machine is o
 test("the store reads strictly", () => {
   assert.deepEqual(onboardingOf({ role: "boss", forge: "svn", answers: { agents: ["many"], tasks: "github", nope: "x", catch: ["red", H] }, picked: ["prs", H, 3], done: "yes" }), { answers: { catch: ["red"] }, picked: ["prs"] });
   assert.deepEqual(onboardingOf(null), { answers: {} });
+  assert.deepEqual(onboardingOf({ setup: { tracker: ["triage", "triage", 3, H], [H]: ["a"], agents: "all" } }).setup, { tracker: ["triage"] }, "each pack's steps done, ids only");
 });

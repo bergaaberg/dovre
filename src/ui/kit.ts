@@ -95,6 +95,12 @@ export function Item(opts: { href?: string; lead?: Child; leadTone?: Tone; title
 
 export const List = (children: Child) => html`<ul class="list">${children}</ul>`;
 
+/** Rows to tick, each a checkbox posting `name` (a pack's setup step: the repos to triage). Put them inside the form they belong to. */
+export const CheckRows = (o: { name: string; label: string; rows: { value: string; label: Child; sub?: Child; checked?: boolean }[] }) =>
+  html`<fieldset class="check-rows"><legend class="t3">${o.label}</legend>${o.rows.map(
+    (r) => html`<label class="check-row"><input type="checkbox" name="${o.name}" value="${r.value}"${r.checked ? " checked" : ""}><span><b>${r.label}</b>${r.sub ? html`<small>${r.sub}</small>` : ""}</span></label>`,
+  )}</fieldset>`;
+
 export const KeyValues = (pairs: [Child, Child][]) => html`<dl class="kv">${pairs.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>`;
 
 /**

@@ -50,7 +50,6 @@ export function dependabotPack(deps: DependabotDeps): Pack {
       domain: "work",
       answers: ["catch:bumps"],
       markers: [".github/dependabot.yml", ".github/dependabot.yaml"],
-      onboard: { steps: [{ id: "merge", title: "Pick which bumps merge on green" }] },
       execution: "any",
     },
     pages: () => [{ title: "Dependabot", href: HREF, icon: "⇄", about: "Open bumps by repo, combined and merged", also: ["dependabot", "bumps", "dependencies", "combine", "security"] }],

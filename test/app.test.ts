@@ -7,6 +7,7 @@ import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } f
 import { investigateHref } from "../src/ui/kit.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
 import type { Run } from "../src/agents/runner.ts";
+import type { Pack } from "../src/packs/types.ts";
 
 const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", `/bino?q=${encodeURIComponent(H)}`, "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/stacks", "/search", "/search?q=a", "/stats"];
 
@@ -137,13 +138,31 @@ test("the climb (#417) keeps a pack's name, description, why and setup inert, on
   const { panesOf } = await import("../src/config.ts");
   const manifest = { api: PACK_API, id: "hostile", name: H, description: H, domain: "personal" as const, roles: ["dev" as const], markers: ["Dockerfile"], settings: [{ key: "HOSTILE_KEY", label: H, required: true }], onboard: { steps: [{ id: "one", title: H }] } };
   const config = { panes: panesOf({}, { claude: true, omp: true, pwsh: true, db: true, terminals: true }), stored: {} as Record<string, string> };
-  const { get, post } = signedIn(snapshot(), {}, { config, packs: [{ manifest }] });
+  const { get, post } = signedIn(snapshot(), {}, { config, packs: [{ manifest, setup: { draw: () => ({ body: "" }) } }] });
   await post("/welcome/role", { role: "dev", forge: "github" });
   for (const at of ["welcome", "role", "machine", "q0", "q1", "packs", "summit", `${H}`]) {
     const res = await get(`/welcome?at=${encodeURIComponent(at)}`);
     assert.equal(res.status, 200, at);
     assertInert(`/welcome?at=${at}`, await res.text());
   }
+});
+
+test("setup pages (#418) keep a pack's name, step title, body, wait and error inert", async () => {
+  const { PACK_API } = await import("../src/packs/types.ts");
+  const { html } = await import("hono/html");
+  const hostile: Pack = {
+    manifest: { api: PACK_API, id: "hostile", name: H, description: H, domain: "work", onboard: { steps: [{ id: "one", title: H }, { id: "two", title: H }] } },
+    setup: { draw: (_c, step) => ({ form: step === "one", body: html`<p>${H}</p>`, ...(step === "two" ? { wait: H } : {}) }), save: async () => ({ ok: false, error: H }) },
+  };
+  const { get, post } = signedIn(snapshot(), {}, { packs: [hostile] });
+  assertInert("Today", await (await get("/")).text());
+  await post("/setup/hostile/next", "step=one");
+  for (const at of ["one", "two", "done", H]) {
+    const res = await get(`/setup/hostile?at=${encodeURIComponent(at)}`);
+    assert.equal(res.status, 200, at);
+    assertInert(`/setup/hostile?at=${at}`, await res.text());
+  }
+  assertInert("/packs", await (await get("/packs")).text());
 });
 
 test("the Packs page keeps a copied pack's state, job output and Update inert; Update goes through the copies", async () => {
