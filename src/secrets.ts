@@ -13,7 +13,7 @@
  * | macOS Keychain | `keychain://<service>/<account>` | `security find-generic-password` |
  *
  * A pasted key goes to the Keychain on a Mac (`keychain://dovre/<KEY>`), so `.dev.vars` never holds it.
- * Hosted reads no references yet: the Worker can't run these CLIs.
+ * Hosted, the Worker reads them over each store's API instead (src/hostedkeys.ts, #428).
  */
 import { execFile } from "node:child_process";
 import { removeDevVar, upsertDevVar } from "./setup.ts";
