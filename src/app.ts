@@ -46,7 +46,7 @@ import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { hostAssistant } from "./packs/core/assistant/bino/host.ts";
 import type { Kept } from "./kept.ts";
-import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
+import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
 import { speedPanels } from "./pages/speed.ts";
 import { sentPanels, type SentView } from "./pages/sent.ts";
@@ -906,14 +906,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     setTimeout(() => deps.restart?.(), 300);
     return true;
   };
-  /** What the Panes and Work forms show: what Settings keeps, and what .dev.vars or the environment fixes. */
+  /** What the Work form shows: what Settings keeps, and what .dev.vars or the environment fixes. */
   const panesView = () => {
     if (!deps.config) return undefined;
     const fixed = fixedKeys();
     const e = env as unknown as Record<string, string | undefined>;
     const values: Record<string, string | undefined> = { ...deps.config.stored, CODE_DIR: deps.config.stored.CODE_DIR ?? env.CODE_DIR };
     for (const k of fixed) values[k] = e[k];
-    return { panes: deps.config.panes, values, fixed };
+    return { values, fixed };
   };
   /** Settings → Layout: what can be arranged here, and where it is now. */
   const layoutView = async (frame: Frame): Promise<LayoutView> => {
@@ -1075,6 +1075,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     for (const s of settings) {
       const val = body[s.key];
       const raw = typeof val === "string" ? val.replace(/[\r\n]+/g, " ").trim().slice(0, 2000) : "";
+      // A setting with choices keeps only one of them (API 1.15); anything else leaves it as it was.
+      if (s.choices && raw && !s.choices.some((x) => x.value === raw)) continue;
       if (s.secret) {
         if (body[`clear.${s.key}`] === "1") {
           delete packs.env[s.key];
@@ -1144,9 +1146,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       ...packs.off.map((o) => ({ id: o.id, name: o.name, on: false, settings: set(o.manifest), panel: false })),
     ].filter((k) => k.settings.length || k.panel);
   };
-  /** The areas this instance has: Panes and Work only where Settings keeps config, Agents only on a machine. */
+  /** The areas this instance has: Work only where Settings keeps config, Agents only on a machine. */
   const settingsAreas = (): AreaId[] =>
-    AREAS.map((a) => a.id).filter((id) => (id === "panes" || id === "work" ? !!deps.config : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
+    AREAS.map((a) => a.id).filter((id) => (id === "work" ? !!deps.config : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
   /** Every setting as it is now, to find and to mark what was changed. */
   const rowsNow = async (frame: Frame) => {
     const v = panesView();
@@ -1183,8 +1185,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         return writesPanel(await clicks.get().catch(() => new Map()), writeKinds(packs.on));
       case "keys":
         return keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer());
-      case "panes":
-        return panesPanel(panesView()!, !!deps.restart);
       case "work":
         return workPanel(panesView()!, !!deps.restart);
       case "agents": {
@@ -1491,11 +1491,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     }
     return c.redirect("/", 303);
   });
-  /** The Panes form, or the Work form: kept, then Dovre starts again with it (under the supervisor). */
-  for (const [path, scope] of [["/settings/panes", { panes: true }], ["/settings/work", { general: true }]] as const)
+  /** The Work form: kept, then Dovre starts again with it (under the supervisor). */
+  for (const path of ["/settings/work"])
     app.post(path, async (c) => {
       if (!deps.config) return c.notFound();
-      const { config, bad } = configFromForm(await c.req.parseBody(), deps.config.stored, fixedKeys(), scope);
+      const { config, bad } = configFromForm(await c.req.parseBody(), deps.config.stored, fixedKeys(), { general: true });
       const back = path;
       if (bad.length) {
         settingsBad = bad;

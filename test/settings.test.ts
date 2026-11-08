@@ -74,15 +74,21 @@ test("Look and Layout each save and reset their own part, and leave the other as
   assert.deepEqual(bar(page), ["/", "/deploys"], "Look's reset kept the tabs");
 });
 
-test("with config: Panes and Work have pages, a stored key shows as changed, saves come back to their page", async () => {
+test("with config: Work has a page; Bino's route is the assistant pack's setting, a picker that keeps only its choices (#417)", async () => {
   const all = { claude: true, omp: true, db: true, terminals: true };
-  const config = { panes: panesOf({ BINO_VIA: "omp" }, all), stored: { BINO_VIA: "omp" } };
-  const { get, post } = signedIn(snapshot(), {}, { config });
-  assert.match(await (await get("/settings")).text(), /id="changed"[^]*?Bino[^]*?Copilot \(omp\)/);
-  assert.match(await (await get("/settings/panes")).text(), /name="via\.bino"/);
+  const config = { panes: panesOf({}, all), stored: {} };
+  const { get, post } = signedIn(snapshot(), {}, { config, packEnv: { ASSISTANT_VIA: "omp" } });
+  assert.equal((await get("/settings/panes")).status, 404, "no Panes area");
   assert.match(await (await get("/settings/work")).text(), /action="\/settings\/work"/);
   assert.equal((await post("/settings/work", { CODE_DIR: "/tmp/x" })).headers.get("location"), "/settings/work");
-  assert.equal((await post("/settings/panes", { "on.bino": "on", "via.bino": "nope" })).headers.get("location"), "/settings/panes");
+  const page = await (await get("/settings/packs/assistant")).text();
+  assert.match(page, /<select name="ASSISTANT_VIA">/);
+  assert.match(page, /<option value="omp" selected>Copilot \(omp\)<\/option>/);
+  assert.match(page, /How it answers[^]*?Copilot \(omp\)/, "the choice's label, not its value");
+  await post("/packs/assistant/settings", { ASSISTANT_VIA: "gpt-at-home" });
+  assert.match(await (await get("/settings/packs/assistant")).text(), /<option value="omp" selected>/, "a value outside its choices isn't kept");
+  await post("/packs/assistant/settings", { ASSISTANT_VIA: "codex" });
+  assert.match(await (await get("/settings/packs/assistant")).text(), /<option value="codex" selected>/);
 });
 
 test("the palette finds Settings' areas", async () => {

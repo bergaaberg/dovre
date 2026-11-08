@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.14";
+export const PACK_API = "1.15";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -34,7 +34,15 @@ export type PackDomain = "general" | "personal" | "work" | "fun";
 export type ExecutionAffinity = "any" | "local-only" | "hosted-only";
 
 /** A setting the pack reads from the instance's config (.dev.vars locally, wrangler vars/secrets hosted). */
-export type PackSetting = { key: string; label: string; secret?: boolean; required?: boolean; help?: string };
+export type PackSetting = {
+  key: string;
+  label: string;
+  secret?: boolean;
+  required?: boolean;
+  help?: string;
+  /** The values it takes (API 1.15), shown as a picker; unset is the pack's own default. Not with `secret`. */
+  choices?: { value: string; label: string }[];
+};
 
 export type PackManifest = {
   /** The oldest PACK_API it works with, "major.minor" ("1.5"); a plain 1 means "1.0". */
