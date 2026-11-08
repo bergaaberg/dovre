@@ -12,6 +12,7 @@ import { openDb } from "../../../../db.ts";
 import { activePacks } from "../../../registry.ts";
 import { assistantPack } from "../index.ts";
 import { addTodo, listTodos } from "../../../../todo/store.ts";
+import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
@@ -91,7 +92,7 @@ function fakeRoute(reply: string, asked: { system: string; user: string; model?:
 test("a plan reaches my list only on Add, as the card's form says, once", async () => {
   const db = openDb();
   const route = fakeRoute('Here.\n```bino-plan\n{"title":"Certs","steps":[{"title":"List them"},{"title":"Renew"}]}\n```');
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") } });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
   const req = (path: string, body?: string) => app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body });
   const started = await req("/bino/new", "text=Help+with+certs");
   assert.equal(started.status, 303);
@@ -137,12 +138,12 @@ test("memory: recalled into every conversation, kept from what was said only, li
 test("Bino's pages keep hostile text inert, and with Bino off they say how to turn it on", async () => {
   const db = openDb();
   const route = fakeRoute(`${H}\n\`\`\`bino-plan\n{"title":"${H.replace(/"/g, "'")}","steps":[{"title":"${H.replace(/"/g, "'")}"}]}\n\`\`\``);
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") } });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
   const req = (path: string, body?: string) => app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body });
   const at = (await req("/bino/new", `text=${encodeURIComponent(H)}`)).headers.get("location")!;
   for (let i = 0; i < 50 && !/A breakdown/.test(await (await req(at)).text()); i++) await new Promise((r) => setTimeout(r, 20));
   for (const path of ["/bino", at]) assertInert(path, await (await req(path)).text());
-  const off = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route: routeOf({ via: "off" }), memory: noMemory("no") } });
+  const off = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route: routeOf({ via: "off" }), memory: noMemory("no") }, packs: withAssistant() });
   const page = await (await off.request("http://localhost/bino", { headers: { cookie: "u_tk=test-token" } })).text();
   assert.match(page, /Settings → Panes/);
   assert.doesNotMatch(page, /href="\/bino"[^>]*>Bino</, "no nav entry while it can't answer");
@@ -151,7 +152,7 @@ test("Bino's pages keep hostile text inert, and with Bino off they say how to tu
 test("the Bino page offers openings and my open items to break down, each a one-click start", async () => {
   const db = openDb();
   const route = fakeRoute("Sure.");
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") } });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
   const open = (await addTodo(db.DB, { title: "Move the CI pipelines" }))!;
   const done = (await addTodo(db.DB, { title: "Old thing", state: "done" }))!;
   const page = await (await app.request("http://localhost/bino", { headers: { cookie: "u_tk=test-token" } })).text();
@@ -198,7 +199,7 @@ test("Stop: the answer being written is cancelled, a reply that comes anyway is 
 
 test("Stop on the page: a button while Bino thinks, then a line saying it was stopped; in the pane it stays there", async () => {
   const h = heldRoute();
-  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route: h.route, memory: noMemory("no") } });
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route: h.route, memory: noMemory("no") }, packs: withAssistant() });
   const req = (path: string, body?: string) => app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body });
   const at = (await req("/bino/new", "text=Long+question")).headers.get("location")!;
   await until(() => h.held.length > 0);
@@ -254,6 +255,22 @@ test("the assistant pack is Bino's switch: PACK_ASSISTANT=off and there's no Bin
   const off = appWith({ PACK_ASSISTANT: "off" });
   assert.equal((await get(off, "/bino")).status, 404);
   assert.doesNotMatch(await (await get(off, "/")).text(), /href="\/bino"/);
+});
+
+test("Bino's pages are the assistant pack's (#391): only Dovre's own gets Bino; hidden on Packs, /bino goes with it", async () => {
+  const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async () => ({ text: "Ok.", cost: 0 }) };
+  const get = (app: ReturnType<typeof createApp>, path: string) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
+  // A pack calling itself "assistant" that isn't core's gets no Bino: no pages, no menu entry.
+  const impostor = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: { ...activePacks([assistantPack()], { env: {}, hosted: false }), env: {} } });
+  assert.equal((await get(impostor, "/bino")).status, 404);
+  assert.doesNotMatch(await (await get(impostor, "/")).text(), /href="\/bino"/);
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no") }, packs: withAssistant() });
+  assert.equal((await get(app, "/bino")).status, 200);
+  assert.equal((await get(app, "/bino/dock")).status, 200);
+  const hide = await app.request("http://localhost/packs/assistant/switch", { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: "on=0" });
+  assert.equal(hide.status, 303);
+  assert.equal((await get(app, "/bino")).status, 404);
+  assert.doesNotMatch(await (await get(app, "/")).text(), /href="\/bino"/);
 });
 
 test("Retry: the last answer is asked for again; after Stop it answers what was asked; never while one is written, or once its plan was added", async () => {

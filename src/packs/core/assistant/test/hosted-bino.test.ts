@@ -11,11 +11,11 @@ import { ACT_FENCE } from "../bino/acts.ts";
 import { appsOf, defaultBinoOf } from "../bino/context.ts";
 import { loadMemory, noMemory } from "../bino/memory.ts";
 import { viewOf } from "../bino/view.ts";
-import { activePacks } from "../../../registry.ts";
 import { type Pack, PACK_API } from "../../../types.ts";
 import { openDb } from "../../../../db.ts";
 import { hubClient, type HubNamespace, remoteBino } from "../../../../hosted/client.ts";
 import { DovreHub, type HubEnv, type HubState, hostedBinoRoute, sqlConvStore } from "../../../../hosted/hub.ts";
+import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "github.com", GHE_ORG: "me", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
@@ -193,7 +193,7 @@ test("hosted pages: Bino through the object, what packs share instead of GitHub,
       hub: client,
       events: client.events,
       bino: { remote: remoteBino(client, { route: hostedBinoRoute(env), memory: noMemory("no"), sees: "My list and what your apps share" }) },
-      packs: { ...activePacks([quill, broken, lark, mail], { env: {}, hosted: true }), env: {} },
+      packs: withAssistant([quill, broken, lark, mail], { hosted: true }),
     },
   );
   const at = "https://dovre.example.dev";

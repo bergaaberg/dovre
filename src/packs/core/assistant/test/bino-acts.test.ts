@@ -13,6 +13,7 @@ import { type ActSpec, actOf, fenceOf, MAX_ACTS, splitActs } from "../bino/acts.
 import { noMemory } from "../bino/memory.ts";
 import type { Route } from "../bino/route.ts";
 import { openDb } from "../../../../db.ts";
+import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", TICKET_PROJECTS: "DEV" };
@@ -40,7 +41,7 @@ function setup(reply: string) {
   const asked: { system: string; user: string }[] = [];
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async (p) => (asked.push(p), { text: reply, cost: 0 }) };
   const file = join(mkdtempSync(join(tmpdir(), "bino-acts-")), "bino.json");
-  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no"), file } });
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no"), file }, packs: withAssistant() });
   const req = (path: string, body?: Record<string, string>) =>
     app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
   const until = async (at: string, re: RegExp) => {

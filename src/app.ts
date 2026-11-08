@@ -51,7 +51,7 @@ import { appsOf, contextOf, defaultBinoOf } from "./packs/core/assistant/bino/co
 import { investigateOf, investigatePage } from "./pages/investigate.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
-import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
+import { hostAssistant } from "./packs/core/assistant/bino/host.ts";
 import type { Kept } from "./issues/templates.ts";
 import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
@@ -233,8 +233,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       about: env.ABOUT_ME,
       apps: packBino(),
     });
-  // The assistant pack is Bino's switch (PACK_ASSISTANT=off): switched off, there's no Bino.
-  const binoDeps = deps.packs?.off.some((o) => o.id === "assistant") ? undefined : deps.bino;
+  // Bino comes with core's assistant pack, which mounts its pages: with that pack off (PACK_ASSISTANT=off) or absent, there's no Bino.
+  const assistant = deps.packs?.core?.includes("assistant") ? deps.packs.on.find((c) => c.manifest.id === "assistant") : undefined;
+  const binoDeps = assistant ? deps.bino : undefined;
   const engine =
     binoDeps && !("remote" in binoDeps)
       ? createBino({
@@ -745,7 +746,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
    */
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
-  const binoOn = () => !!bino?.route.ready && !hidden("assistant");
+  const binoOn = () => !!bino?.route.ready && !!assistant && packs.on.includes(assistant) && !hidden("assistant");
   const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), issues: can("issues"), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
   // On or off: a pack waiting for its settings is still the session's (#369).
@@ -1658,39 +1659,36 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.route("/", createBugRoutes({ ghe, db: env.DB, owners: () => ownersIn(env), frame: async () => (await page()).frame, packOf: packHomeOf, instance: () => env.INSTANCE_REPO?.trim().match(/^[\w.-]+\/[\w.-]+$/)?.[0] ?? null, version: deps.info?.version ?? "dev", hosted }));
   // ── My list (src/pages/todo.ts): small things kept on this machine ──
   app.route("/", createTodoRoutes(env, { page, rules: packRefs, hub: deps.hub, bino: binoOn, proposals: async () => html`${fill("todo.proposals", {})}` }));
-  if (bino)
-    app.route(
-      "/",
-      createBinoRoutes(env, {
-        bino,
-        page,
-        hub: deps.hub,
-        peek: () => gatherer.peek(),
-        packAct: (kind) => packActs().find((k) => k.kind === kind),
-        assets: { styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts },
-        // The object hosted has no packs or list of its own: what Bino knows goes with each message.
-        context: engine ? undefined : binoContext,
-        apps: () =>
-          packs.on.map((c) => ({
-            id: c.manifest.id,
-            name: c.manifest.name,
-            paths: c.manifest.paths,
-            own: packs.core?.includes(c.manifest.id),
-            private: c.manifest.private === true,
-            about: c.about
-              ? async (path: string) => {
-                  try {
-                    return await c.about!(ctxOf(c), path);
-                  } catch (e) {
-                    packLog(c.manifest.id)(`about: ${(e as Error)?.message ?? e}`);
-                    return undefined;
-                  }
+  // Bino's pages are its pack's (src/packs/core/assistant/): core hands that pack the engine and what its pages read.
+  if (bino && assistant)
+    hostAssistant(assistant, {
+      bino,
+      frame: async () => (await page()).frame,
+      org: env.GHE_ORG,
+      packAct: (kind) => packActs().find((k) => k.kind === kind),
+      assets: { styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts },
+      // The object hosted has no packs or list of its own: what Bino knows goes with each message.
+      context: engine ? undefined : binoContext,
+      apps: () =>
+        packs.on.map((c) => ({
+          id: c.manifest.id,
+          name: c.manifest.name,
+          paths: c.manifest.paths,
+          own: packs.core?.includes(c.manifest.id),
+          private: c.manifest.private === true,
+          about: c.about
+            ? async (path: string) => {
+                try {
+                  return await c.about!(ctxOf(c), path);
+                } catch (e) {
+                  packLog(c.manifest.id)(`about: ${(e as Error)?.message ?? e}`);
+                  return undefined;
                 }
-              : undefined,
-            needs: c.needs ? () => safely(() => c.needs!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`needs: ${(e as Error)?.message ?? e}`)) : undefined,
-          })),
-      }),
-    );
+              }
+            : undefined,
+          needs: c.needs ? () => safely(() => c.needs!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`needs: ${(e as Error)?.message ?? e}`)) : undefined,
+        })),
+    });
 
   // ── The relay (launcher/relay.go): an MCP server's question, answered here and only here ──
   app.post("/relay/ask", async (c) => {

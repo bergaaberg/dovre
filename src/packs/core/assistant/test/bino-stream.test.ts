@@ -8,6 +8,7 @@ import { noMemory } from "../bino/memory.ts";
 import { createApiKeyAsk, createCfGatewayAsk, createOpenRouterAsk } from "../bino/gateway.ts";
 import { type Route, routeOf } from "../bino/route.ts";
 import { openDb } from "../../../../db.ts";
+import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, snapshot } from "../../../../../test/helpers.ts";
 
 const ENV = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x" };
@@ -147,7 +148,7 @@ test("the CLI route streams with stream-json, reading text deltas as they come a
 
 test("the page shows the answer as it's written, inert, without Bino's blocks", async () => {
   const w = writingRoute([`Tenker på ${H}\n`, "```bino-plan\n{\"SECRET-PLAN\":1"]);
-  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot({})), ghe: fakeGhe({}).ghe, bino: { route: w.route, memory: noMemory("no") } });
+  const app = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot({})), ghe: fakeGhe({}).ghe, bino: { route: w.route, memory: noMemory("no") }, packs: withAssistant() });
   const req = (path: string, body?: Record<string, string>) =>
     app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
   const at = (await req("/bino/new", { text: "Planlegg" })).headers.get("location")!;
