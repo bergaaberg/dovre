@@ -11,7 +11,7 @@ import { CLIMB_CSS } from "./climb.ts";
 
 /** Reading settings (#183): code keeps --mono whatever the font. */
 const READING_CSS = String.raw`
-:root[data-font="sans"] { --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; --serif: var(--sans); --serif-text: var(--sans); --display: var(--sans); }
+:root[data-font="mono"] { --sans: var(--nordwand); --serif: var(--sans); --serif-text: var(--sans); --display: var(--sans); }
 :root[data-font="serif"] { --sans: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, Cambria, serif; --serif: var(--sans); --serif-text: var(--sans); --display: var(--sans); }
 :root[data-size="small"] { --zoom: 0.92; }
 :root[data-size="large"] { --zoom: 1.12; }
@@ -231,7 +231,7 @@ const themeCss = () =>
     .join("\n");
 
 export const STYLE = String.raw`
-/* ── Type: Nordwand Mono everywhere (assets/fonts, SIL OFL 1.1; tywr/Nordwand-Mono 1.3.3) ── */
+/* ── Type: Nordwand Mono for code, and for everything when picked (assets/fonts, SIL OFL 1.1; tywr/Nordwand-Mono 1.3.3) ── */
 @font-face { font-family: "Nordwand Mono"; src: url("/assets/fonts/NordwandMono-Light.woff2") format("woff2"); font-weight: 300; font-style: normal; font-display: swap; }
 @font-face { font-family: "Nordwand Mono"; src: url("/assets/fonts/NordwandMono-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: "Nordwand Mono"; src: url("/assets/fonts/NordwandMono-Italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
@@ -246,10 +246,12 @@ export const STYLE = String.raw`
   --sab: env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px));
   color-scheme: light dark;
   --nordwand: "Nordwand Mono", "Cascadia Mono", Consolas, monospace;
-  --serif: var(--nordwand);
-  --serif-text: var(--nordwand);
-  --sans: var(--nordwand);
-  --display: var(--nordwand);
+  --sans-system: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* A neutral sans by default; Nordwand Mono and a serif are Settings → Look's choices (#419). */
+  --sans: var(--sans-system);
+  --serif: var(--sans);
+  --serif-text: var(--sans);
+  --display: var(--sans);
   --mono: var(--nordwand);
   /* Reading settings (Settings → Layout, #183): the text size scales these, --lh is body text's line height. */
   --zoom: 1; --lh: 1.5;
@@ -641,7 +643,7 @@ form.look { display: grid; gap: 16px; }
 .sw-glacier { --sw-accent: #0e6a8f; }
 .sample { flex: none; color: var(--ink); line-height: 1; }
 .font-mono { font-family: var(--nordwand); font-size: 18px; }
-.font-sans { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 18px; }
+.font-sans { font-family: var(--sans-system); font-size: 18px; }
 .font-serif { font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, Cambria, serif; font-size: 18px; }
 .size-small { font-size: 12px; } .size-default { font-size: 15px; } .size-large { font-size: 18px; } .size-larger { font-size: 21px; }
 .sample.lh { display: grid; align-content: end; width: 22px; }

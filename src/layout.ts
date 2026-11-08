@@ -50,7 +50,8 @@ export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
 export const ACCENTS = ["heather", "glacier"] as const;
 export type Accent = (typeof ACCENTS)[number];
-export const FONTS = ["sans", "serif"] as const;
+/** Sans is the default (unset); a layout saved before #419 that says "sans" reads as unset. */
+export const FONTS = ["mono", "serif"] as const;
 export type Font = (typeof FONTS)[number];
 export const TEXT_SIZES = ["small", "large", "larger"] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];

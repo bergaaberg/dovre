@@ -1406,7 +1406,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const before = new Set(flagsAt(from));
     const names = new Map(kitPacks().map((k) => [k.m.id, k.m.name]));
     const flags = now.filter((id) => names.has(id)).map((id) => ({ name: names.get(id)!, fresh: !before.has(id) }));
-    const view: ClimbView = { step, from, flags, role: o.role, forge: o.forge, bad, look: { theme: layout.get().theme, accent: layout.get().accent, motion: layout.get().motion } };
+    const view: ClimbView = { step, from, flags, role: o.role, forge: o.forge, bad, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, motion: layout.get().motion } };
     const fixed = fixedKeys();
     const e = env as unknown as Record<string, string | undefined>;
     const field = (k: string): ClimbField => (fixed.has(k) ? { value: e[k] ?? "", fixed: true } : { value: pending[k] ?? deps.config?.stored[k] ?? e[k] ?? "", fixed: false });
@@ -1580,7 +1580,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const said = setupSaid?.id === id && setupSaid.step === steps[at]?.id ? setupSaid.error : undefined;
     setupSaid = undefined;
     const l = layout.get();
-    const view: SetupView = { look: { theme: l.theme, accent: l.accent, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id, name: p.manifest.name }, steps, at, error: said };
+    const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id, name: p.manifest.name }, steps, at, error: said };
     let status: 200 | 500 = 200;
     if (at < steps.length) {
       const d = await drawStep(p, steps[at]!.id);

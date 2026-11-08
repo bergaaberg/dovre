@@ -29,7 +29,7 @@ type Opt = { value: string; label: string };
 export const LOOK: { key: "theme" | "accent" | "font" | "textSize" | "lineHeight" | "binoButton" | "motion"; label: string; choices: Opt[] }[] = [
   { key: "theme", label: "Theme", choices: [{ value: "", label: "As the system" }, { value: "light", label: "Light (cabin)" }, { value: "dark", label: "Dark (night)" }, { value: "birch", label: "Birch (cool light)" }, { value: "polar", label: "Polar (black)" }, { value: "ember", label: "Ember (warm dark)" }] },
   { key: "accent", label: "Accent", choices: [{ value: "", label: "Fjord (blue)" }, { value: "heather", label: "Heather (violet)" }, { value: "glacier", label: "Glacier (ice blue)" }] },
-  { key: "font", label: "Font", choices: [{ value: "", label: "Nordwand Mono" }, { value: "sans", label: "Sans (system)" }, { value: "serif", label: "Serif (system)" }] },
+  { key: "font", label: "Font", choices: [{ value: "", label: "Sans (system)" }, { value: "mono", label: "Nordwand Mono" }, { value: "serif", label: "Serif (system)" }] },
   { key: "textSize", label: "Text size", choices: [{ value: "small", label: "Small" }, { value: "", label: "Default" }, { value: "large", label: "Large" }, { value: "larger", label: "Larger" }] },
   { key: "lineHeight", label: "Line height", choices: [{ value: "tight", label: "Tight" }, { value: "", label: "Default" }, { value: "loose", label: "Loose" }] },
   { key: "binoButton", label: "Bino's button", choices: [{ value: "", label: "The face a pack draws, when there is one" }, { value: "icon", label: "The assistant icon" }] },
@@ -55,7 +55,7 @@ const reset = (part: "look" | "layout") => html`<form method="post" action="/set
 const SAMPLE: Record<string, (value: string) => Html | ""> = {
   theme: (v) => html`<span class="sw sw-theme sw-${v || "system"}" aria-hidden="true"></span>`,
   accent: (v) => html`<span class="sw sw-accent sw-${v || "fjord"}" aria-hidden="true"></span>`,
-  font: (v) => html`<span class="sample font-${v || "mono"}" aria-hidden="true">Aa</span>`,
+  font: (v) => html`<span class="sample font-${v || "sans"}" aria-hidden="true">Aa</span>`,
   textSize: (v) => html`<span class="sample size-${v || "default"}" aria-hidden="true">A</span>`,
   lineHeight: (v) => html`<span class="sample lh lh-${v || "default"}" aria-hidden="true"><i></i><i></i><i></i></span>`,
   binoButton: () => "",
