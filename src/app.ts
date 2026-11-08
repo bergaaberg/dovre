@@ -53,7 +53,6 @@ import { investigateOf, investigatePage } from "./pages/investigate.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { createBinoRoutes } from "./packs/core/assistant/bino/routes.ts";
-import { agentViews, createReviewRoutes, type ReviewDeps } from "./pages/reviews.ts";
 import type { Kept } from "./issues/templates.ts";
 import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, panesPanel, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
 import { callsPanels } from "./pages/calls.ts";
@@ -83,7 +82,7 @@ import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } 
 import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
 import { forgeName, safeUrl } from "./pages/parts.ts";
-import type { Pack, PackContext, PackManifest, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
+import type { Pack, PackContext, PackManifest, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
 import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
@@ -97,8 +96,7 @@ import { branchName, retarget } from "./actions/stacks.ts";
 import { stacksOf, waitText } from "./home/stacks.ts";
 import { createViewerRoutes } from "./pages/viewer.ts";
 import { settle, within } from "./pages/later.ts";
-import { splitDraft } from "./reviews/draft.ts";
-import { latestReviews } from "./reviews/store.ts";
+import { draftOf } from "./reviews/draft.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
 import { createStacks } from "./sources/stacks.ts";
 import { stacksPage } from "./pages/stacks.ts";
@@ -110,10 +108,9 @@ import { addGroups, combine, loadQueue, MAX_MERGE, mergeCombined } from "./actio
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
   ["bino", /^\/bino(\/|$)/],
-  ["reviews", /^\/prs\/(agent|draft)(\/|$)/],
 ];
 
-/** Core pages only some forges serve (src/forge/types.ts): not here at all when this one can't. Reviews go with their pane. */
+/** Core pages only some forges serve (src/forge/types.ts): not here at all when this one can't. */
 const FORGE_PATHS: [ForgeCan, RegExp][] = [
   ["issues", /^\/issues(\/|$)/],
   ["viewer", /^\/prs\/[^/]+\/[^/]+\/\d+(\/files)?$/],
@@ -263,7 +260,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const proposals = (c: Pack) => packProposals({ pack: { id: c.manifest.id, name: c.manifest.name }, kinds: (c.writes ?? []).map((w) => w.kind), owners: () => ownersIn(env), db: env.DB, propose: (p) => forge.propose!(p) });
   const can = (what: ForgeCan) => forgeCan(forge, what);
   /** A pane switched off on Settings (src/config.ts), or one the forge can't serve. */
-  const off = (id: PaneId) => deps.panes?.[id] === false || (id === "reviews" && !can("reviews"));
+  const off = (id: PaneId) => deps.panes?.[id] === false;
   /** Some pack shown here draws on /stats: without one, Stats is gone from the menu and search, and 404s. */
   const statsOn = () => shown().some((p) => p.stats);
   /** A core path the forge can't serve (FORGE_PATHS): it 404s, and menus and search leave it out. */
@@ -783,7 +780,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const todo = todoCard(await listTodos(env.DB), linkCtxOf(env, s, packRefs()));
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
-    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: await reviewViews(s), todo, actions}));
+    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, todo, actions}));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
@@ -831,29 +828,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   });
 
   // ── Talking to agents: the desk (src/agents/desk.ts), this machine's or, hosted, the Mac's ──
-  // ── Agent review of PRs (src/pages/reviews.ts) ──
-  /** A finished review's report doesn't change: read once, from the run or the session's transcript. */
-  const reports = new Map<string, string>();
-  const reviewDeps: ReviewDeps = {
-    db: env.DB,
-    runner: deps.runner,
-    page,
-    modelOf,
-    home: deps.skillsHome,
-    lastMessage(r) {
-      const hit = reports.get(r.runId);
-      if (hit !== undefined) return hit;
-      const run = deps.runner?.get(r.runId);
-      const fromRun = run ? ([...run.events].reverse().find((e) => e.t === "result" && e.text.trim()) as { text: string } | undefined)?.text ?? ([...run.events].reverse().find((e) => e.t === "text") as { text: string } | undefined)?.text : undefined;
-      // The agent's own last message: what the session page shows, never a tool result.
-      const fromTranscript = !fromRun && r.sessionId && SID.test(r.sessionId) ? [...findSession(env.CLAUDE_DIR, r.sessionId, []).turns].reverse().find((t) => t.role === "assistant") : undefined;
-      const text = fromRun ?? (fromTranscript && "text" in fromTranscript ? fromTranscript.text : undefined);
-      if (text !== undefined) reports.set(r.runId, text);
-      return text;
-    },
+  /** What the packs put on each PR card ("pr.agent": agent reviews). */
+  const agentOf = (p: PrSlotArg): Html | "" => {
+    const out = fill("pr.agent", p).filter((x) => x !== "");
+    return out.length ? html`${out}` : "";
   };
-  /** The agent-review block on each PR card: nothing while reviews are switched off. */
-  const reviewViews = (s: Snapshot) => (off("reviews") ? Promise.resolve(() => "" as const) : agentViews(reviewDeps, s, forgeName(env.GHE_HOST)));
   /** What a live response showed isn't kept by the browser either. */
   const noStore = (res: Response) => (res.headers.set("Cache-Control", "no-store"), res);
 
@@ -910,7 +889,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       if (url.search.slice(1) !== str) return c.redirect(str ? `/prs?${str}` : "/prs", 303);
     }
     const { s, frame } = await page();
-    return c.html(prsPage(frame, s, summary, await reviewViews(s), { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge, q));
+    return c.html(prsPage(frame, s, summary, agentOf, { lead: (p) => fill("pr.lead", p), facts: (p) => fill("pr.facts", p).flat() }, forge, q));
   });
   // ── Stacked PRs (src/home/stacks.ts, src/sources/stacks.ts) ──
   const stackSource = createStacks(ghe, ownersIn(env), { kept: deps.kept });
@@ -938,7 +917,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       agentFor: async (repo, n) => {
         const { s } = await page();
         const p = s.prs.ok ? [...s.prs.value.mine, ...s.prs.value.review].find((x) => x.repo === repo && x.number === n) : undefined;
-        return p ? (await reviewViews(s))(p) : "";
+        return p ? agentOf(p) : "";
       },
       db: env.DB,
       login: async () => (await page()).s.login,
@@ -952,11 +931,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         return { model: r.model, start };
       },
       agentDraft: async (repo, n) => {
-        if (off("reviews")) return undefined;
-        const r = (await latestReviews(env.DB)).get(`review:${repo}#${n}`);
-        if (!r || r.status !== "done" || r.posted) return undefined;
-        const d = splitDraft("review", reviewDeps.lastMessage(r) ?? "").draft;
-        return d?.kind === "review" ? { sha: r.headSha, draft: d } : undefined;
+        // A pack's answer, read again as a draft: only a review's own shape goes in.
+        for (const got of fill("review.draft", { repo, number: n })) {
+          const draft = got && typeof got.sha === "string" ? draftOf("review", got.draft) : null;
+          if (draft?.kind === "review") return { sha: got!.sha, draft };
+        }
+        return undefined;
       },
       stackFor: async (repo, n) => {
         const { s } = await page();
@@ -1665,7 +1645,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.redirect("/settings/notifications#rang-lately", 303);
   });
 
-  app.route("/", createReviewRoutes(env, { ...reviewDeps, ghe, stale: () => gatherer.stale() }));
   app.route("/", createIssueRoutes(env, { ghe, frame: async () => (await page()).frame, kept: deps.kept, newWork: () => fill("work.new", {}), list: () => (shown().some((x) => x.manifest.id === "tracker") ? "/tracker" : undefined), prewarm: deps.prewarm }));
   // ── Report a bug (#384): to the repo behind the page it came from ──
   const packHomeOf = (seg: string) => {

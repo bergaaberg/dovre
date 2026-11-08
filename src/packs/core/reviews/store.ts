@@ -1,6 +1,6 @@
 /** Which agent run reviewed which PR, at which commit (migrations/0004_agent_reviews.sql). */
-import type { D1 } from "../db.ts";
-import type { HarnessId, Run } from "../agents/runner.ts";
+import type { D1 } from "../../../db.ts";
+import type { HarnessId, Run } from "../../../agents/runner.ts";
 import type { ReviewKind } from "./agent.ts";
 
 export type AgentReview = {
@@ -74,19 +74,25 @@ export async function latestReviews(db: D1, now = Date.now()): Promise<Map<strin
 }
 
 /**
- * Brings stored rows up to date with the runner: a run that ended or learnt its session. A row
- * still "running" whose run this process doesn't know ended with the last server (runs are its
- * children), so it's marked stopped.
+ * A row as the runner has it now: a run that ended or learnt its session. A row still "running"
+ * whose run this process doesn't know ended with the last server (runs are its children), so it's
+ * stopped. Pure, for slots that answer from memory; `syncReviews` keeps it.
  */
+export function liveOf(r: AgentReview, runOf: (id: string) => Run | undefined, now = Date.now()): AgentReview {
+  if (r.status !== "running") return r;
+  const run = runOf(r.runId);
+  const status = run ? run.status : "stopped";
+  const sessionId = run?.sessionId ?? r.sessionId;
+  if (status === r.status && sessionId === r.sessionId) return r;
+  return { ...r, status, sessionId, endedAt: status === "running" ? undefined : (run?.endedAt ?? now) };
+}
+
+/** Brings stored rows up to date with the runner (`liveOf`), in place. */
 export async function syncReviews(db: D1, reviews: Map<string, AgentReview>, runOf: (id: string) => Run | undefined, now = Date.now()) {
   for (const r of reviews.values()) {
-    if (r.status !== "running") continue;
-    const run = runOf(r.runId);
-    const status = run ? run.status : "stopped";
-    const sessionId = run?.sessionId ?? r.sessionId;
-    if (status === r.status && sessionId === r.sessionId) continue;
-    const endedAt = status === "running" ? undefined : (run?.endedAt ?? now);
-    await updateReview(db, r.runId, { status, sessionId, endedAt });
-    Object.assign(r, { status, sessionId, endedAt });
+    const next = liveOf(r, runOf, now);
+    if (next === r) continue;
+    await updateReview(db, r.runId, { status: next.status, sessionId: next.sessionId, endedAt: next.endedAt });
+    Object.assign(r, next);
   }
 }

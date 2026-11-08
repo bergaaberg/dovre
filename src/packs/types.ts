@@ -16,13 +16,14 @@ import type { Session } from "../sources/claude.ts";
 import type { EveryRepo } from "../sources/files.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Answer } from "../relay/asks.ts";
+import type { ReviewDraft } from "../reviews/draft.ts";
 
 /**
  * The contract's version, "major.minor" (#360): a breaking change bumps major (older packs are off
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.8";
+export const PACK_API = "1.9";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -211,6 +212,13 @@ export type SlotMap = {
   "pr.lead": { arg: PrSlotArg; out: Html | "" };
   /** A PR opened in place (the /prs list or the viewer): rows for its facts (label, value). */
   "pr.facts": { arg: PrSlotArg; out: [string, Html][] };
+  /** A PR's card (/prs, Today): a block under its summary (agent reviews: start one, or its report). API 1.9. */
+  "pr.agent": { arg: PrSlotArg; out: Html | "" };
+  /**
+   * A finished agent review of someone else's PR, for my own review in the viewer to start from: the
+   * commit it read and its draft. The first pack that answers; core reads the draft again. API 1.9.
+   */
+  "review.draft": { arg: { repo: string; number: number }; out: { sha: string; draft: ReviewDraft } | undefined };
   /** A file on a PR's Files tab, in its header beside "Viewed": a button or two (markdown: read it rendered). `sha` is the PR's head commit. */
   "pr.file": { arg: PrSlotArg & { path: string; status: string; sha: string }; out: Html | "" };
   /** New work (/issues/new): a panel above "What is it?". */

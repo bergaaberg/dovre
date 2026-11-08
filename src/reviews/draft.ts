@@ -7,7 +7,9 @@
  */
 import type { PrFile } from "../sources/prview.ts";
 import { parsePatch } from "../viewer/diff.ts";
-import type { ReviewKind } from "./agent.ts";
+
+/** What an agent review is of: someone else's PR (review), or the review on mine (triage). */
+export type ReviewKind = "review" | "triage";
 
 export const DRAFT_FENCE: Record<ReviewKind, string> = { review: "review-draft", triage: "review-replies" };
 export const MAX_COMMENTS = 40;

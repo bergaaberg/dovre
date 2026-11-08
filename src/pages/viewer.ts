@@ -461,7 +461,7 @@ export type ViewerDeps = {
   frame: () => Promise<Frame>;
   hub?: Hub;
   kept?: Kept;
-  /** The agent review card for a PR the snapshot knows (src/pages/reviews.ts). */
+  /** What the packs put on the PR's card ("pr.agent" slot: the reviews pack), for a PR the snapshot knows. */
   agentFor?: (repo: string, n: number) => Promise<Html | "">;
   /** "2 of 6 in a stack · waits on #839", when the stacks are known (never waits for them). */
   stackFor?: (repo: string, n: number) => Promise<Child | undefined>;
