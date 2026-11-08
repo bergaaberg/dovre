@@ -1553,8 +1553,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   // ── A pack's own setup (src/pages/setup.ts, #418): the pack draws each step, core draws the frame ──
   /** A shown pack with a setup page, by id. */
   const setupPack = (id: string) => shown().find((c) => c.manifest.id === id && !!setupOf(c));
-  /** What Next on a step was refused for: shown once, on that step. */
-  let setupSaid: { id: string; step: string; error: string } | undefined;
   /** A step as the pack draws it, in the time its pages get. One that throws, is late or breaks the rules is that pack's broken step. */
   const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; refresh?: number; broke?: string }> => {
     const ms = packs.routeMs ?? PACK_ROUTE_MS;
@@ -1583,6 +1581,16 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       clearTimeout(timer);
     }
   };
+  /** A setup page at step `at` (`steps.length` is done), with what Next was refused for, if it was. */
+  const setupView = async (p: Pack, at: number, error?: string, drawn?: Awaited<ReturnType<typeof drawStep>>): Promise<{ view: SetupView; status: 200 | 422 | 500 }> => {
+    const { steps } = setupOf(p)!;
+    const l = layout.get();
+    const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
+    if (at >= steps.length) return { view, status: 200 };
+    const d = drawn ?? (await drawStep(p, steps[at]!.id));
+    Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh });
+    return { view, status: d.broke ? 500 : error ? 422 : 200 };
+  };
   app.get("/setup/:id", async (c) => {
     if (deps.session) return c.notFound();
     const p = setupPack(c.req.param("id"));
@@ -1594,17 +1602,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const left = setupLeft(p);
     let at = asked === "done" ? steps.length : steps.findIndex((s) => s.id === asked);
     if (at < 0) at = left.length ? steps.findIndex((s) => s.id === left[0]!.id) : 0;
-    const said = setupSaid?.id === id && setupSaid.step === steps[at]?.id ? setupSaid.error : undefined;
-    setupSaid = undefined;
-    const l = layout.get();
-    const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id, name: p.manifest.name }, steps, at, error: said };
-    let status: 200 | 500 = 200;
-    if (at < steps.length) {
-      const d = await drawStep(p, steps[at]!.id);
-      Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh });
-      if (d.broke) status = 500;
-    }
-    return noStore(await c.html(setupPage(view), status));
+    const v = await setupView(p, at);
+    return noStore(await c.html(setupPage(v.view), v.status));
   });
   app.post("/setup/:id/next", strictOrigin, async (c) => {
     if (deps.session) return c.notFound();
@@ -1617,13 +1616,9 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const i = steps.findIndex((s) => s.id === form.step);
     if (i < 0) return c.redirect(`/setup/${id}`, 303);
     const step = steps[i]!;
-    const stay = (error: string) => {
-      setupSaid = { id, step: step.id, error: error.slice(0, 300) };
-      return c.redirect(`/setup/${id}?at=${step.id}`, 303);
-    };
-    // Drawn again: a write it waits on may have finished, or not.
+    // Drawn again: a write it waits on may have finished, or not. Still waiting, the step says so itself.
     const d = await drawStep(p, step.id);
-    if (d.wait) return stay(d.wait);
+    if (d.wait) return c.redirect(`/setup/${id}?at=${step.id}`, 303);
     if (d.form && p.setup!.save) {
       const fields: Record<string, string | string[]> = {};
       for (const [k, v] of Object.entries(form).slice(0, 50)) {
@@ -1637,7 +1632,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           packLog(id)(`setup ${step.id} save: ${(e as Error)?.message ?? e}`);
           return { ok: false, error: `${p.manifest.name} couldn't keep that. Its log on Packs says why.` };
         });
-      if (!r || r.ok !== true) return stay(typeof r?.error === "string" && r.error ? r.error : "Not kept.");
+      // Refused: the step again, drawn in this answer. Hosted, a redirect's GET can land on another isolate (#446).
+      if (!r || r.ok !== true) {
+        const v = await setupView(p, i, (typeof r?.error === "string" && r.error ? r.error : "Not kept.").slice(0, 300), d);
+        return noStore(await c.html(setupPage(v.view), v.status));
+      }
     }
     await onboarding.update((o) => ({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), step.id])] } }));
     deps.hub?.publish(["snapshot", id]);

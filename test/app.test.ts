@@ -156,7 +156,9 @@ test("setup pages (#418) keep a pack's name, step title, body, wait and error in
   };
   const { get, post } = signedIn(snapshot(), {}, { packs: [hostile] });
   assertInert("Today", await (await get("/")).text());
-  await post("/setup/hostile/next", "step=one");
+  const refused = await post("/setup/hostile/next", "step=one");
+  assert.equal(refused.status, 422);
+  assertInert("/setup/hostile/next refused", await refused.text());
   for (const at of ["one", "two", "done", H]) {
     const res = await get(`/setup/hostile?at=${encodeURIComponent(at)}`);
     assert.equal(res.status, 200, at);
