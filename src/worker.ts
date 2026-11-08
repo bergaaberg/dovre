@@ -62,6 +62,9 @@ export interface WorkerBindings {
   GHE_HOST?: string;
   GHE_ORG?: string;
   CF_ACCOUNT_ID?: string;
+  /** An IANA zone for every time shown; unset: the browser's (the u-tz cookie). */
+  TZ_NAME?: string;
+  GREETING?: string;
   /** The Access team ("myteam" or "myteam.cloudflareaccess.com") and the application's AUD tag: both needed, or nobody gets in. */
   CF_ACCESS_TEAM?: string;
   CF_ACCESS_AUD?: string;
@@ -308,6 +311,9 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       CLAUDE_DIR: "/claude",
       IS_HOSTED: "1",
       CF_ACCOUNT_ID: bindings.CF_ACCOUNT_ID,
+      // Unset: times follow the browser's zone (src/app.ts, the u-tz cookie).
+      TZ_NAME: bindings.TZ_NAME,
+      GREETING: bindings.GREETING,
       CLAUDE_BIN: undefined,
     };
     const access = accessConfigOf(bindings);

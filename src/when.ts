@@ -47,6 +47,12 @@ export function validZone(raw: unknown, log: (msg: string) => void = console.war
   return fallback;
 }
 
+/** A zone the browser said (its u-tz cookie): a valid IANA name, else undefined. Never logs: anyone's browser can send anything. */
+export function browserZone(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !/^[A-Za-z0-9_+\/-]{1,64}$/.test(raw)) return undefined;
+  return zoneOk(raw) ? raw : undefined;
+}
+
 /** Parses greeting language: "no" for Norwegian, "en" (default) for English. */
 export function greetingLang(raw: unknown): GreetingLang {
   return raw === "no" ? "no" : "en";
