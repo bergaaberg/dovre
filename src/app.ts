@@ -21,7 +21,7 @@ import type { Gatherer, Snapshot } from "./gather.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell, tabsOf } from "./html.ts";
 import { CORE_CARDS, packOrder, homePage } from "./pages/home.ts";
-import { currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
+import { browserZone, currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
 import type { Ghe } from "./sources/ghe.ts";
 import { githubForge } from "./forge/github.ts";
 import { type Forge, type ForgeCan, forgeCan } from "./forge/types.ts";
@@ -422,6 +422,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     // Hosted, the rest is for this person (src/viewer.ts): what's private to someone shows only to them.
     return hosted ? viewingAs(viewer, rest) : rest();
   });
+  // Hosted with no TZ_NAME: the Worker's own zone is UTC, so times follow the browser's zone (its u-tz cookie, set by app.js).
+  if (hosted && !env.TZ_NAME?.trim())
+    app.use(async (c, next) => {
+      const zone = browserZone(getCookie(c, "u-tz"));
+      if (zone && zone !== currentTz()) setWhen({ tz: zone });
+      await next();
+    });
 
   // Which writes take one click (dovre#104), for the page being drawn: Confirm reads it (src/writes.ts).
   // Every method, not just GET: a POST can answer with a page (a preview, a form redrawn after a 409).
@@ -774,7 +781,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
   const binoOn = () => !!bino?.route.ready && !!assistant && packs.on.includes(assistant) && !hidden("assistant");
-  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined, goOff: Object.keys(GO_KEYS).filter((k) => !pageOn(GO_KEYS[k]!)) });
+  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), tzAuto: hosted && !env.TZ_NAME?.trim() ? true : undefined, greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined, goOff: Object.keys(GO_KEYS).filter((k) => !pageOn(GO_KEYS[k]!)) });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
   // On or off: a pack waiting for its settings is still the session's (#369).
   const sessionManifest = () => (deps.session ? (packs.on.find((x) => x.manifest.id === deps.session!.pack)?.manifest ?? packs.off.find((x) => x.id === deps.session!.pack)?.manifest) : undefined);

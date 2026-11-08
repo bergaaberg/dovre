@@ -506,6 +506,11 @@ const topicsOf = (doc) => {
 };
 let wanted = topicsOf(document);
 const tzOf = (doc) => doc.querySelector('meta[name="u-tz"]')?.getAttribute("content") || "UTC";
+// Hosted without a set timezone: tell the server this browser's, so the next page's times are local.
+if (document.querySelector('meta[name="u-tz-auto"]')) {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (zone && zone !== tzOf(document)) document.cookie = "u-tz=" + encodeURIComponent(zone) + "; path=/; max-age=31536000; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
+}
 const clock = (at) => new Intl.DateTimeFormat("en-GB", { timeZone: tzOf(document), hour: "2-digit", minute: "2-digit" }).format(at);
 
 function busyWith(region) {

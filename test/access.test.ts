@@ -9,6 +9,7 @@ import worker, { createWorker, resetHostedApp } from "../src/worker.ts";
 import type { D1 } from "../src/db.ts";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
 import { session, signedIn, snapshot } from "./helpers.ts";
+import { hostZone, resetWhen } from "../src/when.ts";
 
 const TEAM = "my-team";
 const ISS = "https://my-team.cloudflareaccess.com";
@@ -539,5 +540,37 @@ test("T4: a machine's token may name who paired it; /bridge hands the hub that o
   } finally {
     globalThis.fetch = realFetch;
     resetHostedApp();
+  }
+});
+
+test("worker: with no TZ_NAME, times follow the browser's zone (its u-tz cookie); a set TZ_NAME or a bad cookie wins nothing", async () => {
+  const k = await keyPair("k1");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${ISS}/cdn-cgi/access/certs` ? new Response(JSON.stringify({ keys: [k.jwk] })) : realFetch(url)) as typeof fetch;
+  const page = async (cookie: string, extra: Record<string, unknown> = {}) => {
+    resetHostedApp();
+    resetWhen();
+    const headers = { "cf-access-jwt-assertion": await k.sign({ ...good, exp: Math.floor(Date.now() / 1000) + 3600 }), cookie };
+    const res = await worker.fetch(new Request("https://dovre.example.dev/todo", { headers }), { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD, ...extra });
+    assert.equal(res.status, 200);
+    return res.text();
+  };
+  try {
+    const lima = await page("u-tz=America%2FLima");
+    assert.match(lima, /<meta name="u-tz" content="America\/Lima">/);
+    assert.match(lima, /name="u-tz-auto"/, "the page asks the browser for its zone");
+    for (const bad of ["u-tz=Mars%2FOlympus", 'u-tz="><script>x</script>', "u-tz=../../etc"]) {
+      const text = await page(bad);
+      assert.match(text, new RegExp(`<meta name="u-tz" content="${hostZone()}">`), bad);
+      assert.doesNotMatch(text, /<script>x|Olympus|etc"/, bad);
+    }
+    const fixed = await page("u-tz=America%2FLima", { TZ_NAME: "Asia/Tokyo" });
+    assert.match(fixed, /<meta name="u-tz" content="Asia\/Tokyo">/, "TZ_NAME wins");
+    assert.doesNotMatch(fixed, /u-tz-auto/);
+  } finally {
+    globalThis.fetch = realFetch;
+    resetHostedApp();
+    resetWhen();
   }
 });
