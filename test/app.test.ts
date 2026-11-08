@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
 import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } from "./helpers.ts";
 import { investigateHref } from "../src/ui/kit.ts";
+import { historyPack } from "../src/packs/core/history/index.ts";
 import type { Run } from "../src/agents/runner.ts";
 
 const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", `/bino?q=${encodeURIComponent(H)}`, "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/prs/stacks", "/search", "/search?q=a", "/stats"];
@@ -59,6 +60,18 @@ test("every page renders, and hostile text from every source stays text", async 
   const { get } = signedIn(s, {}, {
     sessions: { live: [session({ title: H, summary: H, lastPrompt: H, repo: H, branch: H, status: "idle", prs: [{ url: "javascript:x", repo: H, number: 1 }] })], recent: [session({ live: false, title: H })] },
     worktrees: [{ name: H, path: H, main: H, branch: H, head: "", changedAt: 0 }],
+    // Stats draws the history pack's weeks: hostile titles and repos in its PR lists.
+    packs: [
+      historyPack({
+        history: () => ({
+          view: () => ({
+            gathering: false,
+            history: { at: Date.now(), login: H, mine: [{ repo: `ACME/${H}`, number: 1, title: H, url: "javascript:x", createdAt: new Date().toISOString(), mergedAt: new Date().toISOString(), state: "MERGED", draft: false }], reviewsGiven: [], open: [{ repo: `ACME/${H}`, number: 2, title: H, url: "javascript:x", createdAt: "2026-01-01T00:00:00Z", draft: true, mine: false }], orgMerged: [], releases: [{ repo: H, at: new Date().toISOString(), tag: H }], commits: [], repos: 1 },
+          }),
+          refresh: () => {},
+        }),
+      }),
+    ],
   });
   for (const path of PAGES) {
     const res = await get(path);

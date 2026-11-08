@@ -32,7 +32,8 @@ import { type DemoAnswer, demoBino, demoEngine, demoScriptRoute, demoSeedConvs }
 export type { DemoAnswer };
 import type { Engine } from "../packs/core/assistant/bino/bino.ts";
 import type { Desk } from "../agents/desk.ts";
-import type { Stats } from "../stats/stats.ts";
+import type { Stats } from "./fixtures.ts";
+import { historyPack } from "../packs/core/history/index.ts";
 import type { Sessions } from "../sources/sessions.ts";
 import type { Turn } from "../agents/conversation.ts";
 
@@ -252,8 +253,11 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       },
     };
     const settings = { ...opts.settings };
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, here }), assistantPack(), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const stats = (fx.stats ?? demoStats)();
+    // The fixtures' weeks and spend, through the same packs as a real instance; nothing is gathered.
+    const history = historyPack({ history: () => ({ view: () => ({ history: stats.view().history, gathering: false }), refresh: () => {} }) });
+    const spend = { days: async () => stats.view().spend ?? [], known: () => stats.view().spend };
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });
     const snapshot = () => gatherer.peek() ?? snapshotFn();
     const route = demoScriptRoute({ snapshot, answers: opts.answers });
     const memory = noMemory("The demo remembers nothing.");
@@ -264,13 +268,12 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       ghe: makeNoGhe(host),
       // GitHub as the pages name it; packs read nothing from it (no `work`): the avatar keeps its starting shape.
       forge: { id: "github", name: "GitHub", can: FORGE_CAN, host },
-      stats,
       layout: !opts.layout ? fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }) : "get" in opts.layout ? opts.layout : fixedLayout(opts.layout),
       bino,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
-      packs: { on, off, env: settings, bindings: {}, core: ["agents", "assistant"] },
+      packs: { on, off, env: settings, bindings: {}, core: ["agents", "history", "assistant"] },
     });
     // Packs fed made-up data read it the way they'd read their app: on their schedule, before the page.
     refresh = refresher(on, packsOf(app)!.ctxOf, () => {});

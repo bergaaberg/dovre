@@ -14,6 +14,7 @@
  * Runs locally and hosted ("any"); hosted, the sessions are the Mac's over the desk (brought up to
  * date before each page, `beforePage`), and worktrees aren't there to show.
  */
+import { type Spend, spendKeeper, spendStats } from "./spend.ts";
 import { html } from "hono/html";
 import type { Desk } from "../../../agents/desk.ts";
 import type { Dismissed } from "../../../agents/dismissed.ts";
@@ -54,6 +55,8 @@ export type AgentsDeps = {
   github?: { ghe: Pick<Ghe, "rest" | "graphql">; owners: () => string };
   /** Locally: the repo (owner/name) a checkout's origin is, for the quick picks (#243). Hosted, a checkout named like a repo is that repo. */
   repoOf?: (dir: string) => string | undefined;
+  /** Locally: agent spend from this machine's transcripts, for /stats (spend.ts). Hosted there's none. */
+  spend?: Spend;
 };
 
 const NONE: Sessions = { live: [], recent: [] };
@@ -64,7 +67,16 @@ export function sessionsOf(desk: Desk, here: Here | undefined, dismissed?: Pick<
   return dismissed ? { live: all.live, recent: all.recent.filter((x) => !dismissed.has(x.sessionId)) } : all;
 }
 
-export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, repoOf }: AgentsDeps): Pack {
+export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, repoOf, spend }: AgentsDeps): Pack {
+  let spent: ReturnType<typeof spendKeeper> | undefined;
+  // Made on first use.
+  const spentOf = (ctx: PackContext) => {
+    if (!spend) return undefined;
+    if (!spent) {
+      spent = spendKeeper(spend, { onChange: () => ctx.publish(["stats"]) });
+    }
+    return spent;
+  };
   const sessions = (cleared?: boolean) => sessionsOf(desk, here, cleared ? dismissed : undefined);
   let stop = () => {};
   // Auto runs (#207): the limits and the last pass, kept for needs and the Settings panel.
@@ -94,7 +106,8 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
       // Auto runs' pass: following runs, and a search for newly labelled issues.
       everyMs: 2 * 60_000,
     },
-    async refresh(ctx) {
+    async refresh(ctx, o) {
+      if (o?.asked) spentOf(ctx)?.read(true);
       if (!github) return;
       await readSettings(ctx.db);
       const before = JSON.stringify(pass ?? null);
@@ -106,6 +119,16 @@ export function agentsPack({ desk, dismissed, here, onTurn, longTurnMs, github, 
     // Its auto runs, for Auto review (#326): only with the forge, where they run at all.
     shares: (ctx) => (github ? { auto: autoShare(ctx.db, desk, { owners: github.owners, ...(ctx.env.TZ_NAME ? { tz: ctx.env.TZ_NAME } : {}) }) } : {}),
     settings: (ctx) => (github ? autoPanel(auto, pass, ctx.env.GHE_HOST ?? "github.com", ctx.env.TZ_NAME, notifyQuiet) : ""),
+    // Agent spend on /stats, where it's read (#387): read again when Stats asks and it's older than ten minutes.
+    ...(spend
+      ? {
+          stats: (ctx: PackContext) => {
+            const s = spentOf(ctx)!;
+            s.read();
+            return spendStats(s.days());
+          },
+        }
+      : {}),
     init(ctx) {
       if (github) void readSettings(ctx.db).catch(() => {});
       // Locally the sessions and worktrees are read here; a read that changed them redraws the pages (and what needs me rings).

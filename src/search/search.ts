@@ -53,10 +53,10 @@ export function score(r: Pick<Row, "title" | "also">, q: string): number | null 
 export type Page = { title: string; href: string; icon: string; about: string; also: string[] };
 
 /** Every page, in menu order. `on` leaves out the ones this machine hasn't got (Bino, Lab). */
-export function pagesOf(on: { bino?: boolean; lab?: boolean; /** Offered unless switched off. */ stats?: boolean } = {}): Page[] {
+export function pagesOf(on: { bino?: boolean; lab?: boolean; /** Some pack draws on /stats. */ stats?: boolean } = {}): Page[] {
   const all: (Page & { need?: keyof typeof on; unless?: keyof typeof on })[] = [
     { title: "Today", href: "/", icon: "◐", about: "What needs you, the last 24 hours", also: ["home", "morning", "i dag", "oversikt", "feed"] },
-    { title: "Stats", href: "/stats", icon: "▥", about: "Twelve weeks in numbers and charts", also: ["statistics", "statistikk", "charts", "metrics", "numbers", "spend", "cost"], unless: "stats" },
+    { title: "Stats", href: "/stats", icon: "▥", about: "The packs' numbers and charts, by week or day", also: ["statistics", "statistikk", "charts", "metrics", "numbers", "spend", "cost"], need: "stats" },
     { title: "Pull requests", href: "/prs", icon: "⇄", about: "Asking for your review, and yours", also: ["pr", "prs", "reviews", "pull"] },
     { title: "Stacks", href: "/prs/stacks", icon: "≡", about: "Stacked PRs, bottom first", also: ["stacked", "chain", "retarget"] },
     { title: "Deploys", href: "/deploys", icon: "⇡", about: "Waiting for prod, and what ships", also: ["release", "prod", "approve", "ship", "utrulling"] },

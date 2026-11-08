@@ -11,9 +11,11 @@ import { layoutFromForm, layoutOf, placeStats } from "../src/layout.ts";
 import { statsFrom } from "../src/packs/registry.ts";
 import { PACK_API, type Pack, type PackContext, type PackStat, type StatUnit } from "../src/packs/types.ts";
 import { packApp } from "../src/packs/testing.ts";
-import { daysOf, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/stats/history.ts";
-import { claudeCostDays, createSpend, ompCostDays } from "../src/stats/spend.ts";
-import { createStats } from "../src/stats/stats.ts";
+import { daysOf, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/packs/core/history/history.ts";
+import { historyPack } from "../src/packs/core/history/index.ts";
+import { createHistory as createStats, type HistoryView } from "../src/packs/core/history/store.ts";
+import { historyStats } from "../src/packs/core/history/view.ts";
+import { claudeCostDays, createSpend, ompCostDays, type SpendDay, spendStats } from "../src/packs/core/agents/spend.ts";
 import { columns, niceTicks } from "../src/ui/chart.ts";
 import { resetWhen, setWhen } from "../src/when.ts";
 import { H, assertInert, fakeGhe, fixedGatherer, snapshot } from "./helpers.ts";
@@ -123,14 +125,14 @@ test("kept and gathered when due: once at a time, again after six hours or when 
     if (fail) throw new Error("GHE graphql: 502");
     return { ...h, at: now };
   };
-  const s = createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", file, now: () => now, gather, onChange: () => changed.push(now) });
+  const s = createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", file, now: () => now, gather, onChange: () => changed.push(now) });
   s.refresh();
   s.refresh();
   assert.equal(s.view().gathering, true);
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 1, "once at a time");
   assert.equal(JSON.parse(readFileSync(file, "utf8")).login, "me", "kept");
-  assert.equal(createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", file, now: () => now, gather }).view().history?.mine.length, 3, "read back after a restart");
+  assert.equal(createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", file, now: () => now, gather }).view().history?.mine.length, 3, "read back after a restart");
   now += 3600e3;
   s.refresh();
   assert.equal(calls, 1, "not due yet");
@@ -144,9 +146,19 @@ test("kept and gathered when due: once at a time, again after six hours or when 
   assert.ok(changed.length >= 2);
 });
 
+const F = { operator: "me", nav: [] };
+/** /stats as the history pack (and, given spend, the agents pack) draw it. */
+function drawn(v: HistoryView, o: { spend?: SpendDay[]; forge?: string; layout?: { statsWeeks?: 4 | 12 | 26; statsDays?: 14 | 28; stats?: Record<string, { show: boolean; order: number }> } } = {}) {
+  const weeks = o.layout?.statsWeeks ?? 12;
+  const days = o.layout?.statsDays;
+  const packs = [statPack(() => historyStats(v, { now: NOW, weeks, days, forge: o.forge ?? "GitHub" }), "history"), ...(o.spend ? [statPack(() => spendStats(o.spend), "agents")] : [])];
+  const out = statsFrom(packs, () => ({}) as PackContext, days ? Math.ceil(days / 7) + 1 : weeks, () => {}, days);
+  return String(statsPage(F, { packs: out, layout: o.layout, gather: true }));
+}
+
 test("the page: tiles, charts with a hover target and a table for each, open PRs by age; titles and repos drawn inert, links defused", async () => {
   const h: History = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW });
-  const page = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false, spend: [{ day: "2026-10-22", claude: 329.1, omp: 0.17, sessions: 3 }] }, { now: NOW }));
+  const page = drawn({ history: h, gathering: false }, { spend: [{ day: "2026-10-22", claude: 329.1, omp: 0.17, sessions: 3 }] });
   assertInert("stats", page);
   assert.doesNotMatch(page, /href="javascript:/);
   assert.match(page, /<p class="kpi-l">Merged, this week<\/p><p class="kpi-v">1<\/p>/);
@@ -157,31 +169,28 @@ test("the page: tiles, charts with a hover target and a table for each, open PRs
   assert.match(page, /<text class="vdl"[^>]*>\$329<\/text>/, "the label in money, the axis short");
   assert.match(page, /<meta name="u-topics" content="stats">/);
   assert.match(page, /class="vb warn"/, "a PR over two weeks old is marked");
+  assert.match(page, /Gather again/);
   // Nothing gathered yet: says so, and draws without history.
-  const empty = String(statsPage({ operator: "me", nav: [] }, { gathering: true }, { now: NOW }));
-  assert.match(empty, /Gathering the weeks from GitHub/);
+  assert.match(drawn({ gathering: true }), /Gathering the weeks from GitHub/);
   // Names the forge when it is not GitHub
-  const gitlab = String(statsPage({ operator: "me", nav: [] }, { gathering: true }, { now: NOW, forge: { name: "GitLab", can: ["stats"] } }));
-  assert.match(gitlab, /Gathering the weeks from GitLab/);
-  const errored = String(statsPage({ operator: "me", nav: [] }, { historyError: "502 Bad Gateway", gathering: false }, { now: NOW, forge: { name: "GitLab", can: ["stats"] } }));
-  assert.match(errored, /GitLab didn't answer/);
+  assert.match(drawn({ gathering: true }, { forge: "GitLab" }), /Gathering the weeks from GitLab/);
+  assert.match(drawn({ historyError: "502 Bad Gateway", gathering: false }, { forge: "GitLab" }), /GitLab didn&#39;t answer/);
   // Columns: a hostile series name and tip are text.
   assertInert("chart", String(columns({ title: H, labels: [H], tips: [H], fmt: String, series: [{ name: H, tone: "c1", values: [3] }] })));
 });
 
 test("/stats in the app: in the menu, a visit gathers when due, Gather again asks at once", async () => {
   let calls = 0;
-  const s = snapshot({ login: "me" });
-  const stats = createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", gather: async () => (calls++, historyOf(people, repos, { login: "me", weeks: weeksOf(Date.now()), now: Date.now() })) });
-  const app = createApp({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", DB: openDb().DB }, { gatherer: fixedGatherer(s), ghe: fakeGhe({}).ghe, stats });
-  const get = (p: string) => app.request(`http://localhost${p}`, { headers: { cookie: "u_tk=test-token" } });
+  const pack = historyPack({ history: (changed) => createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", onChange: changed, gather: async () => (calls++, historyOf(people, repos, { login: "me", weeks: weeksOf(Date.now()), now: Date.now() })) }) });
+  const { get, post } = packApp([pack]);
   const first = await (await get("/stats")).text();
   assert.match(first, /<a href="\/stats" title="Stats" aria-current="page">/);
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 1);
   assert.match(await (await get("/stats")).text(), /Merged, this week/);
-  const res = await app.request("http://localhost/stats/refresh", { method: "POST", headers: { cookie: "u_tk=test-token", origin: "http://localhost" } });
+  const res = await post("/stats/refresh", {});
   assert.equal(res.status, 303);
+  await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 2);
 });
@@ -192,7 +201,7 @@ test("26 weeks: a visit asks for them, the kept 12 are gathered again at once, a
   const asked: number[] = [];
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
-  const stats = createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", gather: async (_g, _o, _l, now, n) => (asked.push(n ?? 12), await gate, historyOf(people, repos, { login: "me", weeks: weeksOf(now, n), now })) });
+  const stats = createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", gather: async (_g, _o, _l, now, n) => (asked.push(n ?? 12), await gate, historyOf(people, repos, { login: "me", weeks: weeksOf(now, n), now })) });
   stats.refresh();
   release();
   await new Promise((r) => setImmediate(r));
@@ -211,11 +220,11 @@ test("26 weeks: a visit asks for them, the kept 12 are gathered again at once, a
   assert.deepEqual(asked, [12, 26, 26], "and kept for the next gather");
 
   const short = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW });
-  const page = String(statsPage({ operator: "me", nav: [] }, { history: short, gathering: true }, { now: NOW, layout: { statsWeeks: 26 } }));
-  assert.match(page, /Last 26 weeks \(12 until the gather for 26 ends\)/);
+  const page = drawn({ history: short, gathering: true }, { layout: { statsWeeks: 26 } });
+  assert.match(page, /Last 26 weeks/);
+  assert.match(page, /12 weeks until the gather for 26 ends/);
   const long = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW, 26), now: NOW });
-  const full = String(statsPage({ operator: "me", nav: [] }, { history: long, gathering: false }, { now: NOW, layout: { statsWeeks: 26 } }));
-  assert.doesNotMatch(full, /until the gather/);
+  assert.doesNotMatch(drawn({ history: long, gathering: false }, { layout: { statsWeeks: 26 } }), /until the gather/);
 });
 
 test("days: the last 14 by day, the org counted per day only when asked, the tiles stay weekly, packs told", async () => {
@@ -231,7 +240,7 @@ test("days: the last 14 by day, the org counted per day only when asked, the til
   assert.equal(historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW }).days, undefined, "not asked: no days");
 
   const asked: [number | undefined, number | undefined][] = [];
-  const stats = createStats({ ghe: fakeGhe({}).ghe, org: "ACME", login: () => "me", gather: async (_g, _o, _l, now, n, nd) => (asked.push([n, nd]), historyOf(people, repos, { login: "me", weeks: weeksOf(now, n), days: nd ? daysOf(now, nd) : undefined, now })) });
+  const stats = createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", gather: async (_g, _o, _l, now, n, nd) => (asked.push([n, nd]), historyOf(people, repos, { login: "me", weeks: weeksOf(now, n), days: nd ? daysOf(now, nd) : undefined, now })) });
   stats.refresh(false, { weeks: 12 });
   await new Promise((r) => setImmediate(r));
   stats.refresh(false, { weeks: 12, days: 28 });
@@ -240,14 +249,15 @@ test("days: the last 14 by day, the org counted per day only when asked, the til
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(asked, [[12, 0], [12, 28]], "28 days gathered at once; 14 are inside them");
 
-  const page = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false }, { now: NOW, layout: { statsDays: 14 } }));
-  assert.match(page, /Last 14 days\. From/);
+  const page = drawn({ history: h, gathering: false }, { layout: { statsDays: 14 } });
+  assert.match(page, /Last 14 days\./);
   assert.match(page, /You, per day/);
   assert.match(page, /The org, merged PRs per day/);
   assert.match(page, /Thu 22 Oct/, "a day's tip");
   assert.match(page, /Merged, this week/, "the tiles stay weekly");
-  const waiting = String(statsPage({ operator: "me", nav: [] }, { history: historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW }), gathering: true }, { now: NOW, layout: { statsDays: 28 } }));
-  assert.match(waiting, /Last 28 days \(the org&#39;s merged PRs by day come with the gather\)/);
+  const waiting = drawn({ history: historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW }), gathering: true }, { layout: { statsDays: 28 } });
+  assert.match(waiting, /Last 28 days/);
+  assert.match(waiting, /by day once the gather ends/);
 
   assert.deepEqual(layoutOf({ statsDays: 14 }), { statsDays: 14 });
   assert.deepEqual(layoutOf({ statsDays: 7 }), {});
@@ -280,7 +290,7 @@ const cycle: PackStat = { id: "cycle", title: "Issues closed per week", unit: "c
 
 test("layout: stats placements and weeks read strictly; placeStats hides and orders, the rest keep the code's order", () => {
   assert.deepEqual(layoutOf({ stats: { "you-weekly": { show: false, order: 3 }, "linear:cycle": { show: true, order: 1.6 }, "Bad Id": { show: true, order: 1 }, x: { show: "yes" } }, statsWeeks: 4 }), {
-    stats: { "you-weekly": { show: false, order: 3 }, "linear:cycle": { show: true, order: 2 } },
+    stats: { "history:you-weekly": { show: false, order: 3 }, "linear:cycle": { show: true, order: 2 } },
     statsWeeks: 4,
   });
   assert.deepEqual(layoutOf({ statsWeeks: 26 }), { statsWeeks: 26 });
@@ -317,7 +327,7 @@ test("statsFrom: ids under the pack's, text cut, two series, finite numbers; a p
 test("the page: my order, hidden panels gone, 4 weeks, pack panels and tiles with empty states; hostile pack text is inert", () => {
   const h: History = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW });
   const packs = statsFrom([statPack(() => [cycle, { id: "open", title: "Open issues", value: 12, note: "3 urgent", trend: [10, 11, 12] }, { id: "later", title: "Sentry", empty: "Connect Sentry to see errors", labels: [], series: [] }])], () => ({}) as PackContext, 4, () => {});
-  const page = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false }, { now: NOW, packs, layout: { stats: { "linear:cycle": { show: true, order: 1 }, "org-merged": { show: false, order: 0 } }, statsWeeks: 4 } }));
+  const page = String(statsPage(F, { packs: [...packs, ...statsFrom([statPack(() => historyStats({ history: h, gathering: false }, { now: NOW, weeks: 4, forge: "GitHub" }), "history")], () => ({}) as PackContext, 4, () => {})], layout: { stats: { "linear:cycle": { show: true, order: 1 }, "history:org-merged": { show: false, order: 0 } }, statsWeeks: 4 } }));
   assert.ok(page.indexOf("Issues closed per week") < page.indexOf("You, per week"), "my order");
   assert.doesNotMatch(page, /The org, merged PRs per week/, "hidden");
   assert.match(page, /Last 4 weeks/);
@@ -326,17 +336,23 @@ test("the page: my order, hidden panels gone, 4 weeks, pack panels and tiles wit
   assert.equal((page.match(/<details class="vtable">[^]*?<\/details>/)![0].match(/<tr><th scope="row">/g) ?? []).length, 3, "the first chart (the pack's) has its three weeks");
   assert.match(page, /data-tip="2 Merged\n0 Reviews given\nw43|data-tip="[^"]*w40/, "the GitHub charts span 4 weeks");
   assert.doesNotMatch(page, /w32/, "not twelve");
-  const all = String(statsPage({ operator: "me", nav: [] }, { history: h, gathering: false }, { now: NOW, layout: { stats: Object.fromEntries(statOffers({ history: h, gathering: false }, { now: NOW }).map((o) => [o.id, { show: false, order: 0 }])) } }));
+  const all = String(statsPage(F, { packs, layout: { stats: Object.fromEntries(statOffers(packs).map((o) => [o.id, { show: false, order: 0 }])) } }));
   assert.match(all, /Every panel is hidden/);
   const hostile = statsFrom([statPack(() => [{ id: "h", title: H, meta: H, empty: H, labels: [H], tips: [H], series: [{ name: H, values: [1] }] }, { id: "t", title: H, value: 1, note: H }, { id: "e", title: H, empty: H, labels: [], series: [] }])], () => ({}) as PackContext, 12, () => {});
-  assertInert("pack stats", String(statsPage({ operator: "me", nav: [] }, { gathering: false }, { now: NOW, packs: hostile, github: false })));
+  assertInert("pack stats", String(statsPage(F, { packs: hostile })));
+  // A bar list: hostile text inert, a hostile link defused.
+  const bars = statsFrom([statPack(() => [{ id: "b", title: H, bars: [{ label: H, sub: H, note: H, href: "javascript:alert(1)", value: 3, warn: true }, { label: "", value: 1 }, { label: "x", value: Number.NaN }] }])], () => ({}) as PackContext, 12, () => {});
+  assert.ok(bars[0]!.kind === "bars" && bars[0]!.bars.length === 1, "an empty label or no number is dropped");
+  const barPage = String(statsPage(F, { packs: bars }));
+  assertInert("pack bars", barPage);
+  assert.doesNotMatch(barPage, /href="javascript:/);
 });
 
-test("/stats without GitHub stats: the packs' panels and spend only, no Gather again; Settings chooses, and /stats follows", async () => {
+test("/stats without the history pack: the packs' panels only, no Gather again; Settings chooses, and /stats follows", async () => {
   const { get, post } = packApp([statPack(() => [cycle])], { forge: { id: "plain", name: "Plain", can: [] } });
   const page = await (await get("/stats")).text();
   assert.match(page, /Issues closed per week/);
-  assert.doesNotMatch(page, /Gather again|Merged, this week|Gathering the weeks/);
+  assert.doesNotMatch(page, /Gather again|Merged, this week|Gathering the weeks/, "the pack reads nothing again when asked");
   const settings = await (await get("/settings/layout")).text();
   assert.match(settings, /name="stat:linear:cycle"/);
   assert.match(settings, /name="statsWeeks"/);
@@ -346,6 +362,6 @@ test("/stats without GitHub stats: the packs' panels and spend only, no Gather a
   assert.doesNotMatch(after, /Issues closed per week/);
   assert.match(after, /Last 4 weeks/);
   assert.match(after, /Every panel is hidden/, "spend isn't read in this app, so the pack's panel was the only one");
-  // No pack with stats and no forge stats: no Stats page at all.
+  // No pack with stats: no Stats page at all.
   assert.equal((await packApp([], { forge: { id: "plain", name: "Plain", can: [] } }).get("/stats")).status, 404);
 });

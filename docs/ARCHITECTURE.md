@@ -10,11 +10,11 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
         │ imports core as `dovre/…`; core never imports an instance
  Core's packs (src/packs/core/)
-   agents, assistant, terminal, docker, tracker, storybook
+   agents, autoreview, history, assistant, terminal, docker, tracker, storybook
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.7")
+   src/packs/types.ts     the contract (PACK_API = "1.8")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -28,7 +28,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Packs from | `PACKS` folders, each `packs.ts` imported at start (`src/packs/load.ts`) | The instance's worker.ts calls `createWorker({ packs })` |
-| Core's packs | all six (terminal and docker when enabled) | agents (over the bridge), assistant, tracker |
+| Core's packs | all of them (terminal and docker when enabled, history with GitHub) | agents (over the bridge), autoreview, history (GitHub), assistant, tracker |
 | Refresh | interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Extra hooks | `callback`, `ingest`, `acts`, `tools` | `scheduled`, `email` |
 
@@ -112,7 +112,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 |---|---|---|
 | Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `nav`, manifest `paths` | on request |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
-| Stats | `stats` (chart or headline number) | from memory |
+| Stats | `stats` (chart, headline number or bar list); Stats exists only while a pack draws there | from memory |
 | Search | `pages`, `finds` | from memory |
 | Attention | `needs` (+ manifest `rings`), `banner`, `dock` | from memory |
 | Bino | `bino`, `about`, `lookups`, `acts` (local) | `bino` from memory; `about` may read its app (2 s at most); lookups run when Bino asks (8 s at most); acts run in the background |
@@ -276,6 +276,7 @@ Also:
   | 1.5 | Math in core Markdown is marked for a pack to draw (`code[data-tex]`, `pre.code[data-lang=math]`) (#358) |
   | 1.6 | `manifest.version`, a pack's own release, on the Packs page (#364) |
   | 1.7 | `ctx.checkouts()` and `ctx.checkout(name)`: the git repos directly under the code folder, narrowed to one in a pack session (#368) |
+  | 1.8 | A `PackStat` bar list (`bars`) and `partialLast`; `refresh(ctx, { asked })` when I pressed Gather again (#387) |
 
 ## Open questions
 

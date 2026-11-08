@@ -34,7 +34,7 @@ export type Layout = {
   motion?: "always";
   /** Links to other sites from the installed app: the system's default browser instead of the app's own (local only, src/open-link.ts). */
   links?: "default";
-  /** /stats's panels by id (core's, or `<pack>:<id>`): shown or hidden, and their order. Unset: each where its code puts it. */
+  /** /stats's panels by id (`<pack>:<id>`): shown or hidden, and their order. Unset: each where its code puts it. */
   stats?: Record<string, StatPlace>;
   /** How many weeks /stats's weekly charts span (default 12). */
   statsWeeks?: StatsWeeks;
@@ -65,6 +65,13 @@ const order = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Mat
 const ids = (v: unknown, ok: RegExp, max: number) => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && ok.test(x)))].slice(0, max) : undefined);
 
 /** Read strictly: an old or edited row can't set anything this file doesn't know. */
+/** Stats' panels that were core's before they were packs' (#387): a choice kept under the old id still applies. */
+const OLD_STATS: Record<string, string> = {
+  ...Object.fromEntries(["merged-week", "reviews-week", "review-wait", "main-red", "you-weekly", "org-merged", "releases", "main-red-weekly", "waits", "open-age"].map((id) => [id, `history:${id}`])),
+  "spend-7d": "agents:spend-7d",
+  "spend-daily": "agents:spend-daily",
+};
+
 export function layoutOf(raw: unknown): Layout {
   const v = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: Layout = {};
@@ -99,7 +106,7 @@ export function layoutOf(raw: unknown): Layout {
     for (const [id, p] of Object.entries(v.stats as Record<string, unknown>).slice(0, 200)) {
       const place = p as { show?: unknown; order?: unknown };
       if (!STAT.test(id) || !place || typeof place !== "object" || typeof place.show !== "boolean") continue;
-      stats[id] = { show: place.show, order: order(place.order) };
+      stats[OLD_STATS[id] ?? id] = { show: place.show, order: order(place.order) };
     }
     out.stats = stats;
   }

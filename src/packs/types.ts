@@ -22,7 +22,7 @@ import type { Answer } from "../relay/asks.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.7";
+export const PACK_API = "1.8";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -107,8 +107,21 @@ export type PackStat = {
   /** What to connect or wait for when there's nothing to draw. */
   empty?: string;
 } & (
-  | { /** Default "columns". */ chart?: "columns" | "lines"; /** Stack the two series (columns only). */ stacked?: boolean; labels: string[]; /** One tip per label, for hover and the table (default: the label). */ tips?: string[]; series: { name: string; values: (number | null | undefined)[] }[] }
+  | {
+      /** Default "columns". */ chart?: "columns" | "lines";
+      /** Stack the two series (columns only). */ stacked?: boolean;
+      labels: string[];
+      /** One tip per label, for hover and the table (default: the label). */ tips?: string[];
+      series: { name: string; values: (number | null | undefined)[] }[];
+      /** The last label is still going (this week so far): drawn lighter (API 1.8). */ partialLast?: boolean;
+    }
   | { value: number | null | undefined; note?: string; trend?: (number | null | undefined)[] }
+  /**
+   * A ranked list of horizontal bars (API 1.8), longest first as given: each a `label`, an
+   * optional grey `sub`, a link (a path here or http(s), through safeUrl), and a `note`. `warn`
+   * marks a bar that's past where it should be.
+   */
+  | { bars: { label: string; sub?: string; href?: string; value: number; note?: string; warn?: boolean }[] }
 );
 
 export type PackNeed = {
@@ -532,9 +545,10 @@ export type Pack = {
   init?(ctx: PackContext): Promise<void> | void;
   /**
    * Re-reads what its pages show, into memory (or its own storage), then publishes what changed.
-   * The core calls it on its schedule; pages and cards never wait for it.
+   * The core calls it on its schedule; pages and cards never wait for it. `asked` (API 1.8): I
+   * pressed a refresh button (Stats' Gather again), so read again even if it isn't due.
    */
-  refresh?(ctx: PackContext): Promise<void>;
+  refresh?(ctx: PackContext, o?: { asked?: boolean }): Promise<void>;
   dispose?(): Promise<void> | void;
   /**
    * Its kinds of write to its own app (dovre#104), listed on Settings → Writes under its name. Its

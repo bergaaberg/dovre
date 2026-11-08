@@ -27,8 +27,9 @@ import { keptFile } from "./issues/templates.ts";
 import { logAction } from "./actions/deploys.ts";
 import { createAsks } from "./relay/asks.ts";
 import { createQueue } from "./agents/queue.ts";
-import { createSpend } from "./stats/spend.ts";
-import { createStats } from "./stats/stats.ts";
+import { createSpend } from "./packs/core/agents/spend.ts";
+import { historyPack } from "./packs/core/history/index.ts";
+import { createHistory } from "./packs/core/history/store.ts";
 import { ompAgentDirs } from "./sources/omp.ts";
 import { loadMemory } from "./packs/core/assistant/bino/memory.ts";
 import { routeOf, viaOf } from "./packs/core/assistant/bino/route.ts";
@@ -390,7 +391,9 @@ const storybookBuilds = createBuilds({
 const storybookServer = buildServer(storybookBuilds.outDir, storybookPort, (l) => console.log(l));
 const storybookBuild = { builds: storybookBuilds, port: storybookPort, ensure: () => storybookServer.ensure() };
 const corePacks = [
-  agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000, repoOf: (dir) => checkouts(env.CODE_DIR, forge.host, ownersIn(env)).find((c) => c.dir === dir)?.repo, ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }),
+  agentsPack({ desk, dismissed, here, onTurn: (fn) => (turnChanged = fn), longTurnMs: () => policy.longTurnMin * 60_000, repoOf: (dir) => checkouts(env.CODE_DIR, forge.host, ownersIn(env)).find((c) => c.dir === dir)?.repo, ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}), spend: createSpend({ claudeDir: env.CLAUDE_DIR, ompDirs: ompAgentDirs().map((d) => d.dir) }) }),
+  // The forge's weeks on /stats (#387), where it gathers them: kept in data/stats.json.
+  ...(gheToken && forgeCan(forge, "stats") ? [historyPack({ forge: forge.name, history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, file: join(dataDir, "stats.json"), onChange: changed }) })] : []),
   // Review rounds on auto runs' PRs (#326): off while agents is.
   autoreviewPack({ ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => (binoRoute.ready && binoRoute.ask ? { ask: binoRoute.ask, model: binoRoute.model } : undefined) }),
   // Bino's switch (PACK_ASSISTANT=off).
@@ -433,12 +436,6 @@ const corePacks = [
 // GitHub's call counts (#253) into the database, when a minute has had any.
 if (ghe.calls) setInterval(() => void ghe.calls!.flush(db.DB), 60_000).unref();
 
-// Stats: GHE history every six hours (kept in data/stats.json), spend from the transcripts here.
-const stats = !on.stats ? undefined : createStats({ ghe, org: ownersIn(env), login: () => gatherer.peek()?.login, spend: createSpend({ claudeDir: env.CLAUDE_DIR, ompDirs: ompAgentDirs().map((d) => d.dir) }), file: join(dataDir, "stats.json"), onChange: () => hub.publish(["stats"]) });
-if (stats) {
-  setInterval(() => stats.refresh(), 3600e3).unref();
-  setTimeout(() => stats.refresh(), 90e3).unref();
-}
 
 
 // Packs (PLAN D23): those PACKS loaded above that can run here, after the core's.
@@ -460,7 +457,6 @@ const perfLog = (line: string) => {
 const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   perfLog,
   packs: packSet,
-  stats,
   gatherer,
   ghe,
   forge,

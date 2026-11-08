@@ -685,7 +685,7 @@ test("refreshLog: a refresh's start, end, time and failure, and a cron run; an e
 test("Dovre's own packs (src/packs/core/) are reached only through the registry: nothing else in core imports them but the entry points", () => {
   const root = fileURLToPath(new URL("../src/", import.meta.url));
   const core = join(root, "packs", "core") + sep;
-  const entry = new Set(["index.ts", "worker.ts", join("demo", "worker.ts")]);
+  const entry = new Set(["index.ts", "worker.ts", join("demo", "worker.ts"), join("demo", "fixtures.ts")]);
   // Bino's engine sits in the assistant pack's folder (WP-M4) but is still wired by core (the dock,
   // the hub, Settings) until it goes through the Pack API: that one folder, and nothing else in it.
   const bino = join(core, "assistant", "bino") + sep;
