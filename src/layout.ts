@@ -4,6 +4,7 @@
  * settings table under "layout", so it's the same hosted and here, and applies at once (no restart).
  * Unset parts keep the defaults: the tabs the menu marks, each card where its code puts it.
  */
+import { sharedRead } from "./shared-read.ts";
 import type { D1 } from "./db.ts";
 import type { NavItem } from "./html.ts";
 
@@ -178,47 +179,51 @@ export function layoutFromForm(form: Record<string, unknown>, here: { hrefs: str
 /**
  * The layout from the database, kept in memory: pages read it without waiting, and it's read again
  * in the background once it's older than `ttlMs` (hosted, another isolate may have saved since).
+ * A read that never settles (its request was cancelled) holds no page or save (src/shared-read.ts).
  */
-export function layoutStore(db: D1, o: { ttlMs?: number; now?: () => number } = {}) {
+export function layoutStore(db: D1, o: { ttlMs?: number; now?: () => number; readMs?: number } = {}) {
   const now = o.now ?? Date.now;
   const ttl = o.ttlMs ?? 30_000;
   let kept: Layout = {};
   let at = 0;
-  let reading: Promise<void> | undefined;
-  const read = (): Promise<void> =>
-    (reading ??= db
-      .prepare("SELECT value FROM settings WHERE key = 'layout'")
-      .first<{ value: string }>()
-      .then((row) => {
+  // Bumped by each write: a read begun before it mustn't land after it.
+  let writes = 0;
+  const r = sharedRead(
+    async () => {
+      const w = writes;
+      try {
+        const row = await db.prepare("SELECT value FROM settings WHERE key = 'layout'").first<{ value: string }>();
+        if (w !== writes) return;
         try {
           kept = layoutOf(JSON.parse(row?.value ?? "{}"));
         } catch {
           kept = {};
         }
-        at = now();
-      })
-      .catch(() => {
-        at = now();
-      })
-      .finally(() => {
-        reading = undefined;
-      }));
-  const ready = read();
+      } finally {
+        if (w === writes) at = now();
+      }
+    },
+    { now, ms: o.readMs },
+  );
+  void r.read();
   return {
-    ready,
+    /** The first read: at once once it's done, else this caller's own wait at most. */
+    get ready(): Promise<void> {
+      return r.done ? Promise.resolve() : r.read();
+    },
     get(): Layout {
-      if (now() - at > ttl) void read();
+      if (now() - at > ttl) void r.read();
       return kept;
     },
     async save(l: Layout): Promise<void> {
-      await reading; // A read begun before this write mustn't land after it.
+      writes++;
       const clean = layoutOf(l);
       await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('layout', ?, ?)").bind(JSON.stringify(clean), new Date(now()).toISOString()).run();
       kept = clean;
       at = now();
     },
     async reset(): Promise<void> {
-      await reading;
+      writes++;
       await db.prepare("DELETE FROM settings WHERE key = 'layout'").run();
       kept = {};
       at = now();

@@ -4,6 +4,7 @@
  * the same hosted and here, so Bino and "Suggest packs again" can read it back. Read strictly: an
  * old or edited row can't set anything this file doesn't know.
  */
+import { sharedRead } from "./shared-read.ts";
 import type { D1 } from "./db.ts";
 import { type Answers, INTERVIEW, QUESTIONS, ROLES } from "./packs/suggest.ts";
 import type { Role } from "./packs/types.ts";
@@ -61,25 +62,34 @@ export function onboardingOf(raw: unknown): Onboarding {
   return out;
 }
 
-export type OnboardingStore = { get(): Onboarding; save(o: Onboarding): Promise<void>; ready: Promise<void> };
+export type OnboardingStore = { get(): Onboarding; save(o: Onboarding): Promise<void>; ready: Promise<void>; /** Whether it's been read (or saved): until then, `get()` is only the empty default. */ loaded?(): boolean };
 
-/** Loaded once at start (`ready`), kept in memory, written through on each save. */
-export function onboardingStore(db: D1): OnboardingStore {
+/** Read at start and kept in memory, written through on each save. A read that never settles (its request was cancelled) is started again by the next to wait (src/shared-read.ts). */
+export function onboardingStore(db: D1, o: { readMs?: number } = {}): OnboardingStore {
   let now: Onboarding = { answers: {} };
-  const ready = db
-    .prepare("SELECT value FROM settings WHERE key = 'onboarding'")
-    .first<{ value: string }>()
-    .then((row) => {
+  // Bumped by each save: a read begun before it mustn't land after it.
+  let saves = 0;
+  const r = sharedRead(
+    async () => {
+      const s = saves;
+      const row = await db.prepare("SELECT value FROM settings WHERE key = 'onboarding'").first<{ value: string }>();
+      if (s !== saves) return;
       try {
         now = onboardingOf(JSON.parse(row?.value ?? "{}"));
       } catch {}
-    })
-    .catch(() => {});
+    },
+    { ms: o.readMs },
+  );
+  void r.read();
   return {
-    ready,
+    get ready() {
+      return r.done ? Promise.resolve() : r.read();
+    },
+    loaded: () => r.done || saves > 0,
     get: () => now,
-    async save(o) {
-      now = onboardingOf(o);
+    async save(next) {
+      saves++;
+      now = onboardingOf(next);
       await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES ('onboarding', ?, ?)").bind(JSON.stringify(now), new Date().toISOString()).run();
     },
   };
