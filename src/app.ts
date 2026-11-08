@@ -53,6 +53,7 @@ import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
 import { type ClimbField, type ClimbView, climbPage, type KitTile, startingPage } from "./pages/welcome.ts";
+import { type SetupRow, setupPage, setupStrip, type SetupView } from "./pages/setup.ts";
 import { FORGES, answersFrom, type OnboardingStore, onboardingStore } from "./onboarding.ts";
 import { type Answers, INTERVIEW, markersOf, onboardOf, QUESTIONS, ROLES, suggest } from "./packs/suggest.ts";
 import { scanCheckouts } from "./packs/scan.ts";
@@ -459,6 +460,15 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Each pack's questions in the bar, by id (`asking`). */
   const asked = new Map<string, Set<string>>();
   const askedBy = (id: string) => asked.get(id) ?? asked.set(id, new Set()).get(id)!;
+  /** What the climb was told, and how far each pack's own setup is (src/onboarding.ts). */
+  const onboarding = deps.onboarding ?? onboardingStore(env.DB);
+  /** A pack's setup page: the steps its manifest declares, when it draws them (`Pack.setup`). */
+  const setupOf = (c: Pack) => (c.setup && typeof c.setup.draw === "function" ? onboardOf(c.manifest) : undefined);
+  /** The steps of its setup not done yet (none: it's set up, or has no setup page). */
+  const setupLeft = (c: Pack) => {
+    const done = new Set(onboarding.get().setup?.[c.manifest.id] ?? []);
+    return (setupOf(c)?.steps ?? []).filter((s) => !done.has(s.id));
+  };
   const ctxOf = (c: Pack): PackContext => {
     let ctx = contexts.get(c.manifest.id);
     if (!ctx)
@@ -475,6 +485,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),
           fill: (name, arg) => fill(name, arg),
           pageOn: (href) => pageOn(href),
+          setupDone: () => setupLeft(c).length === 0,
           pulse: () => pulseNow(),
           forge: () => {
             const login = gatherer.peek()?.login;
@@ -784,7 +795,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const { s, frame } = await page();
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
-    return c.html(homePage(frame, s, summary, { cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions }));
+    // The packs whose own setup isn't finished (#418): Today keeps a row for each until it is.
+    const setups = shown().flatMap((x): SetupRow[] => {
+      const ob = setupOf(x);
+      const left = setupLeft(x);
+      return ob && left.length ? [{ id: x.manifest.id, name: x.manifest.name, what: left[0]!.title, left: left.length, steps: ob.steps.length, required: ob.required }] : [];
+    });
+    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions }));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
@@ -998,7 +1015,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       } catch {}
     const here = packIds();
     const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
-    return c.html(packsPage(frame, { on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
+    const setups = new Map(packs.on.flatMap((x) => (setupOf(x) ? [[x.manifest.id, setupLeft(x).length > 0] as const] : [])));
+    return c.html(packsPage(frame, { setups, on: packs.on, off: packs.off, env: packs.env, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
   });
   /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
   app.post("/packs/:id/switch", strictOrigin, async (c) => {
@@ -1299,7 +1317,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.html(settingsArea(frame, area, { areas: settingsAreas(), rows: await rowsNow(frame), notes, body }));
   });
   // ── The first run, the climb (src/pages/welcome.ts, #417): Today sends here until it's finished or skipped ──
-  const onboarding = deps.onboarding ?? onboardingStore(env.DB);
   const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE || onboarding.get().done);
   /** Local: the folder and owners asked for on the way up, kept at the summit (they need a restart). */
   let pending: Config = {};
@@ -1394,7 +1411,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const on = new Set(pickedNow(found));
       const k = kitPacks().filter((x) => !x.off && on.has(x.m.id));
       const later = k.flatMap((x) => {
-        const ob = onboardOf(x.m);
+        const p = packs.on.find((c) => c.manifest.id === x.m.id);
+        const ob = p && setupOf(p);
         return ob ? [{ id: x.m.id, name: x.m.name, steps: ob.steps.map((s) => s.title) }] : [];
       });
       const online = hosted ? (await deps.machines?.().catch(() => []))?.some((m) => m.online) : true;
@@ -1479,6 +1497,100 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     await saveConfig(env.DB, config);
     deps.config.stored = config;
     return c.redirect("/", 303);
+  });
+  // ── A pack's own setup (src/pages/setup.ts, #418): the pack draws each step, core draws the frame ──
+  /** A shown pack with a setup page, by id. */
+  const setupPack = (id: string) => shown().find((c) => c.manifest.id === id && !!setupOf(c));
+  /** What Next on a step was refused for: shown once, on that step. */
+  let setupSaid: { id: string; step: string; error: string } | undefined;
+  /** A step as the pack draws it, in the time its pages get. One that throws, is late or breaks the rules is that pack's broken step. */
+  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; broke?: string }> => {
+    const ms = packs.routeMs ?? PACK_ROUTE_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const log = packLog(c.manifest.id);
+    try {
+      const late = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error(`didn't answer in ${ms / 1000} s`)), ms)));
+      const got = await Promise.race([Promise.resolve().then(() => c.setup!.draw(ctxOf(c), step)), late]);
+      const body = await guardHtml(got?.body ?? "", c.manifest.name, `setup ${step}`, log);
+      const form = got?.form === true;
+      // A form step's inputs go with Next: a form inside it would be a form in a form.
+      if (form && /<form[\s>]/i.test(String(body))) throw new Error("a form step's body holds a form of its own");
+      const wait = typeof got?.wait === "string" && got.wait.trim() ? got.wait.trim().slice(0, 200) : undefined;
+      return { body: html`<div class="pack-box" data-pack="${c.manifest.id}">${body}</div>`, form, wait };
+    } catch (e) {
+      const why = String((e as Error)?.message ?? e).slice(0, 300);
+      log(`setup ${step}: ${why}`);
+      return {
+        body: html`<div class="climb-card"><p><b>${c.manifest.name} broke on this step.</b> The rest of Dovre is fine. The pack's log on <a href="/packs">Packs</a> says what happened. <a href="${bugHref(`/setup/${c.manifest.id}`, why, c.manifest.id)}">Report this</a> if it looks like a bug.</p></div>`,
+        form: false,
+        wait: "Come back once it's fixed.",
+        broke: why,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  app.get("/setup/:id", async (c) => {
+    if (deps.session) return c.notFound();
+    const p = setupPack(c.req.param("id"));
+    if (!p) return c.notFound();
+    await onboarding.ready;
+    const id = p.manifest.id;
+    const { steps } = setupOf(p)!;
+    const asked = c.req.query("at");
+    const left = setupLeft(p);
+    let at = asked === "done" ? steps.length : steps.findIndex((s) => s.id === asked);
+    if (at < 0) at = left.length ? steps.findIndex((s) => s.id === left[0]!.id) : 0;
+    const said = setupSaid?.id === id && setupSaid.step === steps[at]?.id ? setupSaid.error : undefined;
+    setupSaid = undefined;
+    const l = layout.get();
+    const view: SetupView = { look: { theme: l.theme, accent: l.accent, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id, name: p.manifest.name }, steps, at, error: said };
+    let status: 200 | 500 = 200;
+    if (at < steps.length) {
+      const d = await drawStep(p, steps[at]!.id);
+      Object.assign(view, { body: d.body, form: d.form, wait: d.wait });
+      if (d.broke) status = 500;
+    }
+    return noStore(await c.html(setupPage(view), status));
+  });
+  app.post("/setup/:id/next", strictOrigin, async (c) => {
+    if (deps.session) return c.notFound();
+    const p = setupPack(c.req.param("id"));
+    if (!p) return c.notFound();
+    await onboarding.ready;
+    const id = p.manifest.id;
+    const { steps } = setupOf(p)!;
+    const form = await c.req.parseBody({ all: true });
+    const i = steps.findIndex((s) => s.id === form.step);
+    if (i < 0) return c.redirect(`/setup/${id}`, 303);
+    const step = steps[i]!;
+    const stay = (error: string) => {
+      setupSaid = { id, step: step.id, error: error.slice(0, 300) };
+      return c.redirect(`/setup/${id}?at=${step.id}`, 303);
+    };
+    // Drawn again: a write it waits on may have finished, or not.
+    const d = await drawStep(p, step.id);
+    if (d.wait) return stay(d.wait);
+    if (d.form && p.setup!.save) {
+      const fields: Record<string, string | string[]> = {};
+      for (const [k, v] of Object.entries(form).slice(0, 50)) {
+        if (k === "step") continue;
+        const vs = ([] as unknown[]).concat(v).filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 2000)).slice(0, 200);
+        if (vs.length) fields[k] = vs.length === 1 ? vs[0]! : vs;
+      }
+      const r = await Promise.resolve()
+        .then(() => p.setup!.save!(ctxOf(p), step.id, fields))
+        .catch((e: unknown): { ok: false; error: string } => {
+          packLog(id)(`setup ${step.id} save: ${(e as Error)?.message ?? e}`);
+          return { ok: false, error: `${p.manifest.name} couldn't keep that. Its log on Packs says why.` };
+        });
+      if (!r || r.ok !== true) return stay(typeof r?.error === "string" && r.error ? r.error : "Not kept.");
+    }
+    const o = onboarding.get();
+    await onboarding.save({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), step.id])] } });
+    deps.hub?.publish(["snapshot", id]);
+    const next = steps[i + 1];
+    return c.redirect(`/setup/${id}?at=${next ? next.id : "done"}`, 303);
   });
   app.post("/welcome/skip", strictOrigin, async (c) => {
     if (deps.session) return c.notFound();

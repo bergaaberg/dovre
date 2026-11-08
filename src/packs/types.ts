@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.15";
+export const PACK_API = "1.16";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -110,8 +110,10 @@ export type PackManifest = {
    */
   markers?: string[];
   /**
-   * Its own setup (API 1.14), run after first run from its setup page: up to 3 steps, declared up front.
-   * `required`: it doesn't work until they're done (default: it works before, and setup adds to it).
+   * Its own setup (API 1.14), run after first run from its setup page (/setup/<id>, API 1.16, which
+   * draws each step through `Pack.setup`): up to 3 steps, declared up front, so Today can say how many.
+   * `required`: it doesn't work until they're done (default: it works before, and setup adds to it);
+   * it reads where it stands through `ctx.setupDone()`.
    */
   onboard?: { steps: OnboardStep[]; required?: boolean };
 };
@@ -120,6 +122,32 @@ export type PackManifest = {
 export type Role = "dev" | "lead" | "po" | "op" | "an";
 /** A step of a pack's own setup: a lowercase id, and its title on the setup page. */
 export type OnboardStep = { id: string; title: string };
+
+/**
+ * A step of its setup page as the pack draws it (`Pack.setup`, API 1.16). Core draws the frame
+ * around `body`: the scene, "Setting up X", the title, "1 of 3", Back, the dots, Next or Done, and Later.
+ * The body is kit parts only (list rows, chips, code blocks, Confirm), checked and boxed like its
+ * pages, and never asks for a secret: keys are its manifest's `settings`.
+ */
+export type SetupStep = {
+  body: Html | "";
+  /**
+   * The body's inputs are the step's form: Next sends them to `Pack.setup.save`. A form step holds
+   * no form of its own (its markup is refused). Otherwise its writes are its own forms (a Confirm,
+   * posting to its routes, which redirect back to /setup/<id>?at=<step>), and Next only moves on.
+   */
+  form?: boolean;
+  /** Next waits, and says this: a write this step needs hasn't finished. Asked again when Next is pressed. */
+  wait?: string;
+};
+
+/** A pack's setup steps (`Pack.setup`): each step drawn, and what Next on a form step saves. */
+export type PackSetup = {
+  /** Step `step` (one of `manifest.onboard`'s ids). It may read its app first; the page waits as for its pages. */
+  draw(ctx: PackContext, step: string): SetupStep | Promise<SetupStep>;
+  /** Next on a form step: its fields (strings; a ticked list is several). The pack checks and keeps them; an error stays on the step. */
+  save?(ctx: PackContext, step: string, form: Record<string, string | string[]>): Promise<{ ok: true } | { ok: false; error: string }>;
+};
 
 /** A kind of notification: its id (lowercase), and how Settings says it. On unless I switch it off, or `off`: off until I switch it on. */
 export type RingDecl = { kind: string; label: string; hint?: string; off?: boolean };
@@ -381,6 +409,8 @@ export type PackContext = {
    * pack's page (a tab beside its own) is left out when this says no.
    */
   pageOn(href: string): boolean;
+  /** Every step of its setup (`manifest.onboard`) is done (API 1.16); true when it has none. */
+  setupDone(): boolean;
 };
 
 // ── What packs share with the packs that require them (#326) ──
@@ -690,6 +720,8 @@ export type Pack = {
    */
   files?: Record<string, PackFile>;
   nav?(ctx: PackContext): NavItem[];
+  /** Its setup page's steps (API 1.16), for the ids `manifest.onboard` declares: without this, it has no setup page. */
+  setup?: PackSetup;
   /** Mounted after the core's guard (login or Access) and core routes: it can't shadow a core path. */
   routes?(app: Hono<AppEnv>, ctx: PackContext): void;
   today?(ctx: PackContext): TodayCard[] | Promise<TodayCard[]>;

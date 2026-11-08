@@ -42,6 +42,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     required: () => undefined,
     refs: () => [],
     pageOn: () => true,
+    setupDone: () => true,
     ...over,
   };
 }

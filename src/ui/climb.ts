@@ -34,7 +34,7 @@ export function along(f: number): { x: number; y: number } {
 /** Where the n-th flag stands: spread along the ridge by the golden ratio, so they never bunch. */
 export const flagAt = (n: number) => along(0.04 + ((0.5 + n * 0.618034) % 1) * 0.92);
 
-export type Flag = { name: string; /** Planted on this step (it springs up). */ fresh?: boolean; /** Waits for something (the laptop): a hollow flag. */ wait?: boolean };
+export type Flag = { name: string; /** Planted on this step (it springs up). */ fresh?: boolean; /** Waits for something (the laptop): a hollow flag. */ wait?: boolean; /** The one this page is about (a pack's setup): the others dim. */ focus?: boolean };
 
 /** The same stars on every draw: a small seeded source. */
 const STARS = (() => {
@@ -45,10 +45,10 @@ const STARS = (() => {
 
 /** The scene at `step`, coming from `from` (the step before it; none on the first). */
 export function climbArt(step: Step, flags: Flag[], from?: Step) {
-  const cls = `cl-art cl-at-${step}${from && from !== step ? ` cl-from-${from}` : ""}${step === "summit" ? " cl-summit" : ""}`;
+  const cls = `cl-art cl-at-${step}${from && from !== step ? ` cl-from-${from}` : ""}${step === "summit" ? " cl-summit" : ""}${flags.some((f) => f.focus) ? " cl-dim" : ""}`;
   const planted = flags.slice(0, 40).map((f, i) => {
     const { x, y } = flagAt(i);
-    const kind = `cl-flag${f.fresh ? " cl-fresh" : ""}${f.wait ? " cl-wait" : ""}`;
+    const kind = `cl-flag${f.fresh ? " cl-fresh" : ""}${f.wait ? " cl-wait" : ""}${f.focus ? " cl-focus" : ""}`;
     return html`<g class="${kind}"><g class="cl-pole"><line x1="${x}" y1="${y}" x2="${x}" y2="${y - 34}"/><polygon points="${x},${y - 34} ${x + 18},${y - 28.5} ${x},${y - 23}"/></g><text x="${x + 4}" y="${y - 42}">${f.name}</text></g>`;
   });
   return html`<svg class="${cls}" viewBox="0 0 1280 800" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
@@ -90,6 +90,9 @@ ${FROM}
 .cl-fresh text { animation: cl-say 2.8s ease .8s both; }
 .cl-summit .cl-flag polygon { fill: color-mix(in oklab, var(--sun) 35%, #f4b47f); }
 .cl-summit .cl-flag text { opacity: 1; animation: none; }
+.cl-dim .cl-flag { opacity: .3; }
+.cl-dim .cl-flag.cl-focus { opacity: 1; }
+.cl-dim .cl-flag.cl-focus polygon { fill: var(--accent); }
 @keyframes cl-plant { from { transform: scaleY(0); } }
 @keyframes cl-say { 0% { opacity: 0; } 15%, 75% { opacity: 1; } 100% { opacity: 0; } }
 
@@ -118,6 +121,16 @@ ${FROM}
 .climb-go:hover { transform: translateY(-1px); }
 .climb-link { appearance: none; background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: 8px 4px; font: inherit; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 4px; }
 .climb-link:hover { color: var(--ink); }
+.climb-go:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.su-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink-3); font-size: 13px; }
+.su-head .climb-link { padding: 0; }
+.su-body { display: grid; gap: 14px; min-width: 0; }
+.su-foot { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+.su-dots { display: flex; gap: 8px; }
+.su-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
+.su-dots i.su-past { background: color-mix(in oklab, var(--accent) 50%, var(--line-2)); }
+.su-dots i.su-on { background: var(--accent); }
+.su-note { color: var(--warn); font-size: 13px; }
 .climb-opts { display: grid; border: 0; border-top: 1px solid var(--line-2); margin: 0; padding: 0; min-width: 0; }
 .climb-opt { position: relative; border-bottom: 1px solid var(--line-2); cursor: pointer; padding: 14px 4px; display: grid; grid-template-columns: 28px 1fr auto; gap: 14px; align-items: baseline; transition: padding .2s; }
 .climb-opt:hover { padding-left: 10px; }

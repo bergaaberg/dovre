@@ -272,3 +272,26 @@ test("bulk (dovre#104): tick several, close or take them at once; each re-checke
   assert.equal(capped.searchParams.get("of"), "20", "20 at most");
   assert.equal((await (await app.request("http://localhost/tracker?bulk=done&done=9&of=2")).text()).includes("9 of 2"), false, "a made-up count is ignored");
 });
+
+test("its setup (#418): ticks from the owners' repos, kept in Dovre's settings, and that pick is what's triaged", async () => {
+  const { openDb } = await import("../../../../db.ts");
+  const db = openDb().DB;
+  const repos = ["bergaaberg/web", "bergaaberg/api", "bergaaberg/docs"];
+  const { pack, ctx, asked } = setup({ env: { ISSUES_TRIAGE_REPOS: "bergaaberg/api" } });
+  Object.assign(ctx, { db, forge: () => ({ id: "github", name: "GitHub", host: "github.com", login: "kari", owners: "bergaaberg", repos: async () => repos }) });
+  const first = await pack.setup!.draw(ctx, "triage");
+  assert.equal(first.form, true, "Next sends the ticks");
+  assert.match(String(first.body), /value="bergaaberg\/api" checked/, "the setting's repos start ticked");
+  assert.ok(String(first.body).indexOf("bergaaberg/api") < String(first.body).indexOf("bergaaberg/docs"), "ticked first");
+  assert.deepEqual(await pack.setup!.save!(ctx, "triage", { repo: ["bergaaberg/web", "someone/else", "bergaaberg/docs"] }), { ok: true });
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'tracker.triage'").first<{ value: string }>();
+  assert.deepEqual(JSON.parse(row!.value), ["bergaaberg/web", "bergaaberg/docs"], "only the owners' repos");
+  await pack.refresh!(ctx);
+  assert.deepEqual(asked.at(-1)?.triage, ["bergaaberg/web", "bergaaberg/docs"], "the pick wins over the setting");
+  assert.deepEqual(await pack.setup!.save!(ctx, "triage", {}), { ok: true }, "none is fine");
+  await pack.refresh!(ctx);
+  assert.deepEqual(asked.at(-1)?.triage, []);
+  // Before the forge is read: it waits, and says so.
+  Object.assign(ctx, { forge: () => undefined });
+  assert.ok((await pack.setup!.draw(ctx, "triage")).wait);
+});

@@ -15,6 +15,7 @@ import type { IssueAct } from "../../../forge/types.ts";
 import type { Forge } from "../../../forge/types.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { safeUrl } from "../../../pages/parts.ts";
+import { CheckRows } from "../../../ui/kit.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
 import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
 import { actOf, doneText, refusal } from "./act.ts";
@@ -28,6 +29,10 @@ import { CURRENT as NEW_WORK } from "./compose/work.ts";
 import { ACT, BULK, BULK_DO, BULK_MAX, type BulkDo, bulkOf, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
 
 export const ISSUES_PACK_ID = "tracker";
+/** Where its setup keeps the repos to triage, in Dovre's settings table. */
+const TRIAGE_KEY = "tracker.triage";
+const MAX_TRIAGE = 100;
+const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
 
 export type IssuesDeps = {
   forge: Pick<Forge, "host" | "can" | "issues" | "viewer" | "issue" | "issueAct"> & Partial<Pick<Forge, "name" | "thread" | "searchThreads">>;
@@ -59,12 +64,25 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
   /** When each issue came into the assigned and mentioned sets (model.ts cameIn). */
   let came: Map<string, number> | undefined;
   const fresh = () => freshOf(kept?.sets, came ?? new Map(), now());
+  /** The repos picked on its setup page (#418), kept in Dovre's settings; until then, ISSUES_TRIAGE_REPOS. */
+  let picked: string[] | undefined;
+  let pickedRead: Promise<void> | undefined;
+  const loadPicked = (ctx: PackContext) =>
+    (pickedRead ??= Promise.resolve()
+      .then(() => ctx.db.prepare("SELECT value FROM settings WHERE key = ?").bind(TRIAGE_KEY).first<{ value: string }>())
+      .then((row) => {
+        const v: unknown = row ? JSON.parse(row.value) : undefined;
+        if (Array.isArray(v)) picked = v.filter((x): x is string => typeof x === "string" && REPO.test(x)).slice(0, MAX_TRIAGE);
+      })
+      .catch(() => {}));
+  const triageOf = (ctx: PackContext) => picked ?? triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS);
   const read = async (ctx: PackContext) => {
     const issues = o.forge.issues;
     if (!issues) return;
+    await loadPicked(ctx);
     try {
       const login = o.login?.() || (await o.forge.viewer()).login;
-      const sets = await issues(login, o.owners(), { triage: triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS) });
+      const sets = await issues(login, o.owners(), { triage: triageOf(ctx) });
       recent = recent.filter((r) => now() - r.at < ACT_SHOWN_MS);
       const shown = withActs(sets, recent.map((r) => r.act));
       came = cameIn(came, shown, now());
@@ -102,7 +120,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       uses: ["todo", "agents"],
       everyMs: 5 * 60_000,
       settings: [
-        { key: "ISSUES_TRIAGE_REPOS", label: "Repos to triage", help: "owner/repo, comma-separated: their open issues with no assignee and no label" },
+        { key: "ISSUES_TRIAGE_REPOS", label: "Repos to triage", help: "owner/repo, comma-separated: their open issues with no assignee and no label. Once picked on its setup page, that pick wins" },
         { key: "ISSUES_STALE_DAYS", label: "Stale after (days)", help: "An issue with no change for this long is marked stale (default 14)" },
         // New work's (local): read when Dovre starts.
         { key: "SORTING_REPOS", label: "Repos where work is planned", help: "New work: comma-separated; dev tasks go under their issues" },
@@ -118,6 +136,27 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     // The forge reading issues is enough: `can: issues` is core's GitHub forms (New work), which a read-only forge lacks.
     available: () => !!o.forge.issues,
     refresh: read,
+    setup: {
+      async draw(ctx) {
+        await loadPicked(ctx);
+        const repos = await ctx.forge()?.repos?.().catch(() => undefined);
+        if (!repos) return { body: html`<p class="t2">Dovre hasn't read your repos yet. Give it a minute, or come back later.</p>`, wait: "Waiting for your repos." };
+        const on = new Set(triageOf(ctx));
+        const rows = [...repos.filter((r) => on.has(r)), ...repos.filter((r) => !on.has(r)).sort()].slice(0, MAX_TRIAGE);
+        return {
+          form: true,
+          body: html`<p class="t2">Their open issues with no assignee and no label show up for you to sort. None is fine too.</p>${rows.length ? CheckRows({ name: "repo", label: `${repos.length} repo${repos.length === 1 ? "" : "s"}`, rows: rows.map((r) => ({ value: r, label: r, checked: on.has(r) })) }) : html`<p class="t2">No repos of the owners yet.</p>`}`,
+        };
+      },
+      async save(ctx, _step, form) {
+        const repos = new Set((await ctx.forge()?.repos?.().catch(() => undefined)) ?? []);
+        const want = ([] as string[]).concat(form.repo ?? []).filter((r) => repos.has(r) && REPO.test(r)).slice(0, MAX_TRIAGE);
+        await ctx.db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES (?, ?, ?)").bind(TRIAGE_KEY, JSON.stringify(want), new Date().toISOString()).run();
+        picked = want;
+        void read(ctx);
+        return { ok: true };
+      },
+    },
     nav: (): NavItem[] => [{ href: HREF, title: "Issues", icon: "ticket", group: "Plan" }, ...(o.compose ? [{ href: NEW_WORK, title: "New work", icon: "plus" as const, group: "Plan" }] : [])],
     pages: () => [
       { title: "Issues", href: HREF, icon: "◎", about: "My open issues: assigned, mentioned, opened, triage", also: ["issues", "assigned", "mentions", "triage", "backlog"] },
@@ -158,7 +197,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       );
     },
     lookups: () => forgeLookups({ name: o.forge.name ?? "GitHub", thread: o.forge.thread, searchThreads: o.forge.searchThreads }, o.owners),
-    bino: (ctx) => binoLine(kept?.sets, fresh(), triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS).length > 0),
+    bino: (ctx) => binoLine(kept?.sets, fresh(), triageOf(ctx).length > 0),
     about: (_ctx, path) => (path.startsWith(HREF) && kept?.sets ? `My open issues page: ${kept.sets.assigned.length} assigned, ${kept.sets.mentioned.length} mentioning me` : undefined),
     routes(app, ctx) {
       if (o.compose) {
@@ -288,7 +327,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
           body: trackerBody({
             kept,
             set: setOf(c.req.query("set")),
-            triage: triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS).length > 0,
+            triage: triageOf(ctx).length > 0,
             staleDays: staleDaysOf(ctx.env.ISSUES_STALE_DAYS),
             now: now(),
             host: o.forge.host,
