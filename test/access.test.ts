@@ -213,6 +213,14 @@ function mockD1(): D1 {
   };
 }
 
+test("worker.fetch: the fonts and icons from the static assets, a revalidated one as 304 (not the app's 404)", async () => {
+  const assets = (status: number) => ({ fetch: async () => new Response(status === 304 ? null : "x", { status }) });
+  const font = (status: number) => worker.fetch(new Request("https://dovre.example.dev/assets/fonts/NordwandMono-Regular.woff2", { headers: { "if-none-match": '"a"' } }), { DB: mockD1(), IS_HOSTED: "1", ASSETS: assets(status) });
+  assert.equal((await font(200)).status, 200);
+  assert.equal((await font(304)).status, 304);
+  assert.equal((await font(404)).status, 503, "a missing one goes on to the app (here: not set up yet)");
+});
+
 test("worker.fetch: /healthz is public (/health is free for a pack); without Access configured, nobody gets in: the setup page says what's missing", async () => {
   resetHostedApp();
   const bindings = { DB: mockD1(), GITHUB_USER: "bergaaberg", IS_HOSTED: "1", GITHUB_TOKEN: "ghp_secret_value" };

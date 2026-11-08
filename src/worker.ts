@@ -407,7 +407,8 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       // The icons and fonts: public, as locally (src/pwa.ts), from the static assets.
       if (bindings.ASSETS && /^\/assets\/(icon[\w-]*\.(png|svg|ico)|fonts\/NordwandMono-\w+\.woff2)$/.test(url.pathname)) {
         const res = await bindings.ASSETS.fetch(new Request(new URL(url.pathname.slice("/assets".length), url), request));
-        if (res.ok) return res;
+        // 304 too: a browser revalidating a cached font gets "not modified", not the app's 404.
+        if (res.ok || res.status === 304) return res;
       }
 
       // Cron over HTTP (hosts without cron triggers): the right Bearer CRON_KEY, else a 404 like any unknown path.
