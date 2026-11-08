@@ -113,40 +113,7 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
   assert.equal((await loadConfig(db.DB)).BINO_VIA, "claude", "a refused form keeps nothing");
 });
 
-test("the first run: Today sends to the first-run page until it's answered or skipped", async () => {
-  const config = { panes: panesOf({}, all), stored: {} as Record<string, string> };
-  const { get, post, db } = signedIn(snapshot(), {}, { config });
-  const first = await get("/");
-  assert.equal(first.status, 303);
-  assert.equal(first.headers.get("location"), "/welcome");
-  const splash = await (await get("/welcome")).text();
-  assert.match(splash, /class="splash-page"/);
-  assert.match(splash, /href="\/welcome\?go=1">Get started/);
-  assert.doesNotMatch(splash, /class="side"/, "no menu on the splash");
-  const page = await (await get("/welcome?go=1")).text();
-  assertInert("welcome", page);
-  assert.match(page, /Found here/);
-  assert.match(page, /name="via\.bino"/);
-  const bad = await post("/welcome", { CODE_DIR: "no<angles" });
-  assert.equal(bad.headers.get("location"), "/welcome?go=1");
-  assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Code folder/);
-  const r = await post("/welcome", { CODE_DIR: "/Users/x/Code", "on.jira": "on", "via.jira": "mcp" });
-  assert.equal(r.headers.get("location"), "/", "no supervisor in a test: straight to Today");
-  const kept = await loadConfig(db.DB);
-  assert.equal(kept.SETUP_DONE, "1");
-  assert.equal(kept.CODE_DIR, "/Users/x/Code");
-  assert.equal((await get("/")).status, 200);
-});
-
-test("skipping the first run keeps nothing but that it was seen", async () => {
-  const config = { panes: panesOf({}, all), stored: {} as Record<string, string> };
-  const { get, post, db } = signedIn(snapshot(), {}, { config });
-  assert.equal((await get("/welcome")).status, 200, "the teams list failing doesn't stop the page");
-  await post("/welcome/skip", {});
-  assert.deepEqual(await loadConfig(db.DB), { SETUP_DONE: "1" });
-  assert.equal((await get("/")).status, 200);
-  assert.match(await (await get("/settings/started")).text(), /^\d+$/);
-});
+// The first run is the climb now: test/welcome.test.ts.
 
 test("without Claude Code, Bino and summaries talk to Copilot through omp: no tools, the system prompt as omp's", async () => {
   const { mkdirSync, mkdtempSync } = await import("node:fs");

@@ -129,6 +129,20 @@ test("the Packs page keeps a pack's manifest and settings inert", async () => {
   assert.equal(out.match(/needs core API/g)?.length, 1, "a version that isn't x.y.z isn't shown");
 });
 
+test("the climb (#417) keeps a pack's name, description, why and setup inert, on the kit and at the summit", async () => {
+  const { PACK_API } = await import("../src/packs/types.ts");
+  const { panesOf } = await import("../src/config.ts");
+  const manifest = { api: PACK_API, id: "hostile", name: H, description: H, domain: "personal" as const, roles: ["dev" as const], markers: ["Dockerfile"], settings: [{ key: "HOSTILE_KEY", label: H, required: true }], onboard: { steps: [{ id: "one", title: H }] } };
+  const config = { panes: panesOf({}, { claude: true, omp: true, pwsh: true, db: true, terminals: true }), stored: {} as Record<string, string> };
+  const { get, post } = signedIn(snapshot(), {}, { config, packs: [{ manifest }] });
+  await post("/welcome/role", { role: "dev", forge: "github" });
+  for (const at of ["welcome", "role", "machine", "q0", "q1", "packs", "summit", `${H}`]) {
+    const res = await get(`/welcome?at=${encodeURIComponent(at)}`);
+    assert.equal(res.status, 200, at);
+    assertInert(`/welcome?at=${at}`, await res.text());
+  }
+});
+
 test("the Packs page keeps a copied pack's state, job output and Update inert; Update goes through the copies", async () => {
   const { PACK_API } = await import("../src/packs/types.ts");
   const manifest = { api: PACK_API, id: "copied", name: H, description: H, domain: "personal" as const };

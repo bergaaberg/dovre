@@ -220,7 +220,7 @@ function addPanel(v: PacksView) {
 
 export function packsPage(frame: Frame, v: PacksView) {
   const hidden = v.on.filter((c) => v.hidden?.includes(c.manifest.id) || v.held?.has(c.manifest.id)).length;
-  const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length - hidden} on, ${v.off.length + hidden} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.` })}
+  const body = html`${PageHeader({ title: "Packs", sub: `${v.on.length - hidden} on, ${v.off.length + hidden} off · ${v.hosted ? "hosted" : "this machine"}. Each is one app Dovre works with, listed in this instance's config, or one of Dovre's own.`, actions: html`<a class="btn sm ghost" href="/welcome?at=role">Suggest packs again</a>` })}
 <div data-live id="packs">
 ${v.hosted && v.releases ? html`<p class="t3">${v.releases.error ? html`Couldn't read dovre-packs' releases: ${v.releases.error}` : html`Checked dovre-packs for newer releases ${Ago(v.releases.at)}${v.releases.available.size ? "" : ": none"}.`}</p>` : ""}
 ${v.on.length || v.off.length
