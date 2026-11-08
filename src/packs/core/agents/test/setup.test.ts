@@ -5,7 +5,7 @@ import { setupOf } from "../../../../agents/sandbox.ts";
 import { allowOf } from "../../../../agents/egress.ts";
 import type { Proposal } from "../../../../actions/propose.ts";
 import { type Pack, PACK_API } from "../../../types.ts";
-import { agentsSetup, BUDGET_MS, byLang, configText, LANGS, SANDBOX_KIND } from "../setup.ts";
+import { agentsSetup, BUDGET_MS, byLang, configText, LANGS, SANDBOX_KIND, STALE_MS } from "../setup.ts";
 import { signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const REPOS: { repo: string; files: Record<string, string> }[] = [
@@ -146,6 +146,8 @@ test("the Agents setup: a press opens what fits in its time; the rest wait for t
     const first = await settle(get, /Open 1 more PR/);
     assert.equal(asked.length, 2, "the third waits: the time ran out");
     assert.match(first, /1 PR to go/);
+    assert.match(first, /not yet/, "the one it didn't reach isn't \"opening\"");
+    assert.doesNotMatch(first, /opening…/);
     assert.match(first, /climb-go" disabled/, "Next waits for it");
     await post("/agents/setup/open", "");
     const all = await settle(get, /All 3 PRs open/);
@@ -154,6 +156,24 @@ test("the Agents setup: a press opens what fits in its time; the rest wait for t
   } finally {
     performance.now = real;
   }
+});
+
+test("the Agents setup: a job gone silent (its isolate died) stops saying it's opening, and the button is back", async () => {
+  const { get, db } = signedIn(snapshot(), {}, {
+    packs: [agentsLike()],
+    forge: { id: "github", name: "GitHub", can: [], host: "github.com", everyRepo: async () => REPOS, propose: async (p) => ({ number: 1, url: `https://github.com/${p.repo}/pull/1` }) },
+  });
+  const put = (running: number) =>
+    db.DB.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES (?, ?, ?)").bind("agents.sandboxes", JSON.stringify({ langs: ["pnpm"], repos: ["ACME/web"], prs: {}, running }), new Date().toISOString()).run();
+  await put(Date.now() - 5_000);
+  const alive = await (await get("/setup/agents?at=open")).text();
+  assert.match(alive, /Opening 1 PR…/);
+  assert.match(alive, /opening…/);
+  await put(Date.now() - STALE_MS - 1_000);
+  const dead = await (await get("/setup/agents?at=open")).text();
+  assert.doesNotMatch(dead, /Opening 1 PR…|opening…/);
+  assert.match(dead, /not yet/);
+  assert.match(dead, /Open 1 more PR/);
 });
 
 test("the Agents setup waits for the repos, and says so when the forge can't open PRs", async () => {
