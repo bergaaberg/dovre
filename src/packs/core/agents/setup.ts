@@ -93,9 +93,9 @@ type Opened = { number: number; url: string } | { error: string };
  * Kept between steps: the languages picked; from Open on, the repos this round is for; and every
  * repo's PR so far, which stays across rounds, so a repo whose PR is open isn't asked again.
  */
-export type Kept = { langs: string[]; repos?: string[]; prs?: Record<string, Opened>; /** When the job started (ms), while it runs. */ running?: number };
-/** A job that said it started this long ago and never finished died with its isolate. */
-const STALE_MS = 2 * 60_000;
+export type Kept = { langs: string[]; repos?: string[]; prs?: Record<string, Opened>; /** When the job last said it's alive (ms): at its start and after each PR, while it runs. */ running?: number };
+/** A job silent this long died with its isolate: a Worker keeps one 30 s past its response. */
+export const STALE_MS = 45_000;
 /** How long one press keeps opening PRs: hosted, a Worker keeps a job 30 s past its response. The rest wait for the next press. */
 export const BUDGET_MS = 20_000;
 const busy = (k: Kept, now = Date.now()) => !!k.running && now - k.running < STALE_MS;
@@ -166,16 +166,16 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
       const prs = k.prs ?? {};
       const failed = k.repos.filter((r) => prs[r] && "error" in prs[r]!);
       const left = k.repos.filter((r) => !prs[r]);
+      const going = busy(k);
       const rows = k.repos.map((r) => {
         const o = prs[r];
         return Item({
           title: html`<code>${r}</code>`,
           ...(o && "error" in o ? { line: o.error } : {}),
           ...(o && "url" in o ? { href: safeUrl(o.url) } : {}),
-          trail: !o ? Pill({ tone: "neutral", children: "opening…" }) : "error" in o ? Pill({ tone: "bad", children: "didn't open" }) : Pill({ tone: "ok", children: `#${o.number} open` }),
+          trail: !o ? Pill({ tone: "neutral", children: going ? "opening…" : "not yet" }) : "error" in o ? Pill({ tone: "bad", children: "didn't open" }) : Pill({ tone: "ok", children: `#${o.number} open` }),
         });
       });
-      const going = busy(k);
       const redo = [...failed, ...left];
       // Never tried (a press opens what fits in its time) or tried and failed: either way, the button opens them.
       const label = failed.length ? `Try ${plural(redo.length, "repo")} again` : `Open ${plural(redo.length, "more PR", "more PRs")}`;
@@ -210,7 +210,7 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
           }).catch((e: unknown) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }))
         : { ok: false as const, error: "The forge can't open PRs." };
       const k = await read(ctx);
-      await keep(ctx, { ...k, prs: { ...k.prs, [repo]: r.ok ? { number: r.number, url: r.url } : { error: r.error.slice(0, 200) } } });
+      await keep(ctx, { ...k, running: Date.now(), prs: { ...k.prs, [repo]: r.ok ? { number: r.number, url: r.url } : { error: r.error.slice(0, 200) } } });
       ctx.publish(["agents"]);
     }
     const { running: _, ...k } = await read(ctx);
