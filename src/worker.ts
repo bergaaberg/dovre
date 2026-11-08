@@ -324,6 +324,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
+      machines: hub ? async () => (await hub.mac()).machines : undefined,
       events: hub?.events,
       live: !!hub,
       bino: hub ? { remote: remoteBino(hub, { route: hostedBinoRoute(bindings as HubEnv), memory, sees: "My list and what your apps share" }) } : undefined,

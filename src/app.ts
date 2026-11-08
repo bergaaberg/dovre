@@ -52,7 +52,11 @@ import { speedPanels } from "./pages/speed.ts";
 import { sentPanels, type SentView } from "./pages/sent.ts";
 import { CATALOG } from "./sent.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
-import { splashPage, welcomePage } from "./pages/welcome.ts";
+import { type ClimbField, type ClimbView, climbPage, type KitTile, startingPage } from "./pages/welcome.ts";
+import { FORGES, answersFrom, type OnboardingStore, onboardingStore } from "./onboarding.ts";
+import { type Answers, INTERVIEW, markersOf, onboardOf, QUESTIONS, ROLES, suggest } from "./packs/suggest.ts";
+import { scanCheckouts } from "./packs/scan.ts";
+import { STEPS, type Step } from "./ui/climb.ts";
 import { type Config, configFromForm, type PaneId, type PanesOn, type PaneState, saveConfig } from "./config.ts";
 import { fixedKeys } from "./env.ts";
 import { found } from "./tools.ts";
@@ -74,7 +78,7 @@ import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } 
 import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
 import { packFeedOf } from "./home/feed.ts";
 import { forgeName, safeUrl } from "./pages/parts.ts";
-import type { AiSummary, ListShare, Pack, PackContext, PackManifest, PackShares, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
+import type { AiSummary, ListShare, Pack, PackContext, PackManifest, PackShares, PrSlotArg, Pulse, Role, TodayCard, WasmFile } from "./packs/types.ts";
 import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
 import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
@@ -144,7 +148,7 @@ function hashBytes(b: Uint8Array): string {
   return (h >>> 0).toString(36);
 }
 
-export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns; in a pack session, its own (#371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** A pack session (#353, src/run.ts): only this pack's pages, sign-in, assets and the event stream; no cockpit. */ session?: { pack: string; /** The one checkout under CODE_DIR its packs see (#368). */ checkout?: string }; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
+export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where slow requests and page loads are written (data/perf.log). */ perfLog?: (line: string) => void; /** Page speed's counts (src/speed.ts); default: this app's own. */ speed?: Speed; ghe: Ghe; /** Settings → Layout's store (default: kept in D1); the demo's is fixed. */ layout?: LayoutStore; /** The forge (src/forge/): what it can't do is hidden. Default: GitHub through `ghe`. */ forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "everyRepo" | "propose">>; /** Local: keeps a pack's picture for the starting page (PackContext.startPicture). */ startPicture?: (svg: string) => void; runner?: Runner; /** Local: the open terminals' MCP tokens (#172), beside the runner's turns; in a pack session, its own (#371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** Local: Settings → Pack tools for agents (#172). */ agentTools?: { view(): Omit<AgentToolsView, "said">; register(h: ToolsHarness): { ok: true } | { ok: false; why: string } }; /** Local mode: opens a checked web address in the system's default browser (src/open-link.ts). */ openUrl?: (href: string) => void; hub?: Hub; notify?: { policy(): Policy; setPolicy(p: Policy): Promise<void>; log(): Rung[]; test(): void; /** Rings these now (a pack's `ctx.ring`, checked). */ ring?(notes: Note[]): void }; info?: { version: string; startedAt: number }; restart?: () => void; /** Kept GHE answers (data/catalog.json). */ kept?: Kept; /** Load what pages need shortly after starting. */ prewarm?: boolean; /** Where the agents' skills are installed (default: the home folder); for tests. */ skillsHome?: string; /** Questions MCP servers put to me through the relay (launcher/relay.go). */ asks?: Asks; /** Bino, the assistant: its model route and memory (src/packs/core/assistant/bino/); hosted, the Durable Object's (src/hosted/client.ts). */ bino?: { route: Route; memory: BinoMemory; file?: string; log?: (line: string) => void } | { remote: Bino }; /** Hosted: a page's event stream comes from the Durable Object (src/hosted/hub.ts). */ events?: () => Promise<Response>; /** Hosted with a hub: pages listen on its /live socket (H5), /events only if that never opens. */ live?: boolean; /** Hosted mode (IS_HOSTED=1): checks Cloudflare Access on every request. Hosted without it, nobody gets in. */ access?: AccessVerifier; /** Which panes run (src/config.ts): `false` is off, gone from the menu, search, Today and its routes. */ panes?: PanesOn; /** What the climb was told (src/onboarding.ts); default: kept in D1. */ onboarding?: OnboardingStore; /** Hosted: the paired machines, for the climb's "Bring your laptop?". */ machines?: () => Promise<{ name?: string; online: boolean }[]>; /** For Settings: each pane's state, and what Settings keeps. */ config?: { panes: Record<PaneId, PaneState>; stored: Config }; /** Hosted: what the instance has and lacks, for Settings' Setup panel (src/hosted/setup.ts). */ setup?: () => SetupLine[]; /** Settings → What Dovre sends (#145): the record of calls home, hosted the hub's, on a machine its bridge's file. */ sent?: () => Promise<SentView>; /** A pack session (#353, src/run.ts): only this pack's pages, sign-in, assets and the event stream; no cockpit. */ session?: { pack: string; /** The one checkout under CODE_DIR its packs see (#368). */ checkout?: string }; /** The packs that run here and those that don't, with why (src/packs/, PLAN D23). */ packs?: { on: Pack[]; off: Off[]; env: Record<string, string | undefined>; bindings?: Record<string, unknown>; /** How long Today waits for a pack's cards (default 250 ms). */ budgetMs?: number; /** How long a pack's page may take before it shows as broken (default 30 s). */ routeMs?: number; /** Dovre's own packs (src/packs/core/), labelled so on the Packs page. */ core?: string[]; /** Local `.dev.vars` path for saving pack settings from `/packs`. */ varsFile?: string; /** Local: packs copied from dovre-packs, and Update (src/packs/copies.ts). */ copies?: Copies } }): App {
   setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
   const app: App = new Hono<AppEnv>();
   // The request each page is drawn for, without passing it down (the packs' bars are told the path).
@@ -773,7 +777,10 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       gatherer.stale();
       return c.redirect("/", 303);
     }
-    if (deps.config && !setUp()) return c.redirect("/welcome", 303);
+    if ((deps.config || hosted) && !deps.session) {
+      await onboarding.ready;
+      if (!setUp()) return c.redirect("/welcome", 303);
+    }
     const { s, frame } = await page();
     const actions = actionsCard(await recentActions(env.DB, 6), packWhere, packWhat);
     const packToday = packs.on.length ? await packCards() : undefined;
@@ -1291,33 +1298,197 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const body = await areaBody(area, frame);
     return c.html(settingsArea(frame, area, { areas: settingsAreas(), rows: await rowsNow(frame), notes, body }));
   });
-  // ── The first-run page (src/pages/welcome.ts): Today sends here until it's answered or skipped ──
-  const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE);
-  let welcomeBad: string[] | undefined;
+  // ── The first run, the climb (src/pages/welcome.ts, #417): Today sends here until it's finished or skipped ──
+  const onboarding = deps.onboarding ?? onboardingStore(env.DB);
+  const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE || onboarding.get().done);
+  /** Local: the folder and owners asked for on the way up, kept at the summit (they need a restart). */
+  let pending: Config = {};
+  let climbBad: string[] | undefined;
+  const stepsOf = (role: Role | undefined): Step[] => STEPS.filter((s) => s !== "machine" || role !== "po");
+  /** Every pack the kit offers: those that run here, and those that can't, with why. */
+  const kitPacks = () => [...packs.on.map((p) => ({ m: p.manifest, off: undefined as string | undefined })), ...packs.off.filter((o) => o.manifest).map((o) => ({ m: o.manifest!, off: o.why }))];
+  const climbDir = () => {
+    return pending.CODE_DIR ?? deps.config?.stored.CODE_DIR ?? env.CODE_DIR;
+  };
+  /** The scan (local, after the role): which markers the checkouts have. */
+  const scanNow = () => {
+    const dir = hosted ? undefined : climbDir();
+    if (!dir) return { dir, checkouts: 0, found: new Map<string, number>() };
+    return { dir, ...scanCheckouts(dir, kitPacks().flatMap((k) => markersOf(k.m))) };
+  };
+  /** What's suggested at a step: only what was asked before it counts. */
+  const suggestedAt = (step: Step, found: Map<string, number>) => {
+    const o = onboarding.get();
+    const steps = stepsOf(o.role);
+    const i = steps.indexOf(step);
+    const past = (s: Step) => steps.includes(s) && steps.indexOf(s) < i;
+    const answers = { ...(past("q0") ? pick(o.answers, INTERVIEW[o.role!]?.[0]) : {}), ...(past("q1") ? pick(o.answers, INTERVIEW[o.role!]?.[1]) : {}) };
+    return suggest(
+      kitPacks().filter((k) => !k.off).map((k) => k.m),
+      past("role") ? o.role : undefined,
+      answers,
+      past("machine") ? found.keys() : [],
+    );
+  };
+  const pick = (a: Answers, qid: string | undefined): Answers => (qid && a[qid] !== undefined ? { [qid]: a[qid] } : {});
+  /** The packs on at the summit: what was ticked, or else what's suggested. */
+  const pickedNow = (found: Map<string, number>) => onboarding.get().picked ?? [...suggestedAt("summit", found).keys()];
   app.get("/welcome", async (c) => {
-    const view = panesView();
-    if (!view) return c.notFound();
-    const { frame } = await page();
-    const bad = welcomeBad;
-    welcomeBad = undefined;
+    if (deps.session) return c.notFound();
+    await onboarding.ready;
     const started = c.req.query("started") === "1" && restarting ? restarting : undefined;
-    // The splash first; Get started opens the setup.
-    if (!started && !bad && c.req.query("go") !== "1") return c.html(splashPage({ version: deps.info?.version ?? "dev" }));
-    return c.html(welcomePage(frame, { setup: setupNow(frame.operator), panes: view, canRestart: !!deps.restart, bad, started }));
-  });
-  app.post("/welcome", async (c) => {
-    if (!deps.config) return c.notFound();
-    const { config, bad } = configFromForm(await c.req.parseBody(), deps.config.stored, fixedKeys(), { panes: true, general: true });
-    if (bad.length) {
-      welcomeBad = bad;
-      return c.redirect("/welcome?go=1", 303);
+    if (started) return c.html(startingPage((await page()).frame, started));
+    const o = onboarding.get();
+    const steps = stepsOf(o.role);
+    const asked = c.req.query("at");
+    let step: Step = steps.find((s) => s === asked) ?? "welcome";
+    if (!o.role && step !== "welcome" && step !== "role") step = "role";
+    const from = steps[steps.indexOf(step) - 1];
+    const bad = climbBad;
+    climbBad = undefined;
+    const scan = step === "welcome" || step === "role" ? undefined : scanNow();
+    const found = scan?.found ?? new Map<string, number>();
+    const flagsAt = (s: Step | undefined) => (!s ? [] : s === "summit" || s === "packs" ? (s === "summit" ? pickedNow(found) : [...suggestedAt(s, found).keys()]) : [...suggestedAt(s, found).keys()]);
+    const now = flagsAt(step);
+    const before = new Set(flagsAt(from));
+    const names = new Map(kitPacks().map((k) => [k.m.id, k.m.name]));
+    const flags = now.filter((id) => names.has(id)).map((id) => ({ name: names.get(id)!, fresh: !before.has(id) }));
+    const view: ClimbView = { step, from, flags, role: o.role, forge: o.forge, bad, look: { theme: layout.get().theme, accent: layout.get().accent, motion: layout.get().motion } };
+    const fixed = fixedKeys();
+    const e = env as unknown as Record<string, string | undefined>;
+    const field = (k: string): ClimbField => (fixed.has(k) ? { value: e[k] ?? "", fixed: true } : { value: pending[k] ?? deps.config?.stored[k] ?? e[k] ?? "", fixed: false });
+    if (deps.config) {
+      view.owners = field("REPO_OWNERS");
+      view.codeDir = field("CODE_DIR");
     }
-    return c.redirect((await keep({ ...config, SETUP_DONE: "1" })) ? "/welcome?started=1" : "/", 303);
+    let refresh: number | undefined;
+    if (step === "machine") {
+      if (hosted) {
+        const online = (await deps.machines?.().catch(() => []))?.find((m) => m.online);
+        const handle = /^([a-z0-9-]+)\.dovre\.dev$/i.exec(c.req.header("host")?.split(":")[0] ?? "")?.[1] ?? "<handle>";
+        view.machine = { kind: "hosted", handle, online: online ? (online.name ?? "your laptop") : undefined };
+        if (!online) refresh = 5;
+      } else {
+        const byMarker = new Map<string, string[]>();
+        for (const k of kitPacks()) for (const mk of markersOf(k.m)) if (found.has(mk)) byMarker.set(mk, [...(byMarker.get(mk) ?? []), k.m.name]);
+        view.machine = { kind: "local", dir: scan?.dir, checkouts: scan?.checkouts ?? 0, found: [...found].map(([marker, n]) => ({ marker, n, packs: byMarker.get(marker) ?? [] })) };
+      }
+    }
+    if (step === "q0" || step === "q1") {
+      const qid = INTERVIEW[o.role!][step === "q0" ? 0 : 1]!;
+      const a = o.answers[qid];
+      view.question = { q: QUESTIONS[qid]!, chosen: Array.isArray(a) ? a : a ? [a] : [] };
+    }
+    if (step === "packs") {
+      const sug = suggestedAt("summit", found);
+      const picked = o.picked ? new Set(o.picked) : undefined;
+      const tiles = kitPacks().map((k): KitTile => ({ id: k.m.id, name: k.m.name, what: k.m.description, why: sug.get(k.m.id) ?? [], on: picked ? picked.has(k.m.id) : sug.has(k.m.id), off: k.off }));
+      const on = new Set(tiles.filter((t) => t.on && !t.off).map((t) => t.id));
+      const needs = kitPacks()
+        .filter((k) => on.has(k.m.id))
+        .map((k) => ({ id: k.m.id, name: k.m.name, keys: manifestSettings(k.m).filter((s) => s.required && !packs.env[s.key]?.trim()).map((s) => s.label) }))
+        .filter((n) => n.keys.length);
+      view.kit = { suggested: tiles.filter((t) => sug.has(t.id)), rest: tiles.filter((t) => !sug.has(t.id)), needs };
+    }
+    if (step === "summit") {
+      const on = new Set(pickedNow(found));
+      const k = kitPacks().filter((x) => !x.off && on.has(x.m.id));
+      const later = k.flatMap((x) => {
+        const ob = onboardOf(x.m);
+        return ob ? [{ id: x.m.id, name: x.m.name, steps: ob.steps.map((s) => s.title) }] : [];
+      });
+      const online = hosted ? (await deps.machines?.().catch(() => []))?.some((m) => m.online) : true;
+      view.summit = { on: k.map((x) => x.m.name), later, waits: hosted && !online, restarts: !!deps.restart && Object.keys(pending).length > 0 };
+    }
+    return noStore(await c.html(climbPage(view, steps, { refresh })));
   });
-  app.post("/welcome/skip", async (c) => {
-    if (!deps.config) return c.notFound();
-    await saveConfig(env.DB, { ...deps.config.stored, SETUP_DONE: "1" });
-    deps.config.stored = { ...deps.config.stored, SETUP_DONE: "1" };
+  const nextOf = (step: Step) => {
+    const steps = stepsOf(onboarding.get().role);
+    return `/welcome?at=${steps[Math.min(steps.length - 1, steps.indexOf(step) + 1)]}`;
+  };
+  /** A local text setting asked on the way: checked as Settings does, kept until the summit. */
+  const askGeneral = (form: Record<string, unknown>, key: string) => {
+    if (!deps.config || typeof form[key] !== "string") return;
+    const { config, bad } = configFromForm({ [key]: form[key] }, { ...deps.config.stored, ...pending }, fixedKeys(), { general: true });
+    if (bad.length) climbBad = bad;
+    else if (config[key] !== (deps.config.stored[key] ?? undefined)) pending = { ...pending, [key]: config[key] ?? "" };
+    else {
+      const { [key]: _, ...rest } = pending;
+      pending = rest;
+    }
+    return bad.length === 0;
+  };
+  app.post("/welcome/role", strictOrigin, async (c) => {
+    if (deps.session) return c.notFound();
+    await onboarding.ready;
+    const f = await c.req.parseBody();
+    const role = typeof f.role === "string" && Object.hasOwn(ROLES, f.role) ? (f.role as Role) : undefined;
+    if (!role) return c.redirect("/welcome?at=role", 303);
+    const forge = FORGES.find(([x]) => x === f.forge)?.[0] ?? "github";
+    const was = onboarding.get();
+    // A new role asks new questions: the old answers and picks no longer fit.
+    await onboarding.save(was.role === role ? { ...was, forge } : { answers: {}, role, forge, done: was.done });
+    if (askGeneral(f, "REPO_OWNERS") === false) return c.redirect("/welcome?at=role", 303);
+    return c.redirect(nextOf("role"), 303);
+  });
+  app.post("/welcome/machine", strictOrigin, async (c) => {
+    if (deps.session || hosted) return c.notFound();
+    askGeneral(await c.req.parseBody(), "CODE_DIR");
+    return c.redirect("/welcome?at=machine", 303);
+  });
+  for (const step of ["q0", "q1"] as const)
+    app.post(`/welcome/${step}`, strictOrigin, async (c) => {
+      if (deps.session) return c.notFound();
+      await onboarding.ready;
+      const o = onboarding.get();
+      if (!o.role) return c.redirect("/welcome?at=role", 303);
+      const qid = INTERVIEW[o.role][step === "q0" ? 0 : 1]!;
+      const f = await c.req.parseBody({ all: true });
+      const a = [f.a ?? []].flat().filter((x): x is string => typeof x === "string");
+      const answers = answersFrom({ ...o.answers, [qid]: QUESTIONS[qid]!.multi ? a : a[0] });
+      if (!QUESTIONS[qid]!.multi && answers[qid] === undefined) return c.redirect(`/welcome?at=${step}`, 303);
+      // New answers suggest anew: what was ticked before is forgotten.
+      await onboarding.save({ ...o, answers, picked: undefined });
+      return c.redirect(nextOf(step), 303);
+    });
+  app.post("/welcome/packs", strictOrigin, async (c) => {
+    if (deps.session) return c.notFound();
+    await onboarding.ready;
+    const f = await c.req.parseBody({ all: true });
+    const can = new Set(packs.on.map((p) => p.manifest.id));
+    const picked = [f.pack ?? []].flat().filter((x): x is string => typeof x === "string" && can.has(x));
+    await onboarding.save({ ...onboarding.get(), picked });
+    return c.redirect(nextOf("packs"), 303);
+  });
+  /** The summit's Open Today: the picked packs on and the rest off (Packs page), the folder and owners kept. */
+  app.post("/welcome/done", strictOrigin, async (c) => {
+    if (deps.session) return c.notFound();
+    await onboarding.ready;
+    const on = new Set(pickedNow(scanNow().found));
+    const was = layout.get().packsOff ?? [];
+    const ids = packs.on.map((p) => p.manifest.id);
+    await layout.save({ ...layout.get(), packsOff: [...new Set([...was.filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] });
+    await onboarding.save({ ...onboarding.get(), picked: [...on], done: true });
+    deps.hub?.publish(["snapshot", "packs"]);
+    if (!deps.config) return c.redirect("/", 303);
+    const config: Config = { ...deps.config.stored, ...pending, SETUP_DONE: "1" };
+    for (const [k, v] of Object.entries(pending)) if (v === "") delete config[k];
+    const changed = Object.keys(pending).length > 0;
+    pending = {};
+    if (changed) return c.redirect((await keep(config)) ? "/welcome?started=1" : "/", 303);
+    await saveConfig(env.DB, config);
+    deps.config.stored = config;
+    return c.redirect("/", 303);
+  });
+  app.post("/welcome/skip", strictOrigin, async (c) => {
+    if (deps.session) return c.notFound();
+    await onboarding.ready;
+    await onboarding.save({ ...onboarding.get(), done: true });
+    pending = {};
+    if (deps.config) {
+      await saveConfig(env.DB, { ...deps.config.stored, SETUP_DONE: "1" });
+      deps.config.stored = { ...deps.config.stored, SETUP_DONE: "1" };
+    }
     return c.redirect("/", 303);
   });
   /** The Panes form, or the Work form: kept, then Dovre starts again with it (under the supervisor). */

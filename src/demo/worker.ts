@@ -273,6 +273,8 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       ghe,
       // GitHub as the pages name it; packs read nothing from it (no `work`): the avatar keeps its starting shape.
       forge: { id: "github", name: "GitHub", can: FORGE_CAN, host },
+      // The demo is past the first run: Today, not the climb.
+      onboarding: { ready: Promise.resolve(), get: () => ({ answers: {}, done: true }), save: async () => {} },
       layout: !opts.layout ? fixedLayout({ tabs: ["/prs", "/agents", "/deploys"] }) : "get" in opts.layout ? opts.layout : fixedLayout(opts.layout),
       bino,
       // The one open door: everyone is the demo visitor. Only this entry passes it.
