@@ -1,7 +1,7 @@
 /** Dependabot cleanup (dovre#108): the queue, combining a repo's bumps into one PR, and the page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addGroups, bumpedPackage, pipName, combine, combinedBody, loadQueue, mergeCombined, withGroups } from "../act.ts";
+import { addGroups, bumpedPackage, bumpLevel, pipName, combine, combinedBody, combinedLevels, loadQueue, mergeCombined, withGroups } from "../act.ts";
 import { openDb } from "../../../../db.ts";
 import type { Ghe } from "../../../../sources/ghe.ts";
 import { H, assertInert, fakeGhe, signedIn, snapshot } from "../../../../../test/helpers.ts";
@@ -31,6 +31,29 @@ test("bumpedPackage reads the package from a bump's title", () => {
   assert.equal(bumpedPackage("Bump lodash from 4.17.20 to 4.17.21"), "lodash");
   assert.equal(bumpedPackage("build(deps): bump @types/node from 24.1 to 24.2"), "@types/node");
   assert.equal(bumpedPackage("Bump the npm group across 1 directory with 3 updates"), undefined);
+});
+
+test("bumpLevel (#426): patch, minor or major by the version numbers; below 1.0 a minor is major; none it can't tell", () => {
+  assert.equal(bumpLevel("Bump lodash from 4.17.20 to 4.17.21"), "patch");
+  assert.equal(bumpLevel("Bump hono from 4.1 to 4.2 in /web"), "minor");
+  assert.equal(bumpLevel("Bump x from 1 to 2"), "major");
+  assert.equal(bumpLevel("Bump x from v2.3.0 to v2.3.1"), "patch");
+  assert.equal(bumpLevel("Bump x from 0.4.1 to 0.5.0"), "major");
+  assert.equal(bumpLevel("Bump x from 0.4.1 to 0.4.2"), "patch");
+  assert.equal(bumpLevel("Bump x from 1.2.0-beta.1 to 1.3.0"), "minor");
+  assert.equal(bumpLevel("Bump x from 1a2b3c4 to 5d6e7f8"), undefined, "commit SHAs");
+  assert.equal(bumpLevel("Bump the npm group across 1 directory with 3 updates"), undefined, "grouped");
+});
+
+test("combinedLevels (#426): from the bumps its body lists; unknown when one can't be told or the title counts more", () => {
+  const body = (lines: string[]) => `Combines.\n\n**Bumps**\n${lines.join("\n")}\n\nOpened by Dovre.`;
+  assert.deepEqual(combinedLevels("Dependency updates (2)", body(["- #1 Bump a from 1.0.0 to 1.0.1", "- #2 Bump b from 1.0.0 to 1.0.2"])), ["patch"]);
+  assert.deepEqual(combinedLevels("Dependency updates (2)", body(["- #1 Bump a from 1 to 2", "- #2 Bump b from 1.0.0 to 1.0.2"])), ["patch", "major"]);
+  assert.equal(combinedLevels("Dependency updates (2)", body(["- #1 Bump a from 1.0.0 to 1.0.1", "- #2 Bump the npm group with 3 updates"])), undefined);
+  assert.equal(combinedLevels("Dependency updates (3)", body(["- #1 Bump a from 1.0.0 to 1.0.1", "- #2 Bump b from 1.0.0 to 1.0.2"])), undefined, "relock added one the body doesn't list");
+  assert.equal(combinedLevels("Dependency updates (0)", ""), undefined);
+  const real = combinedBody([pull(1, "Bump a from 1.0.0 to 1.0.1"), pull(2, "Bump b from 2.1 to 2.2")] as never, [{ pr: pull(3, "Bump c from 1 to 2"), why: "conflicts" }] as never, new Set([1]));
+  assert.deepEqual(combinedLevels("Dependency updates (2)", real), ["patch", "minor"], "what combine() writes, security first, left-out ignored");
 });
 
 test("pipName compares Python packages as PyPI does", () => {
@@ -90,7 +113,7 @@ test("loadQueue: by repo, owners only, security fixes first, alerts unreadable s
           { number: 4, title: "Bump c from 1 to 2", url: "u4", createdAt: "2026-10-03T00:00:00Z", repository: { nameWithOwner: "other/x" } },
           { number: 5, title: "Bump Typing_Extensions from 4.1 to 4.2", url: "u5", createdAt: "2026-10-04T00:00:00Z", repository: { nameWithOwner: "ACME/web" } },
         ] },
-        mine: { nodes: [{ number: 9, url: "u9", headRefName: "dovre/dependabot-1", mergeable: "MERGEABLE", commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, repository: { nameWithOwner: "ACME/web" } }, { number: 8, url: "u8", headRefName: "feature", repository: { nameWithOwner: "ACME/api" } }] },
+        mine: { nodes: [{ number: 9, title: "Dependency updates (2)", body: "Combines 2.\n\n**Bumps**\n- #1 Bump a from 1.0.0 to 1.0.1\n- #2 Bump lodash from 1.1 to 1.2\n\n**Left out (1)**: merge these.\n- #3 Bump b from 1 to 2 (conflicts)", url: "u9", headRefName: "dovre/dependabot-1", mergeable: "MERGEABLE", commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] }, repository: { nameWithOwner: "ACME/web" } }, { number: 8, url: "u8", headRefName: "feature", repository: { nameWithOwner: "ACME/api" } }] },
       } as T;
     },
     async rest<T>(path: string) {
@@ -101,7 +124,7 @@ test("loadQueue: by repo, owners only, security fixes first, alerts unreadable s
   const q = await loadQueue(ghe, "ACME");
   assert.deepEqual(q.repos.map((r) => [r.repo, r.prs.map((p) => p.number), r.security, r.combined?.number]), [["ACME/web", [2, 5, 1], 2, 9], ["ACME/api", [3], 0, undefined]]);
   assert.deepEqual(q.alertsUnread, ["ACME/api"]);
-  assert.deepEqual(q.repos[0]!.combined, { number: 9, url: "u9", checks: "SUCCESS", mergeable: "MERGEABLE", draft: false });
+  assert.deepEqual(q.repos[0]!.combined, { number: 9, url: "u9", checks: "SUCCESS", mergeable: "MERGEABLE", draft: false, levels: ["patch", "minor"] }, "the left-out major isn't in it");
 });
 
 test("mergeCombined (#108): only an open, green, mergeable PR from one of Dovre's combine branches, squashed at its head; each refusal logged", async () => {
@@ -177,6 +200,36 @@ test("page: combined PRs list their state; only green ones can be ticked, then m
   for (let i = 0; i < 50 && !/Merged 0 of 2/.test((text = await (await get("/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
   assert.match(text, /Merged 0 of 2\. A PR outside the owners&#39;? repos was left alone\./);
   assert.equal((await post("/dependabot/merge", "pick=ACME/web%239", { origin: "https://evil.example" })).status, 403, "only from this app");
+});
+
+test("page (#426): a green combined PR with only the picked levels starts ticked; unknown levels, red ones and no pick don't", async () => {
+  const { dependabotBody } = await import("../view.ts");
+  const repo = (name: string, combined: Record<string, unknown>) => ({ repo: name, oldest: "2026-10-01T00:00:00Z", security: 0, prs: [], combined: { url: "u", draft: false, checks: "SUCCESS", mergeable: "MERGEABLE", ...combined } as never });
+  const repos = [repo("ACME/web", { number: 9, levels: ["patch"] }), repo("ACME/api", { number: 8, levels: ["patch", "major"] }), repo("ACME/db", { number: 7 }), repo("ACME/ui", { number: 6, levels: ["minor"], checks: "PENDING" })];
+  const page = String(dependabotBody({ org: "ACME", repos, auto: ["patch", "minor"] }));
+  assert.match(page, /value="ACME\/web#9" aria-label="[^"]*" checked/);
+  assert.match(page, /value="ACME\/api#8" aria-label="[^"]*">/, "a major in it");
+  assert.match(page, /value="ACME\/db#7" aria-label="[^"]*">/, "levels unknown");
+  assert.match(page, /Green ones with only patch and minor bumps start ticked\. <a href="\/setup\/dependabot">Change<\/a>/);
+  assert.match(page, /patch, major/, "its levels are listed");
+  assert.match(String(dependabotBody({ org: "ACME", repos, auto: ["patch", "minor", "major"] })), /value="ACME\/api#8" aria-label="[^"]*" checked/);
+  assert.match(String(dependabotBody({ org: "ACME", repos, auto: [] })), /None start ticked/);
+  const unset = String(dependabotBody({ org: "ACME", repos }));
+  assert.doesNotMatch(unset, / checked/, "before its setup, as before");
+  assert.doesNotMatch(unset, /start ticked/);
+});
+
+test("its setup (#426): patch and minor ticked to start, the pick kept in Dovre's settings and what /dependabot starts ticked", async () => {
+  const { get, post, db } = signedIn(snapshot(), { "GET /search/issues": { items: [] } });
+  const first = await (await get("/setup/dependabot")).text();
+  assert.match(first, /value="patch" checked[\s\S]*value="minor" checked[\s\S]*value="major">/);
+  assert.match(first, /You still press Merge/);
+  await post("/setup/dependabot/next", "step=merge&level=patch&level=major&level=evil");
+  const row = await db.DB.prepare("SELECT value FROM settings WHERE key = 'dependabot.merge'").first<{ value: string }>();
+  assert.deepEqual(JSON.parse(row!.value), ["patch", "major"], "known levels only");
+  assert.match(await (await get("/setup/dependabot")).text(), /value="patch" checked[\s\S]*value="minor">[\s\S]*value="major" checked/, "drawn again from the pick");
+  await post("/setup/dependabot/next", "step=merge");
+  assert.equal((await db.DB.prepare("SELECT value FROM settings WHERE key = 'dependabot.merge'").first<{ value: string }>())!.value, "[]", "none is fine");
 });
 
 test("page: the Dependabot tab, a repo outside the owners refused, a combine runs after the redirect", async () => {
