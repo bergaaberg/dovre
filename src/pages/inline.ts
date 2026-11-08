@@ -3,12 +3,11 @@
  * reviews, description) and what a deploy ships. GHE is one "Open ↗" away, in a new tab.
  */
 import { html } from "hono/html";
-import type { Summary } from "../ai/summaries.ts";
 import { deploySummaryKey, prSummaryKey, type Result } from "../gather.ts";
 import { type Changelog, groupChanges, KIND_TITLE } from "../sources/changelog.ts";
 import { inFiles, type Pr } from "../sources/ghe.ts";
 import { type Child, type Html, KeyValues, Notice, Pill } from "../ui/kit.ts";
-import type { PrSlotArg, RefRule } from "../packs/types.ts";
+import type { AiSummary as Summary, PrSlotArg, RefRule } from "../packs/types.ts";
 import { appRefs } from "../todo/links.ts";
 import { markdown } from "../ui/markdown.ts";
 import { Ago, Link, prPills, safeUrl } from "./parts.ts";

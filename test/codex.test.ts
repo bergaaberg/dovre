@@ -110,7 +110,6 @@ test("Bino and summaries go through Codex only when it's chosen, read-only in an
   assert.equal(route.ready, true);
   assert.equal((await route.ask!({ system: "s", user: "u" })).text, "Short.");
   assert.equal(panesOf({ BINO_VIA: "codex" }, { claude: true, omp: false, pwsh: false, db: false, terminals: false }).bino.why, "Needs Codex (`codex` on the PATH, or CODEX_BIN).");
-  assert.equal(panesOf({ SUMMARIES: "codex" }, { claude: true, omp: false, codex: true, pwsh: false, db: false, terminals: false }).summaries.on, true);
 });
 
 test("each agent CLI switches off on its own (AGENT_HARNESSES); unset, all of them", () => {

@@ -46,7 +46,7 @@ ${o.bad?.length ? Notice({ tone: "bad", children: html`Not saved: ${o.bad.join("
 ${setupPanel(o.setup, "Found here")}
 <form method="post" action="/welcome" id="welcome">
 ${Panel({ title: "Your work", children: html`<div class="fields aligned">${GENERAL.map((g) => fieldInput(g, o.panes.values[g.key], o.panes.fixed.has(g.key), g.key === "TEAM" ? o.teams : undefined))}</div>` })}
-${Panel({ title: "Panes", children: html`<p class="notes">Turn off what you don't use: it's gone from the menu and does nothing in the background.</p>${paneSets(o.panes)}` })}
+${Panel({ title: "Bino", children: html`<p class="notes">How the assistant answers. Everything else is a pack, switched on or off on Packs.</p>${paneSets(o.panes)}` })}
 <div class="buttons"><button type="submit" class="primary" data-busy="Starting">Start</button></div>
 </form>
 <form method="post" action="/welcome/skip" class="welcome-skip"><button type="submit" class="ghost">Skip for now</button></form>`;

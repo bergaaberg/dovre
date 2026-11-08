@@ -10,7 +10,6 @@
 import type { D1 } from "./db.ts";
 import type { Env } from "./env.ts";
 import { viaOf } from "./packs/core/assistant/bino/route.ts";
-import { summariesVia } from "./tools.ts";
 
 export type Choice = { value: string; label: string };
 /**
@@ -24,7 +23,7 @@ export type Field =
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "text"; pattern: RegExp }
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "set"; choices: Choice[] };
 
-export const PANE_IDS = ["bino", "terminal", "docker", "summaries"] as const;
+export const PANE_IDS = ["bino", "terminal", "docker"] as const;
 export type PaneId = (typeof PANE_IDS)[number];
 
 /** What this machine has: a pane that needs something missing can't run, whatever its switch says. */
@@ -65,14 +64,6 @@ export const PANES: Pane[] = [
     ],
     options: [],
   },
-  {
-    id: "summaries",
-    name: "AI summaries",
-    what: "A short summary on each PR and deploy, from the PR's own text",
-    key: "SUMMARIES",
-    on: [{ value: "claude", label: "Claude (Haiku)" }, { value: "omp", label: "Copilot (omp)" }, { value: "copilot", label: "Copilot CLI" }, { value: "agy", label: "Antigravity (agy): keeps its tools" }, { value: "codex", label: "Codex: keeps its tools, read-only" }],
-    options: [],
-  },
 ];
 
 /** The settings that aren't a pane: where things are, and who I work with. */
@@ -102,7 +93,7 @@ export type PaneState = { id: PaneId; wanted: boolean; on: boolean; via?: string
 const isOff = (v: string | undefined) => /^(off|no|false|0)$/i.test((v ?? "").trim());
 
 /** The panes' old on/off switches, now their packs' (#271): an old "off" turns the pack off. */
-export const LEGACY_SWITCHES: Record<string, string> = { TERMINAL: "terminal", DOCKER: "docker", BINO_VIA: "assistant", ASSISTANT_VIA: "assistant", STATS: "history", REVIEWS: "reviews" };
+export const LEGACY_SWITCHES: Record<string, string> = { TERMINAL: "terminal", DOCKER: "docker", BINO_VIA: "assistant", ASSISTANT_VIA: "assistant", STATS: "history", REVIEWS: "reviews", SUMMARIES: "summaries" };
 /** The packs an old pane switch in `v` has off. */
 export const legacyOff = (v: Record<string, unknown>): string[] => [...new Set(Object.entries(LEGACY_SWITCHES).filter(([k]) => typeof v[k] === "string" && isOff(v[k] as string)).map(([, id]) => id))];
 
@@ -145,8 +136,6 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
   const noApiKey = "Needs ASSISTANT_API_KEY (or ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY) in .dev.vars.";
   const noOpenRouter = "Needs OPENROUTER_API_KEY in .dev.vars.";
   const noGateway = "Needs CF_ACCOUNT_ID and CF_AIG_TOKEN in .dev.vars.";
-  const sumVia = summariesVia(v.SUMMARIES, f.claude, f.omp, cli, !!f.agy);
-  const sumCan = sumVia === "claude" ? f.claude : sumVia === "omp" ? copilot : sumVia === "copilot" ? cli : sumVia === "agy" ? !!f.agy : sumVia === "codex" ? !!f.codex : false;
   return {
     bino: {
       id: "bino",
@@ -175,7 +164,6 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
     // On or off as their packs are: these say only whether they can run here.
     terminal: simple("terminal", undefined, f.terminals, "Needs the launcher built (go build -o ../bin/dovre . in launcher/, or scripts/install.ps1)."),
     docker: simple("docker", undefined, windows ? f.dockerPipe !== false : !!f.dockerSocket, windows ? "No Docker Engine on its pipe: set up berth (github.com/bergaaberg/berth, Docker Engine without Docker Desktop) or start Docker Desktop, then restart Dovre." : "No Docker Engine socket found (looked in ~/.docker/run/docker.sock, ~/.orbstack/run/docker.sock, ~/.colima/default/docker.sock, /var/run/docker.sock)."),
-    summaries: { id: "summaries", wanted: sumVia !== "off", on: sumCan, via: sumVia, why: sumVia !== "off" && !sumCan ? (sumVia === "claude" ? "Needs Claude Code (`claude` on the PATH)." : sumVia === "copilot" ? noCli : sumVia === "agy" ? noAgy : sumVia === "codex" ? noCodex : noCopilot) : undefined },
   };
 }
 

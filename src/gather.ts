@@ -5,7 +5,6 @@
  */
 import { ownersIn } from "./owners.ts";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { type Summaries, deployPrompt, prPrompt } from "./ai/summaries.ts";
 import type { Env } from "./env.ts";
 import type { Changelog } from "./sources/changelog.ts";
 import type { Deploy, Fetch, Move, Note, Pr, PrRef, RedBranch } from "./sources/ghe.ts";
@@ -126,7 +125,6 @@ export function createGatherer(deps: {
   /** First name for the greeting. */
   name?: string;
   fetchFn?: Fetch;
-  summaries?: Summaries;
   /** PR links the packs' pages show (src/packs/registry.ts linkedFrom): their state and title go in `refs`. */
   linked?: () => string[];
   ttlMs?: number;
@@ -188,19 +186,6 @@ export function createGatherer(deps: {
     const changelog = forge.changelog;
     if (deploys.ok && changelog)
       await Promise.all(deploys.value.map(async (d) => changelogs.set(d.id, await settle(changelog(d.repo, d.envs[0]?.name ?? "prod", d.headSha)))));
-
-    // Summaries in the background: every open PR at its head commit, every deploy's changelog.
-    const sum = deps.summaries;
-    if (sum) {
-      if (prs.ok)
-        for (const p of [...prs.value.review, ...prs.value.mine])
-          if (p.headSha) sum.want(prSummaryKey(p), () => prPrompt({ ...p, files: p.files }));
-      for (const [, c] of changelogs)
-        if (c.ok && c.value.changes.length) {
-          const days = c.value.prodAt ? Math.max(1, Math.round((now() - Date.parse(c.value.prodAt)) / 86400e3)) : 0;
-          sum.want(deploySummaryKey(c.value), () => deployPrompt({ repo: c.value.repo, days, items: c.value.changes.map((x) => ({ kind: x.kind, title: x.title, author: x.author })) }));
-        }
-    }
 
     return { at: now(), began, login, org: env.GHE_ORG, prs, notes, moves, deploys, refs, changelogs, red, name: deps.name ?? login };
   }

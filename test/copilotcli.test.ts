@@ -78,11 +78,8 @@ test("Bino and summaries pick Copilot CLI when it's the only way in, or when ask
   const p = panesOf({}, { ...base, copilotCli: true });
   assert.equal(p.bino.via, "copilot");
   assert.equal(p.bino.on, true);
-  assert.equal(p.summaries.via, "copilot");
-  assert.equal(p.summaries.on, true);
-  const missing = panesOf({ BINO_VIA: "copilot", SUMMARIES: "copilot" }, { ...base, claude: true });
+  const missing = panesOf({ BINO_VIA: "copilot" }, { ...base, claude: true });
   assert.match(missing.bino.why ?? "", /Copilot CLI/);
-  assert.match(missing.summaries.why ?? "", /Copilot CLI/);
   const route = routeOf({ via: "copilot", copilotCli: async ({ user }) => ({ text: `> ${user}`, cost: 0 }), copilotCliModel: "gpt-6-luna" });
   assert.equal(route.ready, true);
   assert.equal(route.model, "gpt-6-luna");
