@@ -15,7 +15,7 @@ import { Ago, Link, prPills, safeUrl } from "./parts.ts";
 import { type ForgeView, forgeCan, GITHUB_VIEW } from "../forge/types.ts";
 
 export type SummaryOf = (key: string) => Summary | undefined;
-/** The agent-review block for a PR card (src/pages/reviews.ts), when agents can run here. */
+/** What the packs put on a PR card ("pr.agent" slot: the reviews pack). */
 export type AgentOf = (p: Pr) => Html | "";
 
 export const prAnchor = (p: { repo: string; number: number }) => `pr-${p.repo.replace(/[^\w-]/g, "-")}-${p.number}`;

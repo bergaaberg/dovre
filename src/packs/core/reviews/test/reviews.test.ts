@@ -4,15 +4,19 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { HarnessId, Run, Runner, StartOpts } from "../src/agents/runner.ts";
-import { createApp } from "../src/app.ts";
-import { openDb } from "../src/db.ts";
-import type { Snapshot } from "../src/gather.ts";
-import { logAction, recentActions } from "../src/actions/deploys.ts";
-import { checkReview } from "../src/actions/reviews.ts";
-import { actingAs } from "../src/actor.ts";
-import { allowedFor, kindFor, REVIEW_ALLOWED, reviewPrompt, skillOf } from "../src/reviews/agent.ts";
-import { H, assertInert, fakeGhe, pr, snapshot } from "./helpers.ts";
+import type { HarnessId, Run, Runner, StartOpts } from "../../../../agents/runner.ts";
+import { modelOf } from "../../../../agents/desk.ts";
+import { createApp } from "../../../../app.ts";
+import { openDb } from "../../../../db.ts";
+import type { Snapshot } from "../../../../gather.ts";
+import { logAction, recentActions } from "../../../../actions/deploys.ts";
+import { checkReview } from "../../../../actions/reviews.ts";
+import { actingAs } from "../../../../actor.ts";
+import { activePacks } from "../../../registry.ts";
+import { H, assertInert, fakeGhe, pr, snapshot } from "../../../../../test/helpers.ts";
+import { allowedFor, kindFor, REVIEW_ALLOWED, reviewPrompt, skillOf } from "../agent.ts";
+import { reviewsPack } from "../index.ts";
+import type { PackContext } from "../../../types.ts";
 
 const URL_ = "https://acme.ghe.com/ACME/people/pull/7";
 
@@ -113,7 +117,9 @@ function appWith(s: { snap: Snapshot }, opts: { runner?: ReturnType<typeof fakeR
   const fr = opts.runner ?? fakeRunner(opts.harnesses);
   const gatherer = { get: async () => s.snap, stale: () => {}, gathering: () => false, peek: () => s.snap };
   const { ghe, calls } = fakeGhe(opts.routes ?? {});
-  const app = createApp({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: code, CLAUDE_DIR: join(home, "nope"), DB: db.DB }, { gatherer, ghe, runner: fr.runner, skillsHome: home });
+  const pack = reviewsPack({ runner: fr.runner, ghe, owners: () => "ACME", dirOf: (repo) => (repo === "ACME/people" ? join(code, "people") : undefined), codeDir: code, claudeDir: join(home, "nope"), home, modelOf });
+  const packs = { ...activePacks([pack], { env: {}, hosted: false }), env: {} };
+  const app = createApp({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: code, CLAUDE_DIR: join(home, "nope"), DB: db.DB }, { gatherer, ghe, runner: fr.runner, skillsHome: home, packs });
   const get = async (path: string) => {
     const res = await app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token" } });
     return { status: res.status, text: await res.text(), location: res.headers.get("location") };
@@ -122,7 +128,7 @@ function appWith(s: { snap: Snapshot }, opts: { runner?: ReturnType<typeof fakeR
     const res = await app.request(`http://localhost${path}`, { method: "POST", headers: { cookie: "u_tk=test-token", origin: "http://localhost", "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });
     return { status: res.status, text: await res.text(), location: res.headers.get("location") };
   };
-  return { get, post, ...fr, db, code, calls };
+  return { get, post, ...fr, db, code, calls, pack };
 }
 
 const theirs = (o: Parameters<typeof pr>[0] = {}) => pr({ repo: "ACME/people", number: 7, url: URL_, author: "per-hansen", title: H, headSha: "aaa1111", ...o });
@@ -133,9 +139,9 @@ test("review someone's PR: confirm, one run per click, running, then the report 
   const w = appWith(s);
   const prs = await w.get("/prs");
   assertInert("/prs", prs.text);
-  assert.match(prs.text, /href="\/prs\/agent\?pr=ACME%2Fpeople%237&amp;kind=review">Review with an agent…/);
+  assert.match(prs.text, /href="\/reviews\/agent\?pr=ACME%2Fpeople%237&amp;kind=review">Review with an agent…/);
 
-  const confirm = await w.get("/prs/agent?pr=ACME%2Fpeople%237&kind=review");
+  const confirm = await w.get("/reviews/agent?pr=ACME%2Fpeople%237&kind=review");
   assert.equal(confirm.status, 200);
   assertInert("confirm", confirm.text);
   assert.match(confirm.text, /\/review https:\/\/acme\.ghe\.com\/ACME\/people\/pull\/7/);
@@ -143,7 +149,7 @@ test("review someone's PR: confirm, one run per click, running, then the report 
   assert.equal(w.started.length, 0, "showing the confirm page starts nothing");
 
   const nonce = nonceOf(confirm.text);
-  const go = await w.post("/prs/agent", { pr: "ACME/people#7", kind: "review", nonce, harness: "claude", model: "" });
+  const go = await w.post("/reviews/agent", { pr: "ACME/people#7", kind: "review", nonce, harness: "claude", model: "" });
   assert.equal(go.status, 303);
   assert.equal(go.location, "/agents/r/run-1");
   assert.equal(w.started.length, 1);
@@ -153,8 +159,8 @@ test("review someone's PR: confirm, one run per click, running, then the report 
   assert.deepEqual(o.allowed, [...REVIEW_ALLOWED]);
   assert.match(o.prompt, /^\/review https:/);
 
-  assert.equal((await w.post("/prs/agent", { pr: "ACME/people#7", kind: "review", nonce, harness: "claude" })).location, "/agents/r/run-1", "a double click lands on the same run");
-  const again = await w.post("/prs/agent", { pr: "ACME/people#7", kind: "review", nonce: nonceOf((await w.get("/prs/agent?pr=ACME%2Fpeople%237&kind=review")).text), harness: "claude" });
+  assert.equal((await w.post("/reviews/agent", { pr: "ACME/people#7", kind: "review", nonce, harness: "claude" })).location, "/agents/r/run-1", "a double click lands on the same run");
+  const again = await w.post("/reviews/agent", { pr: "ACME/people#7", kind: "review", nonce: nonceOf((await w.get("/reviews/agent?pr=ACME%2Fpeople%237&kind=review")).text), harness: "claude" });
   assert.equal(again.location, "/agents/r/run-1", "a second confirm page while it runs goes to the running one");
   assert.equal(w.started.length, 1, "one run");
   assert.match((await w.get("/prs")).text, /Agent review<\/span> running, for/);
@@ -183,45 +189,44 @@ test("assess the review on my PR: the triage skill, apply nothing, in my checkou
   const prs = (await w.get("/prs")).text;
   assert.match(prs, /kind=triage">Assess the review with an agent…/);
   assert.equal((prs.match(/Assess the review with an agent/g) ?? []).length, 1, "only the reviewed one");
-  const confirm = await w.get("/prs/agent?pr=ACME%2Fpeople%239&kind=triage");
-  await w.post("/prs/agent", { pr: "ACME/people#9", kind: "triage", nonce: nonceOf(confirm.text), harness: "omp" });
+  const confirm = await w.get("/reviews/agent?pr=ACME%2Fpeople%239&kind=triage");
+  await w.post("/reviews/agent", { pr: "ACME/people#9", kind: "triage", nonce: nonceOf(confirm.text), harness: "omp" });
   assert.equal(w.started.length, 1);
   assert.equal(w.started[0]!.harness, "omp");
   assert.match(w.started[0]!.prompt, /^Read the skill at .*review-triage.*SKILL\.md/, "omp has no installed skill here: it reads the file");
   assert.match(w.started[0]!.prompt, /Apply nothing and post nothing/);
   assert.deepEqual(w.started[0]!.allowed, [], "omp gets no allows");
-  assert.equal((await w.get("/prs/agent?pr=ACME%2Fpeople%239&kind=review")).location, "/prs", "my own PR isn't reviewed as someone else's");
+  assert.equal((await w.get("/reviews/agent?pr=ACME%2Fpeople%239&kind=review")).location, "/prs", "my own PR isn't reviewed as someone else's");
 });
 
 test("no checkout: say so with the clone command, and start nothing", async () => {
   const w = appWith({ snap: snapshot({ prs: { ok: true, value: { mine: [], review: [theirs({ repo: "ACME/elsewhere", url: "https://acme.ghe.com/ACME/elsewhere/pull/7" })] } } }) });
-  const confirm = await w.get("/prs/agent?pr=ACME%2Felsewhere%237&kind=review");
+  const confirm = await w.get("/reviews/agent?pr=ACME%2Felsewhere%237&kind=review");
   assert.match(confirm.text, /isn't checked out/);
   assert.match(confirm.text, /git clone https:\/\/acme\.ghe\.com\/ACME\/elsewhere\.git/);
   assert.match(confirm.text, /data-busy="Starting" disabled/);
-  const go = await w.post("/prs/agent", { pr: "ACME/elsewhere#7", kind: "review", nonce: nonceOf(confirm.text), harness: "claude" });
+  const go = await w.post("/reviews/agent", { pr: "ACME/elsewhere#7", kind: "review", nonce: nonceOf(confirm.text), harness: "claude" });
   assert.equal(go.status, 400);
   assert.equal(w.started.length, 0);
-  assert.equal((await w.post("/prs/agent", { pr: "ACME/nope#1", kind: "review", nonce: nonceOf(confirm.text), harness: "claude" })).location, "/prs", "a PR that isn't in view is refused");
+  assert.equal((await w.post("/reviews/agent", { pr: "ACME/nope#1", kind: "review", nonce: nonceOf(confirm.text), harness: "claude" })).location, "/prs", "a PR that isn't in view is refused");
 });
 
 test("a review whose server went away says it stopped, and offers another", async () => {
   const s = { snap: snapshot({ prs: { ok: true, value: { mine: [], review: [theirs()] } } }) };
   const db = openDb();
   const first = appWith(s, { db });
-  const confirm = await first.get("/prs/agent?pr=ACME%2Fpeople%237&kind=review");
-  await first.post("/prs/agent", { pr: "ACME/people#7", kind: "review", nonce: nonceOf(confirm.text), harness: "claude" });
+  const confirm = await first.get("/reviews/agent?pr=ACME%2Fpeople%237&kind=review");
+  await first.post("/reviews/agent", { pr: "ACME/people#7", kind: "review", nonce: nonceOf(confirm.text), harness: "claude" });
   const after = appWith(s, { db });
   const page = (await after.get("/prs")).text;
   assert.match(page, /Agent review<\/span> stopped/);
   assert.match(page, />Try again…</);
 });
 
-test("without agents here, PR cards show no agent review", async () => {
-  const gatherer = { get: async () => snapshot({ prs: { ok: true, value: { mine: [], review: [theirs()] } } }), stale: () => {}, gathering: () => false, peek: () => snapshot() };
-  const app = createApp({ GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: "x", CLAUDE_DIR: "x", DB: openDb().DB }, { gatherer, ghe: fakeGhe({}).ghe });
-  const out = await (await app.request("http://localhost/prs", { headers: { cookie: "u_tk=test-token" } })).text();
-  assert.doesNotMatch(out, /with an agent/);
+test("without agents here, the pack is off: PR cards show no agent review, and its pages aren't there", async () => {
+  const w = appWith({ snap: snapshot({ prs: { ok: true, value: { mine: [], review: [theirs()] } } }) }, { harnesses: [] });
+  assert.doesNotMatch((await w.get("/prs")).text, /with an agent/);
+  assert.equal((await w.get("/reviews/agent?pr=ACME%2Fpeople%237&kind=review")).status, 404);
 });
 
 // ── Posting the draft (WP-A20) ──
@@ -245,8 +250,8 @@ async function reviewed(report: string, o: { head?: string; author?: string; sta
     },
   });
   const kind = o.mine ? "triage" : "review";
-  const confirm = await w.get(`/prs/agent?pr=ACME%2Fpeople%237&kind=${kind}`);
-  await w.post("/prs/agent", { pr: "ACME/people#7", kind, nonce: nonceOf(confirm.text), harness: "claude" });
+  const confirm = await w.get(`/reviews/agent?pr=ACME%2Fpeople%237&kind=${kind}`);
+  await w.post("/reviews/agent", { pr: "ACME/people#7", kind, nonce: nonceOf(confirm.text), harness: "claude" });
   const run = w.runs.get("run-1")!;
   run.events.push({ t: "result", text: report, cost: 0.1, error: false });
   run.status = "done";
@@ -268,10 +273,10 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
   const w = await reviewed(REPORT);
   const card = (await w.get("/prs")).text;
   assertInert("/prs", card);
-  assert.match(card, /href="\/prs\/draft\?run=run-1">Go through the draft…/);
+  assert.match(card, /href="\/reviews\/draft\?run=run-1">Go through the draft…/);
   assert.doesNotMatch(card, /review-draft|&quot;comments&quot;/, "the card shows the report, not the block");
 
-  const page = await w.get("/prs/draft?run=run-1");
+  const page = await w.get("/reviews/draft?run=run-1");
   assert.equal(page.status, 200);
   assertInert("draft", page.text);
   assert.match(page.text, /value="comment" checked> Comment/, "Comment unless I pick otherwise");
@@ -285,7 +290,7 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
   assert.match(page.text, /2 from the agent/);
 
   const form = { run: "run-1", verdict: "comment", summary: "Ser greit ut", keep_0: "on", body_0: "Hva om lista er tom? (endret)", body_1: "Dropp denne", keep_2: "on", body_2: "Utenfor diffen" };
-  const preview = await w.post("/prs/draft/preview", form);
+  const preview = await w.post("/reviews/draft/preview", form);
   assert.equal(preview.status, 200);
   assertInert("preview", preview.text);
   assert.match(preview.text, /One comment isn&#39;t on a line of the diff/);
@@ -295,8 +300,8 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
 
   const nonce = hidden(preview.text, "nonce");
   const draft = hidden(preview.text, "draft");
-  const go = await w.post("/prs/draft/post", { run: "run-1", verdict: hidden(preview.text, "verdict"), nonce, draft });
-  assert.equal(go.location, "/prs/draft?run=run-1");
+  const go = await w.post("/reviews/draft/post", { run: "run-1", verdict: hidden(preview.text, "verdict"), nonce, draft });
+  assert.equal(go.location, "/reviews/draft?run=run-1");
   assert.equal(w.reviews.length, 1);
   assert.deepEqual(w.reviews[0], {
     commit_id: "aaa1111",
@@ -304,7 +309,7 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
     body: "Ser greit ut\n\n- `src/a.ts:40`: Utenfor diffen",
     comments: [{ path: "src/a.ts", line: 2, side: "RIGHT", body: "Hva om lista er tom? (endret)" }],
   });
-  const after = await w.get("/prs/draft?run=run-1");
+  const after = await w.get("/reviews/draft?run=run-1");
   assert.match(after.text, /Posted the review on ACME\/people#7 \(Comment, 1 line comment\)/);
   assert.match(after.text, /href="https:\/\/acme\.ghe\.com\/ACME\/people\/pull\/7#pullrequestreview-1"/);
   assert.doesNotMatch(after.text, /Go through it/, "posted: no form any more");
@@ -313,8 +318,8 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
   assert.doesNotMatch(cardAfter, /Go through the draft/);
 
   // A double click, or a second preview's Post, posts nothing more.
-  await w.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce, draft });
-  await w.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce: "11111111-2222-3333-4444-555555555555", draft });
+  await w.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce, draft });
+  await w.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce: "11111111-2222-3333-4444-555555555555", draft });
   assert.equal(w.reviews.length, 1);
   const log = (await recentActions(w.db.DB)).filter((a) => a.kind === "pr.review");
   assert.deepEqual(log.map((a) => [a.target, a.detail, a.ok]), [["ACME/people#7", "Comment, 1 line comment", 1]]);
@@ -323,62 +328,62 @@ test("a review's draft: cards I edit or drop, a preview of what goes, then one r
 
 test("the verdict is mine: Request changes goes as such, and needs a summary; Approve may go bare", async () => {
   const w = await reviewed(REPORT);
-  const bare = await w.post("/prs/draft/preview", { run: "run-1", verdict: "request-changes", summary: "", keep_0: "on", body_0: "x" });
+  const bare = await w.post("/reviews/draft/preview", { run: "run-1", verdict: "request-changes", summary: "", keep_0: "on", body_0: "x" });
   assert.equal(bare.status, 400);
   assert.match(bare.text, /Request changes needs a summary/);
-  const p = await w.post("/prs/draft/preview", { run: "run-1", verdict: "request-changes", summary: "Må fikses", keep_0: "on", body_0: "x" });
+  const p = await w.post("/reviews/draft/preview", { run: "run-1", verdict: "request-changes", summary: "Må fikses", keep_0: "on", body_0: "x" });
   assert.match(p.text, /value="request-changes" checked/);
-  await w.post("/prs/draft/post", { run: "run-1", verdict: hidden(p.text, "verdict"), nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
+  await w.post("/reviews/draft/post", { run: "run-1", verdict: hidden(p.text, "verdict"), nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
   assert.equal((w.reviews[0] as { event: string }).event, "REQUEST_CHANGES");
 
   const v = await reviewed(REPORT);
-  const a = await v.post("/prs/draft/preview", { run: "run-1", verdict: "approve", summary: "" });
+  const a = await v.post("/reviews/draft/preview", { run: "run-1", verdict: "approve", summary: "" });
   assert.equal(a.status, 200);
-  await v.post("/prs/draft/post", { run: "run-1", verdict: "approve", nonce: hidden(a.text, "nonce"), draft: hidden(a.text, "draft") });
+  await v.post("/reviews/draft/post", { run: "run-1", verdict: "approve", nonce: hidden(a.text, "nonce"), draft: hidden(a.text, "draft") });
   assert.deepEqual(v.reviews[0], { commit_id: "aaa1111", event: "APPROVE", body: "", comments: [] });
 });
 
 test("new commits since the review, a closed PR, or my own PR: nothing is posted, and the page says why", async () => {
   const form = { run: "run-1", verdict: "comment", summary: "S", keep_0: "on", body_0: "x" };
   const moved = await reviewed(REPORT, { head: "bbb2222ffff" });
-  const m = await moved.post("/prs/draft/preview", form);
+  const m = await moved.post("/reviews/draft/preview", form);
   assert.equal(m.status, 409);
   assert.match(m.text, /new commits since the agent read it \(aaa1111 → bbb2222\): review it again/);
   assert.doesNotMatch(m.text, />Post the review<\/button>/);
-  const listed = (await moved.get("/prs/draft?run=run-1")).text;
+  const listed = (await moved.get("/reviews/draft?run=run-1")).text;
   assert.match(listed, /new commits since the review \(aaa1111 → bbb2222\), so the comments are listed here, not in the diff/);
   assert.doesNotMatch(listed, /The diff<\/p>/);
 
   // Moved between the preview and the Post: the Post checks again.
   const late = await reviewed(REPORT);
-  const p = await late.post("/prs/draft/preview", form);
+  const p = await late.post("/reviews/draft/preview", form);
   assert.match(p.text, />Post the review<\/button>/);
   late.gh.head = "ccc3333dddd";
-  await late.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
+  await late.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
   assert.equal(late.reviews.length, 0);
-  assert.match((await late.get("/prs/draft?run=run-1")).text, /new commits since the agent read it/);
+  assert.match((await late.get("/reviews/draft?run=run-1")).text, /new commits since the agent read it/);
 
   const own = await reviewed(REPORT, { author: "ola-nordmann" });
-  assert.match((await own.post("/prs/draft/preview", form)).text, /is your own PR/);
+  assert.match((await own.post("/reviews/draft/preview", form)).text, /is your own PR/);
 
   const closed = await reviewed(REPORT, { state: "closed" });
-  assert.match((await closed.post("/prs/draft/preview", form)).text, /isn&#39;t open any more: nothing posted/);
+  assert.match((await closed.post("/reviews/draft/preview", form)).text, /isn&#39;t open any more: nothing posted/);
   for (const x of [moved, late, own, closed]) assert.equal(x.writes().length, 0);
 });
 
 test("a report without a usable draft, an unknown run, or a forged draft: no draft page, nothing posted", async () => {
   const w = await reviewed("## Findings\n\nNo block here.");
   assert.doesNotMatch((await w.get("/prs")).text, /Go through the draft/);
-  assert.equal((await w.get("/prs/draft?run=run-1")).location, "/prs");
+  assert.equal((await w.get("/reviews/draft?run=run-1")).location, "/prs");
   const broken = await reviewed("Report\n```review-draft\n{oops\n```");
   assert.match((await broken.get("/prs")).text, /The draft at the end of the report couldn't be read/);
-  assert.equal((await w.get("/prs/draft?run=..%2Fx")).location, "/prs");
-  assert.equal((await w.get("/prs/draft?run=run-9")).location, "/prs");
+  assert.equal((await w.get("/reviews/draft?run=..%2Fx")).location, "/prs");
+  assert.equal((await w.get("/reviews/draft?run=run-9")).location, "/prs");
   const forged = await reviewed(REPORT);
-  const p = await forged.post("/prs/draft/preview", { run: "run-1", verdict: "comment", summary: "S" });
-  await forged.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: "{not json" });
+  const p = await forged.post("/reviews/draft/preview", { run: "run-1", verdict: "comment", summary: "S" });
+  await forged.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: "{not json" });
   assert.equal(forged.reviews.length, 0);
-  assert.match((await forged.get("/prs/draft?run=run-1")).text, /That isn&#39;t a draft from the preview: nothing posted/);
+  assert.match((await forged.get("/reviews/draft?run=run-1")).text, /That isn&#39;t a draft from the preview: nothing posted/);
 });
 
 test("replies on my PR: one per thread (a reply to a reply goes to its thread), unknown ones left out, the general comment on the PR", async () => {
@@ -394,20 +399,20 @@ test("replies on my PR: one per thread (a reply to a reply goes to its thread), 
     },
   });
   assert.match((await w.get("/prs")).text, /Go through the draft…/);
-  const page = await w.get("/prs/draft?run=run-1");
+  const page = await w.get("/reviews/draft?run=run-1");
   assertInert("replies", page.text);
   assert.match(page.text, /href="https:\/\/acme\.ghe\.com\/ACME\/people\/pull\/7#discussion_r11"/);
   assert.doesNotMatch(page.text, /name="verdict"/, "replies have no verdict");
-  const p = await w.post("/prs/draft/preview", { run: "run-1", keep_0: "on", body_0: "Fikset", keep_1: "on", body_1: "Bevisst, se AGENTS.md", keep_2: "on", body_2: "Borte", comment: "Takk for gjennomgangen" });
+  const p = await w.post("/reviews/draft/preview", { run: "run-1", keep_0: "on", body_0: "Fikset", keep_1: "on", body_1: "Bevisst, se AGENTS.md", keep_2: "on", body_2: "Borte", comment: "Takk for gjennomgangen" });
   assert.match(p.text, /One reply answers a comment that isn&#39;t on this PR: left out/);
   assert.match(p.text, />Post the replies<\/button>/);
-  await w.post("/prs/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
+  await w.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
   assert.deepEqual(posted, [
     { path: "replies/11", body: { body: "Fikset" } },
     { path: "replies/11", body: { body: "Bevisst, se AGENTS.md" } },
     { path: "issue", body: { body: "Takk for gjennomgangen" } },
   ]);
-  assert.match((await w.get("/prs/draft?run=run-1")).text, /Posted 2 replies and a comment on ACME\/people#7/);
+  assert.match((await w.get("/reviews/draft?run=run-1")).text, /Posted 2 replies and a comment on ACME\/people#7/);
   const log = (await recentActions(w.db.DB)).filter((a) => a.kind === "pr.replies");
   assert.deepEqual(log.map((a) => [a.detail, a.ok]), [["2 replies and a comment", 1]]);
 });
@@ -431,4 +436,16 @@ test("a team member's write (hosted): 'your own PR' means theirs, and the log na
   await actingAs({ email: "kari@example.dev" }, () => logAction(db.DB, { kind: "pr.review", target: "ACME/people#7", ok: true }));
   await logAction(db.DB, { kind: "pr.review", target: "ACME/people#8", ok: true });
   assert.deepEqual((await recentActions(db.DB)).map((a) => [a.target, a.actor]), [["ACME/people#8", null], ["ACME/people#7", "kari@example.dev"]]);
+});
+
+test("a finished review's draft is handed to my own review in the viewer (\"review.draft\"); once posted, it isn't", async () => {
+  const w = await reviewed(REPORT);
+  const draftOf = () => w.pack.slots!({} as PackContext)["review.draft"]!({ repo: "ACME/people", number: 7 });
+  const got = draftOf();
+  assert.equal(got?.sha, "aaa1111");
+  assert.deepEqual(got?.draft.comments.map((c) => c.line), [2, 3, 40]);
+  assert.equal(w.pack.slots!({} as PackContext)["review.draft"]!({ repo: "ACME/people", number: 8 }), undefined, "another PR");
+  const p = await w.post("/reviews/draft/preview", { run: "run-1", verdict: "comment", summary: "x", keep_0: "on", body_0: "y" });
+  await w.post("/reviews/draft/post", { run: "run-1", verdict: "comment", nonce: hidden(p.text, "nonce"), draft: hidden(p.text, "draft") });
+  assert.equal(draftOf(), undefined);
 });

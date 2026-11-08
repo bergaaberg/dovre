@@ -3,16 +3,16 @@
  * someone else's PR (read-only, never posts), the other judges the review left on mine
  * (classifies each comment, drafts replies). Here: which PR gets which, where the skill is, the
  * prompt, and the few commands a review may run without asking. Pure; tested in
- * test/reviews.test.ts. The routes are in src/pages/reviews.ts.
+ * test/reviews.test.ts. The routes are in index.ts.
  */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { HarnessId } from "../agents/runner.ts";
-import type { Pr } from "../sources/ghe.ts";
-import { DRAFT_FENCE } from "./draft.ts";
+import type { HarnessId } from "../../../agents/runner.ts";
+import type { Pr } from "../../../sources/ghe.ts";
+import { DRAFT_FENCE, type ReviewKind } from "../../../reviews/draft.ts";
 
-export type ReviewKind = "review" | "triage";
+export type { ReviewKind };
 
 /** The skills by name: REVIEW_SKILL and TRIAGE_SKILL, set once at start (setSkills). */
 export const SKILL: Record<ReviewKind, string> = { review: "review", triage: "review-triage" };

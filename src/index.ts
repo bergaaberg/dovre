@@ -41,7 +41,7 @@ import { checkoutOf, checkouts } from "./issues/tasks.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createSummaries } from "./ai/summaries.ts";
-import { createRunner, HARNESSES, type Run } from "./agents/runner.ts";
+import { createRunner, HARNESSES, repoDir, type Run } from "./agents/runner.ts";
 import { gitTurnDiff } from "./agents/turndiff.ts";
 import { appleContainer } from "./agents/sandbox.ts";
 import { findHarnessTools, harnessesFor, useFoundModels } from "./agents/harnesses/index.ts";
@@ -56,11 +56,12 @@ import { createEngine } from "./packs/core/docker/engine.ts";
 import { dockerPack } from "./packs/core/docker/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
 import { autoreviewPack } from "./packs/core/autoreview/index.ts";
+import { reviewsPack } from "./packs/core/reviews/index.ts";
 import { createHere } from "./packs/core/agents/here.ts";
 import { localSessions } from "./sources/sessions.ts";
 import { loadWorktrees } from "./sources/worktrees.ts";
 import { createDismissed } from "./agents/dismissed.ts";
-import { localDesk } from "./agents/desk.ts";
+import { localDesk, modelOf } from "./agents/desk.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
 import { terminalPack } from "./packs/core/terminal/index.ts";
@@ -396,6 +397,24 @@ const corePacks = [
   ...(gheToken && forgeCan(forge, "stats") ? [historyPack({ forge: forge.name, history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, file: join(dataDir, "stats.json"), onChange: changed }) })] : []),
   // Review rounds on auto runs' PRs (#326): off while agents is.
   autoreviewPack({ ...(gheToken ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => (binoRoute.ready && binoRoute.ask ? { ask: binoRoute.ask, model: binoRoute.model } : undefined) }),
+  // Agent reviews of PRs (#389), where the forge has PR reviews: on while an agent CLI is here.
+  ...(gheToken && forgeCan(forge, "reviews")
+    ? [
+        reviewsPack({
+          runner,
+          ghe,
+          owners: () => ownersIn(env),
+          dirOf: (repo) => {
+            const c = checkoutOf(checkouts(env.CODE_DIR, forge.host, ownersIn(env)), repo);
+            return c ? (repoDir(env.CODE_DIR, c.dir) ?? undefined) : undefined;
+          },
+          codeDir: env.CODE_DIR,
+          claudeDir: env.CLAUDE_DIR,
+          modelOf,
+          stale: () => gatherer.stale(),
+        }),
+      ]
+    : []),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
   // My open issues from the forge (/tracker), where the forge has them.
