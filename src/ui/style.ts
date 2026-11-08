@@ -5,7 +5,7 @@
  * (pages built from src/ui/kit.ts) → page parts. Colour means status: ok, warn, bad. The accent
  * (fjord) is for links, your own things, the sun and agents.
  */
-import { ISSUES_CSS } from "../issues/style.ts";
+import { FIELDS_CSS } from "./fields.ts";
 import { SPLASH_CSS } from "./splash.ts";
 
 /** Reading settings (#183): code keeps --mono whatever the font. */
@@ -1442,7 +1442,7 @@ button.busy::after { content: ""; display: inline-block; width: .75em; height: .
   /* The page swap happens at once (the pseudo-elements hang off <html>, so this can follow the setting). */
   :root:not([data-motion="always"])::view-transition-group(*), :root:not([data-motion="always"])::view-transition-old(*), :root:not([data-motion="always"])::view-transition-new(*) { animation: none; }
 }
-` + CHARTS_CSS + ISSUES_CSS + SPLASH_CSS;
+` + CHARTS_CSS + FIELDS_CSS + SPLASH_CSS;
 
 /** A short content hash, so the stylesheet's URL changes when it does and can be cached for good. */
 export function hashOf(text: string): string {

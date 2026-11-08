@@ -11,9 +11,14 @@
  */
 import { html } from "hono/html";
 import type { Html } from "../ui/kit.ts";
-import { type Res, settle } from "./work.ts";
 
-export { type Res, settle };
+/** A load that came back, or why it didn't. */
+export type Res<T> = { ok: true; value: T } | { ok: false; error: string };
+export const settle = <T>(p: Promise<T>): Promise<Res<T>> =>
+  p.then(
+    (value) => ({ ok: true as const, value }),
+    (e) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }),
+  );
 
 /** How long a page waits for a slow part before it shows `Reading` (ms). */
 export const BUDGET_MS = 1500;

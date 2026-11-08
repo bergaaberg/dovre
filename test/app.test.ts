@@ -1,4 +1,5 @@
 /** The app as a whole: who gets in, every page renders hostile data inert, the deploy actions do what they say. */
+import { trackerPack } from "../src/packs/core/issues/test/withTracker.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
@@ -62,6 +63,7 @@ test("every page renders, and hostile text from every source stays text", async 
     worktrees: [{ name: H, path: H, main: H, branch: H, head: "", changedAt: 0 }],
     // Stats draws the history pack's weeks: hostile titles and repos in its PR lists.
     packs: [
+      trackerPack(),
       historyPack({
         history: () => ({
           view: () => ({
@@ -331,7 +333,7 @@ test("Issues (/tracker): hostile issue text and links stay inert; /issues goes t
   assert.equal(to.status, 303);
   assert.equal(to.headers.get("location"), "/tracker");
   const without = signedIn(snapshot());
-  assert.equal((await without.get("/issues")).headers.get("location"), "/issues/new");
+  assert.equal((await without.get("/issues")).status, 404, "no tracker pack: no /issues");
 });
 
 test("Issues actions (#40): the owners' repos only, re-checked, written once, logged; a comment is previewed first", async () => {

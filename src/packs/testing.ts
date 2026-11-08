@@ -113,7 +113,7 @@ export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instanc
   const s = o.snapshot ?? testSnapshot();
   const gatherer = { get: async () => s, stale: () => {}, gathering: () => false, peek: () => s };
   const ghe: Ghe = { host: "acme.ghe.com", rest: () => Promise.reject(new Error("no GitHub in tests")), graphql: () => Promise.reject(new Error("no GitHub in tests")) };
-  const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: o.codeDir ?? "x", CLAUDE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms", DB: db.DB } as Env;
+  const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: o.codeDir ?? "x", CLAUDE_DIR: "x", DB: db.DB } as Env;
   const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {} }, session: o.session, mcpTurns: o.mcpTurns });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>

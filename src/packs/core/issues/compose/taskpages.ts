@@ -1,11 +1,12 @@
 /** A dev task: pick the issue it belongs under, then the code repo, title, body and type; preview; create and hang it under that issue. */
 import { html } from "hono/html";
-import type { IssueType } from "../issues/templates.ts";
-import { type Checkout, inRepos, type Parent, type TaskCreated, refText } from "../issues/tasks.ts";
-import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill } from "../ui/kit.ts";
-import { markdown } from "../ui/markdown.ts";
-import { Link, MyListBox, failed, forgeName, safeUrl } from "./parts.ts";
-import { type Ctx, type Res, agentPanel, crumbs, hidden, page, rows, short, star, taskHref, wrap } from "./work.ts";
+import type { IssueType } from "./templates.ts";
+import { type Checkout, inRepos } from "../../../../checkouts.ts";
+import { type Parent, type TaskCreated, refText } from "./tasks.ts";
+import { type Child, type Html, Item, KeyValues, List, Notice, PageHeader, Panel, Pill } from "../../../../ui/kit.ts";
+import { markdown } from "../../../../ui/markdown.ts";
+import { Link, MyListBox, failed, forgeName, safeUrl } from "../../../../pages/parts.ts";
+import { type Ctx, type Page, type Res, agentPanel, crumbs, hidden, page, rows, short, star, taskHref, wrap } from "./work.ts";
 
 export type TaskDraft = { repo: string; title: string; body: string; type: string; assign: boolean };
 export type TaskErrors = { repo?: string; title?: string; type?: string; body?: string };
@@ -15,7 +16,7 @@ export const MAX_TASK_BODY = 65536;
 const parentLine = (ctx: Ctx, p: Parent) => html`${Link(p.url, `${short(ctx.org, p.repo)}#${p.number}`)} ${p.title}`;
 
 /** Step 1: which issue it belongs under. Mine first; or a reference. */
-export function taskPickPage(ctx: Ctx, o: { parents: Res<Parent[]>; problem?: string; typed?: string }): Html {
+export function taskPickPage(ctx: Ctx, o: { parents: Res<Parent[]>; problem?: string; typed?: string }): Page {
   const list = o.parents.ok ? o.parents.value : [];
   const items = list.map((p) =>
     Item({
@@ -56,7 +57,7 @@ function typeField(d: TaskDraft, types: Res<IssueType[]>, err?: string): Html {
 }
 
 /** Step 2: the task itself, under the chosen issue. `closed`: the repo picked takes no hand-made issues. */
-export function taskFormPage(ctx: Ctx, o: { parent: Parent; draft: TaskDraft; dirs: Checkout[]; types: Res<IssueType[]>; errors?: TaskErrors; closed?: Html }): Html {
+export function taskFormPage(ctx: Ctx, o: { parent: Parent; draft: TaskDraft; dirs: Checkout[]; types: Res<IssueType[]>; errors?: TaskErrors; closed?: Html }): Page {
   const d = o.draft;
   const e = o.errors ?? {};
   const n = Object.values(e).filter(Boolean).length;
@@ -65,7 +66,7 @@ ${repoField(ctx, d, o.dirs, e.repo)}
 ${wrap(e.title, html`<label class="label" for="title">Title${star(true)}</label><input type="text" id="title" name="title" value="${d.title}" maxlength="${MAX_TASK_TITLE}" required${e.title ? html` aria-invalid="true"` : ""}>`)}
 ${typeField(d, o.types, e.type)}
 ${wrap(e.body, html`<label class="label" for="body">Description</label><span class="hint">Markdown. What has to change, and what the next person needs to know.</span><textarea id="body" name="body" rows="${rows(d.body, 8)}">\n${d.body}</textarea>`)}
-<div class="field"><label class="check"><input type="checkbox" name="assign" value="on"${d.assign ? html` checked` : ""}> Assign it to me (${ctx.frame.operator})</label></div>
+<div class="field"><label class="check"><input type="checkbox" name="assign" value="on"${d.assign ? html` checked` : ""}> Assign it to me (${ctx.operator})</label></div>
 <div class="buttons"><button type="submit" class="primary">Preview</button><a class="btn ghost" href="${taskHref()}">Another issue</a></div>
 </form>`;
   return page(
@@ -84,7 +85,7 @@ export function taskPairs(parent: Parent, d: TaskDraft): [string, string][] {
   return [["parent", refText(parent)], ["repo", d.repo], ["title", d.title], ["type", d.type], ["body", d.body], ...(d.assign ? ([["assign", "on"]] as [string, string][]) : [])];
 }
 
-export function taskPreviewPage(ctx: Ctx, o: { parent: Parent; draft: TaskDraft; types: Res<IssueType[]>; nonce: string; problem?: string }): Html {
+export function taskPreviewPage(ctx: Ctx, o: { parent: Parent; draft: TaskDraft; types: Res<IssueType[]>; nonce: string; problem?: string }): Page {
   const d = o.draft;
   const type = o.types.ok ? o.types.value.find((t) => t.name === d.type) : undefined;
   const kv = KeyValues([
@@ -92,7 +93,7 @@ export function taskPreviewPage(ctx: Ctx, o: { parent: Parent; draft: TaskDraft;
     ["Under", parentLine(ctx, o.parent)],
     ["Type", html`${Pill({ children: d.type })}${type?.description ? html` <span class="t2">${type.description}</span>` : ""}`],
     ["Title", html`<strong>${d.title.trim()}</strong>`],
-    ["Assignee", d.assign ? ctx.frame.operator : html`<span class="t3">nobody</span>`],
+    ["Assignee", d.assign ? ctx.operator : html`<span class="t3">nobody</span>`],
   ]);
   const actions = html`<form method="post" action="/issues/task/create">${hidden([...taskPairs(o.parent, d), ["nonce", o.nonce]])}${MyListBox}<div class="buttons"><button type="submit" formaction="/issues/task/preview" name="edit" value="1">Edit</button><button type="submit" class="primary">Create task</button></div></form>`;
   return page(
@@ -105,7 +106,7 @@ ${Panel({ title: "What will be created", children: html`${kv}${d.body.trim() ? m
 }
 
 /** After: the link, the line for the PR, and an agent to start on it. */
-export function taskDonePage(ctx: Ctx, o: { repo: string; number: number; url: string; result?: Extract<TaskCreated, { ok: true }>; dir?: string }): Html {
+export function taskDonePage(ctx: Ctx, o: { repo: string; number: number; url: string; result?: Extract<TaskCreated, { ok: true }>; dir?: string }): Page {
   const ref = `${o.repo}#${o.number}`;
   const closes = `Closes ${ref}`;
   const parent = o.result ? refText(o.result.parent) : undefined;
@@ -119,6 +120,6 @@ export function taskDonePage(ctx: Ctx, o: { repo: string; number: number; url: s
 ${Notice({ tone: "ok", children: html`Created ${Link(o.url, ref)}${o.result?.linked && parent ? html`, under ${parent}` : ""}.` })}
 ${(o.result?.warnings ?? []).map((w) => Notice({ tone: "warn", children: w }))}
 ${Panel({ title: "In the PR that does it", children: html`<p><code data-copy="${closes}">${closes}</code></p><p class="hint t3">Closing it counts toward the issue it hangs under.</p>` })}
-<div class="buttons">${Link(o.url, `Open it on ${forgeName(ctx.frame.host)}`, "btn primary")}${agent}${more}</div>`,
+<div class="buttons">${Link(o.url, `Open it on ${forgeName(ctx.ghe)}`, "btn primary")}${agent}${more}</div>`,
   );
 }

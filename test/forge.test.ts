@@ -1,4 +1,5 @@
 /** Forges (src/forge/): FORGE picks one a pack brings, GitHub otherwise; what a forge can't do isn't there. */
+import { trackerPack } from "../src/packs/core/issues/test/withTracker.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { githubForge } from "../src/forge/github.ts";
@@ -92,7 +93,7 @@ test("a forge that can't serve issues, the viewer, stacks, deploy approval, stat
 });
 
 test("GitHub (the default) keeps every page", async () => {
-  const { get } = signedIn(snapshot());
+  const { get } = signedIn(snapshot(), {}, { packs: [trackerPack()] });
   for (const path of ["/issues/new", "/prs/stacks"]) assert.notEqual((await get(path)).status, 404, path);
   assert.match(await (await get("/")).text(), /href="\/issues\/new"/);
   assert.match(await (await get("/search?q=stacks")).text(), /href="\/prs\/stacks"/);

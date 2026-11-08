@@ -2,15 +2,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Hono } from "hono";
-import { recentActions } from "../src/actions/deploys.ts";
-import { openDb } from "../src/db.ts";
-import { listTodos } from "../src/todo/store.ts";
-import type { AppEnv, Env } from "../src/env.ts";
-import { agentPrompt, composeBody, emptyDraft, formPairs, isValid, labelsOf, NOTHING_OFFERED, offeredLabels, readDraft, untouched, validate } from "../src/issues/compose.ts";
-import { createCatalog, isPlanning, loadTemplates, OPEN_CHOOSER, parseConfig, parseTemplate, takesIssues } from "../src/issues/templates.ts";
-import { createTask, parseRef, remoteRepo } from "../src/issues/tasks.ts";
-import { createIssueRoutes } from "../src/pages/issues.ts";
-import { H, assertInert, fakeGhe } from "./helpers.ts";
+import { html } from "hono/html";
+import { recentActions } from "../../../../actions/deploys.ts";
+import { openDb } from "../../../../db.ts";
+import { listTodos } from "../../../../todo/store.ts";
+import type { AppEnv } from "../../../../env.ts";
+import { agentPrompt, composeBody, emptyDraft, formPairs, isValid, labelsOf, NOTHING_OFFERED, offeredLabels, readDraft, untouched, validate } from "../compose/compose.ts";
+import { createCatalog, isPlanning, loadTemplates, OPEN_CHOOSER, parseConfig, parseTemplate, takesIssues } from "../compose/templates.ts";
+import { createTask, parseRef } from "../compose/tasks.ts";
+import { remoteRepo } from "../../../../checkouts.ts";
+import { type ComposeEnv, createIssueRoutes } from "../compose/routes.ts";
+import { H, assertInert, fakeGhe } from "../../../../../test/helpers.ts";
 
 // Shaped on ACME/FORMS's real forms (read 2026-10-22): enhancement.yml, z2-feature.yml.
 const ENHANCEMENT = `name: 💡 Forbedringsforslag
@@ -145,12 +147,12 @@ function forms(extra: Record<string, unknown> = {}) {
   };
 }
 
-const ENV = (db: ReturnType<typeof openDb>, extra: Partial<Env> = {}): Env => ({ DB: db.DB, GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", CODE_DIR: "x", CLAUDE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms", ...extra });
+const ENV = (db: ReturnType<typeof openDb>, extra: Partial<ComposeEnv> = {}): ComposeEnv => ({ DB: db.DB, GHE_ORG: "ACME", owners: "ACME", CODE_DIR: "x", SORTING_REPOS: "intake", FORM_REPOS: "FORMS", FORM_SKILL: "issue-forms", ...extra });
 /** Local checkouts the tests pretend are in the code folder. */
 const DIRS = [{ dir: "FORMS", repo: "ACME/forms" }, { dir: "shop-api", repo: "ACME/shop-api" }, { dir: "shop-api-pr803", repo: "ACME/shop-api" }, { dir: "intake", repo: "ACME/intake" }];
 
 /** The routes on their own (auth is the parent app's), a fake GHE behind them. */
-function mounted(routes: Record<string, unknown>, opts: { env?: Partial<Env> } = {}) {
+function mounted(routes: Record<string, unknown>, opts: { env?: Partial<ComposeEnv> } = {}) {
   const db = openDb();
   const { ghe, calls } = fakeGhe(routes);
   const gql: string[] = [];
@@ -159,7 +161,7 @@ function mounted(routes: Record<string, unknown>, opts: { env?: Partial<Env> } =
     return (q.includes("projectV2(number:") ? { organization: { projectV2: { id: "PVT_6" } } } : {}) as T;
   };
   const app = new Hono<AppEnv>();
-  app.route("/", createIssueRoutes(ENV(db, opts.env), { ghe, frame: async () => ({ operator: "ola-nordmann", nav: [] }), checkouts: () => DIRS }));
+  app.route("/", createIssueRoutes(ENV(db, opts.env), { ghe, show: (c, p, status) => c.html(html`<title>${p.title}</title>${p.body}`, status as 200), operator: async () => "ola-nordmann", checkouts: () => DIRS }));
   const get = (path: string) => app.request(`http://localhost${path}`);
   const post = (path: string, body: [string, string][] | Record<string, string>) =>
     app.request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });

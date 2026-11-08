@@ -2,11 +2,11 @@
  * Stacked PRs from GHE: my open PRs and my review requests, then the chains they're in, walked
  * a few rounds in both directions (the PR a base branch belongs to, open or merged or closed, and
  * the open PRs built on a head branch), each round one GraphQL query. Cached with the kept
- * memoize (src/issues/templates.ts): answered at once, loaded again in the background.
+ * memoize (src/kept.ts): answered at once, loaded again in the background.
  */
 import { ownerQuery, owns } from "../owners.ts";
 import type { StackPr } from "../home/stacks.ts";
-import { type Kept, memoize } from "../issues/templates.ts";
+import { type Kept, memoize } from "../kept.ts";
 import type { Ghe } from "./ghe.ts";
 
 const FIELDS = `number title url isDraft state mergedAt closedAt updatedAt baseRefName headRefName baseRef{name} author{login}

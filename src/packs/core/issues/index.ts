@@ -1,8 +1,11 @@
 /**
  * Issues, a core pack (#36): my open issues from the forge — assigned to me, mentioning me, opened by
- * me, and triage in chosen repos — at /tracker (core's /issues sends me here when it's on). Read in the
- * background on the pack's schedule; the page draws from memory. On only where the forge has issues
- * (`Forge.issues`, src/forge/types.ts), so a forge pack that brings `issues()` gets it too.
+ * me, and triage in chosen repos — at /tracker (/issues sends me here). Read in the background on the
+ * pack's schedule; the page draws from memory. On only where the forge has issues (`Forge.issues`,
+ * src/forge/types.ts), so a forge pack that brings `issues()` gets it too.
+ *
+ * Locally, with GitHub's issue forms, it also has New work (#392, compose/): a dev task under a
+ * planned issue, or an issue through a repo's own forms, at /issues/new.
  */
 import type { Context } from "hono";
 import { html } from "hono/html";
@@ -16,6 +19,12 @@ import type { FindItem, PackNeed } from "../../types.ts";
 import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
 import { actOf, doneText, refusal } from "./act.ts";
 import { forgeLookups } from "./lookups.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
+import type { NavItem } from "../../../html.ts";
+import type { Kept } from "../../../kept.ts";
+import type { Checkout } from "../../../checkouts.ts";
+import { createIssueRoutes } from "./compose/routes.ts";
+import { CURRENT as NEW_WORK } from "./compose/work.ts";
 import { ACT, BULK, BULK_DO, BULK_MAX, type BulkDo, bulkOf, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
 
 export const ISSUES_PACK_ID = "tracker";
@@ -36,6 +45,12 @@ export type IssuesDeps = {
    */
   agents?: () => (repo: string) => string | undefined;
   now?: () => number;
+  /**
+   * New work (/issues/new): local, where the forge takes GitHub's issue forms. `org`: where Issue
+   * Types live. `kept`: GHE's answers between runs (data/catalog.json). `prewarm`: load what its
+   * pages need shortly after starting.
+   */
+  compose?: { ghe: Ghe; org: string; kept?: Kept; prewarm?: boolean; checkouts?: () => Checkout[] };
 };
 
 export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefined } {
@@ -79,10 +94,17 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       name: "Issues",
       description: "My open issues: assigned, mentioning me, opened by me, and triage",
       domain: "work",
+      // /issues: New work, and /issues itself, which goes to /tracker.
+      paths: ["issues"],
       everyMs: 5 * 60_000,
       settings: [
         { key: "ISSUES_TRIAGE_REPOS", label: "Repos to triage", help: "owner/repo, comma-separated: their open issues with no assignee and no label" },
         { key: "ISSUES_STALE_DAYS", label: "Stale after (days)", help: "An issue with no change for this long is marked stale (default 14)" },
+        // New work's (local): read when Dovre starts.
+        { key: "SORTING_REPOS", label: "Repos where work is planned", help: "New work: comma-separated; dev tasks go under their issues" },
+        { key: "FORM_REPOS", label: "Repos with their own issue forms", help: "New work: comma-separated; filed through each repo's forms" },
+        { key: "FORM_SKILL", label: "Issue forms skill", help: "New work: the agent skill that drafts an issue through a repo's forms (unset: plain instructions)" },
+        { key: "TEAM", label: "Your team", help: "The team's slug, for grouping work by the people in it" },
       ],
       rings: [
         { kind: "assigned", label: "An issue is assigned to me" },
@@ -92,8 +114,16 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     // The forge reading issues is enough: `can: issues` is core's GitHub forms (New work), which a read-only forge lacks.
     available: () => !!o.forge.issues,
     refresh: read,
-    nav: () => [{ href: HREF, title: "Issues", icon: "ticket", group: "Plan" }],
-    pages: () => [{ title: "Issues", href: HREF, icon: "◎", about: "My open issues: assigned, mentioned, opened, triage", also: ["issues", "assigned", "mentions", "triage", "backlog"] }],
+    nav: (): NavItem[] => [{ href: HREF, title: "Issues", icon: "ticket", group: "Plan" }, ...(o.compose ? [{ href: NEW_WORK, title: "New work", icon: "plus" as const, group: "Plan" }] : [])],
+    pages: () => [
+      { title: "Issues", href: HREF, icon: "◎", about: "My open issues: assigned, mentioned, opened, triage", also: ["issues", "assigned", "mentions", "triage", "backlog"] },
+      ...(o.compose
+        ? [
+            { title: "New work", href: NEW_WORK, icon: "+", about: "A dev task, or an issue", also: ["issue", "dev task", "create", "ny sak", "new"] },
+            { title: "New dev task under an issue", href: `${NEW_WORK}?kind=task`, icon: "+", about: "A piece of a planned issue, in the repo where it's done", also: ["task", "sub-issue", "oppgave"] },
+          ]
+        : []),
+    ],
     glance: () => (kept?.sets ? [{ label: "Issues", value: kept.sets.assigned.length }] : []),
     brief() {
       const n = new Set(fresh().map((f) => keyOf(f.issue))).size;
@@ -127,6 +157,28 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     bino: (ctx) => binoLine(kept?.sets, fresh(), triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS).length > 0),
     about: (_ctx, path) => (path.startsWith(HREF) && kept?.sets ? `My open issues page: ${kept.sets.assigned.length} assigned, ${kept.sets.mentioned.length} mentioning me` : undefined),
     routes(app, ctx) {
+      if (o.compose) {
+        const c = o.compose;
+        app.route(
+          "/",
+          createIssueRoutes(
+            { DB: ctx.db, GHE_ORG: c.org, owners: o.owners(), CODE_DIR: ctx.codeDir, SORTING_REPOS: ctx.env.SORTING_REPOS, FORM_REPOS: ctx.env.FORM_REPOS, FORM_SKILL: ctx.env.FORM_SKILL },
+            {
+              ghe: c.ghe,
+              show: async (cx, p, status) => {
+                const res = await ctx.page(cx, { title: p.title, current: NEW_WORK, body: p.body });
+                return new Response(res.body, { status, headers: res.headers });
+              },
+              operator: async () => o.login?.() || (await ctx.gathered())?.login || "",
+              checkouts: c.checkouts,
+              kept: c.kept,
+              newWork: () => ctx.fill("work.new", {}),
+              list: HREF,
+              prewarm: c.prewarm,
+            },
+          ),
+        );
+      } else app.get("/issues", (c) => c.redirect(HREF, 303));
       const with_ = async (c: Context<AppEnv>, status: number, title: string, body: ReturnType<typeof trackerBody>) => {
         const res = await ctx.page(c, { title, current: HREF, body });
         return new Response(res.body, { status, headers: res.headers });

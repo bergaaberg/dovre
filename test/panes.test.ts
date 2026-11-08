@@ -57,9 +57,9 @@ test("the form: a switch, a route, options; bad values refused; fixed keys left 
   assert.equal(worse.config.JIRA_PROJECTS, undefined, "a key no pane has isn't kept");
   const empty = configFromForm({ TZ_NAME: "" }, { TZ_NAME: "Europe/Oslo" }, new Set(), { general: true });
   assert.equal(empty.config.TZ_NAME, undefined, "empty is the default");
-  const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS", "via.bino": "omp" }, {}, new Set(), { general: true });
-  assert.deepEqual(work.config, { CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS" }, "the work form leaves the switches alone");
-  assert.deepEqual(configFromForm({ TEAM: "a/b" }, {}, new Set(), { general: true }).bad, ["Your team"]);
+  const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TZ_NAME: "Europe/Oslo", "via.bino": "omp" }, {}, new Set(), { general: true });
+  assert.deepEqual(work.config, { CODE_DIR: "C:\\Users\\x\\Code", TZ_NAME: "Europe/Oslo" }, "the work form leaves the switches alone");
+  assert.deepEqual(configFromForm({ CODE_DIR: "a<b" }, {}, new Set(), { general: true }).bad, ["Code folder"]);
 });
 
 test("kept in the settings table: known keys only, as strings", async () => {
@@ -115,13 +115,7 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
 
 test("the first run: Today sends to the first-run page until it's answered or skipped", async () => {
   const config = { panes: panesOf({}, all), stored: {} as Record<string, string> };
-  const teams = [
-    { slug: "my-team", name: "Skreddersøm", organization: { login: "ACME" } },
-    { slug: "other", name: "Elsewhere", organization: { login: "SomeoneElse" } },
-    { slug: "x", name: H, organization: { login: "ACME" } },
-    { slug: "bad slug<", name: "Bad", organization: { login: "ACME" } },
-  ];
-  const { get, post, db } = signedIn(snapshot(), { "GET /user/teams?per_page=100": teams }, { config });
+  const { get, post, db } = signedIn(snapshot(), {}, { config });
   const first = await get("/");
   assert.equal(first.status, 303);
   assert.equal(first.headers.get("location"), "/welcome");
@@ -132,17 +126,15 @@ test("the first run: Today sends to the first-run page until it's answered or sk
   const page = await (await get("/welcome?go=1")).text();
   assertInert("welcome", page);
   assert.match(page, /Found here/);
-  assert.match(page, /<option value="my-team">Skreddersøm \(my-team\)<\/option>/);
-  assert.doesNotMatch(page, /Elsewhere|bad slug/, "only the org's teams, with plain slugs");
   assert.match(page, /name="via\.bino"/);
-  const bad = await post("/welcome", { TEAM: "no/slashes" });
+  const bad = await post("/welcome", { CODE_DIR: "no<angles" });
   assert.equal(bad.headers.get("location"), "/welcome?go=1");
-  assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Your team/);
-  const r = await post("/welcome", { TEAM: "my-team", "on.jira": "on", "via.jira": "mcp" });
+  assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Code folder/);
+  const r = await post("/welcome", { CODE_DIR: "/Users/x/Code", "on.jira": "on", "via.jira": "mcp" });
   assert.equal(r.headers.get("location"), "/", "no supervisor in a test: straight to Today");
   const kept = await loadConfig(db.DB);
   assert.equal(kept.SETUP_DONE, "1");
-  assert.equal(kept.TEAM, "my-team");
+  assert.equal(kept.CODE_DIR, "/Users/x/Code");
   assert.equal((await get("/")).status, 200);
 });
 

@@ -51,7 +51,7 @@ test("finds pages by their other names, PRs by number, branch and repo, the pack
   assert.equal(search(src, "a: review").groups[0]?.rows[0]?.href, "/agents/s/11111111-1111-4111-8111-111111111111");
   assert.equal(search(src, "t: per").groups[0]?.rows[0]?.href, "/todo#t-7");
   assert.equal(search(src, "gammel").groups.length, 0, "done items aren't searched");
-  assert.ok(search(src, "oppgave").groups.some((g) => g.id === "actions"));
+  assert.ok(search(src, "husk").groups.some((g) => g.id === "actions"));
   const doRows = corpus({ ...src, kinds: { actions: [{ title: "Start an agent", href: "/agents/new", icon: "✦", also: [] }] } }).actions.map((r) => r.title);
   assert.deepEqual(doRows.slice(-2), ["Start an agent", "Refresh everything"], "a pack's things to start come before Refresh everything");
   assert.ok(!corpus(src).actions.some((r) => r.href === "/agents/new"), "core names no pack's action");
