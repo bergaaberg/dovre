@@ -69,7 +69,7 @@ export function setupPage(v: SetupView) {
             : html`<div class="climb-row"><a class="climb-go" href="/">Back to Today ${arrow}</a><a class="climb-link" href="${href(0)}">Run it again</a></div>`
         }`
       : stepBody(v, head, href);
-  return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body, refresh: v.at < n ? v.refresh : undefined, script: SETUP_JS_PATH });
+  return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body, refresh: v.at < n ? v.refresh : undefined, script: SETUP_JS_PATH, page: "su-page" });
 }
 
 function stepBody(v: SetupView, head: Html, href: (i: number) => string) {
