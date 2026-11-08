@@ -5,10 +5,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { addLeftOut, LOCKFILES, remoteIs, type Run, runFile } from "../src/actions/relock.ts";
-import { dependabotPage } from "../src/pages/dependabot.ts";
-import { openDb } from "../src/db.ts";
-import { fakeGhe } from "./helpers.ts";
+import { addLeftOut, LOCKFILES, remoteIs, type Run, runFile } from "../relock.ts";
+import { dependabotBody } from "../view.ts";
+import { openDb } from "../../../../db.ts";
+import { fakeGhe } from "../../../../../test/helpers.ts";
 
 const sh = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" }).trim();
 const bot = { login: "dependabot[bot]", type: "Bot" };
@@ -114,10 +114,9 @@ test("addLeftOut refuses a PR that isn't one of combine()'s, and a repo with no 
 });
 
 test("the page offers to add left-out bumps only in local mode, with a combined PR open", () => {
-  const frame = { operator: "me", nav: [] } as unknown as Parameters<typeof dependabotPage>[0];
   const repos = [{ repo: "ACME/web", prs: [{ repo: "ACME/web", number: 2, title: "Bump b", url: "https://x/2", createdAt: "2026-10-01T00:00:00Z", security: false }], oldest: "2026-10-01T00:00:00Z", security: 0, combined: { number: 99, url: "https://x/99", checks: null, mergeable: null, draft: false } }];
-  assert.match(dependabotPage(frame, { org: "ACME", repos, relock: true }), /name="number" value="99"[\s\S]*Add left-out bumps/);
-  assert.doesNotMatch(dependabotPage(frame, { org: "ACME", repos }), /Add left-out bumps/);
+  assert.match(String(dependabotBody({ org: "ACME", repos, relock: true })), /name="number" value="99"[\s\S]*Add left-out bumps/);
+  assert.doesNotMatch(String(dependabotBody({ org: "ACME", repos })), /Add left-out bumps/);
 });
 
 test("LOCKFILES: Python and .NET are made again; Poetry 1 keeps its pins with --no-update, Poetry 2 by default", async () => {

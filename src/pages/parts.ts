@@ -14,7 +14,7 @@ export function prTabs(current: "list" | "stacks" | "dependabot", stacks = true,
   if (!stacks && !dependabot) return "";
   const items: Tab[] = [{ href: "/prs", label: "Open", current: current === "list" }];
   if (stacks) items.push({ href: "/prs/stacks", label: "Stacks", current: current === "stacks" });
-  if (dependabot) items.push({ href: "/prs/dependabot", label: "Dependabot", current: current === "dependabot" });
+  if (dependabot) items.push({ href: "/dependabot", label: "Dependabot", current: current === "dependabot" });
   return Tabs({ label: "Pull requests", items });
 }
 

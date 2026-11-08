@@ -5,11 +5,11 @@
  * skipped and listed), opens one PR that lists every bump, and logs either way. `addGroups` opens a
  * PR adding `groups:` to dependabot.yml, so Dependabot groups its bumps itself from then on.
  */
-import type { D1 } from "../db.ts";
+import type { D1 } from "../../../db.ts";
 import { isMap, isSeq, parseDocument } from "yaml";
-import { ownerQuery, owns } from "../owners.ts";
-import type { Ghe } from "../sources/ghe.ts";
-import { logAction } from "./deploys.ts";
+import { ownerQuery, owns } from "../../../owners.ts";
+import type { Ghe } from "../../../sources/ghe.ts";
+import { logAction } from "../../../actions/deploys.ts";
 
 export const DEPENDABOT = "dependabot[bot]";
 /** At most this many PRs go into one combined PR (each is a merge on GitHub). */

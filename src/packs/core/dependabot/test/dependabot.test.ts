@@ -1,10 +1,10 @@
 /** Dependabot cleanup (dovre#108): the queue, combining a repo's bumps into one PR, and the page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addGroups, bumpedPackage, pipName, combine, combinedBody, loadQueue, mergeCombined, withGroups } from "../src/actions/dependabot.ts";
-import { openDb } from "../src/db.ts";
-import type { Ghe } from "../src/sources/ghe.ts";
-import { H, assertInert, fakeGhe, signedIn, snapshot } from "./helpers.ts";
+import { addGroups, bumpedPackage, pipName, combine, combinedBody, loadQueue, mergeCombined, withGroups } from "../act.ts";
+import { openDb } from "../../../../db.ts";
+import type { Ghe } from "../../../../sources/ghe.ts";
+import { H, assertInert, fakeGhe, signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const bot = { login: "dependabot[bot]", type: "Bot" };
 const pull = (number: number, title: string, user = bot, repo = "ACME/web") => ({ number, title, html_url: `https://acme.ghe.com/${repo}/pull/${number}`, state: "open", created_at: `2026-10-0${number % 9}T00:00:00Z`, user, head: { sha: `sha${number}`, ref: `dependabot/npm/x-${number}`, repo: { full_name: repo } } });
@@ -155,52 +155,52 @@ test("mergeCombined (#108): only an open, green, mergeable PR from one of Dovre'
 });
 
 test("page: combined PRs list their state; only green ones can be ticked, then merged after the redirect, owners only", async () => {
-  const { dependabotPage } = await import("../src/pages/dependabot.ts");
+  const { dependabotBody } = await import("../view.ts");
   const repo = (name: string, combined: Record<string, unknown>) => ({ repo: name, oldest: "2026-10-01T00:00:00Z", security: 0, prs: [{ repo: name, number: 1, title: "Bump a", url: "u", createdAt: "2026-10-01T00:00:00Z", security: false }], combined: { url: "u", draft: false, ...combined } as never });
-  const page = dependabotPage({ operator: "me", nav: [] }, {
+  const page = String(dependabotBody({
     org: "ACME",
     repos: [repo("ACME/web", { number: 9, checks: "SUCCESS", mergeable: "MERGEABLE" }), repo("ACME/api", { number: 8, checks: "PENDING", mergeable: "MERGEABLE" }), repo("ACME/db", { number: 7, checks: "SUCCESS", mergeable: "CONFLICTING" })],
-  });
+  }));
   assert.match(page, /1 of 3 green/);
   assert.match(page, /name="pick" value="ACME\/web#9"/);
   assert.doesNotMatch(page, /value="ACME\/api#8"/);
   assert.match(page, /checks running/);
   assert.match(page, /conflicts/);
-  assert.match(page, /action="\/prs\/dependabot\/merge"/);
+  assert.match(page, /action="\/dependabot\/merge"/);
 
   const { get, post } = signedIn(snapshot(), {});
-  const send = (body: string) => post("/prs/dependabot/merge", body);
+  const send = (body: string) => post("/dependabot/merge", body);
   assert.equal((await send("go=1")).status, 303);
-  assert.match(await (await get("/prs/dependabot")).text(), /Tick one or more combined PRs first/);
+  assert.match(await (await get("/dependabot")).text(), /Tick one or more combined PRs first/);
   assert.equal((await send("go=1&pick=evil/web%239&pick=ACME/web%239")).status, 303);
   let text = "";
-  for (let i = 0; i < 50 && !/Merged 0 of 2/.test((text = await (await get("/prs/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
+  for (let i = 0; i < 50 && !/Merged 0 of 2/.test((text = await (await get("/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
   assert.match(text, /Merged 0 of 2\. A PR outside the owners&#39;? repos was left alone\./);
-  assert.equal((await post("/prs/dependabot/merge", "pick=ACME/web%239", { origin: "https://evil.example" })).status, 403, "only from this app");
+  assert.equal((await post("/dependabot/merge", "pick=ACME/web%239", { origin: "https://evil.example" })).status, 403, "only from this app");
 });
 
 test("page: the Dependabot tab, a repo outside the owners refused, a combine runs after the redirect", async () => {
   const { routes } = combineRoutes();
   const { get, post, gatherer } = signedIn(snapshot(), routes);
-  const page = await (await get("/prs/dependabot")).text();
+  const page = await (await get("/dependabot")).text();
   assert.match(page, /No Dependabot PRs/);
-  assert.match(await (await get("/prs")).text(), /href="\/prs\/dependabot"/);
-  assert.equal((await post("/prs/dependabot/combine", { repo: "evil/web" })).status, 303);
-  assert.match(await (await get("/prs/dependabot")).text(), /isn&#39;t a repo of the owners|isn't a repo of the owners/);
-  const r = await post("/prs/dependabot/combine", { repo: "ACME/web" });
+  assert.match(await (await get("/prs")).text(), /href="\/dependabot"/);
+  assert.equal((await post("/dependabot/combine", { repo: "evil/web" })).status, 303);
+  assert.match(await (await get("/dependabot")).text(), /isn&#39;t a repo of the owners|isn't a repo of the owners/);
+  const r = await post("/dependabot/combine", { repo: "ACME/web" });
   assert.equal(r.status, 303);
-  for (let i = 0; i < 50 && !/Opened ACME\/web#99/.test(await (await get("/prs/dependabot")).text()); i++) await new Promise((res) => setTimeout(res, 10));
+  for (let i = 0; i < 50 && !/Opened ACME\/web#99/.test(await (await get("/dependabot")).text()); i++) await new Promise((res) => setTimeout(res, 10));
   assert.ok(gatherer.staled > 0);
-  assert.equal((await post("/prs/dependabot/combine", { repo: "ACME/web" }, { origin: "https://evil.example" })).status, 403, "only from this app");
+  assert.equal((await post("/dependabot/combine", { repo: "ACME/web" }, { origin: "https://evil.example" })).status, 403, "only from this app");
 });
 
 test("page: hostile titles and repo names are inert", async () => {
-  const { dependabotPage } = await import("../src/pages/dependabot.ts");
-  const html = dependabotPage({ operator: "me", nav: [] }, {
+  const { dependabotBody } = await import("../view.ts");
+  const html = String(dependabotBody({
     org: H,
     repos: [{ repo: H, oldest: "2026-10-01T00:00:00Z", security: 1, prs: [{ repo: H, number: 1, title: H, url: "javascript:alert(1)", createdAt: "2026-10-01T00:00:00Z", security: true }], combined: { number: 2, url: "javascript:alert(1)", checks: "SUCCESS", mergeable: "MERGEABLE", draft: false } }],
     jobs: [{ repo: H, what: "combine", state: "done", ok: false, message: H, url: "javascript:alert(1)" }, { repo: H, what: "groups", state: "running" }],
-  });
+  }));
   assertInert("dependabot page", html);
   assert.doesNotMatch(html, /href="javascript:/);
 });
@@ -279,11 +279,24 @@ test("addGroups: a branch, the file written with groups, one PR, logged; nothing
 
 test("page: adding groups runs after the redirect, owners only, this app only", async () => {
   const { get, post } = signedIn(snapshot(), groupRoutes(YML));
-  assert.equal((await post("/prs/dependabot/groups", { repo: "evil/web" })).status, 303);
-  assert.match(await (await get("/prs/dependabot")).text(), /isn&#39;t a repo of the owners|isn't a repo of the owners/);
-  assert.equal((await post("/prs/dependabot/groups", { repo: "ACME/web" })).status, 303);
+  assert.equal((await post("/dependabot/groups", { repo: "evil/web" })).status, 303);
+  assert.match(await (await get("/dependabot")).text(), /isn&#39;t a repo of the owners|isn't a repo of the owners/);
+  assert.equal((await post("/dependabot/groups", { repo: "ACME/web" })).status, 303);
   let seen = false;
-  for (let i = 0; i < 50 && !(seen = /Opened ACME\/web#77/.test(await (await get("/prs/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
+  for (let i = 0; i < 50 && !(seen = /Opened ACME\/web#77/.test(await (await get("/dependabot")).text())); i++) await new Promise((res) => setTimeout(res, 10));
   assert.ok(seen);
-  assert.equal((await post("/prs/dependabot/groups", { repo: "ACME/web" }, { origin: "https://evil.example" })).status, 403, "only from this app");
+  assert.equal((await post("/dependabot/groups", { repo: "ACME/web" }, { origin: "https://evil.example" })).status, 403, "only from this app");
+});
+
+test("a pack (#407): at /dependabot, the old address redirects, the PR tabs link it; off, they don't and it's gone", async () => {
+  const on = signedIn(snapshot(), { "GET /search/issues": { items: [] } });
+  const old = await on.get("/prs/dependabot");
+  assert.equal(old.status, 301);
+  assert.equal(old.headers.get("location"), "/dependabot");
+  assert.match(await (await on.get("/prs")).text(), /href="\/dependabot"/, "a tab on the PR list");
+  const off = signedIn(snapshot(), {}, { packEnv: { PACK_DEPENDABOT: "off" } });
+  assert.equal((await off.get("/dependabot")).status, 404);
+  assert.equal((await off.post("/dependabot/combine", { repo: "ACME/web" })).status, 404);
+  assert.doesNotMatch(await (await off.get("/prs")).text(), /href="\/dependabot"/);
+  assert.doesNotMatch(await (await off.get("/prs/stacks")).text(), /href="\/dependabot"/);
 });

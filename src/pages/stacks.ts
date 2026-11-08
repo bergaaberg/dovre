@@ -43,7 +43,7 @@ function stackPanel(s: Stack, org: string, me: string, forge: string): Html {
   });
 }
 
-export function stacksPage(frame: Frame, o: { org: string; me: string; stacks?: Stack[]; error?: string; pending?: boolean; flash?: { ok: boolean; message: string } }): string {
+export function stacksPage(frame: Frame, o: { org: string; me: string; stacks?: Stack[]; error?: string; pending?: boolean; flash?: { ok: boolean; message: string }; /** The Dependabot tab: its pack is on here. Default yes. */ dependabot?: boolean }): string {
   const body = o.pending
     ? Reading({ title: "Reading stacks", text: "Your open PRs and review requests, and the chains they're in. The page fills in by itself." })
     : html`${o.flash ? Notice({ tone: o.flash.ok ? "ok" : "bad", children: o.flash.message }) : ""}${o.error ? Notice({ tone: "bad", children: html`Stacks didn't load: ${o.error}` }) : ""}${
@@ -56,7 +56,7 @@ export function stacksPage(frame: Frame, o: { org: string; me: string; stacks?: 
       title: "Stacks · Dovre",
       frame,
       current: "/prs/stacks",
-      body: html`${PageHeader({ title: "Pull requests", sub: html`Stacks: pull requests built on other pull requests, in ${o.org}, yours and the ones you're asked to review.`, tabs: prTabs("stacks") })}<div data-live id="stacks">${body}</div>`,
+      body: html`${PageHeader({ title: "Pull requests", sub: html`Stacks: pull requests built on other pull requests, in ${o.org}, yours and the ones you're asked to review.`, tabs: prTabs("stacks", true, o.dependabot !== false) })}<div data-live id="stacks">${body}</div>`,
     }),
   );
 }
