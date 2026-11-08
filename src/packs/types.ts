@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.18";
+export const PACK_API = "1.19";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -144,8 +144,16 @@ export type SetupStep = {
   form?: boolean;
   /** Next waits, and says this: a write this step needs hasn't finished. Asked again when Next is pressed. */
   wait?: string;
-  /** The page loads again after this many seconds (5 to 60), while a job it shows runs (API 1.17). */
+  /** The step draws itself again after this many seconds (2 to 60), in place, while a job it shows runs (API 1.17; in place since 1.19). */
   refresh?: number;
+  /**
+   * The step's main button, in the foot where Next goes (API 1.19): a Confirm posting to one of the
+   * pack's routes, which redirects back to /setup/<id>?at=<step>. Next shows once the step leaves it out.
+   * `question` is plain text (it's the label with a "?" if left out); `kind` is one of the pack's `writes`, so Settings decides whether it asks twice.
+   */
+  go?: { action: string; label: string; question?: string; kind?: string };
+  /** `go` presses itself again (API 1.19): the job it started ran out of time with work left and nothing failed. Without script, it waits for a press. */
+  carry?: boolean;
 };
 
 /** A pack's setup steps (`Pack.setup`): each step drawn, and what Next on a form step saves. */

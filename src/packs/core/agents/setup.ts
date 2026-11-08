@@ -21,6 +21,8 @@ const KEY = "agents.sandboxes";
 /** PRs one press opens, at most. */
 export const MAX_PRS = 30;
 export const SANDBOX_KIND = "sandbox-pr";
+/** Where a press goes: the job that opens the PRs. */
+const OPEN = "/agents/setup/open";
 
 export type Lang = { id: string; label: string; /** The file that says a repo is this language. */ marker: string; allow: string[]; setup: string; containerfile: string };
 
@@ -159,8 +161,8 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
         if (!want.length) return { body: html`<p class="t2">Nothing to open${k.prs && Object.values(k.prs).some((o) => "number" in o) ? ": the rest have their PRs" : ""}. Next finishes.</p>` };
         const more = all.length - want.length;
         return {
-          body: html`<p class="t2">Opens ${plural(want.length, "PR")}, one per repo, each adding <code>${CONFIG}</code> and a Containerfile. Nothing merges by itself.${more > 0 ? ` The other ${more} get theirs when you run this setup again.` : ""}</p>${Confirm({ kind: `agents.${SANDBOX_KIND}`, action: "/agents/setup/open", label: `Open ${plural(want.length, "PR")}`, question: html`Open ${plural(want.length, "PR")} in ${few(want.map((t) => t.repo))}? Each is logged under Actions.` })}`,
-          wait: "Open the PRs, or press Later.",
+          body: html`<p class="t2">Opens ${plural(want.length, "PR")}, one per repo, each adding <code>${CONFIG}</code> and a Containerfile. Nothing merges by itself.${more > 0 ? ` The other ${more} get theirs when you run this setup again.` : ""}</p>`,
+          go: { kind: `agents.${SANDBOX_KIND}`, action: OPEN, label: `Open ${plural(want.length, "PR")}`, question: `Open ${plural(want.length, "PR")} in ${few(want.map((t) => t.repo))}? Each is logged under Actions.` },
         };
       }
       const prs = k.prs ?? {};
@@ -177,11 +179,13 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
         });
       });
       const redo = [...failed, ...left];
-      // Never tried (a press opens what fits in its time) or tried and failed: either way, the button opens them.
-      const label = failed.length ? `Try ${plural(redo.length, "repo")} again` : `Open ${plural(redo.length, "more PR", "more PRs")}`;
-      const again = redo.length && !going ? Confirm({ kind: `agents.${SANDBOX_KIND}`, action: "/agents/setup/open", label, question: html`Open the PRs still to go, in ${few(redo)}?` }) : "";
       const said = left.length || going ? "" : failed.length ? html`<p class="t3">${plural(k.repos.length - failed.length, "PR")} open. Merge them when they're green.</p>` : html`<p class="t3">All ${plural(k.repos.length, "PR")} open. Merge them when they're green; agents use the sandbox from then on.</p>`;
-      return { body: html`${List(rows)}${said}${again}`, ...(going ? { wait: `Opening ${plural(left.length, "PR")}…`, refresh: 5 } : left.length ? { wait: `${plural(left.length, "PR")} to go. Open them below.` } : {}) };
+      if (going) return { body: html`${List(rows)}`, wait: `Opening ${plural(left.length, "PR")}…`, refresh: 3 };
+      if (!redo.length) return { body: html`${List(rows)}${said}` };
+      // One failed (a file there already, say): Next goes on, and trying again is a button of the body's.
+      if (failed.length) return { body: html`${List(rows)}${said}${Confirm({ kind: `agents.${SANDBOX_KIND}`, action: OPEN, label: `Try ${plural(redo.length, "repo")} again`, question: html`Open the PRs still to go, in ${few(redo)}?` })}` };
+      // A press opens what fits in its time: with repos left and none failed, the round carries on by itself (#441).
+      return { body: html`${List(rows)}`, go: { kind: `agents.${SANDBOX_KIND}`, action: OPEN, label: `Open ${plural(redo.length, "more PR", "more PRs")}`, question: `Open the PRs still to go, in ${few(redo)}?` }, carry: true };
     },
     async save(ctx, _step, form) {
       const langs = ([] as string[]).concat(form.lang ?? []).filter((id) => LANGS.some((l) => l.id === id));
@@ -220,7 +224,7 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
   return {
     setup,
     routes(app, ctx) {
-      app.post("/agents/setup/open", async (c) => {
+      app.post(OPEN, async (c) => {
         const back = c.redirect("/setup/agents?at=open", 303);
         // One job at a time: the saved start says so across isolates (a job that never ended goes stale).
         const k = await read(ctx);

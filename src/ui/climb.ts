@@ -126,6 +126,11 @@ ${FROM}
 .su-head .climb-link { padding: 0; }
 .su-body { display: grid; gap: 14px; min-width: 0; }
 .su-foot { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+/* A step's own main button where Next goes (#441): Confirm's summary, or its one-click button, look like Next. */
+.su-go { position: relative; }
+.su-go > form > button, .su-go details.confirm > summary { appearance: none; border: 0; cursor: pointer; background: var(--accent); color: var(--bg); font: 600 15px/1 var(--climb-font); padding: 14px 24px; border-radius: 999px; }
+.su-go details.confirm[open] > summary { color: var(--bg); opacity: .8; }
+.su-go details.confirm .confirm-body { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 3; width: min(22rem, calc(100vw - 32px)); margin: 0; box-shadow: var(--shadow); background: var(--surface); }
 .su-dots { display: flex; gap: 8px; }
 .su-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
 .su-dots i.su-past { background: color-mix(in oklab, var(--accent) 50%, var(--line-2)); }

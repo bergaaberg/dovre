@@ -161,8 +161,11 @@ export function climbPage(v: ClimbView, steps: Step[], o: { refresh?: number } =
   return climbDoc({ title: "Set up · Dovre", look: v.look, scene: climbArt(v.step, v.flags, v.from), body, refresh: o.refresh });
 }
 
-/** A page of the climb's kind (no menu): the scene behind, one column over it. The setup pages (#418) are one too. */
-export function climbDoc(o: { title: string; look?: Frame["look"]; scene: unknown; body: unknown; refresh?: number }) {
+/**
+ * A page of the climb's kind (no menu): the scene behind, one column over it. The setup pages (#418) are one too.
+ * `refresh` loads it again after that many seconds; with `script` (the setup pages', #441) the script redraws the column in place instead.
+ */
+export function climbDoc(o: { title: string; look?: Frame["look"]; scene: unknown; body: unknown; refresh?: number; script?: string }) {
   const l = o.look ?? {};
   return html`<!doctype html>
 <html lang="en"${l.theme ? html` data-theme="${l.theme}"` : ""}${l.accent ? html` data-accent="${l.accent}"` : ""}${l.font ? html` data-font="${l.font}"` : ""}${l.motion ? html` data-motion="${l.motion}"` : ""}>
@@ -173,12 +176,14 @@ export function climbDoc(o: { title: string; look?: Frame["look"]; scene: unknow
 <title>${o.title}</title>
 <link rel="stylesheet" href="${STYLE_PATH}">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#0e1922">${o.refresh ? html`
-<meta http-equiv="refresh" content="${o.refresh}">` : ""}
+<meta name="theme-color" content="#0e1922">${o.refresh ? (o.script ? html`
+<noscript><meta http-equiv="refresh" content="${Math.max(5, o.refresh)}"></noscript>` : html`
+<meta http-equiv="refresh" content="${o.refresh}">`) : ""}${o.script ? html`
+<script src="${o.script}" defer></script>` : ""}
 </head>
 <body class="climb-page">
 <div class="climb-scene">${o.scene}</div>
-<main class="climb"><div class="climb-col">${o.body}</div></main>
+<main class="climb"><div class="climb-col"${o.script && o.refresh ? html` data-refresh="${o.refresh}"` : ""}>${o.body}</div></main>
 </body>
 </html>`;
 }

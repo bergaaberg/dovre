@@ -86,8 +86,10 @@ test("the Agents setup: pick languages, see the files, open one PR a repo with b
   const open = await (await get("/setup/agents?at=open")).text();
   assert.match(open, /Opens 3 PRs, one per repo/);
   assert.match(open, /action="\/agents\/setup\/open"/);
-  assert.match(open, /climb-go" disabled/, "Next waits for the PRs");
-  assert.doesNotMatch(open, /http-equiv="refresh"/, "nothing reloads under the Confirm");
+  assert.match(open, /class="su-foot">.*class="su-go">(<details class="confirm"><summary>Open 3 PRs…<\/summary>.*)?<form[^>]* action="\/agents\/setup\/open">.*Open 3 PRs/s, "the step's one main button, where Next goes (#441)");
+  assert.doesNotMatch(open, />(Next|Done) <span/, "and no Next beside it");
+  assert.doesNotMatch(open, /data-carry/, "the first press is mine");
+  assert.doesNotMatch(open, /http-equiv="refresh"|data-refresh/, "nothing redraws under the Confirm");
 
   assert.equal((await post("/agents/setup/open", "")).headers.get("location"), "/setup/agents?at=open");
   const after = await settle(get, /didn&#39;t open|didn't open/);
@@ -100,8 +102,9 @@ test("the Agents setup: pick languages, see the files, open one PR a repo with b
   assert.match(asked[0]!.files[0]!.text, /"cargo fetch"/);
   assert.match(after, /#41 open/);
   assert.match(after, /sandbox.Containerfile exists now/);
-  assert.match(after, /Try 1 repo again/);
-  assert.doesNotMatch(after, /climb-go" disabled/, "every repo was tried: Next goes on");
+  assert.match(after, /class="su-body">.*Try 1 repo again/s, "trying again is the body's");
+  assert.doesNotMatch(after, /data-carry/, "one failed: it doesn't carry on by itself");
+  assert.match(after, /<button type="submit" class="climb-go">Done/, "every repo was tried: Next goes on");
 
   // Again: only the one that didn't open.
   await post("/agents/setup/open", "");
@@ -145,14 +148,15 @@ test("the Agents setup: a press opens what fits in its time; the rest wait for t
     await post("/agents/setup/open", "");
     const first = await settle(get, /Open 1 more PR/);
     assert.equal(asked.length, 2, "the third waits: the time ran out");
-    assert.match(first, /1 PR to go/);
+    assert.match(first, /class="su-go" data-carry="Open 1 more PR">/, "the round carries on by itself (#441)");
     assert.match(first, /not yet/, "the one it didn't reach isn't \"opening\"");
     assert.doesNotMatch(first, /opening…/);
-    assert.match(first, /climb-go" disabled/, "Next waits for it");
+    assert.doesNotMatch(first, />(Next|Done) <span/, "Next waits for it");
     await post("/agents/setup/open", "");
     const all = await settle(get, /All 3 PRs open/);
     assert.deepEqual(asked, ["ACME/ingest", "ACME/web", "ACME/api"]);
-    assert.doesNotMatch(all, /climb-go" disabled/);
+    assert.match(all, /<button type="submit" class="climb-go">Done/);
+    assert.doesNotMatch(all, /data-carry|data-refresh/);
   } finally {
     performance.now = real;
   }
@@ -169,6 +173,9 @@ test("the Agents setup: a job gone silent (its isolate died) stops saying it's o
   const alive = await (await get("/setup/agents?at=open")).text();
   assert.match(alive, /Opening 1 PR…/);
   assert.match(alive, /opening…/);
+  assert.match(alive, /class="climb-col" data-refresh="3">/, "it draws itself again in place");
+  assert.match(alive, /<noscript><meta http-equiv="refresh" content="5"><\/noscript>/, "and reloads without script");
+  assert.match(alive, /<script src="\/assets\/setup\.[0-9a-z]+\.js" defer><\/script>/);
   await put(Date.now() - STALE_MS - 1_000);
   const dead = await (await get("/setup/agents?at=open")).text();
   assert.doesNotMatch(dead, /Opening 1 PR…|opening…/);

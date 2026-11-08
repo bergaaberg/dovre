@@ -9,7 +9,8 @@ import { html } from "hono/html";
 import type { Frame } from "../html.ts";
 import type { OnboardStep } from "../packs/types.ts";
 import { climbArt, type Flag } from "../ui/climb.ts";
-import { type Child, type Html, Item, List, Panel, Pill } from "../ui/kit.ts";
+import { type Child, Confirm, type Html, Item, List, Panel, Pill } from "../ui/kit.ts";
+import { SETUP_JS_PATH } from "../ui/setup.js.ts";
 import { MARK } from "../ui/splash.ts";
 import { climbDoc } from "./welcome.ts";
 
@@ -26,11 +27,30 @@ export type SetupView = {
   form?: boolean;
   /** Next waits, and why (`SetupStep.wait`). */
   wait?: string;
-  /** Seconds until the page loads again (`SetupStep.refresh`). */
+  /** Seconds until the step draws itself again, in place (`SetupStep.refresh`). */
   refresh?: number;
+  /** The step's main button, where Next goes (`SetupStep.go`), already checked. */
+  go?: { action: string; label: string; question: string; kind?: string };
+  /** `go` presses itself again (`SetupStep.carry`). */
+  carry?: boolean;
   /** What the last Next was refused for. */
   error?: string;
 };
+
+/**
+ * A step's main button as the pack asked for it (`SetupStep.go`), or none: it posts to a path on
+ * this app (never another site), says itself in a short label, and names a write kind of the pack's own.
+ */
+export function setupGo(pack: string, go: unknown): SetupView["go"] {
+  if (!go || typeof go !== "object") return undefined;
+  const g = go as Record<string, unknown>;
+  const action = typeof g.action === "string" ? g.action : "";
+  const label = typeof g.label === "string" ? g.label.trim().slice(0, 60) : "";
+  if (!/^\/(?![/\\])[\w/.~?=&%-]*$/.test(action) || !label) return undefined;
+  const question = typeof g.question === "string" && g.question.trim() ? g.question.trim().slice(0, 300) : `${label}?`;
+  const kind = typeof g.kind === "string" && g.kind.startsWith(`${pack}.`) ? g.kind : undefined;
+  return { action, label, question, ...(kind ? { kind } : {}) };
+}
 
 const arrow = html`<span aria-hidden="true">→</span>`;
 const later = html`<a class="climb-link" href="/">Later</a>`;
@@ -43,7 +63,7 @@ export function setupPage(v: SetupView) {
     v.at >= n
       ? html`${head}<div class="climb-eyebrow">${v.pack.name} · set</div><h2>That's it.</h2><p class="climb-lede">${v.pack.name} is ready. Its flag's back with the others.</p><div class="climb-row"><a class="climb-go" href="/">Back to Today ${arrow}</a><a class="climb-link" href="${href(0)}">Run it again</a></div>`
       : stepBody(v, head, href);
-  return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body, refresh: v.at < n ? v.refresh : undefined });
+  return climbDoc({ title: `Setting up ${v.pack.name} · Dovre`, look: v.look, scene: climbArt("summit", v.flags), body, refresh: v.at < n ? v.refresh : undefined, script: SETUP_JS_PATH });
 }
 
 function stepBody(v: SetupView, head: Html, href: (i: number) => string) {
@@ -53,12 +73,15 @@ function stepBody(v: SetupView, head: Html, href: (i: number) => string) {
   const back = v.at ? html`<a class="climb-link" href="${href(v.at - 1)}">Back</a>` : html`<a class="climb-link" href="/">Today</a>`;
   const dots = html`<span class="su-dots" aria-label="${`Step ${v.at + 1} of ${n}`}">${v.steps.map((_, k) => html`<i class="${k === v.at ? "su-on" : k < v.at ? "su-past" : ""}"></i>`)}</span>`;
   const next = html`<button type="submit" class="climb-go"${v.wait ? " disabled" : ""}>${last ? "Done" : "Next"} ${arrow}</button>`;
-  const foot = html`<div class="su-foot">${back}${dots}${next}</div>`;
+  // The step's own main button stands where Next goes; its form is its own, so the foot sits outside Next's.
+  const go = v.go ? html`<div class="su-go"${v.carry ? html` data-carry="${v.go.label}"` : ""}>${Confirm({ action: v.go.action, label: v.go.label, question: v.go.question, kind: v.go.kind })}</div>` : "";
+  const foot = html`<div class="su-foot">${back}${dots}${v.go ? go : next}</div>`;
   const notes = html`${v.wait ? html`<p class="su-note">${v.wait}</p>` : ""}${v.error ? html`<p class="su-note" role="alert">${v.error}</p>` : ""}`;
   const title = html`<div><div class="climb-eyebrow">${v.pack.name} · ${v.at + 1} of ${n}</div><h2>${step.title}</h2></div>`;
   const action = `/setup/${v.pack.id}/next`;
   const hidden = html`<input type="hidden" name="step" value="${step.id}">`;
   // A form step's inputs go with Next; any other body keeps its own forms (a Confirm), apart from Next's.
+  if (v.go) return html`${head}${title}<div class="su-body">${v.body ?? ""}</div>${notes}${foot}`;
   return v.form
     ? html`${head}${title}<form method="post" action="${action}">${hidden}<div class="su-body">${v.body ?? ""}</div>${notes}${foot}</form>`
     : html`${head}${title}<div class="su-body">${v.body ?? ""}</div>${notes}<form method="post" action="${action}">${hidden}${foot}</form>`;

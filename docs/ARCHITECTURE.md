@@ -290,6 +290,7 @@ Also:
 | 1.16 | `setup`: a setup page at /setup/<id> for the steps `onboard` declares. The pack draws each step's body (`draw`, and `save` for a form step); core draws the frame, Today lists the packs not set up yet, and `ctx.setupDone()` says whether every step is done (#418) |
 | 1.17 | `forge().propose` takes `files`: up to five files in one PR, each checked against what the pack saw; a setup step's `refresh` loads its page again while a job runs (#425) |
 | 1.18 | Manifest `via: "forge"`: it reads and writes through the forge, and the Packs page groups it under the forge's name (#432) |
+| 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
 
 ## Open questions
 
