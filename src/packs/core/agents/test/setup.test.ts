@@ -36,7 +36,7 @@ test("each language's sandbox.json reads back as the sandbox reads it", () => {
 function agentsLike() {
   const s = agentsSetup();
   const pack: Pack = {
-    manifest: { api: PACK_API, id: "agents", name: "Agents", description: "", domain: "general", onboard: { steps: [{ id: "repos", title: "Which repos get a sandbox?" }, { id: "files", title: "Here's what goes in." }, { id: "open", title: "Open the PRs?" }] } },
+    manifest: { api: PACK_API, id: "agents", name: "Agents", description: "", domain: "general", onboard: { steps: [{ id: "repos", title: "Which languages get a sandbox?" }, { id: "files", title: "Here's what goes in." }, { id: "open", title: "Open the PRs?" }] } },
     writes: [{ kind: SANDBOX_KIND, label: "Sandbox PRs" }],
     setup: s.setup,
     routes: (app, ctx) => s.routes(app, ctx),
@@ -101,14 +101,17 @@ test("the Agents setup: pick languages, see the files, open one PR a repo with b
   assert.ok(asked.every((p) => p.files.every((f) => f.expect === null)));
   assert.match(asked[0]!.files[0]!.text, /"cargo fetch"/);
   assert.match(after, /#41 open/);
-  assert.match(after, /sandbox.Containerfile exists now/);
-  assert.match(after, /class="su-body">.*Try 1 repo again/s, "trying again is the body's");
+  assert.match(after, /It has sandbox files already\./, "the forge's refusal, plainly (#442)");
+  assert.doesNotMatch(after, /exists now/, "its own words are in the action log");
+  assert.match(after, /href="https:\/\/github\.com\/ACME\/api"/, "with the repo to look at");
+  assert.match(after, /Merge them on <a href="\/prs">PRs<\/a>/);
+  assert.match(after, /class="su-body">.*Try it again/s, "trying again is the body's");
   assert.doesNotMatch(after, /data-carry/, "one failed: it doesn't carry on by itself");
   assert.match(after, /<button type="submit" class="climb-go">Done/, "every repo was tried: Next goes on");
 
   // Again: only the one that didn't open.
   await post("/agents/setup/open", "");
-  await settle(get, /Try 1 repo again/);
+  await settle(get, /Try it again/);
   assert.equal(asked.at(-1)!.repo, "ACME/api");
   assert.equal(asked.length, 4);
   assert.equal((await post("/setup/agents/next", "step=open")).headers.get("location"), "/setup/agents?at=done");
@@ -117,7 +120,7 @@ test("the Agents setup: pick languages, see the files, open one PR a repo with b
   await post("/setup/agents/next", "step=repos&lang=pnpm&lang=rust");
   assert.match(await (await get("/setup/agents?at=open")).text(), /Opens 1 PR,/);
   await post("/agents/setup/open", "");
-  await settle(get, /Try 1 repo again/);
+  await settle(get, /Try it again/);
   assert.deepEqual(asked.slice(4).map((p) => p.repo), ["ACME/api"]);
 });
 
@@ -186,4 +189,14 @@ test("the Agents setup: a job gone silent (its isolate died) stops saying it's o
 test("the Agents setup waits for the repos, and says so when the forge can't open PRs", async () => {
   const { get } = signedIn(snapshot(), {}, { packs: [agentsLike()], forge: { id: "gitlab", name: "GitLab", can: [], host: "gitlab.com", everyRepo: async () => REPOS } });
   assert.match(await (await get("/setup/agents")).text(), /doesn&#39;t reach|doesn't reach/);
+});
+
+test("a forge's refusal of a sandbox PR, said plainly (#442)", async () => {
+  const { plainly } = await import("../setup.ts");
+  assert.match(plainly(".dovre/sandbox.json exists now."), /sandbox files already/);
+  assert.match(plainly("HTTP 403: Resource not accessible by integration"), /can't write to it/);
+  assert.match(plainly("Reference already exists"), /branch/);
+  assert.match(plainly("API rate limit exceeded", "GitHub"), /GitHub's rate limit/);
+  assert.match(plainly("HTTP 404 Not Found"), /renamed, or gone/);
+  assert.equal(plainly("<b>weird</b>", "GitLab"), "GitLab said no. Actions has its words.", "anything else: never the raw text");
 });

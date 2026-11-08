@@ -102,6 +102,15 @@ export const STALE_MS = 45_000;
 export const BUDGET_MS = 20_000;
 const busy = (k: Kept, now = Date.now()) => !!k.running && now - k.running < STALE_MS;
 
+/** What a forge's refusal of a sandbox PR comes to, in a few words. The raw text is logged under Actions. */
+export function plainly(error: string, forge = "GitHub"): string {
+  if (/exists now|already says that|isn't a file there|changed since/i.test(error)) return "It has sandbox files already. Look there, or remove them and try again.";
+  if (/rate limit|\b429\b/i.test(error)) return `${forge}'s rate limit. Try again in a few minutes.`;
+  if (/reference already exists|branch.*exists/i.test(error)) return "Its branch for this is there already. Delete it and try again.";
+  if (/\b40[13]\b|permission|not accessible|forbidden|denied|read-only|archived/i.test(error)) return "Dovre can't write to it.";
+  if (/\b404\b|not found/i.test(error)) return `${forge} can't find it: renamed, or gone?`;
+  return `${forge} said no. Actions has its words.`;
+}
 const few = (repos: string[]) => `${repos.slice(0, 3).join(", ")}${repos.length > 3 ? `, and ${repos.length - 3} more` : ""}`;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -173,17 +182,19 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
         const o = prs[r];
         return Item({
           title: html`<code>${r}</code>`,
-          ...(o && "error" in o ? { line: o.error } : {}),
+          // A refusal said plainly, with the repo to look at; the forge's own words are in the action log.
+          ...(o && "error" in o ? { line: plainly(o.error, forge.name), href: safeUrl(`https://${forge.host ?? "github.com"}/${r}`) } : {}),
           ...(o && "url" in o ? { href: safeUrl(o.url) } : {}),
           trail: !o ? Pill({ tone: "neutral", children: going ? "opening…" : "not yet" }) : "error" in o ? Pill({ tone: "bad", children: "didn't open" }) : Pill({ tone: "ok", children: `#${o.number} open` }),
         });
       });
       const redo = [...failed, ...left];
-      const said = left.length || going ? "" : failed.length ? html`<p class="t3">${plural(k.repos.length - failed.length, "PR")} open. Merge them when they're green.</p>` : html`<p class="t3">All ${plural(k.repos.length, "PR")} open. Merge them when they're green; agents use the sandbox from then on.</p>`;
+      const merge = ctx.pageOn("/prs") ? html`Merge them on <a href="/prs">PRs</a> when they're green` : "Merge them when they're green";
+      const said = left.length || going ? "" : failed.length ? html`<p class="t3">${plural(k.repos.length - failed.length, "PR")} open. ${merge}.</p>` : html`<p class="t3">All ${plural(k.repos.length, "PR")} open. ${merge}; agents use the sandbox from then on.</p>`;
       if (going) return { body: html`${List(rows)}`, wait: `Opening ${plural(left.length, "PR")}…`, refresh: 3 };
       if (!redo.length) return { body: html`${List(rows)}${said}` };
       // One failed (a file there already, say): Next goes on, and trying again is a button of the body's.
-      if (failed.length) return { body: html`${List(rows)}${said}${Confirm({ kind: `agents.${SANDBOX_KIND}`, action: OPEN, label: `Try ${plural(redo.length, "repo")} again`, question: html`Open the PRs still to go, in ${few(redo)}?` })}` };
+      if (failed.length) return { body: html`${List(rows)}${said}${Confirm({ kind: `agents.${SANDBOX_KIND}`, action: OPEN, label: left.length ? `Try ${failed.length} again, open ${left.length} more` : `Try ${failed.length === 1 ? "it" : `all ${failed.length}`} again`, question: html`Open the PRs still to go, in ${few(redo)}?` })}` };
       // A press opens what fits in its time: with repos left and none failed, the round carries on by itself (#441).
       return { body: html`${List(rows)}`, go: { kind: `agents.${SANDBOX_KIND}`, action: OPEN, label: `Open ${plural(redo.length, "more PR", "more PRs")}`, question: `Open the PRs still to go, in ${few(redo)}?` }, carry: true };
     },
