@@ -16,12 +16,13 @@ const MANIFEST = {
   name: "Assistant",
   description: "Bino: scoped memory, what the packs know about your repos and apps, and plan proposals",
   domain: "general",
+  roles: ["dev", "lead", "po", "op", "an"],
   paths: ["bino"],
 } as const;
 
 export function assistantPack(): Pack {
   const pack: Pack = {
-    manifest: { ...MANIFEST, paths: [...MANIFEST.paths] },
+    manifest: { ...MANIFEST, roles: [...MANIFEST.roles], paths: [...MANIFEST.paths] },
     routes(app, ctx) {
       const host = assistantHostOf(pack);
       if (!host) return;

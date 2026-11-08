@@ -94,6 +94,7 @@ export function reviewsPack(deps: ReviewsDeps): Pack {
       name: "Agent reviews",
       description: "Review a PR, or assess the review on yours, with an agent skill; go through its draft before it's posted",
       domain: "general",
+      answers: ["agents:many", "catch:agents"],
       execution: "local-only",
       // Links to the agent's session while the agents pack is on (#394).
       uses: ["agents"],

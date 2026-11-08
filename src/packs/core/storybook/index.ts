@@ -181,6 +181,7 @@ export function storybookPack(d: StorybookDeps): Pack {
       name: "Storybook",
       description: "A PR's stories before and after, published by CI or built here",
       domain: "general",
+      markers: [".storybook/"],
       execution: "local-only",
       settings: [
         {

@@ -42,6 +42,8 @@ export function stacksPack(deps: StacksDeps): Pack {
       name: "Stacks",
       description: "Stacked PRs around yours and your review requests, bottom first, retargeted when a base merges",
       domain: "work",
+      roles: ["dev"],
+      answers: ["catch:red"],
       execution: "any",
     },
     pages: () => [{ title: "Stacks", href: HREF, icon: "≡", about: "Stacked PRs, bottom first", also: ["stacked", "chain", "retarget"] }],

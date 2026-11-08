@@ -28,6 +28,8 @@ export function historyPack({ history, forge = "GitHub", now = Date.now }: Histo
       name: "History",
       description: `Your PRs and reviews, and the org's merges, releases and red main, week by week from ${forge}`,
       domain: "work",
+      roles: ["lead"],
+      answers: ["catch:red"],
       execution: "any",
       everyMs: 60 * 60_000,
     },
