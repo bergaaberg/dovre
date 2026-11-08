@@ -1,14 +1,13 @@
 /** Deploys waiting for my approval, with the decision buttons, and the log of what I decided here. */
-import type { RefRule } from "../packs/types.ts";
 import { html } from "hono/html";
-import type { Logged } from "../actions/deploys.ts";
-import { type Frame, shell } from "../html.ts";
-import type { Snapshot } from "../gather.ts";
-import { BulkBar, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill } from "../ui/kit.ts";
-import { changelogBlock, type SummaryOf } from "./inline.ts";
-import { Ago, Link, failed, safeUrl } from "./parts.ts";
+import type { Logged } from "../../../actions/deploys.ts";
+import type { Snapshot } from "../../../gather.ts";
+import { changelogBlock, type SummaryOf } from "../../../pages/inline.ts";
+import { Ago, Link, failed } from "../../../pages/parts.ts";
+import { BulkBar, Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill } from "../../../ui/kit.ts";
+import type { RefRule } from "../../types.ts";
 
-export function deploysPage(frame: Frame, s: Snapshot, opts: { log: Logged[]; flash?: { ok: boolean; message: string }; decided?: ReadonlyMap<number, { state: "approved" | "rejected" }>; summary: SummaryOf; /** The packs' kinds of reference. */ rules?: RefRule[]; ghe: string; /** What the packs say is in prod for the repo ("deploy.prod"). */ prodLine?: (repo: string) => Html | ""; /** The forge approves deploys from here (default yes); else the page only lists them. */ approve?: boolean }) {
+export function deploysBody(s: Snapshot, opts: { log: Logged[]; flash?: { ok: boolean; message: string }; decided?: ReadonlyMap<number, { state: "approved" | "rejected" }>; summary: SummaryOf; /** The packs' kinds of reference. */ rules?: RefRule[]; ghe: string; /** What the packs say is in prod for the repo ("deploy.prod"). */ prodLine?: (repo: string) => Html | ""; /** The forge approves deploys from here (default yes); else the page only lists them. */ approve?: boolean }) {
   const decided = opts.decided ?? new Map();
   // What was decided here but isn't gathered yet: the decision shows, not the buttons; rejected superseded runs aren't counted.
   const deploys = (s.deploys.ok ? s.deploys.value : []).map((d) => ({ ...d, superseded: d.superseded.filter((r) => !decided.has(r.id)) }));
@@ -42,7 +41,7 @@ export function deploysPage(frame: Frame, s: Snapshot, opts: { log: Logged[]; fl
       }</span>`}`,
     });
   });
-  const body = html`${PageHeader({ title: "Deploys", sub: deploys.length ? `${deploys.length} waiting${opts.approve === false ? "" : " for you"}${stale ? `, with ${stale} superseded runs behind them` : ""}.` : "Nothing waits for your approval." })}
+  return html`${PageHeader({ title: "Deploys", sub: deploys.length ? `${deploys.length} waiting${opts.approve === false ? "" : " for you"}${stale ? `, with ${stale} superseded runs behind them` : ""}.` : "Nothing waits for your approval." })}
 ${opts.flash ? Notice({ tone: opts.flash.ok ? "ok" : "bad", children: opts.flash.message }) : ""}
 <div data-live id="deploys">${failed("Deploys", s.deploys)}
 ${Panel({ title: "Waiting for you", meta: String(deploys.length), flush: true, children: deploys.length ? html`${bulk ? BulkBar({ id: "deploys-bulk", action: "/deploys/bulk", label: "Ticked:", buttons: [{ name: "state", value: "approved", label: "Approve ticked", kind: "deploy.approve", question: "Approve every ticked run? Each is checked again first." }, { name: "state", value: "rejected", label: "Reject ticked", kind: "deploy.reject", danger: true, question: "Reject every ticked run? They end without deploying." }] }) : ""}${List(rows)}` : Empty({ title: "Nothing waiting" }) })}
@@ -55,5 +54,4 @@ ${Panel({
     ? List(opts.log.map((a) => Item({ lead: Pill({ tone: a.ok ? "ok" : "bad", children: a.ok ? "done" : "failed" }), title: html`${a.kind} · ${a.target}`, line: a.error ?? a.detail ?? undefined, trail: Ago(a.at) })))
     : Empty({ title: "Nothing yet" }),
 })}</div>`;
-  return shell({ title: "Deploys · Dovre", frame, current: "/deploys", body });
 }

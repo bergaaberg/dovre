@@ -75,6 +75,7 @@ import { type Need, needsOf } from "./home/needs.ts";
 import { listRepos } from "./sources/claude.ts";
 import { todoPack } from "./packs/core/todo/index.ts";
 import { movementPack } from "./packs/core/movement/index.ts";
+import { deploysPack } from "./packs/core/deploys/index.ts";
 import { systemOpener } from "./open-link.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
 
@@ -327,12 +328,13 @@ const runner = createRunner({
 let packNeeds: () => Need[] = () => [];
 let startsOff: ReadonlySet<string> = new Set();
 let packLinked = (): string[] => [];
+let pageOn = (_href: string) => true;
 const refresher = startRefresher({ gatherer, hub });
 // What needs me rings once, checked again whenever pages are told something changed: a gather, or a
 // pack's own read (the agents pack's sessions every 15 s).
 hub.subscribe((c) => {
   const s = gatherer.peek();
-  if (s && c.topics.includes("snapshot")) ring(notifier.observe([...needsOf(s), ...packNeeds()], policy, startsOff));
+  if (s && c.topics.includes("snapshot")) ring(notifier.observe([...needsOf(s, { deploys: pageOn("/deploys") }), ...packNeeds()], policy, startsOff));
 });
 // A gather a page or an action started is published like the refresher's own.
 gathered = refresher.seen;
@@ -420,6 +422,8 @@ const corePacks = [
   assistantPack(),
   // Moved (/movement): what people did in the org lately, from the gather.
   movementPack(),
+  // Deploys waiting for my approval (/deploys), decided from here where the forge lets me.
+  deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }),
   // My list (/todo), shared with Bino, search and New work.
   todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }), bino: () => binoRoute.ready }),
   // My open issues from the forge (/tracker), where the forge has them.
@@ -531,6 +535,7 @@ const mountedPacks = packsOf(app)!;
 packNeeds = mountedPacks.needs;
 startsOff = mountedPacks.startsOff;
 packLinked = mountedPacks.linked;
+pageOn = mountedPacks.pageOn;
 await initAll(mountedPacks, mountedPacks.ctxOf, (l) => console.log(l));
 if (mountedPacks.on.length) {
   console.log(`packs: ${mountedPacks.on.map((c) => c.manifest.id).join(", ")}`);

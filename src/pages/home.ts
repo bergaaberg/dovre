@@ -157,7 +157,7 @@ function feedPanel(s: Snapshot, now: number, apps?: { events: FeedEvent[]; only:
 <ol class="feed-list" id="feed-list" data-keep-scroll>${apps.events.length ? apps.events.map((e) => feedRow(e, s.org, now)) : html`<li class="fe"><p class="empty">Quiet so far.</p></li>`}</ol>
 </aside>`;
   }
-  const events = mergeFeeds(feedOf(s, now), apps?.events.filter((e) => now - e.at < 24 * 3600e3) ?? []);
+  const events = mergeFeeds(feedOf(s, now, 60, { deploys: on("/deploys") }), apps?.events.filter((e) => now - e.at < 24 * 3600e3) ?? []);
   return html`<aside class="card feed" id="feed" aria-labelledby="feed-h">
 <div class="card-h"><h2 id="feed-h">What's moving</h2><p>last 24 h</p></div>
 ${!s.moves.ok ? html`<p class="notes bad">Movement didn't load: ${s.moves.error}</p>` : ""}

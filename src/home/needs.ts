@@ -46,7 +46,8 @@ export const rankNeeds = (needs: Need[]): Need[] => [...needs].sort((a, b) => a.
 
 const short = (repo: string, org: string) => repo.replace(new RegExp(`^${org}/`), "");
 
-export function needsOf(s: Snapshot): Need[] {
+/** `deploys: false`: the deploys pack is off here, so a waiting deploy links to its run instead. */
+export function needsOf(s: Snapshot, o: { deploys?: boolean } = {}): Need[] {
   const out: Need[] = [];
 
   if (s.deploys.ok)
@@ -64,7 +65,7 @@ export function needsOf(s: Snapshot): Need[] {
         at: Date.parse(d.createdAt),
         title: `${short(d.repo, s.org)} → ${d.envs.map((e) => e.name).join(", ")}: ${d.title}`,
         line: [live ? "already live: a leftover run to reject" : ships, `${d.name} · by ${d.actor} · ${d.sha}`, d.superseded.length ? `${d.superseded.length}${d.more ? "+" : ""} older waiting runs superseded` : ""].filter(Boolean).join(" · "),
-        href: "/deploys",
+        href: o.deploys === false ? d.url : "/deploys",
         tone: live ? "neutral" : "bad",
         repo: d.repo,
       });

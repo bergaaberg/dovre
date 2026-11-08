@@ -21,7 +21,7 @@ import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
 import { d1Reads } from "./sources/files.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
-import type { Forge } from "./forge/types.ts";
+import { type Forge, forgeCan } from "./forge/types.ts";
 import { loadMemory, memoryLater } from "./packs/core/assistant/bino/memory.ts";
 import { type HubClient, hubClient, type HubNamespace, remoteBino } from "./hosted/client.ts";
 import { remoteDesk } from "./bridge/remote.ts";
@@ -33,6 +33,7 @@ import { autoreviewPack } from "./packs/core/autoreview/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { todoPack } from "./packs/core/todo/index.ts";
 import { movementPack } from "./packs/core/movement/index.ts";
+import { deploysPack } from "./packs/core/deploys/index.ts";
 import { issuesPack } from "./packs/core/issues/index.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
@@ -316,7 +317,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), movementPack(), issues, ...instancePacks], { env: strings, bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), movementPack(), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), issues, ...instancePacks], { env: strings, bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
@@ -329,7 +330,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       forge,
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
-      packs: { on, off, env: strings, bindings, core: ["agents", "autoreview", "history", "assistant", "todo", "movement", "tracker"] },
+      packs: { on, off, env: strings, bindings, core: ["agents", "autoreview", "history", "assistant", "todo", "movement", "deploys", "tracker"] },
       setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
       sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });

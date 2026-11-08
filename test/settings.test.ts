@@ -56,14 +56,15 @@ test("/settings: the areas, a search that finds and links, what was changed; unk
 
 test("Look and Layout each save and reset their own part, and leave the other as it was", async () => {
   const { get, post } = signedIn(snapshot());
-  await post("/settings/layout", { part: "layout", tab1: "/prs" });
+  // Deploys is a pack (#406): ticked in each Layout post, or the whole-form post turns it off.
+  await post("/settings/layout", { part: "layout", tab1: "/prs", pack: "deploys" });
   const r = await post("/settings/layout", { part: "look", theme: "dark" });
   assert.equal(r.headers.get("location"), "/settings/look");
   const bar = (page: string) => [...(page.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)?.[0] ?? "").matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
   let page = await (await get("/prs")).text();
   assert.match(page, /data-theme="dark"/);
   assert.deepEqual(bar(page), ["/", "/prs"], "Look's save kept the tabs");
-  await post("/settings/layout", { part: "layout", tab1: "/deploys" });
+  await post("/settings/layout", { part: "layout", tab1: "/deploys", pack: "deploys" });
   page = await (await get("/prs")).text();
   assert.match(page, /data-theme="dark"/, "Layout's save kept the theme");
   const reset = await post("/settings/layout/reset", { part: "look" });

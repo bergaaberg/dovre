@@ -59,7 +59,6 @@ export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ 
     { title: "Stats", href: "/stats", icon: "▥", about: "The packs' numbers and charts, by week or day", also: ["statistics", "statistikk", "charts", "metrics", "numbers", "spend", "cost"], need: "stats" },
     { title: "Pull requests", href: "/prs", icon: "⇄", about: "Asking for your review, and yours", also: ["pr", "prs", "reviews", "pull"] },
     { title: "Stacks", href: "/prs/stacks", icon: "≡", about: "Stacked PRs, bottom first", also: ["stacked", "chain", "retarget"] },
-    { title: "Deploys", href: "/deploys", icon: "⇡", about: "Waiting for prod, and what ships", also: ["release", "prod", "approve", "ship", "utrulling"] },
     { title: "Actions", href: "/actions", icon: "✓", about: "What Dovre did for you: deploys, messages, issues, production", also: ["log", "history", "decided", "logg", "historikk"] },
     { title: "Code", href: "/code", icon: "{}", about: "Your checkouts at any commit", also: ["browse", "explorer", "files", "source", "kode"] },
     { title: "Bino", href: "/bino", icon: "◍", about: "Talk a piece of work through", also: ["assistant", "chat", "ask"], need: "bino" },
@@ -80,6 +79,8 @@ export type Sources = {
   s: Pick<Snapshot, "org" | "prs" | "deploys"> & Partial<Pick<Snapshot, "refs" | "notes" | "moves">>;
   /** Dovre's PR viewer is here (default yes); else a PR found opens on the forge. */
   viewer?: boolean;
+  /** The deploys pack is on here (default yes); else a waiting deploy found opens its run. */
+  deploys?: boolean;
   /** Core pages that aren't here (the forge can't serve them): left out of pages and actions. */
   hidden?: (href: string) => boolean;
   /** Issues and PRs GHE's own search found for this query (src/search/ghe.ts). */
@@ -145,7 +146,7 @@ export function corpus(src: Sources): Record<Kind, Row[]> {
     })),
     issues: issuesOf(s, mineKeys, src.remote ?? [], src.viewer !== false),
     deploys: s.deploys.ok
-      ? s.deploys.value.map((d) => ({ title: line(d.title), sub: `${short(d.repo, org)} · waits for ${d.envs.map((e) => e.name).join(", ") || "prod"}`, href: "/deploys", icon: "⇡", also: [short(d.repo, org), d.actor, "prod"] }))
+      ? s.deploys.value.map((d) => ({ title: line(d.title), sub: `${short(d.repo, org)} · waits for ${d.envs.map((e) => e.name).join(", ") || "prod"}`, href: src.deploys === false ? d.url : "/deploys", icon: "⇡", also: [short(d.repo, org), d.actor, "prod"] }))
       : [],
     agents: src.kinds?.agents ?? [],
     apps: src.apps ?? [],
