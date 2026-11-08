@@ -19,7 +19,7 @@ const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 /** A secret setting's store, or why it can't be read. */
 type KeyLookup = (key: string) => KeyState | undefined;
 
-export type PacksView = { /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Local: where each secret setting's key came from, or why it can't be read (#416). */ keys?: KeyLookup };
+export type PacksView = { /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Where each secret setting's key came from, or why it can't be read (#416, hosted #428). */ keys?: KeyLookup };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -148,7 +148,7 @@ function withChoices(s: PackSetting): PackSetting {
 /** Settings → Packs → a pack: its manifest's settings, set or missing, and (on a machine) the form that keeps them in `.dev.vars`. */
 export function manifestPanel(id: string, settings: PackSetting[], env: PacksView["env"], hosted: boolean, session = false, keys?: KeyLookup) {
   // Read again: any of its keys from a store (#416).
-  const stored = !hosted && settings.some((s) => s.secret && keys?.(s.key));
+  const stored = settings.some((s) => s.secret && keys?.(s.key));
   return Panel({
     title: "Its settings",
     id: "manifest",

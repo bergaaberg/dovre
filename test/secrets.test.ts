@@ -7,7 +7,10 @@ import { html } from "hono/html";
 import { activePacks } from "../src/packs/registry.ts";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
 import { type Cli, createKeys, readRef, refOf } from "../src/secrets.ts";
-import { hostedKeys } from "../src/secretrefs.ts";
+import { createHmac, createHash, generateKeyPairSync, createVerify } from "node:crypto";
+import { hostedKeys } from "../src/hostedkeys.ts";
+import { createWorker } from "../src/worker.ts";
+import type { D1 } from "../src/db.ts";
 import { H, assertInert, signedIn, snapshot } from "./helpers.ts";
 
 /** A store's CLI: answers from `keys` by the reference it was asked for, and records each call. */
@@ -101,11 +104,136 @@ test("createKeys.save: a reference is kept in .dev.vars; a pasted key goes to th
   assert.equal(elsewhere.state("C_KEY"), undefined);
 });
 
-test("hostedKeys: a reference among the Worker's vars is taken out, its pack off saying why", () => {
-  const env: Record<string, string | undefined> = { A_KEY: "op://P/A/f", PLAIN: "x" };
-  const keys = hostedKeys(env);
+/** A store's REST API: each call recorded, answered by `answer` (a JSON body, or a status). */
+function fakeFetch(answer: (url: string, init: RequestInit) => unknown) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fetch = async (url: string, init: RequestInit = {}) => {
+    calls.push({ url, init });
+    const a = answer(url, init);
+    return typeof a === "number" ? Response.json({ error: { code: "Forbidden", message: `nope ${H}` } }, { status: a }) : Response.json(a);
+  };
+  return { fetch, calls };
+}
+const header = (init: RequestInit, k: string) => (init.headers as Record<string, string>)[k];
+
+test("hostedKeys: references are taken out of the vars; a store without its secrets, or machine-only, says so", async () => {
+  const env: Record<string, string | undefined> = { A_KEY: "https://dv1.vault.azure.net/secrets/a", B_KEY: "bw://00000000-0000-0000-0000-000000000000", C_KEY: "keychain://dovre/C", PLAIN: "x" };
+  const { fetch, calls } = fakeFetch(() => 500);
+  const keys = hostedKeys(env, { fetch });
   assert.deepEqual(env, { PLAIN: "x" });
-  assert.match(keys.unread().A_KEY!, /1Password reference, read only on a machine for now/);
+  assert.match(keys.unread().A_KEY!, /not read yet from Azure Key Vault/);
+  await keys.read();
+  assert.equal(calls.length, 0, "no credential, no call");
+  assert.match(keys.unread().A_KEY!, /set AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET as the Worker's secrets/);
+  assert.match(keys.unread().B_KEY!, /Bitwarden reference, read only on a machine/);
+  assert.match(keys.unread().C_KEY!, /the Keychain reference, read only on a machine/);
+  await assert.rejects(keys.save("A_KEY", "x"));
+});
+
+test("hostedKeys: Azure Key Vault, one sign-in for two keys, a refusal by its code only", async () => {
+  const env: Record<string, string | undefined> = { A_KEY: "https://dv1.vault.azure.net/secrets/a", B_KEY: "https://dv1.vault.azure.net/secrets/b/", AZURE_TENANT_ID: "t", AZURE_CLIENT_ID: "c", AZURE_CLIENT_SECRET: "s" };
+  const { fetch, calls } = fakeFetch((url) => (url.includes("login.microsoftonline.com/t/") ? { access_token: "tok", expires_in: 3600 } : url.includes("/secrets/a?") ? { value: "a-key" } : 403));
+  const keys = hostedKeys(env, { fetch });
+  assert.equal(await keys.read(), true);
+  assert.equal(env.A_KEY, "a-key");
+  assert.deepEqual(keys.state("A_KEY"), { from: "akv" });
+  assert.equal(calls.filter((c) => c.url.includes("login")).length, 1);
+  assert.equal(String(calls[0]!.init.body).includes("scope=https%3A%2F%2Fvault.azure.net%2F.default"), true);
+  assert.equal(header(calls[1]!.init, "authorization"), "Bearer tok");
+  assert.match(calls.find((c) => c.url.includes("/secrets/b"))!.url, /\/secrets\/b\?api-version=7\.4$/);
+  assert.equal(keys.unread().B_KEY, "Azure Key Vault answered 403 (Forbidden)");
+  assert.doesNotMatch(JSON.stringify(keys.unread()), /nope/, "never the body");
+});
+
+test("hostedKeys: GCP Secret Manager, a service account's signed assertion", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const sa = JSON.stringify({ client_email: "dovre@p.iam.gserviceaccount.com", private_key: privateKey.export({ type: "pkcs8", format: "pem" }), token_uri: "https://evil.example/token" });
+  const env: Record<string, string | undefined> = { G_KEY: "projects/my-proj/secrets/linear/versions/3", GCP_SERVICE_ACCOUNT: sa };
+  const { fetch, calls } = fakeFetch((url) => (url === "https://oauth2.googleapis.com/token" ? { access_token: "gtok", expires_in: 3600 } : { payload: { data: Buffer.from("g-key ✓").toString("base64") } }));
+  const keys = hostedKeys(env, { fetch });
+  await keys.read();
+  assert.equal(env.G_KEY, "g-key ✓");
+  const jwt = new URLSearchParams(String(calls[0]!.init.body)).get("assertion")!;
+  const [h, c, sig] = jwt.split(".");
+  assert.equal(createVerify("RSA-SHA256").update(`${h}.${c}`).verify(publicKey, Buffer.from(sig!, "base64url")), true);
+  assert.equal(JSON.parse(Buffer.from(c!, "base64url").toString()).iss, "dovre@p.iam.gserviceaccount.com");
+  assert.equal(calls[1]!.url, "https://secretmanager.googleapis.com/v1/projects/my-proj/secrets/linear/versions/3:access");
+  assert.ok(!calls.some((x) => x.url.includes("evil")), "the key file's token_uri is never used");
+
+  const bad = { G_KEY: "projects/my-proj/secrets/linear", GCP_SERVICE_ACCOUNT: "{" };
+  const k2 = hostedKeys(bad, { fetch });
+  await k2.read();
+  assert.match(k2.unread().G_KEY!, /isn't a service account's JSON key/);
+});
+
+test("hostedKeys: AWS Secrets Manager, signed as SigV4 has it; the region from the ARN or AWS_REGION", async () => {
+  const at = Date.UTC(2026, 10, 8, 12, 0, 0);
+  const env: Record<string, string | undefined> = { A_KEY: "arn:aws:secretsmanager:eu-north-1:123456789012:secret:linear-AbCdEf", B_KEY: "aws://other", AWS_ACCESS_KEY_ID: "AKID", AWS_SECRET_ACCESS_KEY: "SECRET" };
+  const { fetch, calls } = fakeFetch(() => ({ SecretString: "aws-key" }));
+  const keys = hostedKeys(env, { fetch, now: () => at });
+  await keys.read();
+  assert.equal(env.A_KEY, "aws-key");
+  assert.match(keys.unread().B_KEY!, /set AWS_REGION/);
+  const { url, init } = calls[0]!;
+  assert.equal(url, "https://secretsmanager.eu-north-1.amazonaws.com/");
+  assert.equal(header(init, "x-amz-target"), "secretsmanager.GetSecretValue");
+  // The signature, worked out again here with node:crypto.
+  const body = String(init.body);
+  const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+  const hmac = (k: string | Buffer, s: string) => createHmac("sha256", k).update(s).digest();
+  const canonical = `POST\n/\n\ncontent-type:application/x-amz-json-1.1\nhost:secretsmanager.eu-north-1.amazonaws.com\nx-amz-date:20261108T120000Z\nx-amz-target:secretsmanager.GetSecretValue\n\ncontent-type;host;x-amz-date;x-amz-target\n${sha(body)}`;
+  const scope = "20261108/eu-north-1/secretsmanager/aws4_request";
+  const kSign = hmac(hmac(hmac(hmac("AWS4SECRET", "20261108"), "eu-north-1"), "secretsmanager"), "aws4_request");
+  const sig = createHmac("sha256", kSign).update(`AWS4-HMAC-SHA256\n20261108T120000Z\n${scope}\n${sha(canonical)}`).digest("hex");
+  assert.equal(header(init, "authorization"), `AWS4-HMAC-SHA256 Credential=AKID/${scope}, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=${sig}`);
+  assert.deepEqual(JSON.parse(body), { SecretId: env.A_KEY === "aws-key" ? "arn:aws:secretsmanager:eu-north-1:123456789012:secret:linear-AbCdEf" : "" });
+
+  env.AWS_REGION = "eu-west-1";
+  await keys.read(["B_KEY"]);
+  assert.equal(env.B_KEY, "aws-key");
+  assert.deepEqual(JSON.parse(String(calls.at(-1)!.init.body)), { SecretId: "other" });
+});
+
+test("hostedKeys: 1Password Connect, vault and item by name, a field in a section", async () => {
+  const env: Record<string, string | undefined> = { A_KEY: 'op://Private/My "Linear"/api/credential', B_KEY: "op://Private/Nope/credential", OP_CONNECT_HOST: "https://connect.example.dev/", OP_CONNECT_TOKEN: "ctok" };
+  const { fetch, calls } = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === "/v1/vaults") return u.searchParams.get("filter") === 'name eq "Private"' ? [{ id: "v1" }] : [];
+    if (u.pathname === "/v1/vaults/v1/items") return u.searchParams.get("filter") === 'title eq "My \\"Linear\\""' ? [{ id: "i1" }] : [];
+    if (u.pathname === "/v1/vaults/v1/items/i1") return { sections: [{ id: "s1", label: "api" }], fields: [{ id: "credential", label: "credential", value: "wrong" }, { id: "f2", label: "credential", value: "op-key", section: { id: "s1" } }] };
+    return 404;
+  });
+  const keys = hostedKeys(env, { fetch });
+  await keys.read();
+  assert.equal(env.A_KEY, "op-key");
+  assert.match(keys.unread().B_KEY!, /1Password Connect has no item "Nope"/);
+  assert.ok(calls.every((c) => c.url.startsWith("https://connect.example.dev/v1/") && header(c.init, "authorization") === "Bearer ctok"));
+
+  const plain = { A_KEY: "op://P/I/f", OP_CONNECT_HOST: "http://connect.example.dev", OP_CONNECT_TOKEN: "t" };
+  const k2 = hostedKeys(plain, { fetch });
+  await k2.read();
+  assert.match(k2.unread().A_KEY!, /isn't an https:\/\/ address/);
+});
+
+test("createWorker: a pack whose key is a store's reference starts off, and is on once the start read it", async () => {
+  const stmt = { bind: () => stmt, all: async () => ({ results: [] }), first: async () => null, run: async () => ({ meta: { changes: 0, last_row_id: 0 } }) };
+  const DB = { prepare: () => stmt, batch: async () => [] } as unknown as D1;
+  const seen: string[] = [];
+  const linear: Pack = { manifest: { api: PACK_API, id: "linear", name: "Linear", description: "", domain: "work", execution: "any", settings: [{ key: "LINEAR_API_KEY", label: "API key", secret: true, required: true }] }, init: (c) => void seen.push(`init ${c.env.LINEAR_API_KEY}`) };
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("login.microsoftonline.com")) return Response.json({ access_token: "tok", expires_in: 3600 });
+    if (url.startsWith("https://dv1.vault.azure.net/")) return Response.json({ value: "lin-key" });
+    return real(input as RequestInfo);
+  }) as typeof fetch;
+  try {
+    const worker = createWorker({ packs: [linear] });
+    await worker.fetch(new Request("https://dovre.example.dev/"), { DB, IS_HOSTED: "1", CF_ACCESS_TEAM: "team", CF_ACCESS_AUD: "aud", LINEAR_API_KEY: "https://dv1.vault.azure.net/secrets/linear", AZURE_TENANT_ID: "t", AZURE_CLIENT_ID: "c", AZURE_CLIENT_SECRET: "s" } as never);
+    assert.deepEqual(seen, ["init lin-key"]);
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 test("Settings → a pack: a key's store, why one can't be read (escaped), Read again turns it on", async () => {

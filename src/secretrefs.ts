@@ -1,7 +1,7 @@
 /**
  * Secret references (#416): what counts as one, and the command that reads it. No Node here: the
  * Packs page (hosted too) names a key's store, and the Worker takes references out of its vars.
- * The reading itself is src/secrets.ts, on a machine.
+ * The reading itself is src/secrets.ts on a machine, src/hostedkeys.ts hosted (#428).
  */
 export type StoreId = "op" | "akv" | "aws" | "gcp" | "bw" | "keychain";
 export const STORES: Record<StoreId, string> = { op: "1Password", akv: "Azure Key Vault", aws: "AWS Secrets Manager", gcp: "GCP Secret Manager", bw: "Bitwarden", keychain: "the Keychain" };
@@ -48,16 +48,3 @@ export type Keys = {
   save(key: string, raw: string): Promise<void>;
   clear(key: string): Promise<void>;
 };
-
-/** Hosted: a reference among the Worker's vars can't be read there yet. Takes them out of `env`, with why. */
-export function hostedKeys(env: Record<string, string | undefined>): Keys {
-  const why: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
-    const ref = refOf(v);
-    if (!ref) continue;
-    delete env[k];
-    why[k] = `a ${STORES[ref.store]} reference, read only on a machine for now. Set the key itself as the Worker's secret`;
-  }
-  const no = () => Promise.reject(new Error("hosted keys are the Worker's secrets"));
-  return { state: (k) => (why[k] ? { unread: why[k] } : undefined), unread: () => ({ ...why }), read: async () => false, save: no, clear: no };
-}

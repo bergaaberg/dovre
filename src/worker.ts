@@ -4,7 +4,7 @@
  * domain, Access, D1 and whatever bindings its packs need. Cloudflare Access is checked on every
  * request (src/access.ts); without it configured nobody gets in.
  */
-import { hostedKeys } from "./secretrefs.ts";
+import { hostedKeys } from "./hostedkeys.ts";
 import { type Actor, actingAs, currentActor } from "./actor.ts";
 import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
@@ -146,6 +146,8 @@ export function createHostedGhe(bindings: WorkerBindings, provider?: GithubToken
 const STUCK_MS = 25_000;
 /** The longest a request waits on the app's start (packs' init, Bino's memory, the kept snapshot). */
 const READY_MS = 3_000;
+/** The keys a store holds (#428), read at the start: one slower than this stays unread (Read again reads it). */
+const KEYS_MS = 15_000;
 /** The hub's publishes, after the gather: within the 30 s a Worker keeps waitUntil() work. */
 const DRAIN_MS = 4_000;
 
@@ -276,8 +278,8 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     if (hosted) return hosted;
     const login = bindings.GITHUB_USER || "operator";
     const strings = stringsOf(bindings);
-    // A store's reference can't be read here yet (#416): its pack is off, saying so.
-    const keys = hostedKeys(strings);
+    // A store's reference (#428): its pack starts off, and turns on once the start has read it.
+    const keys = hostedKeys(strings, { log: (l) => console.log(`secrets: ${l}`) });
     const instancePacks = opts.packs ?? opts.crates ?? [];
     // GitHub unless FORGE names a forge one of the instance's packs brings (src/forge/pick.ts).
     const forgeId = forgeIdOf(bindings.FORGE);
@@ -347,8 +349,8 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
       gatherer.seed?.(s);
       sync.seed(shownOf(s));
     });
-    const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded]).then(() => {});
-    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: refresher(mounted.on, mounted.ctxOf, (l) => console.log(l), { maxMs: STUCK_MS, record: mounted.refreshes, skip: mounted.hidden }) };
+    const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: refresher(mounted.on, mounted.ctxOf, (l) => console.log(l), { maxMs: STUCK_MS, record: mounted.refreshes, skip: mounted.hidden, failed: mounted.keysAgain }) };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;
