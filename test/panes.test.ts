@@ -31,10 +31,10 @@ test("without Claude Code: Bino and summaries go to Copilot through omp", () => 
 });
 
 test("a pane that can't run here says why; one switched off doesn't", () => {
-  const p = panesOf({ LAB: "off" }, none);
-  assert.equal(p.lab.on, false);
-  assert.equal(p.lab.why, undefined);
+  const p = panesOf({}, none);
   assert.match(p.reviews.why ?? "", /agent CLI/);
+  const offReviews = panesOf({ REVIEWS: "off" }, none).reviews;
+  assert.deepEqual([offReviews.on, offReviews.why], [false, undefined]);
   assert.equal(p.docker.on, true, "unknown: as before");
   const mac = panesOf({}, { ...none, windows: false });
   assert.match(mac.docker.why ?? "", /No Docker Engine socket found/);
@@ -48,23 +48,24 @@ test("a pane that can't run here says why; one switched off doesn't", () => {
   assert.equal(panesOf({}, { ...none, windows: true, dockerPipe: true }).docker.on, true);
   assert.equal(p.bino.wanted, false, "no model at all: off");
   const on = runningOf(p);
-  assert.equal(on.lab, false);
+  assert.equal(on.reviews, false);
   assert.equal("stats" in on, false, "Stats is the history pack's now (#387)");
+  assert.equal("lab" in on, false, "the Lab is gone");
 });
 
 test("the form: a switch, a route, options; bad values refused; fixed keys left alone", () => {
-  const form = { "on.lab": "on", "on.bino": "on", "via.bino": "omp" };
-  const { config, bad } = configFromForm(form, { REVIEWS: "on" }, new Set(["LAB"]), { panes: true });
+  const form = { "on.reviews": "on", "on.bino": "on", "via.bino": "omp" };
+  const { config, bad } = configFromForm(form, { SUMMARIES: "claude" }, new Set(["REVIEWS"]), { panes: true });
   assert.deepEqual(bad, []);
-  assert.equal(config.LAB, undefined, "set in .dev.vars: not touched");
+  assert.equal(config.REVIEWS, undefined, "set in .dev.vars: not touched");
   assert.equal(config.BINO_VIA, "omp");
-  assert.equal(config.REVIEWS, "off", "unticked is off");
+  assert.equal(config.SUMMARIES, "off", "unticked is off");
   const worse = configFromForm({ "on.bino": "on", "via.bino": "gpt-at-home", JIRA_PROJECTS: "JSD; rm -rf" }, {}, new Set(), { panes: true });
   assert.deepEqual(worse.bad, ["Bino"]);
   assert.equal(worse.config.JIRA_PROJECTS, undefined, "a key no pane has isn't kept");
   const empty = configFromForm({ TZ_NAME: "" }, { TZ_NAME: "Europe/Oslo" }, new Set(), { general: true });
   assert.equal(empty.config.TZ_NAME, undefined, "empty is the default");
-  const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS", "on.lab": "on" }, {}, new Set(), { general: true });
+  const work = configFromForm({ CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS", "on.reviews": "on" }, {}, new Set(), { general: true });
   assert.deepEqual(work.config, { CODE_DIR: "C:\\Users\\x\\Code", TEAM: "my-team", FORM_REPOS: "FORMS" }, "the work form leaves the switches alone");
   assert.deepEqual(configFromForm({ TEAM: "a/b" }, {}, new Set(), { general: true }).bad, ["Your team"]);
 });
@@ -72,9 +73,9 @@ test("the form: a switch, a route, options; bad values refused; fixed keys left 
 test("kept in the settings table: known keys only, as strings", async () => {
   const db = openDb();
   assert.deepEqual(await loadConfig(db.DB), {});
-  await saveConfig(db.DB, { LAB: "off", PATH: "C:\\evil", GHE_TOKEN: "x" } as Record<string, string>);
-  assert.deepEqual(await loadConfig(db.DB), { LAB: "off" });
-  await db.DB.prepare("UPDATE settings SET value = ? WHERE key = 'config'").bind(JSON.stringify({ LAB: 1, STATS: "off", GHE_HOST: "evil.example" })).run();
+  await saveConfig(db.DB, { REVIEWS: "off", PATH: "C:\\evil", GHE_TOKEN: "x" } as Record<string, string>);
+  assert.deepEqual(await loadConfig(db.DB), { REVIEWS: "off" });
+  await db.DB.prepare("UPDATE settings SET value = ? WHERE key = 'config'").bind(JSON.stringify({ REVIEWS: 1, STATS: "off", GHE_HOST: "evil.example" })).run();
   assert.deepEqual(await loadConfig(db.DB), { STATS: "off" });
 });
 
@@ -82,9 +83,9 @@ test("what Settings keeps sits under the environment and .dev.vars", () => {
   const saved = { ...process.env };
   try {
     process.env.GHE_TOKEN = "t";
-    process.env.LAB = "on";
-    const env = loadEnv({ LAB: "off", STATS: "off" });
-    assert.equal(env.LAB, "on", "the environment wins");
+    process.env.REVIEWS = "on";
+    const env = loadEnv({ REVIEWS: "off", STATS: "off" });
+    assert.equal(env.REVIEWS, "on", "the environment wins");
     assert.equal(env.STATS, "off");
   } finally {
     process.env = saved;
@@ -92,10 +93,8 @@ test("what Settings keeps sits under the environment and .dev.vars", () => {
 });
 
 test("an off pane is gone from the menu, search, Today and its pages", async () => {
-  const off = { jira: false, reviews: false, lab: false };
+  const off = { jira: false, reviews: false };
   const { get } = signedIn(snapshot(), {}, { panes: off });
-  const today = await (await get("/")).text();
-  assert.doesNotMatch(today, /href="\/lab"/);
   for (const path of ["/jira", "/prs/agent?kind=review", "/prs/draft", "/lab"]) assert.equal((await get(path)).status, 404, path);
   // Stats is the packs' (#387): offered only while one draws there.
   assert.ok(!pagesOf().some((p) => p.href === "/stats" || p.href === "/jira"));
@@ -108,7 +107,7 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
   const { get, post, db } = signedIn(snapshot(), {}, { config });
   const page = await (await get("/settings/panes")).text();
   assertInert("settings", page);
-  assert.match(page, /name="on\.lab"/);
+  assert.match(page, /name="on\.reviews"/);
   // Bino, Terminal and Docker are switched as packs (#271): Bino's pane keeps only its route.
   assert.doesNotMatch(page, /name="on\.(bino|terminal|docker)"/);
   assert.doesNotMatch(page, /id="pane-(terminal|docker)"/);
@@ -118,7 +117,6 @@ test("Settings shows each pane and saves the form; what can't run says why", asy
   assert.equal(r.status, 303);
   const kept = await loadConfig(db.DB);
   assert.equal(kept.BINO_VIA, "claude");
-  assert.equal(kept.LAB, "off");
   assert.equal(kept.REVIEWS, "on");
   assert.match(await (await get("/settings/panes")).text(), /Saved\./);
   await post("/settings/panes", { "on.bino": "on", "via.bino": "nope" });
@@ -147,11 +145,11 @@ test("the first run: Today sends to the first-run page until it's answered or sk
   assert.match(page, /Found here/);
   assert.match(page, /<option value="my-team">Skreddersøm \(my-team\)<\/option>/);
   assert.doesNotMatch(page, /Elsewhere|bad slug/, "only the org's teams, with plain slugs");
-  assert.match(page, /name="on\.lab"/);
+  assert.match(page, /name="on\.reviews"/);
   const bad = await post("/welcome", { TEAM: "no/slashes" });
   assert.equal(bad.headers.get("location"), "/welcome?go=1");
   assert.match(await (await get("/welcome?go=1")).text(), /Not saved: Your team/);
-  const r = await post("/welcome", { TEAM: "my-team", "on.lab": "on", "on.jira": "on", "via.jira": "mcp" });
+  const r = await post("/welcome", { TEAM: "my-team", "on.jira": "on", "via.jira": "mcp" });
   assert.equal(r.headers.get("location"), "/", "no supervisor in a test: straight to Today");
   const kept = await loadConfig(db.DB);
   assert.equal(kept.SETUP_DONE, "1");

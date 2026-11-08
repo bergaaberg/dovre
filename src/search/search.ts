@@ -52,8 +52,8 @@ export function score(r: Pick<Row, "title" | "also">, q: string): number | null 
 /** A page Dovre has, and the other names it answers to. */
 export type Page = { title: string; href: string; icon: string; about: string; also: string[] };
 
-/** Every page, in menu order. `on` leaves out the ones this machine hasn't got (Bino, Lab). */
-export function pagesOf(on: { bino?: boolean; lab?: boolean; /** Some pack draws on /stats. */ stats?: boolean } = {}): Page[] {
+/** Every page, in menu order. `on` leaves out the ones this machine hasn't got (Bino, Stats). */
+export function pagesOf(on: { bino?: boolean; /** Some pack draws on /stats. */ stats?: boolean } = {}): Page[] {
   const all: (Page & { need?: keyof typeof on; unless?: keyof typeof on })[] = [
     { title: "Today", href: "/", icon: "◐", about: "What needs you, the last 24 hours", also: ["home", "morning", "i dag", "oversikt", "feed"] },
     { title: "Stats", href: "/stats", icon: "▥", about: "The packs' numbers and charts, by week or day", also: ["statistics", "statistikk", "charts", "metrics", "numbers", "spend", "cost"], need: "stats" },
@@ -68,7 +68,6 @@ export function pagesOf(on: { bino?: boolean; lab?: boolean; /** Some pack draws
     { title: "Bino", href: "/bino", icon: "◍", about: "Talk a piece of work through", also: ["assistant", "chat", "ask"], need: "bino" },
     { title: "Report a bug", href: "/bug", icon: "!", about: "A bug in Dovre or a pack, to its repo", also: ["bug", "report", "issue", "broken", "feil", "meld feil"] },
     { title: "Settings", href: "/settings", icon: "⚙", about: "Setup, notifications, restart", also: ["setup", "notifications", "config", "innstillinger"] },
-    { title: "Lab", href: "/lab", icon: "⚗", about: "Prototypes and looks", also: ["prototypes", "designs", "looks", "menus"], need: "lab" },
   ];
   return all.filter((p) => (!p.need || on[p.need]) && (!p.unless || on[p.unless] !== false)).map(({ need: _n, unless: _u, ...p }) => p);
 }

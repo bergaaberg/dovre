@@ -24,7 +24,7 @@ export type Field =
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "text"; pattern: RegExp }
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "set"; choices: Choice[] };
 
-export const PANE_IDS = ["bino", "terminal", "docker", "reviews", "summaries", "lab"] as const;
+export const PANE_IDS = ["bino", "terminal", "docker", "reviews", "summaries"] as const;
 export type PaneId = (typeof PANE_IDS)[number];
 
 /** What this machine has: a pane that needs something missing can't run, whatever its switch says. */
@@ -74,7 +74,6 @@ export const PANES: Pane[] = [
     on: [{ value: "claude", label: "Claude (Haiku)" }, { value: "omp", label: "Copilot (omp)" }, { value: "copilot", label: "Copilot CLI" }, { value: "agy", label: "Antigravity (agy): keeps its tools" }, { value: "codex", label: "Codex: keeps its tools, read-only" }],
     options: [],
   },
-  { id: "lab", name: "Lab", what: "Prototypes and pages kept in data/lab", key: "LAB", on: ON, options: [] },
 ];
 
 /** The settings that aren't a pane: where things are, and who I work with. */
@@ -179,7 +178,6 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
     docker: simple("docker", undefined, windows ? f.dockerPipe !== false : !!f.dockerSocket, windows ? "No Docker Engine on its pipe: set up berth (github.com/bergaaberg/berth, Docker Engine without Docker Desktop) or start Docker Desktop, then restart Dovre." : "No Docker Engine socket found (looked in ~/.docker/run/docker.sock, ~/.orbstack/run/docker.sock, ~/.colima/default/docker.sock, /var/run/docker.sock)."),
     reviews: simple("reviews", "REVIEWS", f.claude || f.omp, "Needs an agent CLI: Claude Code or omp."),
     summaries: { id: "summaries", wanted: sumVia !== "off", on: sumCan, via: sumVia, why: sumVia !== "off" && !sumCan ? (sumVia === "claude" ? "Needs Claude Code (`claude` on the PATH)." : sumVia === "copilot" ? noCli : sumVia === "agy" ? noAgy : sumVia === "codex" ? noCodex : noCopilot) : undefined },
-    lab: simple("lab", "LAB", true, ""),
   };
 }
 

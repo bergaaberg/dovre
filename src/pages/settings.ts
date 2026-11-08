@@ -276,7 +276,7 @@ export const AREAS = [
   { id: "notifications", title: "Notifications", about: "What rings, when, and what rang lately", also: ["ring", "toast", "alert", "quiet"] },
   { id: "writes", title: "Writes", about: "Which writes take one click instead of asking twice", also: ["confirm", "one click", "twice"] },
   { id: "keys", title: "Keys", about: "Shortcuts without Ctrl, and how far j/k scroll", also: ["keyboard", "shortcuts", "vim"] },
-  { id: "panes", title: "Panes", about: "What runs here: how Bino answers, Stats, reviews, summaries, the lab (packs are switched on Packs)", also: ["features", "on", "off", "enable"] },
+  { id: "panes", title: "Panes", about: "What runs here: how Bino answers, reviews and summaries (packs are switched on Packs)", also: ["features", "on", "off", "enable"] },
   { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
   { id: "agents", title: "Agents", about: "Which agent CLIs get the packs' tools, when a long turn rings, and auto runs' limits", also: ["mcp", "tools", "omp", "agy", "claude", "auto", "sandbox", "budget", "long turn"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },

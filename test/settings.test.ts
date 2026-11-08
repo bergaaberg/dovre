@@ -75,10 +75,10 @@ test("Look and Layout each save and reset their own part, and leave the other as
 
 test("with config: Panes and Work have pages, a stored key shows as changed, saves come back to their page", async () => {
   const all = { claude: true, omp: true, db: true, terminals: true };
-  const config = { panes: panesOf({ LAB: "off" }, all), stored: { LAB: "off" } };
+  const config = { panes: panesOf({ REVIEWS: "off" }, all), stored: { REVIEWS: "off" } };
   const { get, post } = signedIn(snapshot(), {}, { config });
-  assert.match(await (await get("/settings")).text(), /id="changed"[^]*?Lab[^]*?Off/);
-  assert.match(await (await get("/settings/panes")).text(), /name="on\.lab"/);
+  assert.match(await (await get("/settings")).text(), /id="changed"[^]*?Agent reviews[^]*?Off/);
+  assert.match(await (await get("/settings/panes")).text(), /name="on\.reviews"/);
   assert.match(await (await get("/settings/work")).text(), /action="\/settings\/work"/);
   assert.equal((await post("/settings/work", { CODE_DIR: "/tmp/x" })).headers.get("location"), "/settings/work");
   assert.equal((await post("/settings/panes", { "on.bino": "on", "via.bino": "nope" })).headers.get("location"), "/settings/panes");
