@@ -5,24 +5,31 @@
  */
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import type { Context } from "hono";
 import { createApp } from "../app.ts";
 import type { AgentHost, AiRoute } from "./ai.ts";
 import { type D1, openDb } from "../db.ts";
-import type { Env } from "../env.ts";
+import type { AppEnv, Env } from "../env.ts";
+import { pickForge } from "../forge/pick.ts";
 import type { Forge } from "../forge/types.ts";
+import { shell } from "../html.ts";
 import type { Snapshot } from "../gather.ts";
 import type { Session } from "../sources/claude.ts";
 import type { Deploy, Ghe, Pr } from "../sources/ghe.ts";
 import { noMemory } from "./core/assistant/bino/memory.ts";
 import { routeOf } from "./core/assistant/bino/route.ts";
+import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { loggedFor } from "./logged.ts";
 import { activePacks } from "./registry.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
-import { type AgentShare, type Pack, PACK_API, type PackContext } from "./types.ts";
+import { type AgentShare, type ListItem, type ListShare, type Pack, PACK_API, type PackContext, type PageOpts } from "./types.ts";
 
 export function testContext(over: Partial<PackContext> = {}): PackContext {
+  // As core does it: a code folder comes with its checkouts (the git repos directly under it).
+  const dir = over.codeDir;
   return {
+    ...(dir ? { checkouts: () => checkoutsIn(dir), checkout: (name: unknown) => checkoutIn(dir, name) } : {}),
     env: {},
     bindings: {},
     hosted: false,
@@ -80,6 +87,43 @@ export const testAgentsPack = (): Pack => ({
   manifest: { api: PACK_API, id: "agents", name: "Agents", description: "Stand-in: where agents' pages are", domain: "general" },
   shares: () => ({ agent: testAgentLinks }),
 });
+
+/**
+ * `ctx.page` for a pack's routes tested on their own: the page in core's shell (menu, styles), as
+ * `operator` sees it. Nothing is boxed or guarded here: `packApp` is the whole app.
+ */
+export const testPage = (o: { operator?: string } = {}) => async (c: Context<AppEnv>, p: PageOpts): Promise<Response> =>
+  c.html(shell({ title: p.title, frame: { operator: o.operator ?? "ola-nordmann", nav: [], host: "acme.ghe.com" }, current: p.current ?? c.req.path, body: p.body, head: p.head }));
+
+/** The forge a pack brings, as core makes it when FORGE names it: its `create` with these settings, or one whose every call fails saying why. */
+export function testForge(pack: Pack, env: Record<string, string | undefined> = {}): Forge {
+  if (!pack.forge) throw new Error(`${pack.manifest.id} brings no forge`);
+  return pickForge(pack.forge.id, [pack], () => assert.fail("not GitHub"), env);
+}
+
+/** A stand-in for My list (the todo pack's `list` share), kept in memory: hand it out from `required("todo", "list")` and read `items()` after. */
+export function testList(): ListShare {
+  const kept: ListItem[] = [];
+  return {
+    items: async () => [...kept],
+    get: async (id) => kept.find((t) => t.id === id),
+    add: async (t) => {
+      const item: ListItem = { id: kept.length + 1, parent: t.parent ?? null, title: t.title, notes: t.notes ?? "", state: t.state ?? "next", due: t.due ?? null, doneAt: null };
+      kept.push(item);
+      return item;
+    },
+    href: (id) => `/todo#t-${id}`,
+  };
+}
+
+/** Fails when a class in this source's `class="…"` is styled by neither core's stylesheet nor the pack's own (`css`). A name built in place (`x-${kind}`) isn't checked. */
+export function assertStyled(name: string, source: string, css = "") {
+  const styled = classesOf(STYLE + css);
+  const missing = new Set<string>();
+  for (const m of source.matchAll(/class="([^"]*)"/g))
+    for (const cls of m[1]!.replace(/\$\{[^}]*\}/g, " ").split(/\s+/).filter(Boolean)) if (/^[a-z][a-z0-9-]*$/.test(cls) && !cls.endsWith("-") && !styled.has(cls)) missing.add(cls);
+  assert.deepEqual([...missing], [], `${name}: classes no stylesheet styles`);
+}
 
 export const HOSTILE = `<script>x</script>"'><img src=x onerror=1>`;
 

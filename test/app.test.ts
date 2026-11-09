@@ -509,3 +509,11 @@ test("without the Moved pack (dovre-packs since #465), core links nowhere it'd 4
   assert.match(today, /<meta name="u-go-off" content="[^"]*\bm\b/, "g m does nothing");
   assert.doesNotMatch(await (await get("/search?q=timeline")).text(), /href="\/movement"/);
 });
+
+test("frames: https origins, and http only for this machine on a port", async () => {
+  const { frameOrigin } = await import("../src/app.ts");
+  assert.equal(frameOrigin("https://a.io/x/y"), "https://a.io");
+  assert.equal(frameOrigin("http://localhost:4849/"), "http://localhost:4849");
+  assert.equal(frameOrigin("http://127.0.0.1:4849"), "http://127.0.0.1:4849");
+  for (const bad of ["http://a.io", "http://localhost", "http://127.0.0.2:4849", "http://localhost.a.io:80", "javascript:alert(1)", "https://u:p@a.io", "*", 3, "https://*.a.io"]) assert.equal(frameOrigin(bad), undefined, String(bad));
+});
