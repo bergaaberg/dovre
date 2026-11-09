@@ -1,7 +1,7 @@
 /** This instance's packs: each one Dovre's core would take (ids, contract), none twice. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activePacks } from "dovre/packs/registry.ts";
+import { activePacks } from "dovre/pack-testing.ts";
 import packs from "../packs.ts";
 
 test("every pack has a manifest core takes, and no id twice", () => {

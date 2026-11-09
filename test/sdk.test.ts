@@ -13,7 +13,7 @@ import { assertDoors, reachIns } from "../src/pack-testing.ts";
 const src = resolve(import.meta.dirname, "..", "src");
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
-/** dovre/pack.ts at PACK_API 1.27, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
+/** dovre/pack.ts at PACK_API 1.28, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
   ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
@@ -29,8 +29,8 @@ const PACK = words(`
 
 /** dovre/pack-testing.ts. */
 const TESTING = words(`
-  HOSTILE PACK_DOOR PACK_TEST_DOOR assertDoors assertFragment assertInert assertScoped openDb packApp reachIns testAgentLinks testAgentsPack testContext
-  testDeploy testPr testSession testSnapshot
+  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap assertDoors assertFragment assertInert assertScoped assertStyled createWorker ingestToken openDb
+  packApp reachIns resetWhen setWhen testAgentLinks testAgentsPack testContext testDeploy testForge testList testPage testPr testSession testSnapshot
 `);
 
 /** Every name a file exports, types too (which only its text has), following `export * from`. */
@@ -81,4 +81,42 @@ test("one door: imports of core that go around dovre/pack.ts are counted per mod
   assert.throws(() => assertDoors(dir, { ...now, "dovre/strict.ts": 1 }), /dovre\/strict\.ts: 2 \(allowed 1\)/, "one more import of a listed module");
   assert.throws(() => assertDoors(dir, { ...now, "dovre/strict.ts": 3 }), /lower the list/, "the list is out of date");
   assert.throws(() => assertDoors(dir, { ...now, "dovre/gone.ts": 1 }), /dovre\/gone\.ts: 0 \(listed 1\)/);
+});
+
+test("the testing door's stand-ins: a page in core's shell, My list in memory, a pack's forge, styled classes, a code folder's checkouts", async () => {
+  const { Hono } = await import("hono");
+  const { html } = await import("hono/html");
+  const t = await import("../src/pack-testing.ts");
+
+  const app = new Hono<import("../src/env.ts").AppEnv>();
+  app.get("/x", (c) => t.testPage({ operator: "kari" })(c, { title: t.HOSTILE, body: html`<p class="t2">${t.HOSTILE}</p>` }));
+  const page = await (await app.request("http://localhost/x")).text();
+  assert.match(page, /<html[\s>]/);
+  assert.match(page, /kari/);
+  t.assertInert("testPage", page);
+
+  const list = t.testList();
+  const added = await list.add({ title: "Call back", notes: "DEV-1" });
+  assert.deepEqual([added?.id, added?.state, added?.parent], [1, "next", null]);
+  assert.deepEqual((await list.items()).map((i) => i.title), ["Call back"]);
+  assert.equal((await list.get(1))?.notes, "DEV-1");
+  assert.equal(list.href(1), "/todo#t-1");
+
+  const manifest = { api: t.testAgentsPack().manifest.api, id: "glab", name: "Glab", description: "x", domain: "general" as const };
+  assert.throws(() => t.testForge({ manifest }), /brings no forge/);
+  const brings = { manifest, forge: { id: "glab", name: "Glab", create: (env: Record<string, string | undefined>) => { if (!env.TOKEN) throw new Error("TOKEN isn't set"); return { host: "g.test" } as never; } } };
+  assert.equal(t.testForge(brings, { TOKEN: "x" }).host, "g.test");
+  await assert.rejects(t.testForge(brings).viewer(), /TOKEN isn't set/);
+
+  t.assertStyled("ok", `<p class="t2 mine-\${x} mine">`, ".mine { color: red }");
+  assert.throws(() => t.assertStyled("bad", `<p class="nobody-styles-this">`), /nobody-styles-this|no stylesheet/);
+
+  const dir = mkdtempSync(join(tmpdir(), "dovre-code-"));
+  mkdirSync(join(dir, "shop", ".git"), { recursive: true });
+  mkdirSync(join(dir, "notes"));
+  const ctx = t.testContext({ codeDir: dir });
+  assert.deepEqual(ctx.checkouts!(), ["shop"]);
+  assert.equal(ctx.checkout!("shop"), join(dir, "shop"));
+  assert.equal(ctx.checkout!("notes"), null);
+  assert.equal(t.testContext().checkouts, undefined);
 });

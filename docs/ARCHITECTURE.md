@@ -15,7 +15,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.27")
+   src/packs/types.ts     its types (PACK_API = "1.28")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -308,6 +308,7 @@ Also:
 | 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database (#474) |
 | 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool` (#474) |
 | 1.27 | `dovre/pack.ts` also exports what packs reached into core for: the types `App`, `AppEnv`, `D1`, `D1Statement`, `Snapshot`, `Need`, `EveryRepo`, `PackProposal`, `Proposal`, `Proposed` and the forge contract (`Forge`, `ForgeCan`, `ForgeDecl`, `ForgeWork`, `Pr`, `PrRef`, `Issue`, `IssueSets`, `Deploy`, `Move`, `Note`, `Changelog`); `strictOrigin`; `later` and `Reading`; and the pure helpers `needsOf`, `prSummaryKey`, `deploySummaryKey`, `byPerson`, `inFiles`, `hourAt`, `hashOf`, `throttle`. `dovre/pack-testing.ts` gains `openDb` (#474) |
+| 1.28 | `dovre/pack-testing.ts` gains what packs' tests reached into core for: `testPage` (a page in core's shell), `testForge` (the forge a pack brings), `testList` (My list, in memory), `assertStyled`, `activePacks`, `apiGap`, `ON_JS`, `setWhen`, `resetWhen`, `createWorker` and `ingestToken`; `testContext` with a `codeDir` has its `checkouts` too (#474) |
 
 ## Open questions
 
