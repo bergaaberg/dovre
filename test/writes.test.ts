@@ -61,7 +61,7 @@ const shop: Pack = {
   manifest: { api: PACK_API, id: "shop", name: "Shop", description: "", domain: "personal" },
   writes: [
     { kind: "refund", label: "Refund an order" },
-    { kind: "wipe", label: "Delete a customer", floor: "twice" },
+    { kind: "wipe", label: "Delete a customer" },
     { kind: "Bad Kind", label: "Dropped" },
     { kind: "refund", label: "A repeat, dropped" },
   ],
@@ -80,7 +80,7 @@ const shop: Pack = {
   },
 };
 
-test("writes: a pack's own kinds (dovre#104) are on Settings under its name and ask twice when ticked; an old floor is ignored", async () => {
+test("writes: a pack's own kinds (dovre#104) are on Settings under its name and ask twice when ticked", async () => {
   const kinds = writeKinds([shop]);
   assert.deepEqual(kinds.slice(WRITES.length), [
     { kind: "shop.refund", label: "Refund an order", group: "Shop" },

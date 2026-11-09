@@ -312,7 +312,7 @@ const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Mat
 export function pulseFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): Omit<Pulse, "busy"> {
   const out: Omit<Pulse, "busy"> = { working: 0, asking: 0, trouble: [] };
   for (const c of on) {
-    const f = c.pulse ?? c.avatar;
+    const f = c.pulse;
     if (!f) continue;
     const a = safely(() => f.call(c, ctxOf(c)), undefined, (e) => log(c.manifest.id, `pulse: ${(e as Error)?.message ?? e}`));
     if (!a || typeof a !== "object") continue;
@@ -721,7 +721,7 @@ export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, l
  */
 export function binoOf(c: Pack): string {
   if (c.manifest.private) return `only its name: private${c.lookups ? " · lookups" : ""}${c.acts ? " · proposes acts" : ""}${c.tools ? " · tools for agents" : ""}`;
-  const context = c.bino ? "its own lines" : c.glance || c.needs || c.pulse || c.avatar || c.feed ? "what it shows on Today" : "nothing";
+  const context = c.bino ? "its own lines" : c.glance || c.needs || c.pulse || c.feed ? "what it shows on Today" : "nothing";
   const pages = c.about ? "what its pages are" : c.routes ? "its pages by name only" : "";
   return [`context: ${context}`, pages, c.lookups ? "lookups" : "", c.acts ? "proposes acts" : "", c.tools ? "tools for agents" : ""].filter(Boolean).join(" · ");
 }
@@ -744,7 +744,7 @@ export function hooksOf(c: Pack): string[] {
     [c.dock, "dock"],
     [c.callback, "sign-in return"],
     [c.ingest, "ingest"],
-    [c.pulse || c.avatar, "pulse"],
+    [c.pulse, "pulse"],
     [c.refresh || c.beforePage, "refresh"],
     [c.scheduled, "cron"],
     [c.email, "mail"],

@@ -629,7 +629,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const own = packs.core?.includes(c.manifest.id);
       if (c.bino) said.push({ name: c.manifest.name, own, text: tried(c, "bino", () => c.bino!(ctx), "") });
       else if (!c.manifest.private) {
-        const pulse = c.pulse ?? c.avatar;
+        const pulse = c.pulse;
         const text = defaultBinoOf({
           glance: c.glance ? tried(c, "glance", () => c.glance!(ctx), []) : [],
           needs: c.needs ? tried(c, "needs", () => c.needs!(ctx), []) : [],
