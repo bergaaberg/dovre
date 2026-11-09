@@ -224,6 +224,7 @@ test("its setup (#426): patch and minor ticked to start, the pick kept in Dovre'
   const first = await (await get("/setup/dependabot")).text();
   assert.match(first, /value="patch" checked[\s\S]*value="minor" checked[\s\S]*value="major">/);
   assert.match(first, /You still press Merge/);
+  assert.match(first, /<b>Major<\/b><small>1\.x → 2\.0, can break things · none open now<\/small>/, "what each level means, and how many it covers (#448)");
   await post("/setup/dependabot/next", "step=merge&level=patch&level=major&level=evil");
   const row = await db.DB.prepare("SELECT value FROM settings WHERE key = 'dependabot.merge'").first<{ value: string }>();
   assert.deepEqual(JSON.parse(row!.value), ["patch", "major"], "known levels only");
