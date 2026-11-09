@@ -5,9 +5,9 @@
  */
 import { owns, ownersOf, primaryOf } from "./owners.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import type { Hono } from "hono";
 import type { D1 } from "./db.ts";
 import type { Frame } from "./html.ts";
@@ -81,14 +81,9 @@ export type Env = {
   OPENROUTER_API_KEY?: string;
   /** Pack folders this machine loads (comma-separated; PLAN D23). */
   PACKS?: string;
-  CRATES?: string;
   /** Copilot through omp, for Bino and summaries without Claude Code (src/ai/omp.ts): its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
   COPILOT_PROFILE?: string;
   COPILOT_MODEL?: string;
-  /** Old pane switches (src/config.ts LEGACY_SWITCHES): `off` turns its pack off once at start; unset is on. */
-  TERMINAL?: string;
-  STATS?: string;
-  REVIEWS?: string;
   /** Who Bino is told I am, e.g. "a tech lead at an insurance company". Unset: a developer. */
   ABOUT_ME?: string;
   /** The skills agent reviews use: reviewing someone else's PR, and assessing a review on mine. */
@@ -108,11 +103,6 @@ export type Env = {
   /** Set when the first-run page was answered (src/pages/welcome.ts). */
   SETUP_DONE?: string;
 };
-
-/** Whether a program is on the PATH, by looking (no process started). */
-export function onPath(name: string, path = process.env.PATH ?? "", exts = process.platform === "win32" ? [".exe", ".cmd", ""] : [""]): boolean {
-  return path.split(delimiter).some((dir) => dir && exts.some((x) => existsSync(join(dir, name + x))));
-}
 
 export function parseVars(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -193,18 +183,13 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     OPENAI_API_KEY: v.OPENAI_API_KEY || undefined,
     GEMINI_API_KEY: v.GEMINI_API_KEY || undefined,
     OPENROUTER_API_KEY: v.OPENROUTER_API_KEY || undefined,
-    // CRATES: its name before WP-M4, still read so a machine's settings keep working.
-    PACKS: v.PACKS || v.CRATES || undefined,
-    CRATES: v.PACKS || v.CRATES || undefined,
+    PACKS: v.PACKS || undefined,
     CF_ACCOUNT_ID: v.CF_ACCOUNT_ID || undefined,
     ALLOWED_EMAILS: v.ALLOWED_EMAILS || undefined,
     CF_GATEWAY_NAME: v.CF_GATEWAY_NAME || undefined,
     CF_AIG_TOKEN: v.CF_AIG_TOKEN || undefined,
     COPILOT_PROFILE: v.COPILOT_PROFILE || undefined,
     COPILOT_MODEL: v.COPILOT_MODEL || undefined,
-    TERMINAL: v.TERMINAL || undefined,
-    STATS: v.STATS || undefined,
-    REVIEWS: v.REVIEWS || undefined,
     ABOUT_ME: v.ABOUT_ME || undefined,
     REVIEW_SKILL: v.REVIEW_SKILL || undefined,
     TRIAGE_SKILL: v.TRIAGE_SKILL || undefined,

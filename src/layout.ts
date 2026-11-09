@@ -92,8 +92,7 @@ export function layoutOf(raw: unknown): Layout {
   }
   const feedOff = ids(v.feedOff, ID, 50);
   if (feedOff) out.feedOff = feedOff;
-  // cratesOff: what a layout saved before WP-M4 called it.
-  const packsOff = ids(v.packsOff ?? v.cratesOff, ID, 50);
+  const packsOff = ids(v.packsOff, ID, 50);
   if (packsOff) out.packsOff = packsOff;
   if (THEMES.includes(v.theme as Theme)) out.theme = v.theme as Theme;
   if (ACCENTS.includes(v.accent as Accent)) out.accent = v.accent as Accent;

@@ -26,7 +26,7 @@ const tmp = (prefix: string) => mkdtempSync(join(tmpdir(), prefix));
 /** loadEnv as Settings alone gives it: this machine's .dev.vars and environment win over Settings, so neither may reach the test. */
 function storedOnly(stored: Record<string, string>) {
   const cwd = process.cwd();
-  const saved = Object.fromEntries(Object.keys(process.env).filter((k) => /^(PACKS|CRATES|BINO_VIA|ASSISTANT_.*)$/.test(k)).map((k) => [k, process.env[k]]));
+  const saved = Object.fromEntries(Object.keys(process.env).filter((k) => /^(PACKS|BINO_VIA|ASSISTANT_.*)$/.test(k)).map((k) => [k, process.env[k]]));
   for (const k of Object.keys(saved)) delete process.env[k];
   process.chdir(tmp("dovre-env-"));
   try {
@@ -128,7 +128,7 @@ test("WP-M4: Assistant Direct API Key (cheap model recommended) and OpenRouter r
   // 4. Env & Panes support ASSISTANT_VIA and api-key / openrouter
   const env = storedOnly({ ASSISTANT_VIA: "api-key", ASSISTANT_API_KEY: "sk-ant-123", PACKS: "~/src/my-packs" });
   assert.equal(env.BINO_VIA, "api-key");
-  assert.equal(env.CRATES, "~/src/my-packs");
+  assert.equal(env.PACKS, "~/src/my-packs");
   const panes = panesOf(env, { claude: false, omp: false, pwsh: false, db: false, terminals: false });
   assert.equal(panes.bino.on, true);
   assert.equal(panes.bino.via, "api-key");
@@ -244,7 +244,7 @@ test("WP-M5: provisionInstance auto-creates D1, patches wrangler.jsonc, applies 
 
 // Needs a dovre-packs checkout beside this one; a lone clone (CI, a sandbox) skips it.
 const packsRepo = resolve(import.meta.dirname, "..", "..", "dovre-packs");
-test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-packs and wire them into crates.ts", { skip: !existsSync(packsRepo) && "no ../dovre-packs checkout" }, () => {
+test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-packs and wire them into packs.ts", { skip: !existsSync(packsRepo) && "no ../dovre-packs checkout" }, () => {
   const avail = listAvailablePacks(packsRepo);
   // At least these, sorted: a new pack in dovre-packs mustn't fail core's tests.
   for (const id of ["cf-health", "custom-app", "docker", "http-otel", "jira"]) assert.ok(avail.includes(id), id);

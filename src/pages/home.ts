@@ -10,11 +10,9 @@ import { type Snapshot, prSummaryKey } from "../gather.ts";
 import { eyebrow, glance, greeting, lede } from "../home/brief.ts";
 import { type FeedEvent, feedOf, mergeFeeds } from "../home/feed.ts";
 import { horizon } from "../home/horizon.ts";
-import type { Need } from "../home/needs.ts";
-import { KIND_LABEL } from "../home/needs.ts";
 import { type Frame, shell } from "../html.ts";
 import { type Deploy, type Pr, prKeyOfUrl, prNeeds } from "../sources/ghe.ts";
-import { Card, type Child, Confirm, type Html, Item } from "../ui/kit.ts";
+import { Card, type Child, Confirm, type Html } from "../ui/kit.ts";
 import { type ForgeView, forgeCan, GITHUB_VIEW } from "../forge/types.ts";
 import type { Off } from "../packs/registry.ts";
 import { type Column, type Layout, type Slot, placeCards } from "../layout.ts";
@@ -26,10 +24,6 @@ import { currentGreeting, currentTz, dtf } from "../when.ts";
 const hm = (at: number | string, tz = currentTz()) => dtf("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(typeof at === "string" ? Date.parse(at) : at);
 const short = (repo: string, org: string) => repo.replace(`${org}/`, "");
 
-
-/** A need as a list row (other pages). */
-export const needItem = (n: Need) =>
-  Item({ href: safeUrl(n.href), lead: html`<span class="kind${n.tone === "neutral" ? "" : ` ${n.tone}`}">${KIND_LABEL[n.kind]}</span>`, title: n.title, line: n.line ? trunc(n.line, 220) : undefined, trail: Ago(n.at) });
 
 /** A sentence's bits; a link to one of Dovre's pages that doesn't answer here (its pack is off) is text. */
 function bits(sentence: Bit[], on: (href: string) => boolean = () => true) {

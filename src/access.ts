@@ -110,18 +110,6 @@ const b64urlBytes = (s: string): Uint8Array<ArrayBuffer> => {
 };
 const b64urlJson = (s: string): unknown => JSON.parse(new TextDecoder().decode(b64urlBytes(s)));
 
-/** A JWT's payload, unverified: only for reading claims after `verify` said yes, or in tests. */
-export function parseJwtPayload(jwt: string): CfAccessPayload | undefined {
-  try {
-    const parts = jwt.split(".");
-    if (parts.length !== 3) return undefined;
-    const p = b64urlJson(parts[1]!);
-    return p && typeof p === "object" ? (p as CfAccessPayload) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export type AccessConfig = {
   /** Cloudflare Access: the team, "myteam" or "myteam.cloudflareaccess.com". */
   team?: string;
@@ -295,8 +283,3 @@ export function createAccessVerifier(cfg: AccessConfig): AccessVerifier {
   };
 }
 
-/** The signed-in operator's name, from a verified token's email; else the fallback. */
-export function operatorOf(who: Verified | undefined, fallback = "operator"): string {
-  const email = who?.email;
-  return email && email.includes("@") ? email.split("@")[0]!.toLowerCase() : fallback;
-}

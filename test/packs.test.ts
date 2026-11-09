@@ -24,8 +24,6 @@ import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
 import type { D1 } from "../src/db.ts";
 import { Card } from "../src/ui/kit.ts";
 import { createWorker } from "../src/worker.ts";
-import { loadEnv } from "../src/env.ts";
-import { layoutOf } from "../src/layout.ts";
 import { DEFAULT_POLICY, type Note } from "../src/notify.ts";
 import { openDb } from "../src/db.ts";
 import { H, appWithAgents, assertInert, deploy, fakeGhe, fixedGatherer, signedIn, snapshot } from "./helpers.ts";
@@ -447,39 +445,6 @@ test("loadPacks: a folder's packs.ts, and a pack folder that won't load is named
   assert.deepEqual(packs.map((c) => c.manifest.name), ["From disk"]);
   assert.equal(failed.length, 1);
   assert.match(failed[0]!.why, /didn't load/);
-});
-
-test("before WP-M4: an instance's crates.ts, CRATES, CRATE_<ID>, createWorker({ crates }), dovre/crates/types.ts and a saved cratesOff still work", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "dovre-old-instance-"));
-  writeFileSync(join(dir, "crates.ts"), `export default [{ manifest: { api: 1, id: "old", name: "Old", description: "", domain: "personal" } }];\n`);
-  assert.deepEqual((await loadPacks(dir, {})).packs.map((c) => c.manifest.id), ["old"], "a folder without packs.ts: its crates.ts");
-  writeFileSync(join(dir, "packs.ts"), `export default [{ manifest: { api: 1, id: "new", name: "New", description: "", domain: "personal" } }];\n`);
-  assert.deepEqual((await loadPacks(dir, {})).packs.map((c) => c.manifest.id), ["new"], "packs.ts wins");
-
-  if (!process.env.PACKS && !process.env.CRATES) {
-    assert.equal(loadEnv({ CRATES: "~/src/x" }).PACKS, "~/src/x");
-    assert.equal(loadEnv({ CRATES: "~/src/x", PACKS: "~/src/y" }).PACKS, "~/src/y");
-  }
-  const two = [pack({ id: "my-app" }), pack({ id: "other" })];
-  assert.deepEqual(activePacks(two, { env: { CRATE_MY_APP: "off" }, hosted: false, which: () => undefined }).on.map((c) => c.manifest.id), ["other"]);
-  assert.deepEqual(activePacks(two, { env: { PACK_MY_APP: "on", CRATE_MY_APP: "off" }, hosted: false, which: () => undefined }).on.length, 2, "PACK_ wins");
-
-  const old = await import("../src/crates/types.ts");
-  assert.equal(old.CRATE_API, PACK_API);
-  assert.equal((await import("../src/crates/registry.ts")).activeCrates, activePacks);
-  assert.equal((await import("../src/crates/load.ts")).loadCrates, loadPacks);
-  assert.equal(typeof (await import("../src/crates/testing.ts")).testContext, "function");
-  assert.deepEqual(layoutOf({ cratesOff: ["health"] }), { packsOff: ["health"] });
-
-  const seen: string[] = [];
-  const worker = createWorker({ crates: [pack({ id: "legacy", execution: "any" }, { init: () => void seen.push("init") })] });
-  await worker.fetch(new Request("https://dovre.example.dev/"), { DB: mockD1(), IS_HOSTED: "1", CF_ACCESS_TEAM: "team", CF_ACCESS_AUD: "aud" });
-  assert.deepEqual(seen, ["init"]);
-
-  const { get } = signedIn(snapshot(), {}, { packs: [pack({ id: "x" })] });
-  const res = await get("/crates");
-  assert.equal(res.status, 301);
-  assert.equal(res.headers.get("location"), "/packs");
 });
 
 /** Enough of D1 for the hosted app to start. */

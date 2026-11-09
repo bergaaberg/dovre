@@ -14,7 +14,7 @@ import { setupLines } from "../src/pages/settings.ts";
 import { agentPanel } from "../src/packs/core/issues/compose/work.ts";
 import { testAgentLinks } from "../src/packs/testing.ts";
 import { setupApp, setupPage } from "../src/setup.ts";
-import { findTool, found, shimTarget, summariesWanted, which } from "../src/tools.ts";
+import { findTool, found, shimTarget, which } from "../src/tools.ts";
 import { H, assertInert, pr, session, signedIn, snapshot } from "./helpers.ts";
 
 /** A page for ctx.page, as text: its head and body. */
@@ -88,14 +88,6 @@ test("tools: found on the PATH with Windows' extensions, an npm .cmd shim runs i
   writeFileSync(join(dir, "pnpm.cmd"), '@GOTO :pnpm\r\n:pnpm\r\n@GOTO #_undefined_# 2>NUL || (IF "%_PNPM_RESTORE_TITLE%"=="1" TITLE %COMSPEC%) & "%~dp0\\global\\v11\\x\\node_modules\\pnpm\\pnpm.exe"  %*\r\n');
   const pnpm = findTool("pnpm", undefined, { env, platform: "win32", node: "node.exe" })!;
   assert.deepEqual([pnpm.bin, pnpm.pre], [join(dir, "global", "v11", "x", "node_modules", "pnpm", "pnpm.exe"), []]);
-});
-
-test("summaries go to Claude only: on when it's here unless told no, never without it", () => {
-  assert.equal(summariesWanted(true), true);
-  assert.equal(summariesWanted(true, "off"), false);
-  assert.equal(summariesWanted(true, "on"), true);
-  assert.equal(summariesWanted(false, "on"), false);
-  assert.equal(summariesWanted(false), false);
 });
 
 test("with summaries off, a PR shows no summary line at all", async () => {

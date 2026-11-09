@@ -515,10 +515,6 @@ export async function pendingEnvs(ghe: Ghe, repo: string, runId: number): Promis
   return pending.filter((p) => p.current_user_can_approve).map((p) => p.environment.id);
 }
 
-export async function viewerLogin(ghe: Ghe): Promise<string> {
-  return (await ghe.rest<{ login: string }>("/user")).login;
-}
-
 export async function viewer(ghe: Ghe): Promise<{ login: string; name: string | null }> {
   const u = await ghe.rest<{ login: string; name: string | null }>("/user");
   return { login: u.login, name: u.name };

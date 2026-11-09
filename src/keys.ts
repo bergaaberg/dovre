@@ -68,4 +68,3 @@ export function keyPrefsStore(db: D1, now: () => number = Date.now) {
     },
   };
 }
-export type KeyPrefsStore = ReturnType<typeof keyPrefsStore>;

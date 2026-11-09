@@ -84,7 +84,6 @@ export function writeClicksStore(db: D1, now: () => number = Date.now, kinds: ()
     },
   };
 }
-export type WriteClicksStore = ReturnType<typeof writeClicksStore>;
 
 /** The request's choices, put there by the app (see app.ts): Confirm reads them while a page is drawn. */
 export const CLICKS_VAR = "clicks";

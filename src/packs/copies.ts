@@ -35,8 +35,8 @@ export function listedIn(repo: string): Listed[] {
   });
 }
 
-/** The instance file that lists its packs: packs.ts, else crates.ts. */
-const entryOf = (into: string) => [join(into, "packs.ts"), join(into, "crates.ts")].find((f) => existsSync(f));
+/** The instance file that lists its packs: packs.ts. */
+const entryOf = (into: string) => [join(into, "packs.ts")].find((f) => existsSync(f));
 
 /** The instance folders in a PACKS setting (a file entry means the folder it's in). */
 export function foldersOf(list: string | undefined, home = process.env.HOME ?? "~"): string[] {
@@ -183,7 +183,7 @@ export function createCopies(o: { packs: string | undefined; home?: string; repo
       if (!l) return { ok: false, why: "not a pack in dovre-packs" };
       if (l.needsCore) return { ok: false, why: `needs core API ${l.api}: update Dovre first` };
       if (!sourceAllowed(sourceOf(repo), o.env)) return { ok: false, why: "the dovre-packs checkout comes from a repo outside REPO_OWNERS" };
-      const dirs = [join(into, "packs", id), join(into, "crates", id)];
+      const dirs = [join(into, "packs", id)];
       if (dirs.some((d) => existsSync(d))) return { ok: false, why: "already in the instance" };
       const entry = entryOf(into)!;
       const listing = readFileSync(entry);

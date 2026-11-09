@@ -53,11 +53,6 @@ export type PaneState = { id: PaneId; wanted: boolean; on: boolean; via?: string
 /** A switch that isn't "off" (or no/false/0) is on. */
 const isOff = (v: string | undefined) => /^(off|no|false|0)$/i.test((v ?? "").trim());
 
-/** The panes' old on/off switches, now their packs' (#271): an old "off" turns the pack off. */
-export const LEGACY_SWITCHES: Record<string, string> = { TERMINAL: "terminal", DOCKER: "docker", BINO_VIA: "assistant", ASSISTANT_VIA: "assistant", STATS: "history", REVIEWS: "reviews", SUMMARIES: "summaries" };
-/** The packs an old pane switch in `v` has off. */
-export const legacyOff = (v: Record<string, unknown>): string[] => [...new Set(Object.entries(LEGACY_SWITCHES).filter(([k]) => typeof v[k] === "string" && isOff(v[k] as string)).map(([, id]) => id))];
-
 export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): Record<PaneId, PaneState> {
   const v = env as Record<string, string | undefined>;
   const simple = (id: PaneId, key: string | undefined, can: boolean, why: string): PaneState => {
@@ -68,7 +63,7 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
   const copilot = f.copilot ?? f.omp;
   const noCopilot = f.omp ? "Copilot through omp isn't set up yet: see Setup." : "Needs omp (`omp` on the PATH).";
   const cli = !!f.copilotCli;
-  // "off" is the assistant pack's now (legacyOff): here it's the default route.
+  // "off" is the assistant pack's switch (PACK_ASSISTANT): here it's the default route.
   const binoRaw = v.ASSISTANT_VIA ?? v.BINO_VIA;
   const binoVia = viaOf(isOff(binoRaw) ? undefined : binoRaw, f.claude, f.omp, cli, !!f.agy);
   const hasDirectKey = !!(v.ASSISTANT_API_KEY || v.ANTHROPIC_API_KEY || v.OPENAI_API_KEY || v.GEMINI_API_KEY);
@@ -134,8 +129,7 @@ export const runningOf = (p: Record<PaneId, PaneState>): PanesOn => Object.fromE
 // ── Kept in the settings table ──
 
 export type Config = Record<string, string>;
-// The old switches are still read, so starting can move an "off" to its pack (src/index.ts).
-const KEYS = new Set([...GENERAL.map((g) => g.key), ...Object.keys(LEGACY_SWITCHES), "SETUP_DONE"]);
+const KEYS = new Set([...GENERAL.map((g) => g.key), "SETUP_DONE"]);
 
 export async function loadConfig(db: D1): Promise<Config> {
   const row = await db.prepare("SELECT value FROM settings WHERE key = 'config'").first<{ value: string }>();

@@ -39,7 +39,6 @@ export type Need = {
 };
 
 export const KIND_LABEL: Record<NeedKind, string> = { deploy: "Deploy", ci: "Red build", review: "Review", "my-pr": "My PR", mention: "Mention", pack: "App" };
-export const needLabel = (n: Need) => n.label ?? KIND_LABEL[n.kind];
 
 /** Lower rank first, then the newest. */
 export const rankNeeds = (needs: Need[]): Need[] => [...needs].sort((a, b) => a.rank - b.rank || b.at - a.at);

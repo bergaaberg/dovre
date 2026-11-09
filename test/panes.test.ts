@@ -1,7 +1,7 @@
 /** Panes switched on Settings (WP-A23): what runs, what's kept, and an off pane gone from every page. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { configFromForm, type Found, legacyOff, loadConfig, PANE_IDS, panesOf, runningOf, saveConfig } from "../src/config.ts";
+import { configFromForm, type Found, loadConfig, PANE_IDS, panesOf, runningOf, saveConfig } from "../src/config.ts";
 import { openDb } from "../src/db.ts";
 import { loadEnv } from "../src/env.ts";
 import { pagesOf } from "../src/search/search.ts";
@@ -56,20 +56,20 @@ test("the form: bad values refused; fixed keys left alone; keys it doesn't have 
 test("kept in the settings table: known keys only, as strings", async () => {
   const db = openDb();
   assert.deepEqual(await loadConfig(db.DB), {});
-  await saveConfig(db.DB, { REVIEWS: "off", PATH: "C:\\evil", GHE_TOKEN: "x" } as Record<string, string>);
-  assert.deepEqual(await loadConfig(db.DB), { REVIEWS: "off" });
-  await db.DB.prepare("UPDATE settings SET value = ? WHERE key = 'config'").bind(JSON.stringify({ REVIEWS: 1, STATS: "off", GHE_HOST: "evil.example" })).run();
-  assert.deepEqual(await loadConfig(db.DB), { STATS: "off" });
+  await saveConfig(db.DB, { GREETING: "no", PATH: "C:\\evil", GHE_TOKEN: "x" } as Record<string, string>);
+  assert.deepEqual(await loadConfig(db.DB), { GREETING: "no" });
+  await db.DB.prepare("UPDATE settings SET value = ? WHERE key = 'config'").bind(JSON.stringify({ GREETING: 1, TZ_NAME: "Europe/Oslo", GHE_HOST: "evil.example" })).run();
+  assert.deepEqual(await loadConfig(db.DB), { TZ_NAME: "Europe/Oslo" });
 });
 
 test("what Settings keeps sits under the environment and .dev.vars", () => {
   const saved = { ...process.env };
   try {
     process.env.GHE_TOKEN = "t";
-    process.env.REVIEWS = "on";
-    const env = loadEnv({ REVIEWS: "off", STATS: "off" });
-    assert.equal(env.REVIEWS, "on", "the environment wins");
-    assert.equal(env.STATS, "off");
+    process.env.GREETING = "en";
+    const env = loadEnv({ GREETING: "no", TZ_NAME: "Europe/Oslo" });
+    assert.equal(env.GREETING, "en", "the environment wins");
+    assert.equal(env.TZ_NAME, "Europe/Oslo");
   } finally {
     process.env = saved;
   }
@@ -118,10 +118,8 @@ test("without Claude Code, Bino and summaries talk to Copilot through omp: no to
   assert.equal(routeOf({ via: "omp" }).ready, false, "no omp at all");
 });
 
-test("the old Terminal, Docker and Bino switches turn their packs off; Bino's route stays (#271)", () => {
-  assert.deepEqual(legacyOff({ TERMINAL: "off", DOCKER: "on", BINO_VIA: "omp" }), ["terminal"]);
-  assert.deepEqual(legacyOff({ DOCKER: "no", BINO_VIA: "off", ASSISTANT_VIA: "off" }), ["docker", "assistant"]);
-  const p = panesOf({ BINO_VIA: "off", TERMINAL: "off", DOCKER: "off" }, all);
-  assert.equal(p.bino.via, "claude", "an old off is the pack's now: the route is the default");
+test("Bino's route off is the default route: on or off is the assistant pack's (#271)", () => {
+  const p = panesOf({ BINO_VIA: "off", TERMINAL: "off" }, all);
+  assert.equal(p.bino.via, "claude", "the route is the default");
   assert.equal(p.terminal.on, true, "can run: on or off is the pack's");
 });
