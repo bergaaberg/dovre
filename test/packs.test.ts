@@ -985,7 +985,7 @@ test("dock: a pack's button beside Bino's on every page but its own, cut to size
   const dock = await get("/chat/dock");
   const body = await dock.text();
   assertInert("a pack's dock page", body);
-  assert.match(body, /<body class="dock-page">/);
+  assert.match(body, /<body class="dock-page">\n<header class="dock-h"><h1 title="Chat">Chat<\/h1>.*<a class="dock-i" href="\/chat" target="_top"[^>]*>↗<\/a><button type="button" class="dock-i ghost" data-dock-close[^>]*>–<\/button><\/header><div class="dock-b"><div class="pack-box" data-pack="chat">/, "core's header, so it closes on a phone too");
   assert.match(body, /<link rel="stylesheet" href="\/assets\/packs\.[^"]+\.css">/, "the packs' styles");
   assert.equal(dock.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(dock.headers.get("content-security-policy") ?? "", /frame-ancestors 'self'/);
