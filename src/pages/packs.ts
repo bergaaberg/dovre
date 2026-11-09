@@ -182,6 +182,7 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (cron) pairs.push(["Cron", cron]);
   if (m?.requiredBindings?.length) pairs.push(["Bindings", m.requiredBindings.join(", ")]);
   if (m?.requiredBinaries?.length) pairs.push(["Needs on PATH", m.requiredBinaries.join(", ")]);
+  if (m?.binaries?.length) pairs.push(["May run", m.binaries.join(", ")]);
   const requires = requiresOf(m);
   if (requires.length) pairs.push(["Requires", requires.map((r) => v.on.find((c) => c.manifest.id === r)?.manifest.name ?? v.off.find((x) => x.id === r)?.name ?? r).join(", ")]);
   const copy = v.copies?.get(id);

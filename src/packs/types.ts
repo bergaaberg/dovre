@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.25";
+export const PACK_API = "1.26";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -58,6 +58,8 @@ export type PackManifest = {
   execution?: ExecutionAffinity;
   /** CLIs it needs on PATH (local). */
   requiredBinaries?: string[];
+  /** API 1.26: programs it may run with `ctx.run` when they're on PATH (local), besides `requiredBinaries`; a missing one doesn't turn it off. Plain names, never an agent CLI. */
+  binaries?: string[];
   /** Worker bindings it needs (hosted): without them it's off. */
   requiredBindings?: string[];
   settings?: PackSetting[];
@@ -420,6 +422,18 @@ export type PackContext = {
   checkouts?(): string[];
   /** Local (API 1.7): a checkout's folder by name, or null when it isn't one of `checkouts()`. */
   checkout?(name: unknown): string | null;
+  /** Local (API 1.26): this pack's own folder (`packs/<id>` next to the database), made when first asked for. Unset hosted. */
+  dir?(): string;
+  /**
+   * Local (API 1.26): runs one of the programs its manifest names (`requiredBinaries`, `binaries`)
+   * to the end, off the main thread. By name, found on PATH, never an agent CLI (those are
+   * `ctx.agent`). `cwd` is a checkout (or a folder in one) or a folder in `dir()`, which is the
+   * default. A non-zero exit is a result; a name it didn't declare, a folder elsewhere, a program
+   * that isn't on PATH, a timeout and `signal` aborting all throw. Unset hosted.
+   */
+  run?(binary: string, args: string[], opts?: PackRunOpts): Promise<PackRan>;
+  /** Local (API 1.26): whether a program its manifest names is on PATH now, to say so before it's needed. Throws like `run` on a name it didn't declare. Unset hosted. */
+  onPath?(binary: string): boolean;
   /** Dovre's own database. */
   db: D1;
   /**
@@ -723,6 +737,15 @@ export type Defer = (p: Promise<unknown>) => void;
 
 /** What `ctx.logged` takes: the write's `kind` (one word), what it was done to (300 characters kept), and a line about it (200). */
 export type PackLogged = { kind: string; target: string; detail?: string; ok: boolean; error?: string };
+
+/**
+ * What `ctx.run` takes besides the program and its arguments. `env`: changes to Dovre's own
+ * environment for the program (null removes a variable). `input`: its stdin. `onStdout`: what it
+ * writes, as it writes it (the whole still comes back in `stdout`).
+ */
+export type PackRunOpts = { cwd?: string; timeoutMs?: number; input?: string; maxBuffer?: number; env?: Record<string, string | null>; signal?: AbortSignal; onStdout?: (chunk: string) => void };
+/** How a program `ctx.run` started ended. */
+export type PackRan = { code: number | null; stdout: string; stderr: string };
 
 /** A kind of write a pack makes: a lowercase word (dashes allowed), and what Settings calls it. */
 export type PackWrite = {

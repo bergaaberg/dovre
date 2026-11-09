@@ -9,6 +9,7 @@ import { agentHostOf } from "./packs/agenthost.ts";
 import type { PackAiAsk } from "./packs/types.ts";
 import { checkoutIn, checkoutsIn } from "./packs/checkouts.ts";
 import { loggedFor } from "./packs/logged.ts";
+import { packDirOf, programsFor } from "./packs/programs.ts";
 import { ownersIn } from "./owners.ts";
 import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
@@ -498,6 +499,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           bindings: packs.bindings ?? {},
           hosted,
           ...(hosted ? {} : { codeDir: env.CODE_DIR, checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout) : []), checkout: (name: unknown) => (env.CODE_DIR ? checkoutIn(env.CODE_DIR, name, deps.session?.checkout) : null) }),
+          ...(hosted ? {} : programsFor(c.manifest, { dir: packDirOf(env.U_DB, c.manifest.id), checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout).flatMap((n) => checkoutIn(env.CODE_DIR!, n) ?? []) : []) })),
           db: env.DB,
           logged: loggedFor(c.manifest.id, env.DB, packLog(c.manifest.id)),
           publish: (topics) => deps.hub?.publish(topics),

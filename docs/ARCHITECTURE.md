@@ -15,7 +15,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.25")
+   src/packs/types.ts     its types (PACK_API = "1.26")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -99,6 +99,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 
 **`PackContext`** gives a pack:
 - `env`, `bindings`, `hosted`, `db`
+- `run(binary, args, opts)`, `onPath(binary)`, `dir()` (local): run a program its manifest names (`requiredBinaries`, or `binaries` for ones it can do without), in a checkout or in its own folder. Never an agent CLI. The folder is where the program starts, not a fence around it
 - `publish(topics)`: tell open pages a region changed
 - `snapshot()`, `gathered()`: what the gather read from the forge
 - `fill(slot, arg)`: host other packs' slots on its pages
@@ -305,6 +306,7 @@ Also:
 | 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
 | 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
 | 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database (#474) |
+| 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool` (#474) |
 
 ## Open questions
 
