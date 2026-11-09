@@ -82,9 +82,6 @@ export type Env = {
   /** Pack folders this machine loads (comma-separated; PLAN D23). */
   PACKS?: string;
   CRATES?: string;
-  /** Docker (src/packs/core/docker/): `on` (default) or `off`. DOCKER_PIPE: another engine's pipe (\\.\pipe\docker_engine for Docker Desktop's) instead of the launcher's. */
-  DOCKER?: string;
-  DOCKER_PIPE?: string;
   /** Copilot through omp, for Bino and summaries without Claude Code (src/ai/omp.ts): its omp profile (default dovre-copilot: no MCP servers) and Copilot model (default github-copilot/gpt-6-luna:medium). */
   COPILOT_PROFILE?: string;
   COPILOT_MODEL?: string;
@@ -203,8 +200,6 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     ALLOWED_EMAILS: v.ALLOWED_EMAILS || undefined,
     CF_GATEWAY_NAME: v.CF_GATEWAY_NAME || undefined,
     CF_AIG_TOKEN: v.CF_AIG_TOKEN || undefined,
-    DOCKER: v.DOCKER || undefined,
-    DOCKER_PIPE: v.DOCKER_PIPE || undefined,
     COPILOT_PROFILE: v.COPILOT_PROFILE || undefined,
     COPILOT_MODEL: v.COPILOT_MODEL || undefined,
     TERMINAL: v.TERMINAL || undefined,

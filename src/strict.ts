@@ -1,5 +1,5 @@
 /**
- * The stricter guard for routes that run things as me (terminals, the Docker engine), on top of
+ * The stricter guard for routes that run things as me (terminals; packs' own, like docker's), on top of
  * the app's cookie and localhost checks:
  *  - a request another site started (Sec-Fetch-Site cross-site / same-site) gets a 404, even with
  *    the cookie (which SameSite=Strict keeps from it anyway);

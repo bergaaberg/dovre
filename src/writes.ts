@@ -35,8 +35,6 @@ export const WRITES: WriteKind[] = [
   { kind: "agents.clear", label: "Clear finished agent sessions", group: "Here" },
   { kind: "sandbox.discard", label: "Discard a sandbox run's commits", group: "Here" },
   { kind: "agents.tools", label: "Give omp or agy the packs' tools (adds Dovre to its MCP config)", group: "Here" },
-  { kind: "docker.engine-off", label: "Stop Docker", group: "Here" },
-  { kind: "docker.remove", label: "Remove a container", group: "Here" },
   { kind: "terminal.close", label: "Close a terminal", group: "Here" },
   { kind: "bino.forget", label: "Forget something Bino remembers", group: "Here" },
   { kind: "bino.delete", label: "Delete a conversation with Bino", group: "Here" },

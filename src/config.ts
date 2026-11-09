@@ -23,11 +23,11 @@ export type Field =
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "text"; pattern: RegExp }
   | { key: string; label: string; hint?: string; placeholder?: string; kind: "set"; choices: Choice[] };
 
-export const PANE_IDS = ["bino", "terminal", "docker"] as const;
+export const PANE_IDS = ["bino", "terminal"] as const;
 export type PaneId = (typeof PANE_IDS)[number];
 
 /** What this machine has: a pane that needs something missing can't run, whatever its switch says. */
-export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/ai/omp.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh?: boolean; db?: boolean; terminals: boolean; /** This is Windows. Unset: yes, for tests and old callers. */ windows?: boolean; /** Unix socket for Docker Engine on macOS/Linux. */ dockerSocket?: string; /** Windows: berth is installed, DOCKER_PIPE is set, or something serves docker_engine. Unset: yes. */ dockerPipe?: boolean };
+export type Found = { claude: boolean; omp: boolean; /** omp's Copilot profile is set up (src/ai/omp.ts). Unset: as `omp`. */ copilot?: boolean; /** Copilot CLI (`copilot`) is here. */ copilotCli?: boolean; agy?: boolean; codex?: boolean; pwsh?: boolean; db?: boolean; terminals: boolean; /** This is Windows. Unset: yes, for tests and old callers. */ windows?: boolean };
 
 /** Comma-separated names: letters, digits, . _ - only. */
 const LIST = /^[\w.\-]+(\s*,\s*[\w.\-]+)*$/;
@@ -124,7 +124,6 @@ export function panesOf(env: Partial<Env> & Record<string, unknown>, f: Found): 
     },
     // On or off as their packs are: these say only whether they can run here.
     terminal: simple("terminal", undefined, f.terminals, "Needs the launcher built (go build -o ../bin/dovre . in launcher/, or scripts/install.ps1)."),
-    docker: simple("docker", undefined, windows ? f.dockerPipe !== false : !!f.dockerSocket, windows ? "No Docker Engine on its pipe: set up berth (github.com/bergaaberg/berth, Docker Engine without Docker Desktop) or start Docker Desktop, then restart Dovre." : "No Docker Engine socket found (looked in ~/.docker/run/docker.sock, ~/.orbstack/run/docker.sock, ~/.colima/default/docker.sock, /var/run/docker.sock)."),
   };
 }
 

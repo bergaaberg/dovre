@@ -26,7 +26,7 @@ The words Dovre uses, so the site, README, app and docs say the same thing.
 | **Need** | Something waiting for you; rings once when new |
 | **My list** | Your own to-do list |
 | **Pack** | One app integration: a manifest and hooks (`src/packs/types.ts`) |
-| **Core pack** | A pack shipped in core: `agents`, `assistant`, `terminal`, `docker`, `tracker`, `storybook` |
+| **Core pack** | A pack shipped in core: `agents`, `assistant`, `terminal`, `tracker`, `storybook` |
 | **Instance** | A repo with one setup's packs and config (`../my-dovre`) |
 | **Slot** | A named place on a core page that packs fill (14) |
 | **Act** | A one-click action card Bino proposes for a pack |
