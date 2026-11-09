@@ -33,7 +33,6 @@ import { createHistory } from "./packs/core/history/store.ts";
 import { autoreviewPack } from "./packs/core/autoreview/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { todoPack } from "./packs/core/todo/index.ts";
-import { movementPack } from "./packs/core/movement/index.ts";
 import { deploysPack } from "./packs/core/deploys/index.ts";
 import { dependabotPack } from "./packs/core/dependabot/index.ts";
 import { stacksPack } from "./packs/core/stacks/index.ts";
@@ -331,7 +330,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     // My open issues from the forge (/tracker), where the forge has them.
     const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), movementPack(), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, unread: keys.unread(), bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, unread: keys.unread(), bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
@@ -344,7 +343,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       forge,
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
-      packs: { on, off, env: strings, keys, bindings, core: ["agents", "autoreview", "history", "assistant", "todo", "movement", "deploys", "dependabot", "stacks", "tracker"] },
+      packs: { on, off, env: strings, keys, bindings, core: ["agents", "autoreview", "history", "assistant", "todo", "deploys", "dependabot", "stacks", "tracker"] },
       setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
       sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });
