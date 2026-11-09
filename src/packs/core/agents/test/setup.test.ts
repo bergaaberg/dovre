@@ -79,7 +79,9 @@ test("the Agents setup: pick languages, see the files, open one PR a repo with b
 
   assert.equal((await post("/setup/agents/next", "step=repos&lang=pnpm&lang=rust")).headers.get("location"), "/setup/agents?at=files");
   const files = await (await get("/setup/agents?at=files")).text();
-  assert.match(files, /<h3>Rust<\/h3>.*&quot;cargo fetch&quot;.*<h3>JavaScript · pnpm<\/h3>.*pnpm install --frozen-lockfile/s);
+  assert.match(files, /<h3>Rust<\/h3><p class="t2">1 repo\. Reaches [^<]*crates\.io[^<]*, then runs <code>cargo fetch<\/code>\.<\/p><details class="climb-more"><summary>See the files<\/summary>.*&quot;cargo fetch&quot;.*<\/details>/s, "one line per language, the files folded (#443)");
+  assert.match(files, /<h3>JavaScript · pnpm<\/h3><p class="t2">2 repos\..*pnpm install --frozen-lockfile/s);
+  assert.doesNotMatch(files, /<details[^>]* open/, "folded at first");
   assert.doesNotMatch(files, /JavaScript · npm/, "only the picked ones");
   await post("/setup/agents/next", "step=files");
 

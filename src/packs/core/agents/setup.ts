@@ -160,7 +160,7 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
         const picked = LANGS.filter((l) => k.langs.includes(l.id) && found.langs.has(l.id));
         if (!picked.length) return { body: html`<p class="t2">No language picked, so nothing goes in. Back to pick one, or Next.</p>` };
         return {
-          body: html`${picked.map((l) => html`<div><h3>${l.label}</h3><p class="t3"><code>${CONFIG}</code></p><pre class="code">${configText(l)}</pre><p class="t3"><code>${TOOLCHAIN}</code></p><pre class="code">${l.containerfile}</pre></div>`)}<p class="t3">The same two files go in each repo of a language. Edit them in the PR if a repo is special.</p>`,
+          body: html`${picked.map((l) => html`<div><h3>${l.label}</h3><p class="t2">${plural(found.langs.get(l.id)!.length, "repo")}. Reaches ${l.allow.join(", ")}, then runs <code>${l.setup}</code>.</p><details class="climb-more"><summary>See the files</summary><p class="t3"><code>${CONFIG}</code></p><pre class="code">${configText(l)}</pre><p class="t3"><code>${TOOLCHAIN}</code></p><pre class="code">${l.containerfile}</pre></details></div>`)}<p class="t3">The same two files go in each repo of a language. Edit them in the PR if a repo is special.</p>`,
         };
       }
       // "open"
