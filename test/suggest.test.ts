@@ -16,7 +16,6 @@ import { movementPack } from "../src/packs/core/movement/index.ts";
 import { prsPack } from "../src/packs/core/prs/index.ts";
 import { reviewsPack } from "../src/packs/core/reviews/index.ts";
 import { stacksPack } from "../src/packs/core/stacks/index.ts";
-import { storybookPack } from "../src/packs/core/storybook/index.ts";
 import { terminalPack } from "../src/packs/core/terminal/index.ts";
 import { todoPack } from "../src/packs/core/todo/index.ts";
 
@@ -110,7 +109,7 @@ test("suggest: a bad id or a second pack with the same id is left out", () => {
 test("the core packs' declarations pass the checks unchanged, and a developer who uses agents gets the cockpit", () => {
   const core = [
     assistantPack(), autoreviewPack(), deploysPack({} as never), dependabotPack({} as never), historyPack({} as never), issuesPack({} as never),
-    movementPack(), prsPack({} as never), reviewsPack({} as never), stacksPack({} as never), storybookPack({} as never), terminalPack({} as never), todoPack({} as never),
+    movementPack(), prsPack({} as never), reviewsPack({} as never), stacksPack({} as never), terminalPack({} as never), todoPack({} as never),
   ].map((p) => p.manifest);
   for (const c of core) {
     assert.deepEqual(rolesOf(c), c.roles ?? [], c.id);
@@ -119,8 +118,7 @@ test("the core packs' declarations pass the checks unchanged, and a developer wh
     if (c.onboard) assert.deepEqual(onboardOf(c)!.steps, c.onboard.steps, c.id);
   }
   const dev = suggest(core, "dev", { agents: "many", tasks: ["github"] }, [".storybook/", "Dockerfile"]);
-  assert.deepEqual([...dev.keys()].sort(), ["assistant", "autoreview", "prs", "reviews", "stacks", "storybook", "terminal", "tracker"]);
-  assert.deepEqual(dev.get("storybook"), ["found .storybook/"]);
+  assert.deepEqual([...dev.keys()].sort(), ["assistant", "autoreview", "prs", "reviews", "stacks", "terminal", "tracker"]);
   // Bino is suggested to every role.
   for (const r of Object.keys(ROLES)) assert.ok(suggest(core, r as never, {}, []).has("assistant"), r);
 });

@@ -13,7 +13,7 @@ import type { PackProposal, Proposed } from "../actions/propose.ts";
 import type { NavItem } from "../html.ts";
 import type { Page } from "../search/search.ts";
 import type { Session } from "../sources/claude.ts";
-import type { EveryRepo } from "../sources/files.ts";
+import type { EveryRepo, ForgePr } from "../sources/files.ts";
 import type { Html } from "../ui/kit.ts";
 import type { Answer } from "../relay/asks.ts";
 import type { ReviewDraft } from "../reviews/draft.ts";
@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.20";
+export const PACK_API = "1.21";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -543,6 +543,14 @@ export type PackForge = {
    * most; 0 reads it now). `at` says when it was read. Absent: this forge doesn't say.
    */
   everyRepo?(paths: string[], o?: { maxAgeMs?: number }): Promise<EveryRepo>;
+  /**
+   * One of the owners' PRs (API 1.21): its head and base (branch and full SHA) and the paths it
+   * changes with their status (300 at most), kept a minute; undefined when it isn't one.
+   * Absent: this forge doesn't say.
+   */
+  pr?(repo: string, n: number): Promise<ForgePr | undefined>;
+  /** The files directly in a folder of one of the owners' repos at a full commit SHA (API 1.21; "" is the root), as repo paths. Absent: this forge doesn't say. */
+  dir?(repo: string, path: string, at: string): Promise<string[]>;
   /**
    * Opens a PR changing one file in one of the owners' repos, or up to five in `files` (API 1.17):
    * a branch off the default branch, a commit per file, the PR (dovre#203). `kind` is one of the pack's `writes`, so it shows on Settings → Writes

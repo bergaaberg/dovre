@@ -46,7 +46,6 @@ Each app Dovre works with is a pack. Six ship with core, each switched off with 
 | `assistant` | Bino and its [memlet](https://github.com/bergaaberg/memlet) memory |
 | `terminal` | Web terminals in your checkouts (local) |
 | `tracker` | Your open issues on `/tracker` |
-| `storybook` | A PR's stories before and after (local) |
 
 More in [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs). A pack is copied into your instance repo, so you can edit it:
 

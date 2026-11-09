@@ -118,6 +118,46 @@ export function d1Reads(db: D1, now: () => number = Date.now): SharedReads {
 /** A full commit SHA, the only ref a pack reads a file at. */
 const SHA = /^[0-9a-fA-F]{40}$/;
 
+/** A PR as a pack reads it: its two ends and the paths it changes (`status`: added, removed, modified, renamed…). */
+export type ForgePr = { head: { ref: string; sha: string }; base: { ref: string; sha: string }; files: { path: string; status: string }[] };
+/** The most changed files a PR read gives. */
+export const MAX_PR_FILES = 300;
+
+/** A PR's ends and changed paths; undefined when it isn't one (or isn't visible). */
+export async function loadPr(ghe: Ghe, repo: string, n: number): Promise<ForgePr | undefined> {
+  let pr: { head?: { ref?: unknown; sha?: unknown }; base?: { ref?: unknown; sha?: unknown } };
+  try {
+    pr = await ghe.rest(`/repos/${repo}/pulls/${n}`);
+  } catch (e) {
+    if (/: 404 /.test(String((e as Error)?.message ?? e))) return undefined;
+    throw e;
+  }
+  const str = (v: unknown) => (typeof v === "string" ? v.slice(0, 255) : "");
+  const head = { ref: str(pr?.head?.ref), sha: str(pr?.head?.sha) };
+  const base = { ref: str(pr?.base?.ref), sha: str(pr?.base?.sha) };
+  if (!head.ref || !SHA.test(head.sha) || !base.ref || !SHA.test(base.sha)) return undefined;
+  const files: ForgePr["files"] = [];
+  for (let page = 1; files.length < MAX_PR_FILES && page <= 3; page++) {
+    const got = await ghe.rest<unknown[]>(`/repos/${repo}/pulls/${n}/files?per_page=100&page=${page}`);
+    if (!Array.isArray(got)) break;
+    for (const f of got as { filename?: unknown; status?: unknown }[]) if (typeof f?.filename === "string" && f.filename.length <= 1000) files.push({ path: f.filename, status: str(f.status).slice(0, 20) });
+    if (got.length < 100) break;
+  }
+  return { head, base, files: files.slice(0, MAX_PR_FILES) };
+}
+
+/** The files (not folders) directly in a repo's folder at a commit, as repo paths; none when it isn't one. */
+export async function loadDir(ghe: Ghe, repo: string, path: string, at: string): Promise<string[]> {
+  let got: unknown;
+  try {
+    got = await ghe.rest(`/repos/${repo}/contents/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}?ref=${at}`);
+  } catch (e) {
+    if (/: 404 /.test(String((e as Error)?.message ?? e))) return [];
+    throw e;
+  }
+  return Array.isArray(got) ? (got as { type?: unknown; path?: unknown }[]).filter((x) => x?.type === "file" && typeof x.path === "string" && !!repoPath(x.path)).map((x) => x.path as string).slice(0, 1000) : [];
+}
+
 /** The longest a pack may take an every-repo read to be. */
 export const MAX_AGE = 24 * 3600_000;
 
@@ -126,6 +166,8 @@ type Source = {
   untriaged?(owners: string): Promise<Record<string, number>>;
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
+  pr?(repo: string, n: number): Promise<ForgePr | undefined>;
+  dir?(repo: string, path: string, at: string): Promise<string[]>;
 };
 
 /**
@@ -175,6 +217,29 @@ export function packReads(f: Source, owners: () => string, o: { ttlMs?: number; 
             const sha = at?.toLowerCase();
             // A file at a commit never changes: kept as long as the cache keeps anything.
             return (await cached(`file:${r.toLowerCase()}:${p}${sha ? `@${sha}` : ""}`, () => f.file!(r, p, sha), sha ? MAX_AGE : undefined)).value;
+          },
+        }
+      : {}),
+    ...(f.pr
+      ? {
+          // A PR moves: kept a minute.
+          pr: async (repo: string, n: number) => {
+            const r = ownedRepo(owners(), repo);
+            if (!r || !Number.isSafeInteger(n) || n < 1) throw new Error(`Not a PR in your repos: ${String(repo).slice(0, 100)}#${String(n).slice(0, 20)}`);
+            return (await cached(`pr:${r.toLowerCase()}#${n}`, () => f.pr!(r, n), Math.min(ttl, 60_000))).value;
+          },
+        }
+      : {}),
+    ...(f.dir
+      ? {
+          dir: async (repo: string, path: string, at: string) => {
+            const r = ownedRepo(owners(), repo);
+            const p = path === "" ? "" : repoPath(path);
+            if (!r || p === undefined) throw new Error(`Not a folder in your repos: ${String(repo).slice(0, 100)}/${String(path).slice(0, 100)}`);
+            if (!SHA.test(at)) throw new Error("Not a commit: a full SHA (40 hex)");
+            const sha = at.toLowerCase();
+            // A folder at a commit never changes.
+            return (await cached(`dir:${r.toLowerCase()}:${p}@${sha}`, () => f.dir!(r, p, sha), MAX_AGE)).value;
           },
         }
       : {}),

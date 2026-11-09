@@ -8,7 +8,7 @@ import type { Changelog } from "../sources/changelog.ts";
 import type { Deploy, Move, Note, Pr, PrRef, RedBranch } from "../sources/ghe.ts";
 import type { Issue, IssueAct, IssueSets } from "../sources/issues.ts";
 import type { Thread, ThreadHit } from "../sources/threads.ts";
-import type { RepoFiles } from "../sources/files.ts";
+import type { ForgePr, RepoFiles } from "../sources/files.ts";
 export type { Thread, ThreadHit };
 export type { Changelog, Deploy, Issue, IssueAct, IssueSets, Move, Note, Pr, PrRef, RedBranch };
 
@@ -84,6 +84,10 @@ export type Forge = {
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   /** Each of the owners' repos with its files at these paths, in as few calls as it can (#294). Absent: packs read them a file at a time. */
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
+  /** A PR's two ends and the paths it changes (API 1.21); undefined when it isn't one. Absent: packs read none. */
+  pr?(repo: string, n: number): Promise<ForgePr | undefined>;
+  /** The files directly in a repo's folder at a commit (API 1.21). Absent: packs read none. */
+  dir?(repo: string, path: string, at: string): Promise<string[]>;
   /** A PR changing a few files (src/actions/propose.ts), checked already: throws why not. Absent: packs propose none. */
   propose?(p: Proposal): Promise<{ number: number; url: string }>;
 };

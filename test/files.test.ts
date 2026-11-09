@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Ghe } from "../src/sources/ghe.ts";
-import { loadEveryRepo, loadFile, loadRepos, MAX_FILE, ownedRepo, packReads, repoPath } from "../src/sources/files.ts";
+import { loadDir, loadEveryRepo, loadFile, loadPr, loadRepos, MAX_FILE, ownedRepo, packReads, repoPath } from "../src/sources/files.ts";
 import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
 import { signedIn, snapshot } from "./helpers.ts";
 
@@ -199,4 +199,45 @@ test("files: a pack reads every repo through ctx.forge(), kept in the instance's
   const row = await db.DB.prepare("SELECT key FROM forge_reads").first<{ key: string }>();
   assert.equal(row?.key, "every:ACME:peak.yaml");
   assert.equal(n, 1);
+});
+
+test("files: a PR's ends and changed paths (API 1.21): odd answers read strictly, not a PR is undefined", async () => {
+  const H = "a".repeat(40), B = "b".repeat(40);
+  const g = ghe((path) => {
+    if (path === "/repos/acme/web/pulls/7") return { head: { ref: "feat", sha: H }, base: { ref: "main", sha: B } };
+    if (path.startsWith("/repos/acme/web/pulls/7/files")) return [{ filename: "src/a.stories.tsx", status: "added" }, { filename: 5 }, { filename: "src/b.ts", status: "modified" }];
+    if (path === "/repos/acme/web/pulls/8") return { head: { ref: "x", sha: "short" }, base: { ref: "main", sha: B } };
+    throw new Error("GitHub GET x: 404 Not Found");
+  });
+  assert.deepEqual(await loadPr(g, "acme/web", 7), { head: { ref: "feat", sha: H }, base: { ref: "main", sha: B }, files: [{ path: "src/a.stories.tsx", status: "added" }, { path: "src/b.ts", status: "modified" }] });
+  assert.equal(await loadPr(g, "acme/web", 8), undefined, "a head that isn't a full SHA");
+  assert.equal(await loadPr(g, "acme/web", 9), undefined, "404: not a PR");
+});
+
+test("files: a folder's files at a commit (API 1.21): files only, odd paths dropped, a missing folder is none", async () => {
+  const g = ghe((path) => {
+    if (path.startsWith("/repos/acme/web/contents/src/ui?ref=")) return [{ type: "file", path: "src/ui/a.stories.tsx" }, { type: "dir", path: "src/ui/x" }, { type: "file", path: "../evil" }];
+    throw new Error("GitHub GET x: 404 Not Found");
+  });
+  assert.deepEqual(await loadDir(g, "acme/web", "src/ui", "c".repeat(40)), ["src/ui/a.stories.tsx"]);
+  assert.deepEqual(await loadDir(g, "acme/web", "nope", "c".repeat(40)), []);
+});
+
+test("files: packs read PRs and folders in the owners' repos only, folders by full SHA, a PR kept a minute", async () => {
+  let t = 0;
+  const calls: string[] = [];
+  const pr = { head: { ref: "f", sha: "a".repeat(40) }, base: { ref: "main", sha: "b".repeat(40) }, files: [] };
+  const reads = packReads({ pr: async (r, n) => (calls.push(`pr ${r}#${n}`), pr), dir: async (r, p, at) => (calls.push(`dir ${r}/${p}@${at}`), []) }, () => "acme", { ttlMs: 300_000, now: () => t });
+  assert.deepEqual(await reads.pr!("acme/web", 7), pr);
+  await reads.pr!("acme/web", 7);
+  t = 61_000;
+  await reads.pr!("acme/web", 7);
+  for (const [repo, n] of [["other/web", 7], ["acme/web", 0], ["acme/web", 1.5], ["../x", 1]] as const) await assert.rejects(reads.pr!(repo, n), /Not a PR in your repos/, `${repo}#${n}`);
+  const sha = "C".repeat(40);
+  await reads.dir!("acme/web", "", sha);
+  await reads.dir!("acme/web", "src/ui", sha);
+  await assert.rejects(reads.dir!("acme/web", "src/ui", "main"), /Not a commit/);
+  await assert.rejects(reads.dir!("acme/web", "../etc", sha), /Not a folder in your repos/);
+  await assert.rejects(reads.dir!("other/web", "src", sha), /Not a folder in your repos/);
+  assert.deepEqual(calls, ["pr acme/web#7", "pr acme/web#7", `dir acme/web/@${sha.toLowerCase()}`, `dir acme/web/src/ui@${sha.toLowerCase()}`]);
 });

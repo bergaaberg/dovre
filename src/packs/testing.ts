@@ -127,7 +127,7 @@ export function testSnapshot(o: Partial<Snapshot> = {}): Snapshot {
  * app's own origin unless `headers` say otherwise) answer as the app would. GitHub answers nothing;
  * Bino is off.
  */
-export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instance's settings the packs read. */ env?: Record<string, string>; forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "propose">>; hosted?: boolean; /** Local: the code folder packs see as `ctx.codeDir`. */ codeDir?: string; /** A pack session (#353): no cockpit, and only `checkout` under codeDir. */ session?: { pack: string; checkout?: string }; /** A token's turn for /mcp (a session's own, #371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined } = {}) {
+export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instance's settings the packs read. */ env?: Record<string, string>; forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "pr" | "dir" | "propose">>; hosted?: boolean; /** Local: the code folder packs see as `ctx.codeDir`. */ codeDir?: string; /** A pack session (#353): no cockpit, and only `checkout` under codeDir. */ session?: { pack: string; checkout?: string }; /** A token's turn for /mcp (a session's own, #371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined } = {}) {
   const db = openDb();
   const s = o.snapshot ?? testSnapshot();
   const gatherer = { get: async () => s, stale: () => {}, gathering: () => false, peek: () => s };
