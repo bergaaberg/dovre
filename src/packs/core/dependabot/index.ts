@@ -15,7 +15,7 @@ import type { Ghe } from "../../../sources/ghe.ts";
 import type { D1 } from "../../../db.ts";
 import { CheckRows } from "../../../ui/kit.ts";
 import { type Pack, PACK_API } from "../../types.ts";
-import { addGroups, combine, type Level, LEVELS, loadQueue, MAX_MERGE, mergeCombined } from "./act.ts";
+import { addGroups, bumpLevel, combine, type Level, LEVELS, loadQueue, MAX_MERGE, mergeCombined } from "./act.ts";
 import { dependabotBody, type Job } from "./view.ts";
 
 export type DependabotDeps = {
@@ -46,7 +46,7 @@ async function picked(db: D1): Promise<Level[] | undefined> {
     return undefined;
   }
 }
-const SAMPLE: Record<Level, [string, string]> = { patch: ["Patch", "1.4.2 → 1.4.3"], minor: ["Minor", "1.4 → 1.5"], major: ["Major", "1.x → 2.0, brave"] };
+const SAMPLE: Record<Level, [string, string]> = { patch: ["Patch", "1.4.2 → 1.4.3"], minor: ["Minor", "1.4 → 1.5"], major: ["Major", "1.x → 2.0, can break things"] };
 type Queue = Awaited<ReturnType<typeof loadQueue>>;
 
 export function dependabotPack(deps: DependabotDeps): Pack {
@@ -72,15 +72,22 @@ export function dependabotPack(deps: DependabotDeps): Pack {
       answers: ["catch:bumps"],
       markers: [".github/dependabot.yml", ".github/dependabot.yaml"],
       execution: "any",
-      onboard: { steps: [{ id: "merge", title: "Pick what merges on green" }] },
+      onboard: { steps: [{ id: "merge", title: "Which bumps start ticked?" }] },
     },
-    // What merges on green (#426): the picked levels start ticked on /dependabot. Merging is still a click.
+    // Which bumps start ticked (#426, #448): the picked levels start ticked on /dependabot. Merging is still a click.
     setup: {
       async draw(ctx) {
         const on = (await picked(ctx.db)) ?? FIRST;
+        // How many open bumps each level covers today, when the queue reads in time.
+        const q = await Promise.race([load().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 3000))]);
+        const open = (l: Level) => q?.repos.reduce((n, r) => n + r.prs.filter((p) => bumpLevel(p.title) === l).length, 0);
+        const sub = (l: Level) => {
+          const n = open(l);
+          return n === undefined ? SAMPLE[l][1] : `${SAMPLE[l][1]} · ${n ? `${n} open now` : "none open now"}`;
+        };
         return {
           form: true,
-          body: html`<p class="t2">Dovre rolls each repo's bumps into one PR. Once its checks pass, a combined PR with only these bumps starts ticked on Dependabot. You still press Merge.</p>${CheckRows({ name: "level", label: "Bumps", rows: LEVELS.map((l) => ({ value: l, label: SAMPLE[l][0], sub: SAMPLE[l][1], checked: on.includes(l) })) })}`,
+          body: html`<p class="t2">Dovre rolls each repo's bumps into one PR. Once its checks pass, a combined PR with only these bumps starts ticked on Dependabot. Nothing merges by itself. You still press Merge.</p>${CheckRows({ name: "level", label: "Bumps", rows: LEVELS.map((l) => ({ value: l, label: SAMPLE[l][0], sub: sub(l), checked: on.includes(l) })) })}`,
         };
       },
       async save(ctx, _step, form) {
