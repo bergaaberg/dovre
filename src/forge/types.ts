@@ -78,6 +78,8 @@ export type Forge = {
   merged?(login: string, owners: string, since: string): Promise<number>;
   /** The owners' repos that aren't archived (`owner/name`). Absent: packs read none. */
   repos?(owners: string): Promise<string[]>;
+  /** Each of the owners' repos with open issues that have no assignee and no label: how many (#447). Absent: packs read none. */
+  untriaged?(owners: string): Promise<Record<string, number>>;
   /** One file's text on a repo's default branch, or at commit `at`; undefined when there's none. Absent: packs read none. */
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   /** Each of the owners' repos with its files at these paths, in as few calls as it can (#294). Absent: packs read them a file at a time. */

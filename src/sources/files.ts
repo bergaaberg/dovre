@@ -123,6 +123,7 @@ export const MAX_AGE = 24 * 3600_000;
 
 type Source = {
   repos?(owners: string): Promise<string[]>;
+  untriaged?(owners: string): Promise<Record<string, number>>;
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
 };
@@ -163,6 +164,7 @@ export function packReads(f: Source, owners: () => string, o: { ttlMs?: number; 
   };
   return {
     ...(f.repos ? { repos: async () => (await cached(`repos:${owners()}`, () => f.repos!(owners()))).value } : {}),
+    ...(f.untriaged ? { untriaged: async () => (await cached(`untriaged:${owners()}`, () => f.untriaged!(owners()))).value } : {}),
     ...(f.file
       ? {
           file: async (repo: string, path: string, at?: string) => {

@@ -151,6 +151,13 @@ ${FROM}
 .su-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink-3); font-size: 13px; }
 .su-head .climb-link { padding: 0; }
 .su-body { display: grid; gap: 14px; min-width: 0; }
+/* A long list of ticks (#447): filtered in place, with None and "All with issues". Script shows it. */
+.su-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.su-filter[hidden], .su-body .check-row[hidden] { display: none; }
+.su-find { flex: 1 1 12rem; min-width: 0; font: inherit; font-size: 16px; color: var(--ink); background: transparent; border: 0; border-bottom: 1px solid var(--line-2); padding: 8px 2px; border-radius: 0; }
+.su-find:focus { outline: none; border-bottom-color: var(--accent); }
+.su-filter button { appearance: none; border: 0; background: none; padding: 4px 0; font: inherit; font-size: 13px; color: var(--ink-3); cursor: pointer; }
+.su-filter button:hover { color: var(--accent); }
 .su-foot { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
 /* A step's own main button where Next goes (#441): Confirm's summary, or its one-click button, look like Next. */
 .su-go { position: relative; }

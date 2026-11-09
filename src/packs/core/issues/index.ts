@@ -143,10 +143,26 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         const repos = await ctx.forge()?.repos?.().catch(() => undefined);
         if (!repos) return { body: html`<p class="t2">Dovre hasn't read your repos yet. Give it a minute, or come back later.</p>`, wait: "Waiting for your repos." };
         const on = new Set(triageOf(ctx));
-        const rows = [...repos.filter((r) => on.has(r)), ...repos.filter((r) => !on.has(r)).sort()].slice(0, MAX_TRIAGE);
+        // How many issues wait for triage in each repo (#447): unknown when the forge doesn't say.
+        const counts = await ctx.forge()?.untriaged?.().catch(() => undefined);
+        const n = (r: string) => counts?.[r] ?? 0;
+        const all = [...repos.filter((r) => on.has(r)), ...repos.filter((r) => !on.has(r))].slice(0, MAX_TRIAGE);
+        const row = (r: string) => ({ value: r, label: r, sub: n(r) ? `${n(r)} untriaged` : undefined, checked: on.has(r) });
+        const intro = html`<p class="t2">Their open issues with no assignee and no label show up for you to sort. None is fine too.</p>`;
+        if (!all.length) return { body: html`${intro}<p class="t2">No repos of the owners yet.</p>` };
+        if (!counts) {
+          const rows = [...all.filter((r) => on.has(r)), ...all.filter((r) => !on.has(r)).sort()];
+          return { form: true, body: html`${intro}${CheckRows({ name: "repo", label: `${repos.length} repo${repos.length === 1 ? "" : "s"}`, rows: rows.map(row) })}` };
+        }
+        // Repos with issues to sort, most first, and those picked already; the rest fold.
+        const top = all.filter((r) => n(r) || on.has(r)).sort((a, b) => n(b) - n(a) || a.localeCompare(b));
+        const rest = all.filter((r) => !n(r) && !on.has(r)).sort();
+        const hot = all.filter((r) => n(r)).length;
+        const tools = html`<div class="su-filter" hidden><input type="search" class="su-find" placeholder="Filter repos" aria-label="Filter repos" autocomplete="off"><button type="button" data-pick="none">None</button>${hot ? html`<button type="button" data-pick="hot">All with issues</button>` : ""}</div>`;
+        const more = rest.length ? html`<details class="climb-more"${top.length ? "" : " open"}><summary>${rest.length} more with nothing to triage</summary>${CheckRows({ name: "repo", label: "Nothing to triage", rows: rest.map(row) })}</details>` : "";
         return {
           form: true,
-          body: html`<p class="t2">Their open issues with no assignee and no label show up for you to sort. None is fine too.</p>${rows.length ? CheckRows({ name: "repo", label: `${repos.length} repo${repos.length === 1 ? "" : "s"}`, rows: rows.map((r) => ({ value: r, label: r, checked: on.has(r) })) }) : html`<p class="t2">No repos of the owners yet.</p>`}`,
+          body: html`${intro}${tools}${top.length ? html`<div data-hot>${CheckRows({ name: "repo", label: hot ? `${hot} repo${hot === 1 ? "" : "s"} with issues to sort` : "Picked", rows: top.map(row) })}</div>` : ""}${more}`,
         };
       },
       async save(ctx, _step, form) {
