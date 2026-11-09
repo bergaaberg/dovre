@@ -10,7 +10,7 @@
  *  - no Origin header: a browser always sends one on a POST, an agent's MCP client doesn't;
  *  - the token of a running turn, compared in constant time; a turn that ended takes its token with it.
  * Permissions don't widen: the agent asks for each MCP tool as for any other, and a pack's tool
- * enforces its own limits. Every call is logged (`mcp.call`: the tool and the repo, never the
+ * enforces its own limits. A pack's turn (#467) sees only its own tools and the others I granted it. Every call is logged (`mcp.call`: the tool and the repo, never the
  * arguments or what came back).
  */
 import type { Hono } from "hono";
@@ -26,7 +26,8 @@ const MAX_REQUEST = 256_000;
 export const MAX_RESULT = 60_000;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,40}$/;
 
-type Turn = { id: string; repo: string; cwd: string };
+/** `scope`: a pack's turn (#467) sees only its own pack's tools and those named; without it, every shown pack's. */
+type Turn = { id: string; repo: string; cwd: string; scope?: { pack: string; tools: string[] } };
 type McpOpts = {
   /** The packs shown now (on, available, not hidden). */
   shown: () => Pack[];
@@ -105,6 +106,14 @@ export function mountMcp(app: Hono<any>, o: McpOpts) {
     return turn;
   };
 
+  /** What this turn may list and call. */
+  const seen = (turn: Turn): Map<string, Offered> => {
+    const all = offered(o.shown(), o.ctxOf, o.log);
+    const scope = turn.scope;
+    if (!scope) return all;
+    return new Map([...all].filter(([name, t]) => t.pack.manifest.id === scope.pack || scope.tools.includes(name)));
+  };
+
   app.get("/mcp", (c) => (o.hosted || !o.isLocal(c.req.raw) ? notHere() : c.body(null, 405, { allow: "POST" })));
   app.delete("/mcp", (c) => (o.hosted || !o.isLocal(c.req.raw) ? notHere() : c.body(null, 405, { allow: "POST" })));
 
@@ -142,12 +151,12 @@ export function mountMcp(app: Hono<any>, o: McpOpts) {
       case "ping":
         return json({ jsonrpc: "2.0", id, result: {} });
       case "tools/list": {
-        const tools = [...offered(o.shown(), o.ctxOf, o.log).values()].map((t) => ({ name: t.name, description: t.tool.description, inputSchema: t.tool.input }));
+        const tools = [...seen(turn).values()].map((t) => ({ name: t.name, description: t.tool.description, inputSchema: t.tool.input }));
         return json({ jsonrpc: "2.0", id, result: { tools } });
       }
       case "tools/call": {
         const name = typeof params.name === "string" ? params.name : "";
-        const t = offered(o.shown(), o.ctxOf, o.log).get(name);
+        const t = seen(turn).get(name);
         if (!t) return json(rpcError(id, -32602, `No tool ${name.slice(0, 80)} here.`));
         const args = params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments) ? (params.arguments as Record<string, unknown>) : {};
         const call: ToolCall = { run: turn.id, repo: turn.repo, cwd: turn.cwd };

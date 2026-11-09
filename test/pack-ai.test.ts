@@ -1,7 +1,7 @@
 /** Packs talk to the model (#466): off until I allow it on the pack's Settings page; the size I allowed; a day's cap; logged by cost only. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aiAskOf, grantOf } from "../src/packs/ai.ts";
+import { aiAskOf, grantOf, NO_GRANT } from "../src/packs/ai.ts";
 import { assertInert, HOSTILE, packApp } from "../src/packs/testing.ts";
 import { type Pack, PACK_API, type PackCompleteAsk } from "../src/packs/types.ts";
 
@@ -55,7 +55,8 @@ test("allowed on its Settings page: the small model answers; large needs 'any'; 
   assert.equal(m.asked.at(-1)?.model, "sonnet");
   const calls = (await db.DB.prepare("SELECT * FROM pack_ai_calls WHERE pack = 'asker'").all<Record<string, unknown>>()).results;
   assert.equal(calls.length, 2);
-  assert.deepEqual(Object.keys(calls[0]).sort(), ["at", "cost", "ok", "pack"], "when, cost and whether: never the prompt or the reply");
+  assert.deepEqual(Object.keys(calls[0]).sort(), ["at", "cost", "kind", "ok", "pack", "place", "repo", "run", "state"], "when, cost and whether: never the prompt or the reply");
+  assert.deepEqual([calls[0].kind, calls[0].run, calls[0].state], ["text", null, null], "the agent's columns stay empty for a text call");
   const logged = (await db.DB.prepare("SELECT kind, target FROM actions WHERE kind = 'packs.ai'").all<{ target: string }>()).results;
   assert.equal(logged.length, 2, "each change of grant is in the actions log");
   assert.match(await (await get("/settings/packs/asker")).text(), /\$0\.20 of \$1\.00 today/);
@@ -90,8 +91,8 @@ test("its why is one line of text, cut short, drawn inert; a grant is read safel
   assert.equal(aiAskOf({ ai: { text: { why: 3 } } }), undefined);
   assert.equal(aiAskOf({ ai: "text" }), undefined);
   assert.equal(aiAskOf({ ai: { text: { why: "x".repeat(500) } } })?.text?.why.length, 200);
-  assert.deepEqual(grantOf({ level: "agent", size: "huge", dayUsd: "-3" }), { level: "off", size: "small", dayUsd: 1 });
-  assert.deepEqual(grantOf({ level: "text", size: "any", dayUsd: "9999" }), { level: "text", size: "any", dayUsd: 50 });
+  assert.deepEqual(grantOf({ level: "agent", size: "huge", dayUsd: "-3" }), { ...NO_GRANT, level: "off", size: "small", dayUsd: 1 });
+  assert.deepEqual(grantOf({ level: "text", size: "any", dayUsd: "9999" }), { ...NO_GRANT, level: "text", size: "any", dayUsd: 50 });
   const { get } = packApp([asker(HOSTILE)], { ai: model().route });
   assertInert("pack AI panel", await (await get("/settings/packs/asker")).text());
 });

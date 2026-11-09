@@ -53,9 +53,11 @@ export async function openSandboxPr(o: {
   run: Run;
   /** The machine pushes the branch (src/agents/desk.ts `pushSandbox`). */
   push: () => Promise<{ repo: string; branch: string; head: string } | { error: string }>;
+  /** A pack's run (#467): logged under the pack's own write kind instead. */
+  kind?: string;
 }): Promise<Proposed> {
   const out = o.run.out?.state === "ready" ? o.run.out : undefined;
-  const kind = out ? sandboxKind(out) : "sandbox.pr";
+  const kind = o.kind ?? (out ? sandboxKind(out) : "sandbox.pr");
   const target = `${line(out?.repo, 100) || line(o.run.repo, 100)}:${line(out?.branch, 80)}`;
   const refuse = async (error: string): Promise<Proposed> => {
     await logAction(o.db, { kind, target, ok: false, error }).catch(() => {});

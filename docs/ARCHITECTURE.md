@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.20")
+   src/packs/types.ts     the contract (PACK_API = "1.23")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -294,6 +294,7 @@ Also:
 | 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
 | 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
 | 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
+| 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
 
 ## Open questions
 

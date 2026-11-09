@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.22";
+export const PACK_API = "1.23";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -288,12 +288,52 @@ export type PageOpts = { title: string; body: Html | string; current?: string; h
 /** The PR the "pr.*" slots are drawn on: which repo, and which PR of it (a pack can link a ticket named in its branch or title). */
 export type PrSlotArg = { repo: string; number: number; branch: string; title: string; url: string };
 /** A model's summary of a PR or deploy ("ai.summary" slot): written, still being written, or failed. */
-/** What a pack's manifest asks of the model (#466); `agent` comes in phase 2 (#467). */
-export type PackAiAsk = { text?: { why: string } };
+/**
+ * What a pack's manifest asks of the model (#466, #467). `text`: a prompt in, text out. `agent`: an
+ * agent turn in one of my repos, `where` it may run (`read`: plan mode in its checkout; `sandbox`:
+ * a fresh clone in a container), other packs' /mcp `tools` it would like by name (its own it gets),
+ * and `lands`: the write kind (one of its `writes`) it opens a draft PR from a sandbox run under.
+ */
+export type PackAiAsk = { text?: { why: string }; agent?: PackAgentAsk };
+export type PackAgentWhere = "read" | "sandbox";
+export type PackAgentAsk = { why: string; where: PackAgentWhere[]; tools?: string[]; lands?: string };
 /** What it may ask now: `text` with the size and day's cap I allowed, or not, and why. */
 export type PackAi = { text: true; size: "small" | "any"; dayUsd: number } | { text: false; why: string };
 /** One question to the model. `size`: "small" (the default) or "large", if I allowed any. */
 export type PackCompleteAsk = { system: string; user: string; size?: "small" | "large"; signal?: AbortSignal };
+/** What it may start now (API 1.23): where, in which repos (`mine`: all of the owners'), the caps; or not, and why. */
+export type PackAgentCan = { ok: true; where: PackAgentWhere[]; repos: "mine" | string[]; tools: string[]; runUsd: number; turns: number; minutes: number } | { ok: false; why: string };
+/** One agent turn to start: in `repo` (owner/name), `where`, on the small model unless I allowed any. */
+export type PackAgentStart = { repo: string; prompt: string; where: PackAgentWhere; size?: "small" | "large" };
+/** A turn it started, as it stands: its final text once it has one (bounded), its cost, and a sandbox run's commits once home. */
+export type PackAgentRun = {
+  run: string;
+  status: "running" | "done" | "failed" | "stopped";
+  where: PackAgentWhere;
+  repo: string;
+  cost: number;
+  said: string;
+  /** A sandbox run that ended: commits it made (0: none), once home; `pr` once landed. */
+  commits?: number;
+  pr?: { number: number; url: string };
+};
+/**
+ * A pack's agent turns (API 1.23, #467). Every one needs my OK on its Settings page, in one of
+ * the repos I allowed, within the run's and day's dollars; one at a time. A turn's asks for tools
+ * outside its grant are refused, as in any headless turn. Logged by cost, never the prompt or output.
+ */
+export type PackAgent = {
+  can(): PackAgentCan;
+  start(a: PackAgentStart): Promise<{ run: string } | { wait: string } | { error: string }>;
+  /** One of its own turns; undefined for any other. */
+  result(run: string): Promise<PackAgentRun | undefined>;
+  /**
+   * A sandbox run's commits as a draft PR into the default branch, logged under `<id>.<lands>`.
+   * Call it only from the POST of its own Confirm for that kind. Never forced; CI config changes
+   * aren't pushed.
+   */
+  land(run: string): Promise<{ number: number; url: string } | { error: string }>;
+};
 
 export type AiSummary = { state: "ready"; text: string } | { state: "pending" } | { state: "failed"; error: string };
 
@@ -447,6 +487,8 @@ export type PackContext = {
    * small one, and once today's dollars are spent. Each call is logged by cost, never by content.
    */
   complete(p: PackCompleteAsk): Promise<{ text: string; cost: number }>;
+  /** Its agent turns (API 1.23, #467): what it may start, starting one, how it went, and landing its commits. */
+  agent: PackAgent;
 };
 
 // ── What packs share with the packs that require them (#326) ──

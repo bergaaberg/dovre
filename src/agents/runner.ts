@@ -104,9 +104,14 @@ export type Run = {
   diff?: TurnDiff;
   /** Started with another harness on the same prompt (#242): the pair's id, the same on both. */
   pair?: string;
+  /** A pack's turn (#467): the pack that asked, and the /mcp tools it sees (its own, and those named). */
+  scope?: McpScope;
   /** Discarded (or cleared away) at: off the lists, its sandbox and branch gone; its record stays for its page until the week's sweep. */
   discarded?: number;
 };
+
+/** The /mcp tools a turn sees (#467): the pack's own, and other packs' by MCP name. */
+export type McpScope = { pack: string; tools: string[] };
 
 export type StartOpts = {
   harness?: HarnessId; cwd: string; prompt: string; resume?: string; fork?: boolean; mode?: Mode; model?: string; allowed?: string[];
@@ -116,8 +121,10 @@ export type StartOpts = {
   base?: string;
   maxMs?: number;
   budget?: number;
-  /** A sandbox run only (#326, fix sessions): at most this many agent turns. */
+  /** At most this many agent turns: a sandbox run (#326, fix sessions) or a pack's turn (#467). */
   turns?: number;
+  /** A pack's turn (#467): the pack that asked, and the /mcp tools it may list and call. Without it, every pack's. */
+  scope?: McpScope;
   /** How hard it thinks (#236): a level from the harness's own list (`options.efforts`); each harness checks it again. */
   effort?: string;
   /** One side of a pair (#242): the pair's id. */
@@ -256,12 +263,12 @@ export function createRunner(opts: {
   const ready = (r: Run | undefined): SandboxReady | undefined => (r?.out?.state === "ready" ? r.out : undefined);
   /** A sandbox run is stopped when it runs past the cap, also when picked up after a restart. */
   const capped = (r: Run, stop: (id: string) => boolean) => {
-    if (!r.sandbox || !opts.sandbox) return;
-    const max = Math.min(opts.sandbox.maxMs, r.maxMs ?? Infinity);
+    const max = r.sandbox && opts.sandbox ? Math.min(opts.sandbox.maxMs, r.maxMs ?? Infinity) : r.sandbox ? Infinity : (r.maxMs ?? Infinity);
+    if (!Number.isFinite(max)) return;
     const t = setTimeout(() => {
       if (r.status !== "running") return;
       stop(r.id);
-      r.events.push({ t: "error", text: `Stopped: the sandbox run went past ${Math.round(max / 60_000)} minutes.` });
+      r.events.push({ t: "error", text: `Stopped: the ${r.sandbox ? "sandbox run" : "turn"} went past ${Math.round(max / 60_000)} minutes.` });
       changed(r);
     }, Math.max(0, r.startedAt + max - now()));
     t.unref?.();
@@ -410,10 +417,8 @@ export function createRunner(opts: {
       const prompt = given.prompt;
       // A copy is told it's one, so it leaves the terminal's unfinished work alone (the page shows the note as a line).
       // Yolo is set here and nowhere else: whatever the caller passed, only a sandbox run has it.
-      // The caps and base are a sandbox run's alone.
-      const caps = box
-        ? { base: given.base, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined, turns: given.turns && given.turns > 0 ? given.turns : undefined }
-        : { base: undefined, maxMs: undefined, budget: undefined, turns: undefined };
+      // The base is a sandbox run's alone; the other caps only ever narrow a turn, so any run may have them (a pack's turn, #467).
+      const caps = { base: box ? given.base : undefined, maxMs: given.maxMs && given.maxMs > 0 ? given.maxMs : undefined, budget: given.budget && given.budget > 0 ? given.budget : undefined, turns: given.turns && given.turns > 0 ? given.turns : undefined };
       let o: HarnessOpts = { ...given, ...caps, fork, prompt: fork ? `${COPY_NOTE}\n\n${given.prompt}` : given.prompt, yolo: box, ...(box ? { allowed: undefined } : {}) };
       const id = randomUUID();
       // Hosts the box was refused: on the run, so its page can say what to allow.
@@ -428,7 +433,7 @@ export function createRunner(opts: {
       const run: Run = {
         id, harness: h.id, resumed: o.resume, forked: fork, sessionId: o.resume && !fork ? o.resume : undefined,
         cwd: o.cwd, repo: o.cwd.split(/[\\/]/).pop() ?? o.cwd, prompt, mode: o.mode ?? "default", model: o.model ?? "", ...(o.effort ? { effort: o.effort } : {}), ...(o.pair ? { pair: o.pair } : {}), allowed: o.allowed ?? [],
-        status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox, blocked } : {}),
+        status: "running", startedAt: now(), events: [], partial: "", cost: 0, ...(sandbox ? { sandbox, blocked } : {}), ...(o.scope ? { scope: { pack: o.scope.pack, tools: [...o.scope.tools] } } : {}),
         ...(caps.maxMs ? { maxMs: caps.maxMs } : {}), ...(caps.budget ? { budget: caps.budget } : {}),
       };
       runs.set(run.id, run);
