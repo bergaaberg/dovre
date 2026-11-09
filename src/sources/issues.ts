@@ -181,3 +181,29 @@ export async function actOnIssue(ghe: Ghe, a: IssueAct): Promise<void> {
   else if (a.kind === "reopen") await ghe.rest(p, { method: "PATCH", body: { state: "open" } });
   else await ghe.rest(`${p}/comments`, { method: "POST", body: { body: a.body } });
 }
+
+/** Pages of 100 read for `loadUntriaged`, at most. */
+const UNTRIAGED_PAGES = 5;
+
+/**
+ * How many open issues with no assignee and no label each of the owners' repos has (#447), for
+ * Issues setup to sort by. Repos with none are left out. One search, at most 500 issues read.
+ */
+export async function loadUntriaged(ghe: Ghe, owners: string): Promise<Record<string, number>> {
+  const scope = ownerQuery(owners);
+  if (!scope) return {};
+  const q = `is:issue is:open no:assignee no:label ${scope} archived:false`;
+  const out: Record<string, number> = {};
+  let after: string | undefined;
+  for (let page = 0; page < UNTRIAGED_PAGES; page++) {
+    type Page = { search: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: ({ repository?: { nameWithOwner: string } } | null)[] } };
+    const d = await ghe.graphql<Page>(`{ search(query:${JSON.stringify(q)}, type:ISSUE, first:100${after ? `, after:${JSON.stringify(after)}` : ""}){ pageInfo{ hasNextPage endCursor } nodes{ ... on Issue { repository { nameWithOwner } } } } }`);
+    for (const n of d.search.nodes) {
+      const r = n?.repository?.nameWithOwner;
+      if (r && owns(owners, r.split("/")[0]!)) out[r] = (out[r] ?? 0) + 1;
+    }
+    if (!d.search.pageInfo.hasNextPage || !d.search.pageInfo.endCursor) break;
+    after = d.search.pageInfo.endCursor;
+  }
+  return out;
+}

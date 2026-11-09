@@ -14,7 +14,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.18")
+   src/packs/types.ts     the contract (PACK_API = "1.20")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -291,6 +291,7 @@ Also:
 | 1.17 | `forge().propose` takes `files`: up to five files in one PR, each checked against what the pack saw; a setup step's `refresh` loads its page again while a job runs (#425) |
 | 1.18 | Manifest `via: "forge"`: it reads and writes through the forge, and the Packs page groups it under the forge's name (#432) |
 | 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
+| 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
 
 ## Open questions
 

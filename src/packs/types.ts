@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.19";
+export const PACK_API = "1.20";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -527,6 +527,8 @@ export type PackForge = {
   merged?(since: string): Promise<number>;
   /** The owners' repos that aren't archived (`owner/name`), kept a few minutes. Absent: this forge doesn't say. */
   repos?(): Promise<string[]>;
+  /** Each of the owners' repos with open issues that have no assignee and no label, and how many (API 1.20, #447); repos with none are left out. Kept a few minutes. Absent: this forge doesn't say. */
+  untriaged?(): Promise<Record<string, number>>;
   /**
    * One file's text on a repo's default branch (a peak.yaml, say), kept a few minutes; undefined
    * when there's none. With `at`, a full commit SHA (a PR's head), the file at that commit

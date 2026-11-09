@@ -295,3 +295,22 @@ test("its setup (#418): ticks from the owners' repos, kept in Dovre's settings, 
   Object.assign(ctx, { forge: () => undefined });
   assert.ok((await pack.setup!.draw(ctx, "triage")).wait);
 });
+
+test("its setup sorts by untriaged issues and folds the rest (#447)", async () => {
+  const { openDb } = await import("../../../../db.ts");
+  const db = openDb().DB;
+  const repos = ["bergaaberg/web", "bergaaberg/api", "bergaaberg/docs", "bergaaberg/old", "bergaaberg/<img src=x>"];
+  const { pack, ctx } = setup({ env: { ISSUES_TRIAGE_REPOS: "bergaaberg/old" } });
+  Object.assign(ctx, { db, forge: () => ({ id: "github", name: "GitHub", host: "github.com", login: "kari", owners: "bergaaberg", repos: async () => repos, untriaged: async () => ({ "bergaaberg/api": 2, "bergaaberg/web": 7 }) }) });
+  const body = String((await pack.setup!.draw(ctx, "triage")).body);
+  const [top, rest] = body.split("<details");
+  assert.match(top!, /<legend class="t3">2 repos with issues to sort<\/legend>.*bergaaberg\/web<\/b><small>7 untriaged<\/small>.*bergaaberg\/api<\/b><small>2 untriaged.*value="bergaaberg\/old" checked/s, "most first, then the picked one");
+  assert.match(rest!, /^ class="climb-more"><summary>2 more with nothing to triage<\/summary>.*bergaaberg\/docs/s, "the rest fold");
+  assert.match(body, /<div class="su-filter" hidden><input type="search" class="su-find"[^>]*><button type="button" data-pick="none">None<\/button><button type="button" data-pick="hot">All with issues<\/button><\/div>/, "the filter shows with script only");
+  assert.ok(!body.includes("<img src=x") && body.includes("&lt;img src=x&gt;"), "a repo's name is text");
+  // Without counts: one list, as before.
+  Object.assign(ctx, { forge: () => ({ id: "github", name: "GitHub", host: "github.com", login: "kari", owners: "bergaaberg", repos: async () => repos }) });
+  const plain = String((await pack.setup!.draw(ctx, "triage")).body);
+  assert.doesNotMatch(plain, /<details|su-filter/);
+  assert.match(plain, /5 repos/);
+});

@@ -1,7 +1,7 @@
 /** GitHub (github.com, GHE.com or Enterprise Server) as a forge: the default, through the Ghe client. */
 import { loadChangelog } from "../sources/changelog.ts";
 import { type Ghe, loadDeploys, loadMoves, loadNotes, loadPrRefs, loadPrs, loadRedBranches, prKeyOfUrl, viewer } from "../sources/ghe.ts";
-import { actOnIssue, loadIssue, loadIssues } from "../sources/issues.ts";
+import { actOnIssue, loadIssue, loadIssues, loadUntriaged } from "../sources/issues.ts";
 import { loadEveryRepo, loadFile, loadRepos } from "../sources/files.ts";
 import { loadThread, searchThreads } from "../sources/threads.ts";
 import { proposeFiles } from "../actions/propose.ts";
@@ -34,6 +34,7 @@ export function githubForge(ghe: Ghe): Forge {
     work: (login, owners, since) => loadWork(ghe, login, owners, since),
     merged: (login, owners, since) => loadMerged(ghe, login, owners, since),
     repos: (owners) => loadRepos(ghe, owners),
+    untriaged: (owners) => loadUntriaged(ghe, owners),
     file: (repo, path, at) => loadFile(ghe, repo, path, at),
     everyRepo: (owners, paths) => loadEveryRepo(ghe, owners, paths),
     propose: (p) => proposeFiles(ghe, p),
