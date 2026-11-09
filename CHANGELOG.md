@@ -6,6 +6,10 @@ Added:
 
 - **Packs** can ask the model (pack API 1.22): a pack says in its manifest what it wants and why (`ai: { text: { why } }`), and nothing is allowed until you allow it on Settings → Packs → the pack. There you choose the model size (small only, or any) and dollars a day. `ctx.complete({ system, user, size })` is a prompt in, text out, with no tools or files, through the route set in Settings → Work → Model for packs (`AI_VIA`, which replaces `SUMMARIES`). Each call is logged with when it happened, its cost and whether it answered, never the prompt or the reply. Local only for now. AI summaries keep their access (#466).
 
+Changed:
+
+- **Moved** and **AI summaries** left core for dovre-packs (`movement`, `summaries`). An instance that wants them adds them (`pnpm packs add movement`, `pnpm packs add summaries`). Summaries already written carry over (#465, #466).
+
 - **Packs** can open a PR that changes one file in the owners' repos: `ctx.forge().propose({ kind, repo, path, text, expect, title, body })`. It makes a branch, one commit and the PR, locally and hosted. `kind` must be one of the pack's `writes`, and the try is logged as `<pack>.<kind>`. First it reads the file again, and writes nothing if the file no longer says `expect`. Repos outside `REPO_OWNERS`, paths that aren't plain, and text over 512 kB are refused before GitHub is asked (#203).
 
 ## 0.6.0 (2026-10-27)

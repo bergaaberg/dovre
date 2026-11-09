@@ -13,6 +13,8 @@ import { resumeCommand } from "../src/pages/parts.ts";
 import { setupLines } from "../src/pages/settings.ts";
 import { agentPanel } from "../src/packs/core/issues/compose/work.ts";
 import { testAgentLinks } from "../src/packs/testing.ts";
+import { type Pack, PACK_API } from "../src/packs/types.ts";
+import { prSummaryKey } from "../src/gather.ts";
 import { setupApp, setupPage } from "../src/setup.ts";
 import { findTool, found, shimTarget, which } from "../src/tools.ts";
 import { H, assertInert, pr, session, signedIn, snapshot } from "./helpers.ts";
@@ -94,6 +96,19 @@ test("with summaries off, a PR shows no summary line at all", async () => {
   const { get } = signedIn(snapshot({ prs: { ok: true, value: { mine: [pr({ title: "Mine" })], review: [] } } }));
   const out = await (await get("/prs")).text();
   assert.doesNotMatch(out, /No summary|Writing a summary|class="ai/);
+});
+
+test("a pack that answers ai.summary (summaries, dovre-packs since #466) puts its text on the PR card, escaped", async () => {
+  const p = pr({ number: 7, title: "Seven" });
+  const summaries: Pack = {
+    manifest: { api: PACK_API, id: "summaries", name: "AI summaries", description: "x", domain: "general" },
+    slots: () => ({ "ai.summary": ({ key }) => (key === prSummaryKey(p) ? { state: "ready", text: `Fixes ${H}` } : undefined) }),
+  };
+  const { get } = signedIn(snapshot({ prs: { ok: true, value: { mine: [p], review: [] } } }), {}, { packs: [summaries] });
+  const page = await (await get("/prs")).text();
+  assertInert("summaries", page);
+  assert.match(page, /class="clamp ai-clamp">Fixes /);
+  assert.match(page, /<p class="ai"><span class="spark">Summary<\/span>Fixes /);
 });
 
 test("a list set to nothing is off, and so is one left unset", () => {
