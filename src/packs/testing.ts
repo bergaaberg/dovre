@@ -14,6 +14,7 @@ import type { Session } from "../sources/claude.ts";
 import type { Deploy, Ghe, Pr } from "../sources/ghe.ts";
 import { noMemory } from "./core/assistant/bino/memory.ts";
 import { routeOf } from "./core/assistant/bino/route.ts";
+import { loggedFor } from "./logged.ts";
 import { activePacks } from "./registry.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
@@ -25,6 +26,8 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     bindings: {},
     hosted: false,
     db: undefined as unknown as D1,
+    // Checks the kind as core does, keeps nothing: pass your own to see what was logged.
+    logged: loggedFor("test", undefined, () => {}),
     publish: () => {},
     snapshot: () => undefined,
     gathered: async () => undefined,

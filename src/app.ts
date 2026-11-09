@@ -8,6 +8,7 @@ import { type AgentHost, type AiRoute, aiAskOf, packAiFor, packAiStore } from ".
 import { agentHostOf } from "./packs/agenthost.ts";
 import type { PackAiAsk } from "./packs/types.ts";
 import { checkoutIn, checkoutsIn } from "./packs/checkouts.ts";
+import { loggedFor } from "./packs/logged.ts";
 import { ownersIn } from "./owners.ts";
 import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
@@ -498,6 +499,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           hosted,
           ...(hosted ? {} : { codeDir: env.CODE_DIR, checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout) : []), checkout: (name: unknown) => (env.CODE_DIR ? checkoutIn(env.CODE_DIR, name, deps.session?.checkout) : null) }),
           db: env.DB,
+          logged: loggedFor(c.manifest.id, env.DB, packLog(c.manifest.id)),
           publish: (topics) => deps.hub?.publish(topics),
           snapshot: () => gatherer.peek(),
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),

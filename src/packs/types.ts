@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.24";
+export const PACK_API = "1.25";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -422,6 +422,12 @@ export type PackContext = {
   checkout?(name: unknown): string | null;
   /** Dovre's own database. */
   db: D1;
+  /**
+   * API 1.25: a write this pack made, into the actions log, after the fact (`ok: false` with `error`
+   * when it failed). `kind` is one word ("send"): core logs it as `<id>.<kind>`, the name its
+   * `writes` go by, and adds who pressed when hosted. A log that can't be kept never fails the write.
+   */
+  logged(a: PackLogged): Promise<void>;
   /** Tell open pages these data-live regions changed (src/live.ts). Today listens to "snapshot" and each pack's id. */
   publish(topics: string[]): void;
   /** The newest gathered snapshot, if any. */
@@ -714,6 +720,9 @@ export type Pulse = { working: number; asking: number; trouble: { level: "storm"
 export type ScheduledEvent = { cron: string; scheduledTime: number };
 /** A Worker's waitUntil, for work that finishes after the handler returns. */
 export type Defer = (p: Promise<unknown>) => void;
+
+/** What `ctx.logged` takes: the write's `kind` (one word), what it was done to (300 characters kept), and a line about it (200). */
+export type PackLogged = { kind: string; target: string; detail?: string; ok: boolean; error?: string };
 
 /** A kind of write a pack makes: a lowercase word (dashes allowed), and what Settings calls it. */
 export type PackWrite = {

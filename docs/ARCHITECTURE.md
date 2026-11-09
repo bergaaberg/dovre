@@ -15,7 +15,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.24")
+   src/packs/types.ts     its types (PACK_API = "1.25")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -304,6 +304,7 @@ Also:
 | 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
 | 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
 | 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
+| 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database (#474) |
 
 ## Open questions
 
