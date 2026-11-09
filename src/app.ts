@@ -1,6 +1,8 @@
 /**
  * Dovre: the view from the top (PLAN.md). Local only: every route needs the launch-token
  * cookie on a localhost Host; anything else is a 404, as if nothing were here.
+ * Settings and Packs, the first run and pack setup, and the relay are route modules in src/routes/,
+ * given the part of the app's state they use (src/routes/scope.ts).
  */
 import { checkoutIn, checkoutsIn } from "./packs/checkouts.ts";
 import { ownersIn } from "./owners.ts";
@@ -8,29 +10,26 @@ import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
 import { resolve } from "node:path";
 import { slowLog } from "./slow.ts";
-import { createSpeed, routeOk, type Speed, speedLog, WAITED } from "./speed.ts";
+import { createSpeed, type Speed, speedLog, WAITED } from "./speed.ts";
 import { type Context, Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 import { contextStorage, tryGetContext } from "hono/context-storage";
 import { secureHeaders } from "hono/secure-headers";
 import { type AccessVerifier, COOKIE, allowed, isLocal, isOwnOrigin, publicOriginOf, sameSecret, secureCookie } from "./access.ts";
-import { actionsOf, logAction, recentActions, repoIn, runId } from "./actions/deploys.ts";
-import { proposeAdd } from "./actions/addpack.ts";
+import { logAction, recentActions, repoIn } from "./actions/deploys.ts";
 import type { App, AppEnv, Env } from "./env.ts";
 import type { Gatherer, Snapshot } from "./gather.ts";
-import { type Need, needsOf } from "./home/needs.ts";
-import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell, tabsOf } from "./html.ts";
-import { CORE_CARDS, packOrder, homePage } from "./pages/home.ts";
-import { browserZone, currentGreeting, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
+import { type Need } from "./home/needs.ts";
+import { dockShell, type Frame, html, type NavItem, SIDE_JS, SIDE_PATH, shell } from "./html.ts";
+import { homePage } from "./pages/home.ts";
+import { browserZone, currentTz, greetingLang, setWhen, validZone } from "./when.ts";
 import type { Ghe } from "./sources/ghe.ts";
 import { githubForge } from "./forge/github.ts";
 import { type Forge, type ForgeCan, forgeCan } from "./forge/types.ts";
 import { streamSSE } from "hono/streaming";
 import type { Hub } from "./live.ts";
-import type { Run } from "./agents/runner.ts";
 import type { Runner } from "./agents/runner.ts";
-import { SID, findSession, modelOf } from "./agents/desk.ts";
-import { statOffers, statsPage, WEEKS } from "./pages/stats.ts";
+import { statsPage, WEEKS } from "./pages/stats.ts";
 import { actionsCard, actionsPage } from "./pages/actions.ts";
 import { pagesOf, parseQuery, type Row as SearchRow, search } from "./search/search.ts";
 import { createGheSearch } from "./search/ghe.ts";
@@ -46,45 +45,33 @@ import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { hostAssistant } from "./packs/core/assistant/bino/host.ts";
 import type { Kept } from "./kept.ts";
-import { AREAS, type AgentToolsView, agentToolsPanel, appPanel, longTurnPanel, type AreaId, edgePath, isArea, notifyPanels, type PackSettings, packsList, type SettingsNotes, type SetupLine, sessionSettings, settingRows, settingsArea, settingsHome, setupLines, setupPanel, workPanel } from "./pages/settings.ts";
-import { callsPanels } from "./pages/calls.ts";
-import { speedPanels } from "./pages/speed.ts";
-import { sentPanels, type SentView } from "./pages/sent.ts";
-import { CATALOG } from "./sent.ts";
-import { TOOLS_HARNESSES, type ToolsHarness } from "./agents/mcpsetup.ts";
-import { type ClimbField, type ClimbView, climbPage, type KitTile, startingPage } from "./pages/welcome.ts";
-import { type SetupRow, setupGo, setupPage, setupStrip, type SetupView } from "./pages/setup.ts";
-import { FORGES, answersFrom, type OnboardingStore, onboardingStore } from "./onboarding.ts";
-import { type Answers, INTERVIEW, markersOf, onboardOf, QUESTIONS, ROLES, suggest } from "./packs/suggest.ts";
-import { scanCheckouts } from "./packs/scan.ts";
-import { STEPS, type Step } from "./ui/climb.ts";
-import { type Config, configFromForm, type PaneId, type PanesOn, type PaneState, saveConfig } from "./config.ts";
-import { fixedKeys } from "./env.ts";
+import { AREAS, type AgentToolsView, type SetupLine } from "./pages/settings.ts";
+import { type SentView } from "./pages/sent.ts";
+import { type ToolsHarness } from "./agents/mcpsetup.ts";
+import { type SetupRow, setupStrip } from "./pages/setup.ts";
+import { type OnboardingStore, onboardingStore } from "./onboarding.ts";
+import { onboardOf } from "./packs/suggest.ts";
+import { type Config, type PaneId, type PanesOn, type PaneState } from "./config.ts";
 import { found } from "./tools.ts";
 import { mountPwa } from "./pwa.ts";
-import { type Html, Notice, PageHeader, Panel } from "./ui/kit.ts";
+import { type Html, Notice, PageHeader } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
-import { writesPanel } from "./pages/writes.ts";
 import { mountMcp } from "./mcp.ts";
-import { mountIngest, tokensPanel, createToken, listTokens, revokeToken, sourceOk } from "./packs/ingest.ts";
-import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, settingsFrom, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, missingWhy, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
+import { mountIngest } from "./packs/ingest.ts";
+import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
 import type { Keys } from "./secretrefs.ts";
 import { createReleases, type GetJson } from "./packs/releases.ts";
-import { manifestPanel, manifestSettings, packsPage } from "./pages/packs.ts";
-import type { Copies, ToAdd } from "./packs/copies.ts";
-import type { Listed } from "./packs/releases.ts";
-import { removeDevVar, upsertDevVar } from "./setup.ts";
+import { manifestSettings } from "./pages/packs.ts";
+import type { Copies } from "./packs/copies.ts";
 import { strictOrigin } from "./strict.ts";
 import { webUrl } from "./open-link.ts";
-import { type Layout, type LayoutStore, layoutFromForm, layoutStore, withTabs } from "./layout.ts";
-import { LOOK_KEYS, type LayoutView, layoutPanel, lookPanel } from "./pages/layout.ts";
+import { type Layout, type LayoutStore, layoutStore, withTabs } from "./layout.ts";
 import { packFeedOf } from "./home/feed.ts";
-import { forgeName, safeUrl } from "./pages/parts.ts";
-import type { AiSummary, ListShare, Pack, PackContext, PackManifest, PackShares, PrSlotArg, Pulse, Role, TodayCard, WasmFile } from "./packs/types.ts";
+import { safeUrl } from "./pages/parts.ts";
+import type { AiSummary, ListShare, Pack, PackContext, PackShares, PrSlotArg, Pulse, TodayCard, WasmFile } from "./packs/types.ts";
 import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./packs/wasm.ts";
 import { hashOf } from "./ui/style.ts";
-import { type Note, type Policy, RING_KINDS, type Rung, policyOf, rings } from "./notify.ts";
-import { quietOf } from "./quiet.ts";
+import { type Note, type Policy, RING_KINDS, type Rung, rings } from "./notify.ts";
 import { listRepos } from "./sources/claude.ts";
 import { GO_KEYS, SCRIPT, SCRIPT_PATH } from "./ui/app.js.ts";
 import { SETUP_JS, SETUP_JS_PATH } from "./ui/setup.js.ts";
@@ -92,10 +79,11 @@ import { RAW_CHANGE } from "./ui/on.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./packs/guard.ts";
 import { createCodeRoutes } from "./pages/code.ts";
-import { settle, within } from "./pages/later.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
-import { DEFAULT_KEYS, KEY_GROUPS, keyPrefsStore } from "./keys.ts";
-import { keysPanel } from "./pages/keys.ts";
+import { keyPrefsStore } from "./keys.ts";
+import { welcomeRoutes } from "./routes/welcome.ts";
+import { relayRoutes } from "./routes/relay.ts";
+import { settingsRoutes } from "./routes/settings.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
@@ -110,7 +98,7 @@ const FORGE_PATHS: [ForgeCan, RegExp][] = [
 /** Thrown by a page when nothing has been gathered yet; it answers with a page that fills itself in. */
 class Pending extends Error {}
 /** How long a pack's page may take before it shows as broken (a long job redirects to a page that fills itself in). */
-const PACK_ROUTE_MS = 30_000;
+export const PACK_ROUTE_MS = 30_000;
 
 /** The first start's page: the same frame as every page (menu, tab bar, styles), and a note that swaps out for the real page when the gather lands. */
 function pendingPage(path: string, frame: Frame): string {
@@ -926,85 +914,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   app.route("/", createCodeRoutes(env, { ghe, frame: async () => (await page()).frame }));
 
 
-  // ── Settings: what's here, the panes (src/config.ts), notifications ──
-  let saved = false;
-  /** Set when a save restarts Dovre: when this server started, so the page knows when the next one is up. */
-  let restarting: number | undefined;
-  let settingsBad: string[] | undefined;
-  const startedAt = deps.info?.startedAt ?? Date.now();
-  const setupNow = (login: string) =>
-    setupLines({
-      ghe: { host: env.GHE_HOST, org: env.GHE_ORG, login },
-      claude: found.paths?.claude,
-      omp: found.paths?.omp,
-      copilot: found.copilot,
-      copilotCli: found.paths?.copilot,
-      edge: edgePath(),
-      codeDir: env.CODE_DIR,
-      repos: listRepos(env.CODE_DIR).length,
-      publicOrigin,
-    });
-  /** Kept, then (under the supervisor) Dovre starts again with it. */
-  const keep = async (config: Config) => {
-    await saveConfig(env.DB, config);
-    deps.config!.stored = config;
-    if (!deps.restart) return false;
-    restarting = startedAt;
-    setTimeout(() => deps.restart?.(), 300);
-    return true;
-  };
-  /** What the Work form shows: what Settings keeps, and what .dev.vars or the environment fixes. */
-  const panesView = () => {
-    if (!deps.config) return undefined;
-    const fixed = fixedKeys();
-    const e = env as unknown as Record<string, string | undefined>;
-    const values: Record<string, string | undefined> = { ...deps.config.stored, CODE_DIR: deps.config.stored.CODE_DIR ?? env.CODE_DIR };
-    for (const k of fixed) values[k] = e[k];
-    return { values, fixed };
-  };
-  /** Settings → Layout: what can be arranged here, and where it is now. */
-  const layoutView = async (frame: Frame): Promise<LayoutView> => {
-    const l = layout.get();
-    const packNow = shown().length ? (await packCards()).cards : [];
-    const packLabel = (id: string) => {
-      const pack = packs.on.find((c) => id.startsWith(`${c.manifest.id}-`));
-      if (!pack) return id;
-      const n = packNow.filter((x) => x.id.startsWith(`${pack.manifest.id}-`)).length;
-      return n > 1 ? `${pack.manifest.name} · ${id.slice(pack.manifest.id.length + 1)}` : pack.manifest.name;
-    };
-    const placed = (id: string, col: "left" | "right", order: number) => ({ col: l.cards?.[id]?.col ?? col, order: l.cards?.[id]?.order ?? order });
-    return {
-      layout: l,
-      pages: frame.nav.filter((p) => p.href !== "/" && p.place !== "action").map((p) => ({ href: p.href, title: p.title })),
-      tabs: tabsOf(frame.nav).map((p) => p.href).filter((h) => h !== "/"),
-      cards: [
-        ...CORE_CARDS.map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
-        ...packNow.map((c) => ({ id: c.id, label: packLabel(c.id), ...placed(c.id, c.column === "left" ? "left" : "right", packOrder(c.order)) })),
-      ],
-      feeds: packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
-      packs: packs.on.map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
-      opener: !!openUrl,
-      stats: statOffers(packStats()).map((o, i) => ({ id: o.id, label: o.label, from: o.from, show: l.stats?.[o.id]?.show ?? true, order: l.stats?.[o.id]?.order ?? (i + 1) * 10 })),
-    };
-  };
-  /** Look's keys of a Layout (`look`), or the rest. */
-  const partOf = (l: Layout, look: boolean) => Object.fromEntries(Object.entries(l).filter(([k]) => (LOOK_KEYS as string[]).includes(k) === look)) as Layout;
-  // Look and Layout each post their `part`; the other part stays as it was. No part: the whole of it.
-  app.post("/settings/layout", async (c) => {
-    const { frame } = await page();
-    const v = await layoutView(frame);
-    const form = await c.req.parseBody({ all: true });
-    const next = layoutFromForm(form, { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id), stats: v.stats.map((x) => x.id) });
-    // Cards not drawn and stats not offered just now (a pack hidden or slow) keep where I put them.
-    const part = form.part;
-    await layout.update((l) => {
-      const whole = { ...next, cards: { ...l.cards, ...next.cards }, stats: { ...l.stats, ...next.stats } };
-      return part === "look" ? { ...partOf(l, false), ...partOf(next, true) } : part === "layout" ? { ...partOf(l, true), ...partOf(whole, false) } : whole;
-    });
-    saved = true;
-    deps.hub?.publish(["snapshot", "packs"]);
-    return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
-  });
   // The installed app's links to other sites, in the default browser (Settings → Layout): only
   // from this app's own pages, only a web address, and only while the setting is on.
   app.post("/open-link", strictOrigin, async (c) => {
@@ -1019,703 +928,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     }
     return c.body(null, 204);
   });
-  app.post("/settings/layout/reset", async (c) => {
-    const part = (await c.req.parseBody()).part;
-    if (part === "look" || part === "layout") await layout.update((l) => partOf(l, part === "layout"));
-    else await layout.reset();
-    saved = true;
-    deps.hub?.publish(["snapshot", "packs"]);
-    return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
-  });
-
   /** Investigate (#214): what a pack handed on, to send to Bino or a new agent session. */
   app.get("/investigate", async (c) => {
     const { frame } = await page();
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
-  app.get("/packs", async (c) => {
-    const { frame } = await page();
-    const local = hosted ? undefined : deps.packs?.copies;
-    const copies = local?.get();
-    const reading = releases?.refresh();
-    if (reading)
-      try {
-        c.executionCtx.waitUntil(reading);
-      } catch {}
-    const here = packIds();
-    const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
-    const setups = new Map(packs.on.flatMap((x) => (setupOf(x) ? [[x.manifest.id, setupLeft(x).length > 0] as const] : [])));
-    return c.html(packsPage(frame, { forge: forge.name, setups, on: packs.on, off: packs.off, env: packs.env, keys: packs.keys?.state, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
-  });
-  /** A pack's one switch (#271): on or off here, the same as Settings → Layout's list. No restart. */
-  app.post("/packs/:id/switch", strictOrigin, async (c) => {
-    const id = c.req.param("id");
-    if (!packs.on.some((p) => p.manifest.id === id)) return c.notFound();
-    const on = (await c.req.parseBody()).on === "1";
-    await layout.update((l) => {
-      const was = l.packsOff ?? [];
-      return { ...l, packsOff: on ? was.filter((x) => x !== id) : [...new Set([...was, id])] };
-    });
-    deps.hub?.publish(["snapshot", "packs"]);
-    return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
-  });
-  app.post("/packs/:id/update", strictOrigin, async (c) => {
-    const copies = deps.packs?.copies;
-    if (hosted || !copies) return c.notFound();
-    const id = c.req.param("id");
-    const r = copies.update(id, (ok, detail) => void logAction(env.DB, { kind: "packs.update", target: id, detail, ok }).catch(() => {}));
-    if (!r.ok) await logAction(env.DB, { kind: "packs.update", target: id, ok: false, error: r.why }).catch(() => {});
-    deps.hub?.publish(["packs"]);
-    return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
-  });
-  /** Hosted: each pack to add, with its newest Add from the log (the PR it opened, or why not) or one opening now. */
-  async function hostedAdds(listed: Listed[]): Promise<ToAdd[]> {
-    const log = await actionsOf(env.DB, "packs.add").catch(() => []);
-    return listed.map((l) => {
-      if (opening.has(l.id)) return { ...l, job: { at: Date.now(), state: "running" as const, step: "opening a PR" } };
-      const a = log.find((x) => x.target === l.id);
-      if (!a) return l;
-      const at = Date.parse(a.at);
-      return { ...l, job: a.ok ? { at, state: "done" as const, step: "PR opened; merge it, then deploy", url: a.detail ?? undefined } : { at, state: "failed" as const, step: a.error ?? "failed" } };
-    });
-  }
-  /** Add (#88): a pack from dovre-packs this instance doesn't list; locally a job on the copies, hosted a PR on the instance repo. */
-  app.post("/packs/:id/add", strictOrigin, async (c) => {
-    const id = c.req.param("id");
-    if (packIds().includes(id)) return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
-    if (hosted) {
-      const repo = instanceRepo();
-      const l = releases?.get()?.listed.find((x) => x.id === id);
-      if (!repo || !l) return c.notFound();
-      if (opening.has(id)) return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
-      opening.add(id);
-      const work = proposeAdd(ghe, packsGet, { repo, id })
-        .then(
-          (pr) => logAction(env.DB, { kind: "packs.add", target: id, detail: pr.url, ok: true }),
-          (e: unknown) => logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: String((e as Error)?.message ?? e).slice(0, 300) }),
-        )
-        .catch(() => {})
-        .finally(() => {
-          opening.delete(id);
-          deps.hub?.publish(["packs"]);
-        });
-      try {
-        c.executionCtx.waitUntil(work);
-      } catch {}
-      deps.hub?.publish(["packs"]);
-      return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
-    }
-    const copies = deps.packs?.copies;
-    if (!copies) return c.notFound();
-    const r = copies.add(id, (ok, detail) => void logAction(env.DB, { kind: "packs.add", target: id, detail, ok }).catch(() => {}));
-    if (!r.ok) await logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: r.why }).catch(() => {});
-    deps.hub?.publish(["packs"]);
-    return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
-  });
-  /** After its settings changed: off for a required one missing (or unread), on (and started) once they're all there. */
-  const settleSettings = async (id: string) => {
-    const onPack = packs.on.find((x) => x.manifest.id === id);
-    const offEntry = packs.off.find((x) => x.id === id);
-    const manifest = onPack?.manifest ?? offEntry?.manifest;
-    if (!manifest) return;
-    const missing = manifestSettings(manifest).find((s) => s.required && !packs.env[s.key]?.trim());
-    const why = missing && missingWhy(missing.key, packs.keys?.unread());
-    if (onPack && why) {
-      packs.on.splice(packs.on.indexOf(onPack), 1);
-      packs.off.push({ id, name: manifest.name, why, manifest, pack: onPack });
-      settleRequires(packs);
-    } else if (offEntry?.pack && !offEntry.needs && !why) {
-      const p = offEntry.pack;
-      packs.off.splice(packs.off.indexOf(offEntry), 1);
-      packs.on.push(p);
-      // It, and what was off only for want of it (#326), start in order: each after what it requires.
-      const starting = [p, ...settleRequires(packs)];
-      for (const q of [...packs.on]) {
-        if (!starting.includes(q) || !packs.on.includes(q)) continue;
-        try {
-          await q.init?.(ctxOf(q));
-        } catch (e) {
-          packs.on.splice(packs.on.indexOf(q), 1);
-          packs.off.push({ id: q.manifest.id, name: q.manifest.name, why: `didn't start: ${(e as Error)?.message ?? e}`, manifest: q.manifest });
-          settleRequires(packs);
-        }
-      }
-      for (const q of starting) if (packs.on.includes(q)) void runPackRefresh.one(q);
-    } else if (offEntry && why) {
-      offEntry.why = why;
-      // Off for its settings now, not only for a pack it requires: it waits for them first.
-      delete offEntry.needs;
-    } else if (onPack) {
-      void runPackRefresh.one(onPack);
-    }
-  };
-  app.post("/packs/:id/settings", strictOrigin, async (c) => {
-    if (hosted) return c.notFound();
-    const id = c.req.param("id");
-    const manifest = packs.on.find((x) => x.manifest.id === id)?.manifest ?? packs.off.find((x) => x.id === id)?.manifest;
-    const settings = manifestSettings(manifest);
-    if (!manifest || !settings.length) return c.notFound();
-    const body = await c.req.parseBody();
-    const keys = packs.keys;
-    for (const s of settings) {
-      const val = body[s.key];
-      const raw = typeof val === "string" ? val.replace(/[\r\n]+/g, " ").trim().slice(0, 2000) : "";
-      // A setting with choices keeps only one of them (API 1.15); anything else leaves it as it was.
-      if (s.choices && raw && !s.choices.some((x) => x.value === raw)) continue;
-      if (s.secret) {
-        // A reference is kept and read; a pasted key goes to the Keychain on a Mac (#416).
-        if (body[`clear.${s.key}`] === "1") {
-          if (keys) await keys.clear(s.key);
-          else {
-            delete packs.env[s.key];
-            if (packs.varsFile) removeDevVar(packs.varsFile, s.key);
-          }
-        } else if (raw) {
-          if (keys) await keys.save(s.key, raw);
-          else {
-            packs.env[s.key] = raw;
-            if (packs.varsFile) upsertDevVar(packs.varsFile, s.key, raw);
-          }
-        }
-      } else if (raw) {
-        packs.env[s.key] = raw;
-        if (packs.varsFile) upsertDevVar(packs.varsFile, s.key, raw);
-      } else {
-        delete packs.env[s.key];
-        if (packs.varsFile) removeDevVar(packs.varsFile, s.key);
-      }
-    }
-    await settleSettings(id);
-    saved = true;
-    deps.hub?.publish([id, "packs", "snapshot"]);
-    return c.redirect(`/settings/packs/${encodeURIComponent(id)}`, 303);
-  });
-  // Read again (#416): its keys from their stores, then on or off as they came back.
-  app.post("/packs/:id/keys", strictOrigin, async (c) => {
-    const id = c.req.param("id");
-    const manifest = packs.on.find((x) => x.manifest.id === id)?.manifest ?? packs.off.find((x) => x.id === id)?.manifest;
-    const secret = manifestSettings(manifest).filter((s) => s.secret && packs.keys?.state(s.key));
-    if (!packs.keys || !secret.length) return c.notFound();
-    await packs.keys.read(secret.map((s) => s.key));
-    await settleSettings(id);
-    deps.hub?.publish([id, "packs", "snapshot"]);
-    return c.redirect(`/settings/packs/${encodeURIComponent(id)}`, 303);
-  });
-
-  /** A pack's own Settings panel, with core's ingest tokens when it takes ingest (dovre#109). */
-  const ownPanel = async (p: Pack, made?: { pack: string; source: string; token: string }): Promise<Html | undefined> => {
-    const id = p.manifest.id;
-    const mine = settingsFrom([p], ctxOf, (pid, line) => packLog(pid)(line))[0]?.body;
-    if (!p.ingest) return mine;
-    const tokens = tokensPanel(p, await listTokens(env.DB, id).catch(() => []), { hosted, made: made?.pack === id ? made : undefined });
-    return html`${mine ?? ""}${tokens}`;
-  };
-  /** The packs with settings: their manifest's, their own panel, or ingest tokens. Off ones too: one may be off for want of a setting. */
-  const packSettings = (): PackSettings[] => {
-    const set = (m: PackManifest | undefined) => manifestSettings(m).map((x) => ({ key: x.key, label: x.label, set: !!packs.env[x.key]?.trim() }));
-    // A pack's own panel counts when it draws something (an empty answer or a throw: none).
-    const own = new Set(settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)).map((x) => x.id));
-    return [
-      ...shown().map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: true, settings: set(p.manifest), panel: own.has(p.manifest.id) || !!p.ingest })),
-      ...packs.on.filter((p) => hidden(p.manifest.id)).map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: false, settings: set(p.manifest), panel: false })),
-      ...packs.off.map((o) => ({ id: o.id, name: o.name, on: false, settings: set(o.manifest), panel: false })),
-    ].filter((k) => k.settings.length || k.panel);
-  };
-  /** The areas this instance has: Work only where Settings keeps config, Agents only on a machine. */
-  const settingsAreas = (): AreaId[] =>
-    AREAS.map((a) => a.id).filter((id) => (id === "work" ? !!deps.config : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
-  /** Every setting as it is now, to find and to mark what was changed. */
-  const rowsNow = async (frame: Frame) => {
-    const v = panesView();
-    return settingRows({
-      layout: layout.get(),
-      policy: deps.notify?.policy() ?? policyOf(undefined),
-      rings: packRings,
-      writes: { chosen: await clicks.get().catch(() => new Map()), kinds: writeKinds(packs.on) },
-      keys: frame.keys ?? DEFAULT_KEYS,
-      panes: v && deps.config ? { ...v, stored: deps.config.stored as Record<string, string | undefined> } : undefined,
-      packs: packSettings(),
-      agents: !hosted && deps.agentTools ? deps.agentTools.view().rows : undefined,
-      setup: deps.setup?.() ?? setupNow(frame.operator),
-      canRestart: !!deps.restart,
-    });
-  };
-  /** Saved, starting again, or refused: shown once, on the next Settings page. */
-  const takeNotes = (then: string): SettingsNotes => {
-    const n = { saved, restarting, bad: settingsBad, then };
-    saved = false;
-    settingsBad = undefined;
-    return n;
-  };
-  const sentNow = async (): Promise<SentView> => (await deps.sent?.().catch(() => undefined)) ?? { hosted };
-  const areaBody = async (area: AreaId, frame: Frame): Promise<Html> => {
-    switch (area) {
-      case "look":
-        return lookPanel(layout.get());
-      case "layout":
-        return layoutPanel(await layoutView(frame));
-      case "notifications":
-        return notifyPanels(deps.notify?.policy() ?? policyOf(undefined), deps.notify?.log() ?? [], packRings);
-      case "writes":
-        return writesPanel(await clicks.get().catch(() => new Map()), writeKinds(packs.on));
-      case "keys":
-        return keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer());
-      case "work":
-        return workPanel(panesView()!, !!deps.restart);
-      case "agents": {
-        // One area for agents (#272): their tools here, the long-turn ring, and the auto runs' limits.
-        const agents = shown().find((p) => p.manifest.id === "agents");
-        const auto = agents ? await ownPanel(agents) : undefined;
-        return html`${!hosted && deps.agentTools ? agentToolsPanel({ ...deps.agentTools.view(), said: takeToolsSaid() }) : ""}${deps.notify ? longTurnPanel(deps.notify.policy()) : ""}${auto ? Panel({ title: "Auto runs", id: "auto", children: auto }) : ""}`;
-      }
-      case "packs":
-        return packsList(packSettings());
-      case "calls":
-        return callsPanels((await ghe.calls?.view(env.DB)) ?? { quota: [], counts: [], now: Date.now() }, forge.name);
-      case "speed":
-        return speedPanels(await speed.view(env.DB));
-      case "sent":
-        return sentPanels(await sentNow());
-      case "about":
-        return html`${appPanel(deps.info, !!deps.restart, frame.tz)}${setupPanel(deps.setup?.() ?? setupNow(frame.operator))}`;
-    }
-  };
-  /** Settings → Packs → one pack: its own panel (and ingest tokens), its manifest's settings, and where else it has some. */
-  const showPack = async (c: Context<AppEnv>, id: string, made?: { pack: string; source: string; token: string }) => {
-    // The agents pack's settings (auto runs) live in Settings → Agents (#272).
-    if (id === "agents" && settingsAreas().includes("agents")) return c.redirect("/settings/agents#auto", 303);
-    const k = packSettings().find((x) => x.id === id);
-    if (!k) return c.notFound();
-    const { frame } = await page();
-    const on = shown().find((p) => p.manifest.id === id);
-    const offEntry = packs.off.find((o) => o.id === id);
-    const settings = manifestSettings(on?.manifest ?? offEntry?.manifest);
-    const own = on ? await ownPanel(on, made) : undefined;
-    const writes = on ? writeKinds([on]).filter((w) => w.kind.startsWith(`${id}.`)).length : 0;
-    const where = html`<p class="t2">${writes ? html`Its writes: <a href="/settings/writes">Settings → Writes</a>. ` : ""}On or off, its refreshes and why: <a href="/packs#pack-${encodeURIComponent(id)}">Packs</a>.</p>`;
-    if (made) c.header("Cache-Control", "no-store");
-    if (deps.session) {
-      const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, true, packs.keys?.state) : ""}`;
-      return c.html(sessionSettings(frame, { name: k.name, notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body }));
-    }
-    const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, false, packs.keys?.state) : ""}${where}`;
-    return c.html(settingsArea(frame, "packs", { areas: settingsAreas(), rows: await rowsNow(frame), notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body, title: k.name, crumbs: [{ href: "/settings/packs", label: "Packs" }] }));
-  };
-  // What the last "Set up omp/agy" said, shown once on the next Settings.
-  let toolsSaid: AgentToolsView["said"];
-  const takeToolsSaid = () => {
-    const s = toolsSaid;
-    toolsSaid = undefined;
-    return s;
-  };
-  app.post("/settings/agent-tools/:h", strictOrigin, async (c) => {
-    const h = c.req.param("h");
-    if (hosted || !deps.agentTools || !TOOLS_HARNESSES.includes(h as ToolsHarness)) return c.notFound();
-    const r = deps.agentTools.register(h as ToolsHarness);
-    await logAction(env.DB, { kind: "agents.tools", target: h, detail: "added the dovre MCP server", ok: r.ok, ...(r.ok ? {} : { error: r.why }) }).catch(() => {});
-    toolsSaid = r.ok ? { ok: true, text: `${h} gets the packs' tools from its next turn or terminal.` } : { ok: false, text: r.why };
-    return c.redirect("/settings/agents", 303);
-  });
-  app.get("/settings", async (c) => {
-    const { frame } = await page();
-    return c.html(settingsHome(frame, { areas: settingsAreas(), rows: await rowsNow(frame), q: (c.req.query("q") ?? "").slice(0, 100), notes: takeNotes("/settings") }));
-  });
-  app.post("/settings/keys", async (c) => {
-    const f = await c.req.parseBody({ all: true });
-    const on = ([] as unknown[]).concat(f.on ?? []);
-    await keyPrefs.set(currentViewer(), { scroll: f.scroll, off: KEY_GROUPS.map((g) => g.id).filter((id) => !on.includes(id)) });
-    saved = true;
-    return c.redirect("/settings/keys", 303);
-  });
-  app.post("/settings/writes", async (c) => {
-    const f = await c.req.parseBody({ all: true });
-    const twice = ([] as unknown[]).concat(f.twice ?? []).filter((v): v is string => typeof v === "string");
-    await clicks.set(twice);
-    saved = true;
-    return c.redirect("/settings/writes", 303);
-  });
-  const ingestPack = (id: unknown) => shown().find((p) => p.ingest && p.manifest.id === id);
-  // A new token is shown on the page this answers, once; only its hash is kept.
-  app.post("/settings/ingest/new", async (c) => {
-    const f = await c.req.parseBody();
-    const p = ingestPack(f.pack);
-    if (!p) return c.notFound();
-    if (!sourceOk(f.source)) {
-      settingsBad = ["the source's name"];
-      return c.redirect(`/settings/packs/${p.manifest.id}`, 303);
-    }
-    const token = await createToken(env.DB, p.manifest.id, f.source);
-    await logAction(env.DB, { kind: "ingest-token", target: `${p.manifest.id}:${f.source}`, ok: true, detail: "made" }).catch(() => {});
-    return showPack(c, p.manifest.id, { pack: p.manifest.id, source: f.source, token });
-  });
-  app.post("/settings/ingest/revoke", async (c) => {
-    const f = await c.req.parseBody();
-    const p = ingestPack(f.pack);
-    const id = Number(f.id);
-    if (!p || !Number.isInteger(id)) return c.notFound();
-    const done = await revokeToken(env.DB, p.manifest.id, id);
-    await logAction(env.DB, { kind: "ingest-token", target: `${p.manifest.id}:${id}`, ok: done, detail: "revoked" }).catch(() => {});
-    return c.redirect(`/settings/packs/${p.manifest.id}`, 303);
-  });
-  /** When this server started: a page waiting out a restart asks until it changes. */
-  app.get("/settings/started", (c) => noStore(c.text(String(startedAt))));
-  // The record of calls home, for a security review (#145): the list of kinds, and what was sent.
-  app.get("/settings/sent.json", async (c) => {
-    c.header("Content-Disposition", 'attachment; filename="dovre-sent.json"');
-    return noStore(c.json({ at: Date.now(), catalog: CATALOG, ...(await sentNow()) }));
-  });
-  app.get("/settings/packs/:id", (c) => showPack(c, c.req.param("id")));
-  app.get("/settings/:area", async (c) => {
-    const area = c.req.param("area");
-    if (!isArea(area) || !settingsAreas().includes(area)) return c.notFound();
-    const { frame } = await page();
-    const notes = takeNotes(`/settings/${area}`);
-    const body = await areaBody(area, frame);
-    return c.html(settingsArea(frame, area, { areas: settingsAreas(), rows: await rowsNow(frame), notes, body }));
-  });
-  // ── The first run, the climb (src/pages/welcome.ts, #417): Today sends here until it's finished or skipped ──
-  const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE || onboarding.get().done);
-  /** Local: the folder and owners asked for on the way up, kept at the summit (they need a restart). */
-  let pending: Config = {};
-  let climbBad: string[] | undefined;
-  const stepsOf = (role: Role | undefined): Step[] => STEPS.filter((s) => s !== "machine" || role !== "po");
-  /** Every pack the kit offers: those that run here, and those that can't, with why. */
-  const kitPacks = () => [...packs.on.map((p) => ({ m: p.manifest, off: undefined as string | undefined })), ...packs.off.filter((o) => o.manifest).map((o) => ({ m: o.manifest!, off: o.why }))];
-  const climbDir = () => {
-    return pending.CODE_DIR ?? deps.config?.stored.CODE_DIR ?? env.CODE_DIR;
-  };
-  /** The scan (local, after the role): which markers the checkouts have. */
-  const scanNow = () => {
-    const dir = hosted ? undefined : climbDir();
-    if (!dir) return { dir, checkouts: 0, found: new Map<string, number>() };
-    return { dir, ...scanCheckouts(dir, kitPacks().flatMap((k) => markersOf(k.m))) };
-  };
-  /** What's suggested at a step: only what was asked before it counts. */
-  const suggestedAt = (step: Step, found: Map<string, number>) => {
-    const o = onboarding.get();
-    const steps = stepsOf(o.role);
-    const i = steps.indexOf(step);
-    const past = (s: Step) => steps.includes(s) && steps.indexOf(s) < i;
-    const answers = { ...(past("q0") ? pick(o.answers, INTERVIEW[o.role!]?.[0]) : {}), ...(past("q1") ? pick(o.answers, INTERVIEW[o.role!]?.[1]) : {}) };
-    return suggest(
-      kitPacks().filter((k) => !k.off).map((k) => k.m),
-      past("role") ? o.role : undefined,
-      answers,
-      past("machine") ? found.keys() : [],
-    );
-  };
-  const pick = (a: Answers, qid: string | undefined): Answers => (qid && a[qid] !== undefined ? { [qid]: a[qid] } : {});
-  /** The packs on at the summit: what was ticked, or else what's suggested. */
-  const pickedNow = (found: Map<string, number>) => onboarding.get().picked ?? [...suggestedAt("summit", found).keys()];
-  app.get("/welcome", async (c) => {
-    if (deps.session) return c.notFound();
-    await onboarding.ready;
-    const started = c.req.query("started") === "1" && restarting ? restarting : undefined;
-    if (started) return c.html(startingPage((await page()).frame, started));
-    const o = onboarding.get();
-    const steps = stepsOf(o.role);
-    const asked = c.req.query("at");
-    let step: Step = steps.find((s) => s === asked) ?? "welcome";
-    if (!o.role && step !== "welcome" && step !== "role") step = "role";
-    const from = steps[steps.indexOf(step) - 1];
-    const bad = climbBad;
-    climbBad = undefined;
-    const scan = step === "welcome" || step === "role" ? undefined : scanNow();
-    const found = scan?.found ?? new Map<string, number>();
-    const flagsAt = (s: Step | undefined) => (!s ? [] : s === "summit" || s === "packs" ? (s === "summit" ? pickedNow(found) : [...suggestedAt(s, found).keys()]) : [...suggestedAt(s, found).keys()]);
-    const now = flagsAt(step);
-    const before = new Set(flagsAt(from));
-    const names = new Map(kitPacks().map((k) => [k.m.id, k.m.name]));
-    const flags = now.filter((id) => names.has(id)).map((id) => ({ name: names.get(id)!, fresh: !before.has(id) }));
-    const view: ClimbView = { step, from, flags, role: o.role, forge: o.forge, bad, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, motion: layout.get().motion } };
-    const fixed = fixedKeys();
-    const e = env as unknown as Record<string, string | undefined>;
-    const field = (k: string): ClimbField => (fixed.has(k) ? { value: e[k] ?? "", fixed: true } : { value: pending[k] ?? deps.config?.stored[k] ?? e[k] ?? "", fixed: false });
-    if (deps.config) {
-      view.owners = field("REPO_OWNERS");
-      view.codeDir = field("CODE_DIR");
-    }
-    let refresh: number | undefined;
-    if (step === "machine") {
-      if (hosted) {
-        const online = (await deps.machines?.().catch(() => []))?.find((m) => m.online);
-        const handle = /^([a-z0-9-]+)\.dovre\.dev$/i.exec(c.req.header("host")?.split(":")[0] ?? "")?.[1] ?? "<handle>";
-        view.machine = { kind: "hosted", handle, online: online ? (online.name ?? "your laptop") : undefined };
-        if (!online) refresh = 5;
-      } else {
-        const byMarker = new Map<string, string[]>();
-        for (const k of kitPacks()) for (const mk of markersOf(k.m)) if (found.has(mk)) byMarker.set(mk, [...(byMarker.get(mk) ?? []), k.m.name]);
-        view.machine = { kind: "local", dir: scan?.dir, checkouts: scan?.checkouts ?? 0, found: [...found].map(([marker, n]) => ({ marker, n, packs: byMarker.get(marker) ?? [] })) };
-      }
-    }
-    if (step === "q0" || step === "q1") {
-      const qid = INTERVIEW[o.role!][step === "q0" ? 0 : 1]!;
-      const a = o.answers[qid];
-      view.question = { q: QUESTIONS[qid]!, chosen: Array.isArray(a) ? a : a ? [a] : [] };
-    }
-    if (step === "packs") {
-      const sug = suggestedAt("summit", found);
-      const picked = o.picked ? new Set(o.picked) : undefined;
-      const tiles = kitPacks().map((k): KitTile => ({ id: k.m.id, name: k.m.name, what: k.m.description, why: sug.get(k.m.id) ?? [], on: picked ? picked.has(k.m.id) : sug.has(k.m.id), off: k.off }));
-      const on = new Set(tiles.filter((t) => t.on && !t.off).map((t) => t.id));
-      const needs = kitPacks()
-        .filter((k) => on.has(k.m.id))
-        .map((k) => ({ id: k.m.id, name: k.m.name, keys: manifestSettings(k.m).filter((s) => s.required && !packs.env[s.key]?.trim()).map((s) => s.label) }))
-        .filter((n) => n.keys.length);
-      view.kit = { suggested: tiles.filter((t) => sug.has(t.id)), rest: tiles.filter((t) => !sug.has(t.id)), needs };
-    }
-    if (step === "summit") {
-      const on = new Set(pickedNow(found));
-      const k = kitPacks().filter((x) => !x.off && on.has(x.m.id));
-      const later = k.flatMap((x) => {
-        const p = packs.on.find((c) => c.manifest.id === x.m.id);
-        const ob = p && setupOf(p);
-        return ob ? [{ id: x.m.id, name: x.m.name, steps: ob.steps.map((s) => s.title) }] : [];
-      });
-      const online = hosted ? (await deps.machines?.().catch(() => []))?.some((m) => m.online) : true;
-      view.summit = { on: k.map((x) => x.m.name), later, waits: hosted && !online, restarts: !!deps.restart && Object.keys(pending).length > 0 };
-    }
-    return noStore(await c.html(climbPage(view, steps, { refresh })));
-  });
-  const nextOf = (step: Step) => {
-    const steps = stepsOf(onboarding.get().role);
-    return `/welcome?at=${steps[Math.min(steps.length - 1, steps.indexOf(step) + 1)]}`;
-  };
-  /** A local text setting asked on the way: checked as Settings does, kept until the summit. */
-  const askGeneral = (form: Record<string, unknown>, key: string) => {
-    if (!deps.config || typeof form[key] !== "string") return;
-    const { config, bad } = configFromForm({ [key]: form[key] }, { ...deps.config.stored, ...pending }, fixedKeys(), { general: true });
-    if (bad.length) climbBad = bad;
-    else if (config[key] !== (deps.config.stored[key] ?? undefined)) pending = { ...pending, [key]: config[key] ?? "" };
-    else {
-      const { [key]: _, ...rest } = pending;
-      pending = rest;
-    }
-    return bad.length === 0;
-  };
-  app.post("/welcome/role", strictOrigin, async (c) => {
-    if (deps.session) return c.notFound();
-    await onboarding.ready;
-    const f = await c.req.parseBody();
-    const role = typeof f.role === "string" && Object.hasOwn(ROLES, f.role) ? (f.role as Role) : undefined;
-    if (!role) return c.redirect("/welcome?at=role", 303);
-    const forge = FORGES.find(([x]) => x === f.forge)?.[0] ?? "github";
-    // A new role asks new questions: the old answers and picks no longer fit.
-    await onboarding.update((was) => (was.role === role ? { ...was, forge } : { answers: {}, role, forge, done: was.done }));
-    if (askGeneral(f, "REPO_OWNERS") === false) return c.redirect("/welcome?at=role", 303);
-    return c.redirect(nextOf("role"), 303);
-  });
-  app.post("/welcome/machine", strictOrigin, async (c) => {
-    if (deps.session || hosted) return c.notFound();
-    askGeneral(await c.req.parseBody(), "CODE_DIR");
-    return c.redirect("/welcome?at=machine", 303);
-  });
-  for (const step of ["q0", "q1"] as const)
-    app.post(`/welcome/${step}`, strictOrigin, async (c) => {
-      if (deps.session) return c.notFound();
-      await onboarding.ready;
-      const o = onboarding.get();
-      if (!o.role) return c.redirect("/welcome?at=role", 303);
-      const qid = INTERVIEW[o.role][step === "q0" ? 0 : 1]!;
-      const f = await c.req.parseBody({ all: true });
-      const a = [f.a ?? []].flat().filter((x): x is string => typeof x === "string");
-      const answers = answersFrom({ ...o.answers, [qid]: QUESTIONS[qid]!.multi ? a : a[0] });
-      if (!QUESTIONS[qid]!.multi && answers[qid] === undefined) return c.redirect(`/welcome?at=${step}`, 303);
-      // New answers suggest anew: what was ticked before is forgotten.
-      await onboarding.update((now) => ({ ...now, answers: answersFrom({ ...now.answers, [qid]: answers[qid] }), picked: undefined }));
-      return c.redirect(nextOf(step), 303);
-    });
-  app.post("/welcome/packs", strictOrigin, async (c) => {
-    if (deps.session) return c.notFound();
-    await onboarding.ready;
-    const f = await c.req.parseBody({ all: true });
-    const can = new Set(packs.on.map((p) => p.manifest.id));
-    const picked = [f.pack ?? []].flat().filter((x): x is string => typeof x === "string" && can.has(x));
-    await onboarding.update((o) => ({ ...o, picked }));
-    return c.redirect(nextOf("packs"), 303);
-  });
-  /** The summit's Open Today: the picked packs on and the rest off (Packs page), the folder and owners kept. */
-  app.post("/welcome/done", strictOrigin, async (c) => {
-    if (deps.session) return c.notFound();
-    await onboarding.ready;
-    // The summit's "Set up X": straight on to that pack's setup (#445).
-    const asked = (await c.req.parseBody())["setup"];
-    const then = typeof asked === "string" && setupPack(asked) ? `/setup/${asked}` : "/";
-    const on = new Set(pickedNow(scanNow().found));
-    const ids = packs.on.map((p) => p.manifest.id);
-    await layout.update((l) => ({ ...l, packsOff: [...new Set([...(l.packsOff ?? []).filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] }));
-    await onboarding.update((o) => ({ ...o, picked: [...on], done: true }));
-    deps.hub?.publish(["snapshot", "packs"]);
-    if (!deps.config) return c.redirect(then, 303);
-    const config: Config = { ...deps.config.stored, ...pending, SETUP_DONE: "1" };
-    for (const [k, v] of Object.entries(pending)) if (v === "") delete config[k];
-    const changed = Object.keys(pending).length > 0;
-    pending = {};
-    if (changed) return c.redirect((await keep(config)) ? "/welcome?started=1" : then, 303);
-    await saveConfig(env.DB, config);
-    deps.config.stored = config;
-    return c.redirect(then, 303);
-  });
-  // ── A pack's own setup (src/pages/setup.ts, #418): the pack draws each step, core draws the frame ──
-  /** A shown pack with a setup page, by id. */
-  const setupPack = (id: string) => shown().find((c) => c.manifest.id === id && !!setupOf(c));
-  /** A step as the pack draws it, in the time its pages get. One that throws, is late or breaks the rules is that pack's broken step. */
-  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; refresh?: number; go?: SetupView["go"]; carry?: boolean; broke?: string }> => {
-    const ms = packs.routeMs ?? PACK_ROUTE_MS;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const log = packLog(c.manifest.id);
-    try {
-      const late = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error(`didn't answer in ${ms / 1000} s`)), ms)));
-      const got = await Promise.race([Promise.resolve().then(() => c.setup!.draw(ctxOf(c), step)), late]);
-      const body = await guardHtml(got?.body ?? "", c.manifest.name, `setup ${step}`, log);
-      const form = got?.form === true;
-      // A form step's inputs go with Next: a form inside it would be a form in a form.
-      if (form && /<form[\s>]/i.test(String(body))) throw new Error("a form step's body holds a form of its own");
-      const wait = typeof got?.wait === "string" && got.wait.trim() ? got.wait.trim().slice(0, 200) : undefined;
-      const refresh = typeof got?.refresh === "number" && Number.isFinite(got.refresh) ? Math.min(60, Math.max(2, Math.round(got.refresh))) : undefined;
-      const go = setupGo(c.manifest.id, got?.go);
-      // The main button posts a form of its own: a form step's inputs would go nowhere.
-      if (go && form) throw new Error("a form step has no main button of its own: Next sends its form");
-      return { body: html`<div class="pack-box" data-pack="${c.manifest.id}">${body}</div>`, form, wait, refresh, ...(go ? { go, carry: got?.carry === true } : {}) };
-    } catch (e) {
-      const why = String((e as Error)?.message ?? e).slice(0, 300);
-      log(`setup ${step}: ${why}`);
-      return {
-        body: html`<div class="climb-card"><p><b>${c.manifest.name} broke on this step.</b> The rest of Dovre is fine. The pack's log on <a href="/packs">Packs</a> says what happened. <a href="${bugHref(`/setup/${c.manifest.id}`, why, c.manifest.id)}">Report this</a> if it looks like a bug.</p></div>`,
-        form: false,
-        wait: "Come back once it's fixed.",
-        broke: why,
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-  /** A setup page at step `at` (`steps.length` is done), with what Next was refused for, if it was. */
-  const setupView = async (p: Pack, at: number, error?: string, drawn?: Awaited<ReturnType<typeof drawStep>>): Promise<{ view: SetupView; status: 200 | 422 | 500 }> => {
-    const { steps } = setupOf(p)!;
-    const l = layout.get();
-    const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
-    if (at >= steps.length) {
-      // Done: the next pack whose setup isn't, in Today's order (#445).
-      const next = shown().find((x) => x !== p && !!setupOf(x) && setupLeft(x).length > 0);
-      return { view: { ...view, ...(next ? { next: { id: next.manifest.id, name: next.manifest.name } } : {}) }, status: 200 };
-    }
-    const d = drawn ?? (await drawStep(p, steps[at]!.id));
-    Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh, go: d.go, carry: d.carry });
-    return { view, status: d.broke ? 500 : error ? 422 : 200 };
-  };
-  app.get("/setup/:id", async (c) => {
-    if (deps.session) return c.notFound();
-    const p = setupPack(c.req.param("id"));
-    if (!p) return c.notFound();
-    await onboarding.ready;
-    const id = p.manifest.id;
-    const { steps } = setupOf(p)!;
-    const asked = c.req.query("at");
-    const left = setupLeft(p);
-    let at = asked === "done" ? steps.length : steps.findIndex((s) => s.id === asked);
-    if (at < 0) at = left.length ? steps.findIndex((s) => s.id === left[0]!.id) : 0;
-    const v = await setupView(p, at);
-    return noStore(await c.html(setupPage(v.view), v.status));
-  });
-  app.post("/setup/:id/next", strictOrigin, async (c) => {
-    if (deps.session) return c.notFound();
-    const p = setupPack(c.req.param("id"));
-    if (!p) return c.notFound();
-    await onboarding.ready;
-    const id = p.manifest.id;
-    const { steps } = setupOf(p)!;
-    const form = await c.req.parseBody({ all: true });
-    const i = steps.findIndex((s) => s.id === form.step);
-    if (i < 0) return c.redirect(`/setup/${id}`, 303);
-    const step = steps[i]!;
-    // Drawn again: a write it waits on may have finished, or not. Still waiting, the step says so itself.
-    const d = await drawStep(p, step.id);
-    if (d.wait || d.go) return c.redirect(`/setup/${id}?at=${step.id}`, 303);
-    if (d.form && p.setup!.save) {
-      const fields: Record<string, string | string[]> = {};
-      for (const [k, v] of Object.entries(form).slice(0, 50)) {
-        if (k === "step") continue;
-        const vs = ([] as unknown[]).concat(v).filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 2000)).slice(0, 200);
-        if (vs.length) fields[k] = vs.length === 1 ? vs[0]! : vs;
-      }
-      const r = await Promise.resolve()
-        .then(() => p.setup!.save!(ctxOf(p), step.id, fields))
-        .catch((e: unknown): { ok: false; error: string } => {
-          packLog(id)(`setup ${step.id} save: ${(e as Error)?.message ?? e}`);
-          return { ok: false, error: `${p.manifest.name} couldn't keep that. Its log on Packs says why.` };
-        });
-      // Refused: the step again, drawn in this answer. Hosted, a redirect's GET can land on another isolate (#446).
-      if (!r || r.ok !== true) {
-        const v = await setupView(p, i, (typeof r?.error === "string" && r.error ? r.error : "Not kept.").slice(0, 300), d);
-        return noStore(await c.html(setupPage(v.view), v.status));
-      }
-    }
-    await onboarding.update((o) => ({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), step.id])] } }));
-    deps.hub?.publish(["snapshot", id]);
-    const next = steps[i + 1];
-    return c.redirect(`/setup/${id}?at=${next ? next.id : "done"}`, 303);
-  });
-  app.post("/welcome/skip", strictOrigin, async (c) => {
-    if (deps.session) return c.notFound();
-    await onboarding.ready;
-    await onboarding.update((o) => ({ ...o, done: true }));
-    pending = {};
-    if (deps.config) {
-      await saveConfig(env.DB, { ...deps.config.stored, SETUP_DONE: "1" });
-      deps.config.stored = { ...deps.config.stored, SETUP_DONE: "1" };
-    }
-    return c.redirect("/", 303);
-  });
-  /** The Work form: kept, then Dovre starts again with it (under the supervisor). */
-  for (const path of ["/settings/work"])
-    app.post(path, async (c) => {
-      if (!deps.config) return c.notFound();
-      const { config, bad } = configFromForm(await c.req.parseBody(), deps.config.stored, fixedKeys(), { general: true });
-      const back = path;
-      if (bad.length) {
-        settingsBad = bad;
-        return c.redirect(back, 303);
-      }
-      saved = true;
-      await keep(config);
-      return c.redirect(back, 303);
-    });
-  app.post("/settings/notify", async (c) => {
-    const form = await c.req.parseBody({ all: true });
-    const kinds = new Set([form.kind ?? []].flat().map(String));
-    const num = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? Number(v) : undefined);
-    const was = deps.notify?.policy() ?? policyOf(undefined);
-    const next = policyOf({
-      // The kinds on the form: the core's and the shown packs'; any other keeps what it was.
-      kinds: { ...was.kinds, ...Object.fromEntries([...RING_KINDS, ...packRings].map((k) => [k.kind, kinds.has(k.kind)])) },
-      // A long turn is set on Settings → Agents (#272).
-      longTurnMin: was.longTurnMin,
-      bundleSec: num(form.bundleSec),
-      quiet: quietOf(form.quietFrom, form.quietTo, form.quietWeekends),
-    });
-    await deps.notify?.setPolicy(next);
-    saved = true;
-    return c.redirect("/settings/notifications", 303);
-  });
-  /** Settings → Agents: how long a turn runs before its end rings (the rest of the policy as it was). */
-  app.post("/settings/agents/long-turn", async (c) => {
-    if (!deps.notify) return c.notFound();
-    const v = (await c.req.parseBody()).longTurnMin;
-    await deps.notify.setPolicy(policyOf({ ...deps.notify.policy(), longTurnMin: typeof v === "string" && v.trim() !== "" ? Number(v) : undefined }));
-    saved = true;
-    return c.redirect("/settings/agents#long-turn", 303);
-  });
-  app.post("/settings/restart", (c) => {
-    // The supervisor (`dovre supervise`, launcher/) starts it again; the page waits on the starting page.
-    setTimeout(() => deps.restart?.(), 300);
-    return c.redirect("/settings/about", 303);
-  });
-  app.post("/settings/notify/test", (c) => {
-    deps.notify?.test();
-    return c.redirect("/settings/notifications#rang-lately", 303);
-  });
+  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, keyPrefs, openUrl, held, hidden, packIds, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
+  const { setUp } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──
   const packHomeOf = (seg: string) => {
@@ -1759,59 +979,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
         })),
     });
 
-  // ── The relay (launcher/relay.go): an MCP server's question, answered here and only here ──
-  app.post("/relay/ask", async (c) => {
-    const q = (await c.req.json().catch(() => null)) as { server?: unknown; message?: unknown; schema?: unknown } | null;
-    if (!q || typeof q.message !== "string") return c.json({ error: "a question has a message" }, 400);
-    return c.json({ id: asks.put({ server: q.server, message: q.message, schema: q.schema }).id });
-  });
-  app.get("/relay/ask/:id", async (c) => c.json(await asks.wait(c.req.param("id"), 25_000)));
-
-  // ── Page loads, as the page measured them (src/ui/app.js.ts): numbers, a path and its route, nothing else ──
-  app.post("/perf", async (c) => {
-    const j = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-    const path = typeof j?.path === "string" && /^\/[\w\-\/.]{0,200}$/.test(j.path) ? j.path : null;
-    if (!j || !path) return c.body(null, 204);
-    const num = (k: string) => (typeof j[k] === "number" && Number.isFinite(j[k]) ? Math.round(j[k] as number) : -1);
-    // A page reloaded from the back/forward cache or a prerender says nothing of the server.
-    if (routeOk(j.route) && j.type !== "back_forward" && num("total") >= 0 && num("total") < 120_000) speed.record("page", j.route, num("total"));
-    if (num("total") < 800) return c.body(null, 204);
-    const line = [new Date().toISOString(), path, String(j.type).replace(/[^a-z_]/g, "").slice(0, 12), ...["total", "redirect", "worker", "connect", "wait", "download", "dom", "load"].map((k) => `${k}=${num(k)}`)].join(" ");
-    perfLog(line);
-    return c.body(null, 204);
-  });
-  /** One answer for a group of questions from the same server (the bar's "Allow all", "Deny all"): each answered, each logged. */
-  app.post("/relay/asks/answer", async (c) => {
-    const form = await c.req.parseBody();
-    const ids = (typeof form.ids === "string" ? form.ids : "").split(",").filter((id) => /^[0-9a-f-]{36}$/.test(id)).slice(0, 20);
-    const shown = asks.list().filter((q) => ids.includes(q.id));
-    // Only a group the bar showed: one server, the same choices.
-    const same = shown.length > 0 && shown.every((q) => q.server === shown[0]!.server && q.choices.map((x) => x.value).join() === shown[0]!.choices.map((x) => x.value).join());
-    if (same)
-      for (const q of shown) {
-        const done = asks.answer(q.id, form.decline === "1" ? { decline: true } : { choice: typeof form.choice === "string" ? form.choice : undefined });
-        if (done) await logAction(env.DB, { kind: "relay.answer", target: q.server, detail: `${form.decline === "1" ? "declined" : String(form.choice)} (all ${shown.length}) · ${q.message.split(String.fromCharCode(10))[0]!.slice(0, 160)}`, ok: true });
-      }
-    deps.hub?.publish(["snapshot"]);
-    const back = c.req.header("referer");
-    const path = back && new URL(back).host === new URL(c.req.url).host ? new URL(back).pathname + new URL(back).search : "/";
-    return c.redirect(path, 303);
-  });
-  app.post("/relay/ask/:id/answer", async (c) => {
-    const form = await c.req.parseBody();
-    const id = c.req.param("id");
-    const shown = asks.list().find((q) => q.id === id);
-    const done = asks.answer(id, form.decline === "1" ? { decline: true } : { choice: typeof form.choice === "string" ? form.choice : undefined });
-    if (shown && done) {
-      const what = form.decline === "1" ? "declined" : String(form.choice);
-      const firstLine = shown.message.split(String.fromCharCode(10))[0]!.slice(0, 160);
-      await logAction(env.DB, { kind: "relay.answer", target: shown.server, detail: `${what} · ${firstLine}`, ok: true });
-    }
-    deps.hub?.publish(["snapshot"]);
-    const back = c.req.header("referer");
-    const path = back && new URL(back).host === new URL(c.req.url).host ? new URL(back).pathname + new URL(back).search : "/";
-    return c.redirect(path, 303);
-  });
+  relayRoutes(app, { env, deps, asks, perfLog, speed });
 
   // Packs' routes last, each under its own /<id> on its own sub-app: none can shadow a core route,
   // another pack's, or add middleware in front of anything but its own paths.
