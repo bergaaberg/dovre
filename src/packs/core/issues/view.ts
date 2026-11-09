@@ -25,7 +25,7 @@ export type BulkDo = keyof typeof BULK_DO;
  * (the agents pack's start page), given the checkout folder for its repo (none: the new-session
  * form starts in Dovre's own folder).
  */
-export type RowActs = { me: string; task: boolean; set: SetId; write: boolean; agent?: { links: AgentShare; dirOf: (repo: string) => string | undefined } };
+type RowActs = { me: string; task: boolean; set: SetId; write: boolean; agent?: { links: AgentShare; dirOf: (repo: string) => string | undefined } };
 
 /** A new agent session's first message about an issue: what it is, where to read it, how its PR closes it. */
 export function agentPromptOf(i: Pick<Issue, "repo" | "number" | "title" | "url">): string {
@@ -134,7 +134,7 @@ const bulkBar = (set: SetId) =>
   });
 
 /** How a bulk write went, from the redirect's query: counts and a few reasons, checked. */
-export type BulkDone = { what: BulkDo; done: number; of: number; why: string[] };
+type BulkDone = { what: BulkDo; done: number; of: number; why: string[] };
 export function bulkOf(q: { bulk?: string; done?: string; of?: string; why?: string[] }): BulkDone | undefined {
   if (!q.bulk || !Object.hasOwn(BULK_DO, q.bulk)) return undefined;
   const n = (v?: string) => (/^\d{1,3}$/.test(v ?? "") ? Number(v) : NaN);

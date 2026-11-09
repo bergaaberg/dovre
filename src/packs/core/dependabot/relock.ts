@@ -28,7 +28,7 @@ export const runFile: Run = (cmd, args, cwd) =>
   );
 
 /** How a lockfile is made again, run in its own folder: the exit code of the last step. */
-export type Relocker = { label: string; make(run: Run, dir: string): Promise<number> };
+type Relocker = { label: string; make(run: Run, dir: string): Promise<number> };
 const step = (cmd: string, args: string[]): Relocker => ({ label: `${cmd} ${args.join(" ")}`, make: async (run, dir) => (await run(cmd, args, dir)).code });
 
 /**

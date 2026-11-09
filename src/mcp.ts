@@ -22,12 +22,12 @@ import type { Pack, PackContext, PackTool, ToolCall } from "./packs/types.ts";
 import { MCP_VERSIONS } from "./mcp-stdio.ts";
 
 export { MCP_VERSIONS };
-export const MAX_REQUEST = 256_000;
+const MAX_REQUEST = 256_000;
 export const MAX_RESULT = 60_000;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,40}$/;
 
 type Turn = { id: string; repo: string; cwd: string };
-export type McpOpts = {
+type McpOpts = {
   /** The packs shown now (on, available, not hidden). */
   shown: () => Pack[];
   ctxOf: (p: Pack) => PackContext;
@@ -72,7 +72,7 @@ export function offered(packs: Pack[], ctxOf: (p: Pack) => PackContext, log: (li
 }
 
 /** A lookup as an agent's tool: its fields as string arguments, what it found as the answer. */
-export function toolOf(k: PackLookup): PackTool {
+function toolOf(k: PackLookup): PackTool {
   return {
     name: k.kind.split(".").slice(1).join("_").replace(/-/g, "_"),
     description: `${k.when} (Read-only, from ${k.app}.)`,

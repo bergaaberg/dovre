@@ -9,16 +9,16 @@ import { logAction } from "../../../../actions/deploys.ts";
 import type { D1 } from "../../../../db.ts";
 import type { Ghe } from "../../../../sources/ghe.ts";
 
-export type NewIssue = { repo: string; title: string; body: string; type: string; typeNodeId?: string; labels: string[]; projects: string[] };
+type NewIssue = { repo: string; title: string; body: string; type: string; typeNodeId?: string; labels: string[]; projects: string[] };
 export type Created = { ok: true; url: string; number: number; repo: string; title: string; warnings: string[] } | { ok: false; message: string };
 
 export type RawIssue = { html_url: string; number: number; id: number; node_id: string; type: { name: string } | null; labels: ({ name: string } | string)[] };
 
 /** The payload the REST create gets: the type by name, in the same call. */
-export const createPayload = (i: NewIssue) => ({ title: i.title, body: i.body, type: i.type, labels: i.labels });
+const createPayload = (i: NewIssue) => ({ title: i.title, body: i.body, type: i.type, labels: i.labels });
 
 /** "ACME/6" → the org's project 6; any other owner is refused like a foreign repo. */
-export function projectRef(org: string, ref: string): number | null {
+function projectRef(org: string, ref: string): number | null {
   const m = ref.trim().match(/^([\w.-]+)\/(\d{1,6})$/);
   return m && m[1] === org ? Number(m[2]) : null;
 }

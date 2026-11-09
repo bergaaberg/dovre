@@ -90,7 +90,7 @@ const filters = (q: PrQuery) => (p: Pr) =>
   (!q.state || stateOf(p) === q.state) &&
   (!q.ci || ciOf(p) === q.ci);
 
-export type PrLists = { mine: Pr[] | null; review: Pr[] | null };
+type PrLists = { mine: Pr[] | null; review: Pr[] | null };
 
 /** The two lists after the view, the filters and the sort. A list the view doesn't look at is null. */
 export function applyPrQuery(prs: { mine: Pr[]; review: Pr[] }, q: PrQuery): PrLists {

@@ -14,7 +14,7 @@ export function within(p: Promise<unknown>, ms: number): Promise<void> {
   return Promise.race([p.then(() => undefined, () => undefined), new Promise<void>((res) => (t = setTimeout(res, ms)))]).finally(() => clearTimeout(t));
 }
 
-export type SharedRead = {
+type SharedRead = {
   /** Starts a read unless a recent one is in flight; resolves when it ends, or after `ms` at most. */
   read(): Promise<void>;
   /** Whether a read has finished at least once. */

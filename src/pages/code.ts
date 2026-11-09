@@ -21,7 +21,7 @@ function crumbsOf(dir: string, ref: string, path: string): Html {
   return html`<nav class="code-crumbs" aria-label="Path"><a href="${codeHref(dir, { ref })}">${dir}</a>${parts.map((p, i) => html` / <a href="${codeHref(dir, { ref, path: parts.slice(0, i + 1).join("/") })}">${p}</a>`)}</nav>`;
 }
 
-export function codeListPage(frame: Frame, list: Checkout[]): Html {
+function codeListPage(frame: Frame, list: Checkout[]): Html {
   return shell({
     title: "Code · Dovre",
     frame,
@@ -33,13 +33,13 @@ export function codeListPage(frame: Frame, list: Checkout[]): Html {
   });
 }
 
-export type CodeView =
+type CodeView =
   | { kind: "tree"; entries: Entry[] }
   | { kind: "file"; text?: string; size: number; note?: string }
   | { kind: "search"; q: string; hits: { path: string; line: number; text: string }[]; more: boolean }
   | { kind: "problem"; message: Child };
 
-export function codePage(frame: Frame, o: { dir: string; repo: string; ref: string; sha: string; path: string; view: CodeView }): Html {
+function codePage(frame: Frame, o: { dir: string; repo: string; ref: string; sha: string; path: string; view: CodeView }): Html {
   const v = o.view;
   let inner: Html;
   if (v.kind === "problem") inner = Notice({ tone: "bad", children: v.message });
@@ -115,9 +115,9 @@ export function diffPage(frame: Frame, o: { dir: string; repo: string; ask: Diff
 
 // ── Two texts compared (dovre#105) ──────────────────────────────────────────
 
-export type CompareAsk = { a: string; b: string; json: boolean; split: boolean };
+type CompareAsk = { a: string; b: string; json: boolean; split: boolean };
 
-export function comparePage(frame: Frame, o: { ask?: CompareAsk; result?: Compared }): Html {
+function comparePage(frame: Frame, o: { ask?: CompareAsk; result?: Compared }): Html {
   const k = o.ask ?? { a: "", b: "", json: false, split: false };
   const r = o.result;
   const max = String(MAX_TEXT);
@@ -138,7 +138,7 @@ export function comparePage(frame: Frame, o: { ask?: CompareAsk; result?: Compar
 }
 
 /** What a compare form sent: each side capped, JSON laid out alike when asked. */
-export function compareOf(form: Record<string, unknown>): { ask: CompareAsk; result: Compared } {
+function compareOf(form: Record<string, unknown>): { ask: CompareAsk; result: Compared } {
   const text = (v: unknown) => (typeof v === "string" ? v : "");
   const ask: CompareAsk = { a: text(form.a), b: text(form.b), json: form.json === "1", split: form.split === "1" };
   if (!ask.json) return { ask, result: comparePatch(ask.a, ask.b) };
@@ -151,7 +151,7 @@ export function compareOf(form: Record<string, unknown>): { ask: CompareAsk; res
 // ── Routes ───────────────────────────────────────────────────────────────────
 // ── Routes ───────────────────────────────────────────────────────────────────
 
-export type CodeDeps = {
+type CodeDeps = {
   ghe: Pick<Ghe, "host">;
   frame: () => Promise<Frame>;
   checkouts?: () => Checkout[];

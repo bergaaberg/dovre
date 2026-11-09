@@ -12,7 +12,7 @@ export const KEY_GROUPS = [
   { id: "page", label: "This page", keys: "r, yy, g i, /, a, c, v, ., A" },
   { id: "docks", label: "Panels", keys: "B for Bino, and the packs' letters" },
 ] as const;
-export type KeyGroup = (typeof KEY_GROUPS)[number]["id"];
+type KeyGroup = (typeof KEY_GROUPS)[number]["id"];
 
 /** How far one press of j or k scrolls, in pixels. */
 export const SCROLL_STEPS = [
@@ -21,7 +21,7 @@ export const SCROLL_STEPS = [
   { px: 140, label: "Fast" },
   { px: 280, label: "Very fast" },
 ] as const;
-export const DEFAULT_SCROLL = 70;
+const DEFAULT_SCROLL = 70;
 
 export type KeyPrefs = { scroll: number; off: KeyGroup[] };
 export const DEFAULT_KEYS: KeyPrefs = { scroll: DEFAULT_SCROLL, off: [] };

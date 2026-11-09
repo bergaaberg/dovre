@@ -5,7 +5,7 @@
  */
 import { PACK_API } from "./types.ts";
 
-export type ApiVersion = { major: number; minor: number };
+type ApiVersion = { major: number; minor: number };
 
 /** "1.5" or 1 (= 1.0) as numbers; null for anything else. */
 export function parseApi(v: unknown): ApiVersion | null {

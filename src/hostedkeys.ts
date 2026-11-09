@@ -54,7 +54,7 @@ const missing = (store: StoreId, env: Env): string | undefined => {
 /** A bearer token per store, reused until a minute before it ends. */
 type Token = { token: string; until: number };
 
-export function hostedReaders(env: Env, o: Opts = {}) {
+function hostedReaders(env: Env, o: Opts = {}) {
   const f: Fetch = o.fetch ?? ((i, init) => fetch(i, init));
   const now = o.now ?? Date.now;
   const tokens = new Map<string, Promise<Token>>();

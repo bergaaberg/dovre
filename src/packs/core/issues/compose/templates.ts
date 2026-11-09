@@ -11,7 +11,7 @@ import { parse } from "yaml";
 import type { Ghe } from "../../../../sources/ghe.ts";
 import { type Kept, memoize } from "../../../../kept.ts";
 
-export type FieldKind = "markdown" | "input" | "textarea" | "dropdown" | "checkboxes";
+type FieldKind = "markdown" | "input" | "textarea" | "dropdown" | "checkboxes";
 
 /** One field of an issue form. `value`: the text a textarea or input starts with; for markdown, the help text. */
 export type Field = {
@@ -62,7 +62,7 @@ const list = (v: unknown): string[] =>
 export const isPlanning = (file: string, name: string) => file.startsWith("advanced/") || /^z\d/i.test(file) || /^\s*🔒/u.test(name);
 
 /** A repo's `config.yml`: whether blank issues are allowed, and the chooser's other ways in. */
-export type ChooserConfig = { blank: boolean; links: { name: string; url: string; about: string }[] };
+type ChooserConfig = { blank: boolean; links: { name: string; url: string; about: string }[] };
 export const OPEN_CHOOSER: ChooserConfig = { blank: true, links: [] };
 
 export function parseConfig(text: string): ChooserConfig {
@@ -172,13 +172,13 @@ export async function loadTemplates(ghe: Ghe, repo: string): Promise<Templates> 
 }
 
 /** The org's enabled Issue Types. */
-export async function loadIssueTypes(ghe: Ghe, org: string): Promise<IssueType[]> {
+async function loadIssueTypes(ghe: Ghe, org: string): Promise<IssueType[]> {
   const raw = await ghe.rest<{ name: string; description: string | null; node_id: string; is_enabled: boolean }[]>(`/orgs/${org}/issue-types`);
   return raw.filter((t) => t.is_enabled).map((t) => ({ name: t.name, description: t.description ?? "", nodeId: t.node_id }));
 }
 
 /** The repo's label names, so only labels that exist are offered (adding a missing one would create it). */
-export async function loadLabels(ghe: Ghe, repo: string): Promise<string[]> {
+async function loadLabels(ghe: Ghe, repo: string): Promise<string[]> {
   return (await ghe.rest<{ name: string }[]>(`/repos/${repo}/labels?per_page=100`)).map((l) => l.name);
 }
 

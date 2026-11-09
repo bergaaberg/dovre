@@ -4,7 +4,7 @@
  * launcher/keep_claude.go and keep_codex.go keep them; anything else in an item is dropped.
  */
 
-export type TodoStatus = "pending" | "active" | "done";
+type TodoStatus = "pending" | "active" | "done";
 export type Todo = { text: string; status: TodoStatus };
 
 const MAX = 30;

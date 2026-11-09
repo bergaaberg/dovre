@@ -18,7 +18,7 @@ import { type Pack, PACK_API } from "../../types.ts";
 import { addGroups, bumpLevel, combine, type Level, LEVELS, loadQueue, MAX_MERGE, mergeCombined } from "./act.ts";
 import { dependabotBody, type Job } from "./view.ts";
 
-export type DependabotDeps = {
+type DependabotDeps = {
   /** The forge, to read the queue and write. */
   ghe: Ghe;
   /** Whose repos are mine (REPO_OWNERS): only theirs are read and written. */

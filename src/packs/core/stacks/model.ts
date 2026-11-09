@@ -67,7 +67,7 @@ export type Stack = {
 const keyOf = (repo: string, n: number) => `${repo}#${n}`;
 
 /** Branches meant to be merged into for a long time: a PR into one isn't stacked on anything. */
-export const longLived = (branch: string) => /^(main|master|develop|dev|staging|test|release|hotfix)([/-].*)?$/i.test(branch);
+const longLived = (branch: string) => /^(main|master|develop|dev|staging|test|release|hotfix)([/-].*)?$/i.test(branch);
 
 /** The reason a PR blocks the one above it, worst first; null when it only has to merge. */
 function blocker(p: StackPr): Wait["why"] {

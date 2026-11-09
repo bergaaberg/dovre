@@ -108,7 +108,7 @@ function pendingPage(path: string, frame: Frame): string {
 /** Nothing gathered yet: what the frame is drawn from on the "Gathering" page. */
 const EMPTY = { deploys: { ok: false }, prs: { ok: false } } as unknown as Snapshot;
 
-export function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
+function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some pack here draws on /stats. */ stats?: boolean; /** This instance lists packs (on or off). */ packs?: boolean } = {}): NavItem[] {
   // The rail (src/html.ts): groups in order; "You" sits at the foot.
   const items: (NavItem | false)[] = [
     { href: "/", title: "Today", icon: "home" },

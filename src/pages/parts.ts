@@ -20,7 +20,7 @@ export function prTabs(current: "list" | "stacks" | "dependabot", stacks = true,
 export const HARNESS_NAME = { claude: "Claude Code", omp: "Copilot · omp", copilot: "Copilot CLI", agy: "Antigravity · agy", codex: "Codex" } as const;
 
 /** Each harness's mark beside its name (#239), so its tag isn't told apart by colour alone. */
-export const HARNESS_GLYPH: Record<keyof typeof HARNESS_NAME, string> = { claude: "✳", codex: "◇", omp: "π", copilot: "◎", agy: "▲" };
+const HARNESS_GLYPH: Record<keyof typeof HARNESS_NAME, string> = { claude: "✳", codex: "◇", omp: "π", copilot: "◎", agy: "▲" };
 
 /** Which harness an agent runs in (and its model, when known): a tag on every agent row, in its own hue. */
 export function harnessTag(h: keyof typeof HARNESS_NAME | undefined, model?: string): Html {
@@ -60,14 +60,14 @@ export const Ago = (at: number | string | undefined, now = Date.now()) => {
 
 export const trunc = (s: string | undefined, n: number) => (s && s.length > n ? `${s.slice(0, n - 1)}…` : (s ?? ""));
 
-export function checksPill(c: Pr["checks"]): Html | "" {
+function checksPill(c: Pr["checks"]): Html | "" {
   if (c === "SUCCESS") return Pill({ tone: "ok", children: "checks ✓" });
   if (c === "FAILURE" || c === "ERROR") return Pill({ tone: "bad", children: "checks ✗" });
   if (c === "PENDING" || c === "EXPECTED") return Pill({ tone: "warn", children: "checks running" });
   return "";
 }
 
-export function reviewPill(r: Pr["review"]): Html | "" {
+function reviewPill(r: Pr["review"]): Html | "" {
   if (r === "APPROVED") return Pill({ tone: "ok", children: "approved" });
   if (r === "CHANGES_REQUESTED") return Pill({ tone: "bad", children: "changes requested" });
   if (r === "REVIEW_REQUIRED") return Pill({ children: "awaiting review" });
@@ -77,7 +77,7 @@ export function reviewPill(r: Pr["review"]): Html | "" {
 export const prPills = (p: Pr): Html =>
   html`${p.draft ? Pill({ children: "draft" }) : ""} ${checksPill(p.checks)} ${reviewPill(p.review)} ${p.openThreads ? Pill({ tone: "warn", children: `${p.openThreads} open ${p.openThreads === 1 ? "thread" : "threads"}` }) : ""}`;
 
-export function refPill(ref: PrRef | undefined): Html {
+function refPill(ref: PrRef | undefined): Html {
   if (!ref) return Pill({ children: "unknown" });
   if (ref.state === "MERGED") return Pill({ tone: "ok", children: "merged" });
   if (ref.state === "CLOSED") return Pill({ children: "closed" });
@@ -85,7 +85,7 @@ export function refPill(ref: PrRef | undefined): Html {
 }
 
 /** A PR an agent linked: with full status when it's mine and open, otherwise its state. */
-export function linkedPr(link: { url: string; repo: string; number: number }, org: string, mine: Map<string, Pr>, refs: Map<string, PrRef>): Html {
+function linkedPr(link: { url: string; repo: string; number: number }, org: string, mine: Map<string, Pr>, refs: Map<string, PrRef>): Html {
   const key = prKeyOfUrl(link.url) ?? "";
   const pr = mine.get(key);
   return html`${Link(link.url, `${(link.repo ?? "").replace(`${org}/`, "")}#${link.number}`)} ${pr ? prPills(pr) : refPill(refs.get(key))}`;

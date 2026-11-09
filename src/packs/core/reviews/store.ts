@@ -61,7 +61,7 @@ export async function recordReview(db: D1, r: AgentReview) {
     .run();
 }
 
-export async function updateReview(db: D1, runId: string, u: { status: Run["status"]; sessionId?: string; endedAt?: number }) {
+async function updateReview(db: D1, runId: string, u: { status: Run["status"]; sessionId?: string; endedAt?: number }) {
   await db.prepare("UPDATE agent_reviews SET status = ?, session_id = COALESCE(?, session_id), ended_at = COALESCE(?, ended_at) WHERE run_id = ?").bind(u.status, u.sessionId ?? null, u.endedAt ?? null, runId).run();
 }
 

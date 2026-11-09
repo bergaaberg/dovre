@@ -7,7 +7,7 @@ import type { WasmFile } from "./types.ts";
 /** Bytes in the bundle: small modules only. */
 export const WASM_INLINE_MAX = 8 * 1024 * 1024;
 /** A file beside the pack: Workers static assets take 25 MiB a file. */
-export const WASM_FILE_MAX = 25 * 1024 * 1024;
+const WASM_FILE_MAX = 25 * 1024 * 1024;
 
 export const wasmNameOk = (name: string) => /^[a-z][a-z0-9-]{0,31}$/.test(name);
 export const isWasm = (b: Uint8Array) => b.length >= 8 && b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d;
@@ -40,7 +40,7 @@ async function sizeShaWhy(bytes: Uint8Array, sha: string): Promise<string> {
  * Packs' other big files (Pack.files): a browser library's script or stylesheet, kept out of the
  * Worker bundle the same way. The name says its kind: `mermaid.js`, `katex.css`.
  */
-export const PACK_FILE_TYPES: Record<string, string> = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" };
+const PACK_FILE_TYPES: Record<string, string> = { js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8" };
 export const packFileNameOk = (name: string) => /^[a-z][a-z0-9-]{0,31}\.(js|css)$/.test(name);
 export const packFileType = (name: string) => PACK_FILE_TYPES[name.slice(name.lastIndexOf(".") + 1)]!;
 /** Where a pack file sits in the static assets, and is served at under `/assets/`. */

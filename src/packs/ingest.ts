@@ -10,11 +10,11 @@ import { html, type Html, Confirm, List, Item, Notice } from "../ui/kit.ts";
 import type { IngestInput, Pack, PackContext } from "./types.ts";
 
 /** Default body cap, when the pack names none. */
-export const INGEST_MAX_BYTES = 4 * 1024 * 1024;
+const INGEST_MAX_BYTES = 4 * 1024 * 1024;
 /** Requests per token per minute, when the pack names none. Per process (hosted: per isolate). */
-export const INGEST_PER_MINUTE = 600;
+const INGEST_PER_MINUTE = 600;
 
-export type IngestToken = { id: number; source: string; created_at: string; last_used_at: string | null; revoked_at: string | null };
+type IngestToken = { id: number; source: string; created_at: string; last_used_at: string | null; revoked_at: string | null };
 
 const PREFIX = "dvi_";
 
@@ -53,7 +53,7 @@ export async function revokeToken(db: D1, pack: string, id: number, now = new Da
 }
 
 /** The live token's row for this pack, or undefined. Marks it used (at most once a minute). */
-export async function checkToken(db: D1, pack: string, token: string | undefined, now = new Date()): Promise<{ id: number; source: string; hash: string } | undefined> {
+async function checkToken(db: D1, pack: string, token: string | undefined, now = new Date()): Promise<{ id: number; source: string; hash: string } | undefined> {
   if (!token || !token.startsWith(PREFIX) || token.length > 128) return undefined;
   const hash = await sha256(token);
   const row = await db.prepare("SELECT id, source, last_used_at FROM ingest_tokens WHERE hash = ? AND pack = ? AND revoked_at IS NULL").bind(hash, pack).first<{ id: number; source: string; last_used_at: string | null }>();

@@ -5,13 +5,13 @@
 import type { Harness, Run, StartOpts } from "../../runner.ts";
 import { effortIn, effortList, type HarnessDef, type HarnessOptions, toolDetail, toolSpec } from "../shared.ts";
 
-export type AgyHarnessOpts = {
+type AgyHarnessOpts = {
   bin?: string;
   defaultModel?: string;
 };
 
 /** agy's `--mode` names and `--effort` levels. It can't fork. */
-export const AGY_OPTIONS: HarnessOptions = {
+const AGY_OPTIONS: HarnessOptions = {
   modes: {
     default: { label: "Ask before acting (agy's default)", short: "asks first" },
     acceptEdits: { label: "Accept edits, ask before commands", short: "accept edits" },
@@ -111,7 +111,7 @@ export function agyApply(run: Run, line: string): void {
   }
 }
 
-export const AGY_MODELS: { value: string; label: string }[] = [
+const AGY_MODELS: { value: string; label: string }[] = [
   { value: "", label: "agy's default model" },
   { value: "flash", label: "Gemini Flash" },
   { value: "flash_lite", label: "Gemini Flash Lite" },

@@ -68,7 +68,7 @@ const whereOf = (c: LineComment) => `${c.path}:${c.startLine ? `${c.startLine}â€
 /** The diff on the draft page: the files and open threads at the reviewed commit, still reading, or why not. */
 export type DraftDiff = { ok: true; files: PrFile[]; threads: Thread[] } | { ok: false; why: string } | "reading";
 
-export type DraftView = {
+type DraftView = {
   /** The PR list and viewer answer here (the prs pack is on; default yes). */
   prs?: boolean;
   diff?: DraftDiff;
@@ -146,7 +146,7 @@ ${r.posted
   return body;
 }
 
-export type ConfirmView = {
+type ConfirmView = {
   /** The PR list answers here (the prs pack is on; default yes). */
   prs?: boolean;
   /** Where the running session is shown, while the agents pack is on. */

@@ -46,7 +46,7 @@ import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER } from "./ho
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 import { serveLookups } from "./hosted/lookups.ts";
 
-export interface WorkerBindings {
+interface WorkerBindings {
   DB: D1;
   /** The icons and fonts (assets/, [assets] in the wrangler config), served at /assets/… like the local server does. */
   ASSETS?: { fetch(req: Request): Promise<Response> };
@@ -122,7 +122,7 @@ export type { Actor };
  * With `actor`, the call is that person's write (a POST they made), to be made with their own token;
  * without, it's the instance's own (pages, the background snapshot, cron).
  */
-export type GithubTokenProvider = (bindings: WorkerBindings, actor?: Actor) => Promise<string>;
+type GithubTokenProvider = (bindings: WorkerBindings, actor?: Actor) => Promise<string>;
 
 /** Runs `fn` as nobody in particular: what it starts (a gather) uses the instance's own token. */
 const asInstance = <T>(fn: () => T): T => actingAs(undefined, fn);
@@ -131,7 +131,7 @@ const asInstance = <T>(fn: () => T): T => actingAs(undefined, fn);
  * GitHub with the instance's token provider, else the GITHUB_TOKEN secret; without either, every call
  * fails saying so (pages show it as failed, not empty). A provider that throws fails that call with its message.
  */
-export function createHostedGhe(bindings: WorkerBindings, provider?: GithubTokenProvider): Ghe {
+function createHostedGhe(bindings: WorkerBindings, provider?: GithubTokenProvider): Ghe {
   const host = hostOf(bindings);
   // GET answers are kept in D1 for every isolate, so a cold one's cron still gets free 304s (#294).
   const shared = bindings.DB ? d1Reads(bindings.DB) : undefined;
@@ -168,7 +168,7 @@ function reviewRoute(bindings: WorkerBindings) {
 
 /** The real gatherer's remote half: PRs, notifications, movement, deploys. Agents and worktrees live on a machine. */
 /** How often an unchanged gather still tells pages its time, so their "Synced" stays roughly right. */
-export const SYNCED_EVERY_MS = 5 * 60_000;
+const SYNCED_EVERY_MS = 5 * 60_000;
 
 /**
  * Which finished gathers open pages hear about: one that changed what's shown ("snapshot"), the
@@ -198,7 +198,7 @@ export function syncTeller(tell: (at: number, changed: boolean) => void, everyMs
   };
 }
 
-export function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Forge, store?: SnapshotStore, onGathered?: (s: Snapshot) => void, linked?: () => string[]): Gatherer {
+function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Forge, store?: SnapshotStore, onGathered?: (s: Snapshot) => void, linked?: () => string[]): Gatherer {
   const g = createGatherer({
     env: { GHE_ORG: primaryOf(ownersOfBindings(bindings, login)), OWNERS: ownersOfBindings(bindings, login) },
     forge,

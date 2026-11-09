@@ -6,7 +6,7 @@
 
 export const LOOKUP_FENCE = "bino-lookup";
 /** Lookups in one reply, and replies with lookups in one answer. */
-export const MAX_LOOKUPS = 3;
+const MAX_LOOKUPS = 3;
 export const MAX_ROUNDS = 3;
 /** Most one result keeps, and most a conversation's results take of the prompt. */
 export const MAX_RESULT = 4000;
@@ -22,7 +22,7 @@ export type Lookups = { specs(): LookupSpec[] | Promise<LookupSpec[]>; run(l: Lo
 const line = (v: unknown, max: number) => (typeof v === "string" || typeof v === "number" ? String(v).replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
 
 /** One lookup from Bino's block, checked field by field; null when it isn't a usable one. */
-export function lookupOf(raw: unknown, specs: LookupSpec[]): Lookup | null {
+function lookupOf(raw: unknown, specs: LookupSpec[]): Lookup | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   const spec = specs.find((s) => s.kind === r.kind);

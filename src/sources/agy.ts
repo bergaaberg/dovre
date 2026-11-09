@@ -8,16 +8,16 @@ import { join } from "node:path";
 import { repoOf } from "../format.ts";
 import type { Session } from "./claude.ts";
 
-export type AgyOpts = {
+type AgyOpts = {
   now?: number;
   maxRecent?: number;
 };
 
-export function defaultAgyDir(): string {
+function defaultAgyDir(): string {
   return process.env.AGY_DIR || process.env.AGY_HOME || join(homedir(), ".gemini", "antigravity-cli");
 }
 
-export type HistoryEntry = {
+type HistoryEntry = {
   conversationId: string;
   workspace?: string;
   timestamp?: number;

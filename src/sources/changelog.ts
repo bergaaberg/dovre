@@ -5,7 +5,7 @@
  */
 import type { Ghe } from "./ghe.ts";
 
-export type ChangeKind = "feature" | "fix" | "deps" | "other";
+type ChangeKind = "feature" | "fix" | "deps" | "other";
 export type Change = { kind: ChangeKind; pr?: number; title: string; author: string; sha: string; /** The commit message (capped), where the packs' kinds of reference are looked for when it's drawn. */ text: string };
 export type Changelog = {
   repo: string;
@@ -44,7 +44,7 @@ export function groupChanges(changes: Change[]): { kind: ChangeKind; changes: Ch
   return (["feature", "fix", "other", "deps"] as const).map((kind) => ({ kind, changes: changes.filter((c) => c.kind === kind) })).filter((g) => g.changes.length);
 }
 
-export async function liveSha(ghe: Ghe, repo: string, env: string): Promise<{ sha: string; at: string } | null> {
+async function liveSha(ghe: Ghe, repo: string, env: string): Promise<{ sha: string; at: string } | null> {
   const [owner, name] = repo.split("/");
   const d = await ghe.graphql<{ repository: { deployments: { nodes: { commitOid: string; createdAt: string; latestStatus: { state: string } | null }[] } } }>(
     `{ repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){ deployments(environments:[${JSON.stringify(env)}], first:100, orderBy:{field:CREATED_AT,direction:DESC}){ nodes{ commitOid createdAt latestStatus{state} } } } }`,

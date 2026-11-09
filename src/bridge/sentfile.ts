@@ -13,7 +13,7 @@ export const SENT_FILE = "sent.jsonl";
 /** Past this, the oldest half goes too. */
 const MAX_BYTES = 4 << 20;
 
-export type FileLedger = Ledger & { flush(): void; stop(): void };
+type FileLedger = Ledger & { flush(): void; stop(): void };
 
 export function fileLedger(file: string, o: { now?: () => number; flushMs?: number } = {}): FileLedger {
   const now = o.now ?? Date.now;

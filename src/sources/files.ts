@@ -58,7 +58,7 @@ export type RepoFiles = { repo: string; /** Its last push (ISO). */ pushedAt?: s
 /** Every repo's files at some paths, and when that was read (ms). */
 export type EveryRepo = { at: number; repos: RepoFiles[] };
 /** Paths asked in one go, at most. */
-export const MAX_PATHS = 6;
+const MAX_PATHS = 6;
 
 type BlobNode = { text?: string | null; byteSize?: number; isBinary?: boolean | null } | null;
 type RepoNode = { nameWithOwner: string; pushedAt?: string | null } & Record<string, BlobNode | string | null | undefined>;
@@ -121,7 +121,7 @@ const SHA = /^[0-9a-fA-F]{40}$/;
 /** A PR as a pack reads it: its two ends and the paths it changes (`status`: added, removed, modified, renamed…). */
 export type ForgePr = { head: { ref: string; sha: string }; base: { ref: string; sha: string }; files: { path: string; status: string }[] };
 /** The most changed files a PR read gives. */
-export const MAX_PR_FILES = 300;
+const MAX_PR_FILES = 300;
 
 /** A PR's ends and changed paths; undefined when it isn't one (or isn't visible). */
 export async function loadPr(ghe: Ghe, repo: string, n: number): Promise<ForgePr | undefined> {
@@ -159,7 +159,7 @@ export async function loadDir(ghe: Ghe, repo: string, path: string, at: string):
 }
 
 /** The longest a pack may take an every-repo read to be. */
-export const MAX_AGE = 24 * 3600_000;
+const MAX_AGE = 24 * 3600_000;
 
 type Source = {
   repos?(owners: string): Promise<string[]>;

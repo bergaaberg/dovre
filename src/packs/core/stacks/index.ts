@@ -17,7 +17,7 @@ import { type StackPr, stacksOf, waitText } from "./model.ts";
 import { createStacks } from "./source.ts";
 import { stacksBody } from "./view.ts";
 
-export type StacksDeps = {
+type StacksDeps = {
   /** The forge, to walk the chains and retarget. */
   ghe: Ghe;
   /** Whose repos are mine (REPO_OWNERS): only theirs are read and written. */

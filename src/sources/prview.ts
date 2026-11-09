@@ -6,11 +6,11 @@
 import type { Ghe } from "./ghe.ts";
 import { checkState } from "./ghe.ts";
 
-export type ThreadComment = { author: string; body: string; at: string; url: string };
+type ThreadComment = { author: string; body: string; at: string; url: string };
 /** `id`: GHE's node id (to resolve it); `firstId`: its first comment's id (replies go to it). Empty when not known. */
 export type Thread = { path: string; line: number | null; side: "LEFT" | "RIGHT"; resolved: boolean; outdated: boolean; comments: ThreadComment[]; id?: string; firstId?: number };
-export type ReviewItem = { author: string; state: string; body: string; at: string; url: string };
-export type TimelineItem = { at: string; what: "commit" | "force-push" | "review-requested" | "ready" | "draft" | "merged" | "closed" | "reopened"; who: string; detail: string };
+type ReviewItem = { author: string; state: string; body: string; at: string; url: string };
+type TimelineItem = { at: string; what: "commit" | "force-push" | "review-requested" | "ready" | "draft" | "merged" | "closed" | "reopened"; who: string; detail: string };
 
 export type PrView = {
   repo: string;

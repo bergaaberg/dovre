@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 export type ToolsHarness = "omp" | "agy";
 export const TOOLS_HARNESSES: ToolsHarness[] = ["omp", "agy"];
 /** Each config's name for the bridge. */
-export const SERVER = "dovre";
+const SERVER = "dovre";
 
 export type Entry = { command: string; args: string[] };
 export type Reg = "yes" | "stale" | "no" | "unreadable";
@@ -77,7 +77,7 @@ export function ompFiles(home: string): string[] {
   return out;
 }
 
-export const agyFile = (home: string) => join(home, ".gemini", "config", "mcp_config.json");
+const agyFile = (home: string) => join(home, ".gemini", "config", "mcp_config.json");
 
 export function toolsState(h: ToolsHarness, home: string, want: Entry): Reg {
   return h === "omp" ? worst(ompFiles(home).map((f) => fileState(f, want))) : fileState(agyFile(home), want);

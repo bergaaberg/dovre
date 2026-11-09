@@ -49,7 +49,7 @@ async function textAt(ghe: Ghe, repo: string, path: string, ref: string): Promis
   return { text: textOf(bytesOf(r.content)) };
 }
 
-export type AddProposal = { repo: string; id: string; source?: string };
+type AddProposal = { repo: string; id: string; source?: string };
 
 /** On GitHub: reads the release, checks the instance, then the commit, the branch and the PR. Throws why it didn't; a branch it made is deleted again. */
 export async function proposeAdd(ghe: Ghe, get: GetJson, p: AddProposal): Promise<{ number: number; url: string; version: string }> {

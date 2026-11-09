@@ -18,7 +18,7 @@ import type { Harness, Run, StartOpts } from "../../runner.ts";
 import { effortIn, effortList, type HarnessDef, type HarnessOptions } from "../shared.ts";
 
 /** Codex's sandbox names for the modes (plan and default are both read-only), and `model_reasoning_effort`. No fork in exec. */
-export const CODEX_OPTIONS: HarnessOptions = {
+const CODEX_OPTIONS: HarnessOptions = {
   modes: {
     default: { label: "Read-only: look, don't change anything", short: "read-only" },
     acceptEdits: { label: "Workspace-write: edit and run in the checkout", short: "workspace-write" },
@@ -94,7 +94,7 @@ export function codexApply(run: Run, line: string): void {
 }
 
 /** The models offered for a Codex turn; empty is Codex's own default (its config.toml). */
-export const CODEX_MODELS: { value: string; label: string }[] = [
+const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "", label: "Codex's default model" },
   { value: "gpt-5-codex", label: "GPT-5 Codex" },
   { value: "gpt-5", label: "GPT-5" },

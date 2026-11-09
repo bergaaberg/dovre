@@ -30,7 +30,7 @@ export type BridgeSocket = {
   onerror: ((ev: unknown) => void) | null;
 };
 
-export type BridgeOpts = {
+type BridgeOpts = {
   /** wss://<hosted>/bridge */
   url: string;
   key: string;
@@ -57,7 +57,7 @@ export type BridgeOpts = {
   timing?: Partial<typeof TIMING>;
 };
 
-export const TIMING = { pingMs: 45_000, sessionsMs: 15_000, topicMs: 1000, stateMs: 500, backoffMs: 1000, maxBackoffMs: 60_000 };
+const TIMING = { pingMs: 45_000, sessionsMs: 15_000, topicMs: 1000, stateMs: 500, backoffMs: 1000, maxBackoffMs: 60_000 };
 
 export type Bridge = {
   /** A run changed (the runner's onChange). */

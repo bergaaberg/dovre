@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { repoOf } from "../format.ts";
 import type { Session } from "./claude.ts";
 
-export const defaultCodexDir = (): string => process.env.CODEX_HOME || join(homedir(), ".codex");
+const defaultCodexDir = (): string => process.env.CODEX_HOME || join(homedir(), ".codex");
 
 /** The first line of a file, at most `max` bytes of it. */
 function firstLine(file: string, max = 256 * 1024): string {

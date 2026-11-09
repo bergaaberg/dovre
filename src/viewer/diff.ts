@@ -78,7 +78,7 @@ export function wordDiff(a: string, b: string): { a: Mark[]; b: Mark[] } | undef
 }
 
 /** Pairs each run of removed lines with the added lines straight after it, line by line, and marks the words that changed. */
-export function markWords(lines: DiffLine[]): DiffLine[] {
+function markWords(lines: DiffLine[]): DiffLine[] {
   for (let i = 0; i < lines.length; ) {
     let d = i;
     while (lines[d]?.kind === "del") d++;
@@ -139,9 +139,9 @@ export const placeDrafts = (views: FileView[], comments: (Anchor & { path: strin
 export const placeMine = (views: FileView[], comments: (Anchor & { path: string })[]) => placeOn(views, comments, "mine");
 
 /** Files nobody reads line by line: shown folded, with a note. */
-export const GENERATED = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|packages\.lock\.json|Cargo\.lock|go\.sum|composer\.lock|poetry\.lock)$|\.min\.(js|css)$|\.snap$|(^|\/)(dist|build|out|bin|obj|node_modules|vendor)\/|\.designer\.cs$|\.g\.cs$|\.generated\.\w+$/i;
+const GENERATED = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|packages\.lock\.json|Cargo\.lock|go\.sum|composer\.lock|poetry\.lock)$|\.min\.(js|css)$|\.snap$|(^|\/)(dist|build|out|bin|obj|node_modules|vendor)\/|\.designer\.cs$|\.g\.cs$|\.generated\.\w+$/i;
 /** Past this many changed lines a file starts folded. */
-export const BIG = 400;
+const BIG = 400;
 
 export type FileView = { file: PrFile; lines: DiffLine[]; folded: boolean; why?: string; unplaced: Thread[]; threads: Thread[]; /** How many draft comments sit in it (placeDrafts). */ drafts?: number; /** How many of my pending comments (placeMine). */ mine?: number };
 

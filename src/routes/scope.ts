@@ -19,7 +19,7 @@ import type { Ghe } from "../sources/ghe.ts";
 import type { Speed } from "../speed.ts";
 import type { writeClicksStore } from "../writes.ts";
 
-export type AppDeps = Parameters<typeof createApp>[1];
+type AppDeps = Parameters<typeof createApp>[1];
 type Onboard = NonNullable<ReturnType<typeof onboardOf>>;
 
 export type AppScope = {

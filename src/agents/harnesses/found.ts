@@ -62,7 +62,7 @@ export function codexModelsIn(text: string): Model[] {
 }
 
 /** Where each CLI keeps the config its models are read from, and how. */
-export const configsOf = (home = homedir(), env: { CODEX_HOME?: string } = process.env): Partial<Record<HarnessId, { file: string; read: (text: string) => Model[] }>> => ({
+const configsOf = (home = homedir(), env: { CODEX_HOME?: string } = process.env): Partial<Record<HarnessId, { file: string; read: (text: string) => Model[] }>> => ({
   omp: { file: join(home, ".omp", "agent", "config.yml"), read: ompModelsIn },
   codex: { file: join(env.CODEX_HOME || join(home, ".codex"), "config.toml"), read: codexModelsIn },
 });

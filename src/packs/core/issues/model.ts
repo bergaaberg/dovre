@@ -11,7 +11,7 @@ export const SET_LABEL: Record<SetId, string> = { assigned: "Assigned", mentione
 export type IssuesKept = { at: number; sets?: IssueSets; error?: string; /** Who the sets are for. */ login?: string };
 
 export const DAY = 86_400_000;
-export const DEFAULT_STALE_DAYS = 14;
+const DEFAULT_STALE_DAYS = 14;
 
 /** ISSUES_STALE_DAYS: whole days, 1 to 365; anything else is the default. */
 export function staleDaysOf(raw: string | undefined): number {
@@ -39,7 +39,7 @@ export const keyOf = (i: Pick<Issue, "repo" | "number">) => `${i.repo}#${i.numbe
 export const FRESH_MS = DAY;
 
 /** The sets that ask something of me when an issue comes into them. */
-export const ASKING = ["assigned", "mentioned"] as const satisfies readonly SetId[];
+const ASKING = ["assigned", "mentioned"] as const satisfies readonly SetId[];
 
 /**
  * When each issue came into each asking set, by `set:key`. The first read only learns what's

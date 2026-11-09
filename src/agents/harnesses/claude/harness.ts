@@ -10,7 +10,7 @@ import { subagentOf, todosOf } from "../../todos.ts";
 import { effortIn, effortList, type HarnessDef, type HarnessOptions, mcpConfig, toolDetail, toolSpec } from "../shared.ts";
 
 /** The models offered for a Claude Code turn; empty is its own default. */
-export const CLAUDE_MODELS: { value: string; label: string }[] = [
+const CLAUDE_MODELS: { value: string; label: string }[] = [
   { value: "", label: "Default model" },
   { value: "opus", label: "Opus" },
   { value: "sonnet", label: "Sonnet" },
@@ -33,7 +33,7 @@ export const SANDBOX_NOTE =
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /** Claude Code's own words for the modes, its `--effort` levels, and `--fork-session` on a reply. */
-export const CLAUDE_OPTIONS: HarnessOptions = {
+const CLAUDE_OPTIONS: HarnessOptions = {
   modes: {
     default: { label: "Ask before edits and commands", short: "asks first" },
     acceptEdits: { label: "Edit files freely, ask before commands", short: "edits freely" },

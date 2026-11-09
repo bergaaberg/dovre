@@ -6,7 +6,7 @@
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-export const REPO_NAME = /^[\w.-]{1,100}$/;
+const REPO_NAME = /^[\w.-]{1,100}$/;
 
 const realDir = (p: string) => {
   try {

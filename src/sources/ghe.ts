@@ -27,14 +27,14 @@ export function apiEndpointsOf(host: string): { rest: string; graphql: string } 
 }
 
 /** A token, or a function that gives the current one (a rotating token: it's asked before every call, so caching is its job). */
-export type TokenSource = string | (() => Promise<string>);
+type TokenSource = string | (() => Promise<string>);
 
 /** Conditional GETs keep at most this many answers, each at most this big. */
 const KEEP_PATHS = 300;
 const KEEP_BYTES = 512 * 1024;
 
 /** List reads (my PRs, mentions, PR states) every isolate shares: each pays 1–5 GraphQL points. */
-export const LIST_SHARE_MS = 60_000;
+const LIST_SHARE_MS = 60_000;
 
 /** Who a token is (`GET /user`) is asked at most this often per token. */
 const WHO_MS = 3600_000;
@@ -274,7 +274,7 @@ export function normalizePr(p: PrNode): Pr {
 }
 
 /** How many files a PR changes, or null when the source didn't say (an empty list may just be unfetched). */
-export function fileCount(p: Pick<Pr, "files" | "changedFiles">): number | null {
+function fileCount(p: Pick<Pr, "files" | "changedFiles">): number | null {
   return p.changedFiles ?? (p.files.length ? p.files.length : null);
 }
 
@@ -380,7 +380,7 @@ export async function loadNotes(ghe: Ghe, o: { now?: number; days?: number; sear
 type Mentioned = { __typename?: string; id?: string; url?: string; title?: string; updatedAt?: string; repository?: { nameWithOwner: string } };
 
 /** Issues and PRs mentioning me, updated since `days` ago, as mention notes (newest first). */
-export async function searchNotes(ghe: Ghe, now: number, days: number): Promise<Note[]> {
+async function searchNotes(ghe: Ghe, now: number, days: number): Promise<Note[]> {
   const since = new Date(now - days * 86400e3).toISOString().slice(0, 10);
   const q = `mentions:@me updated:>=${since} sort:updated-desc`;
   const fields = "id url title updatedAt repository { nameWithOwner }";

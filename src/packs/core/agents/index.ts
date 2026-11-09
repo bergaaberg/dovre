@@ -41,7 +41,7 @@ import { autoShare } from "./share.ts";
 import { followFixes } from "../../../actions/autofix.ts";
 import { agentsSetup, SANDBOX_KIND } from "./setup.ts";
 
-export type AgentsDeps = {
+type AgentsDeps = {
   /** This machine's desk, or hosted the Mac's over the bridge. */
   desk: Desk;
   /** Sessions I've cleared away from Dovre's lists. */
@@ -63,7 +63,7 @@ export type AgentsDeps = {
 const NONE: Sessions = { live: [], recent: [] };
 
 /** Where its pages are, for the packs and core pages that link here (#394). */
-export const AGENT_LINKS: AgentShare = {
+const AGENT_LINKS: AgentShare = {
   start: (o = {}) => {
     const q = new URLSearchParams({ ...(o.repo ? { repo: o.repo } : {}), ...(o.prompt !== undefined ? { prompt: o.prompt } : {}) }).toString();
     return q ? `/agents/new?${q}` : "/agents/new";

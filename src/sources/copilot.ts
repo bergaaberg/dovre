@@ -58,7 +58,7 @@ export function parseWorkspace(text: string): Record<string, string> {
 }
 
 /** What a session's events say about it. `state` comes from its last events. */
-export type CopilotMeta = {
+type CopilotMeta = {
   sessionId?: string;
   cwd?: string;
   gitRoot?: string;
@@ -213,7 +213,7 @@ function workspaceOf(dir: string): Record<string, string> {
 }
 
 /** A running copilot: the session it was started with, when it says. */
-export type CopilotProcess = { pid: number; resume?: string };
+type CopilotProcess = { pid: number; resume?: string };
 
 const COMMANDS = new Set("app login help init config update version workflow sessions memories plugin mcp skill instruction lsp sandbox completion".split(" "));
 

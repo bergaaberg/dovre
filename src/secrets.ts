@@ -30,7 +30,7 @@ export type Cli = (cmd: string, args: string[], input?: string) => Promise<{ ok:
 /** 1Password may wait on Touch ID: half a minute is enough to answer it. */
 const CLI_MS = 30_000;
 
-export const runCli: Cli = (cmd, args, input) =>
+const runCli: Cli = (cmd, args, input) =>
   new Promise((done) => {
     const child = execFile(cmd, args, { timeout: CLI_MS, maxBuffer: 1 << 20, encoding: "utf8" }, (err, out, errOut) => {
       if (!err) return done({ ok: true, out });

@@ -61,7 +61,7 @@ function runRow(r: Run, all: Run[]) {
   return html`<li class="row"><a class="row-link" href="${r.sessionId ? `/agents/s/${r.sessionId}` : `/agents/r/${r.id}`}"><span class="row-k"><span class="breathe ${tone}" aria-hidden="true"></span>${r.repo}${harnessTag(r.harness, r.model)}</span><span class="row-t">${trunc(r.prompt.split("\n")[0], 140)}</span><span class="row-m">${label}<span>${Ago(r.startedAt)}</span>${cost ? html`<span>$${cost.toFixed(2)}</span>` : ""}</span></a></li>`;
 }
 
-export type AgentPick = { kind: "run"; run: Run } | { kind: "session"; session: Session };
+type AgentPick = { kind: "run"; run: Run } | { kind: "session"; session: Session };
 
 /**
  * What the agents card shows: what needs me first (an OK asked, a run that failed), then what's

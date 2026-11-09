@@ -15,14 +15,14 @@ import { addPack, listAvailablePacks, resolvePacksRepo } from "./cli.ts";
 import { type Listed, listedOf } from "./releases.ts";
 import { type FileChange, filesOf, gitShow, instancePath, META, outdated, type PackState, readMeta, releasesOf, sourceAllowed, sourceOf, updatePack, upstreamPath } from "./update.ts";
 
-export type CopyJob = { at: number; state: "running" | "done" | "failed"; step: string; changes?: FileChange[]; /** The end of the failing check's output. */ out?: string; /** Hosted Add: the PR it opened. */ url?: string };
+type CopyJob = { at: number; state: "running" | "done" | "failed"; step: string; changes?: FileChange[]; /** The end of the failing check's output. */ out?: string; /** Hosted Add: the PR it opened. */ url?: string };
 export type Copy = { id: string; into: string; state: PackState; source: string | null; commit: string | null; job?: CopyJob };
 export type Check = (into: string) => Promise<{ ok: boolean; step: string; out: string }>;
 /** A pack in the checkout, to add, and how its add went. */
 export type ToAdd = Listed & { job?: CopyJob };
 
 /** Each pack in a dovre-packs checkout, as its newest release's index.ts says (HEAD's when it has none). */
-export function listedIn(repo: string): Listed[] {
+function listedIn(repo: string): Listed[] {
   return listAvailablePacks(repo).flatMap((id) => {
     const at = upstreamPath(repo, id);
     if (!at) return [];
@@ -57,7 +57,7 @@ const run = (cwd: string, script: string) =>
   );
 
 /** The instance's own typecheck, then its tests (each only if its package.json has it). */
-export const instanceCheck: Check = async (into) => {
+const instanceCheck: Check = async (into) => {
   let scripts: Record<string, string> = {};
   try {
     scripts = (JSON.parse(readFileSync(join(into, "package.json"), "utf8")) as { scripts?: Record<string, string> }).scripts ?? {};

@@ -53,7 +53,7 @@ const WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "
 const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /** When it's due, said the short way, coloured only when it's due now or late. */
-export function dueOf(due: string | null, today: string, done = false): Html | "" {
+function dueOf(due: string | null, today: string, done = false): Html | "" {
   if (!due) return "";
   const d = daysUntil(due, today);
   const at = new Date(`${due}T12:00:00Z`);
@@ -161,7 +161,7 @@ const backTo = (form: Record<string, unknown>, id?: number) => {
 const idOf = (s: string) => (/^\d{1,9}$/.test(s) ? Number(s) : undefined);
 
 /** What the routes need from the pack: where links point, Bino, and what changed. */
-export type TodoRoutesDeps = {
+type TodoRoutesDeps = {
   ctx: PackContext;
   links: () => { ghe: string; org: string };
   now?: () => number;

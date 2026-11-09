@@ -14,7 +14,7 @@ const ID = /^[a-z][a-z0-9-]{0,31}$/;
 export { detectExportName, wirePackIntoFile } from "./wire.ts";
 
 /** Where the CLI keeps its own clone of dovre-packs when there's no checkout (#362). */
-export function packsCache(env: Record<string, string | undefined> = process.env): string {
+function packsCache(env: Record<string, string | undefined> = process.env): string {
   if (env.DOVRE_PACKS_CACHE) return resolve(env.DOVRE_PACKS_CACHE);
   return join(env.XDG_CACHE_HOME || join(env.HOME ?? homedir(), ".cache"), "dovre", "dovre-packs");
 }

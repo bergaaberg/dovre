@@ -66,7 +66,7 @@ export function offDiff(comments: Pending[], base: string, why: string): Html | 
   return Panel({ title: "Your comments not on this diff", meta: html`<span class="t3">${why}</span>`, children: html`${comments.map((c) => pendingCard(c, base))}` });
 }
 
-export type ReviewPageView = {
+type ReviewPageView = {
   header: Html;
   title: string;
   base: string;

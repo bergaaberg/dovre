@@ -46,7 +46,7 @@ function tile(label: string, value: string, note: Child, trend?: (number | undef
  * One thing /stats can show: a headline number (`tile`) or a panel, from a pack's `stats`.
  * Settings → Layout shows, hides and orders them by `id` (`<pack>:<id>`).
  */
-export type StatOffer = { id: string; label: string; from: string; tile?: boolean; draw: () => Child };
+type StatOffer = { id: string; label: string; from: string; tile?: boolean; draw: () => Child };
 
 function packOffer(st: StatOut): StatOffer {
   const fmt = UNIT_FMT[st.unit];

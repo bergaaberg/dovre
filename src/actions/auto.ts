@@ -34,7 +34,7 @@ type Forge = Pick<Ghe, "rest" | "graphql">;
 export type Found = { repo: string; number: number; title: string; updated: string };
 
 /** Open issues with the label in the owners' repos: one search, at most 50. */
-export async function findAuto(ghe: Forge, owners: string): Promise<Found[]> {
+async function findAuto(ghe: Forge, owners: string): Promise<Found[]> {
   if (!ownersOf(owners).length) return [];
   const q = `is:issue is:open label:"${AUTO_LABEL}" ${ownerQuery(owners)}`;
   const r = await ghe.rest<{ items?: { number: number; title: string; updated_at: string; repository_url: string; pull_request?: unknown }[] }>(`/search/issues?q=${encodeURIComponent(q)}&sort=created&order=asc&per_page=50`);
@@ -102,7 +102,7 @@ export function untrusted(c: IssueCheck, isOwner: (login: string | undefined) =>
 const quiet = (s: string, max: number) => s.replace(/@(?=[\w-])/g, "@​").slice(0, max);
 
 /** The comment, then the label swapped. Each step logged; a failed one doesn't stop the rest. */
-export async function closeOut(o: { db: D1; ghe: Forge; owners: string; row: Pick<AutoRow, "repo" | "number">; done: boolean; text: string }): Promise<void> {
+async function closeOut(o: { db: D1; ghe: Forge; owners: string; row: Pick<AutoRow, "repo" | "number">; done: boolean; text: string }): Promise<void> {
   const repo = ownedRepo(o.owners, o.row.repo);
   const kind = o.done ? "auto.done" : "auto.stuck";
   const target = `${o.row.repo}#${o.row.number}`;
@@ -194,7 +194,7 @@ function stuckReason(run: Run): string {
   return "It ended without committing anything.";
 }
 
-export type AutoDeps = {
+type AutoDeps = {
   db: D1;
   ghe: Forge;
   owners: string;

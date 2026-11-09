@@ -15,7 +15,7 @@ export const DEPENDABOT = "dependabot[bot]";
 /** At most this many PRs go into one combined PR (each is a merge on GitHub). */
 export const MAX_COMBINE = 30;
 
-export type BotPr = { repo: string; number: number; title: string; url: string; createdAt: string; security: boolean };
+type BotPr = { repo: string; number: number; title: string; url: string; createdAt: string; security: boolean };
 /** A combined PR Dovre opened: its checks (the head commit's rollup, null without any) and whether it can merge now. */
 export type Combined = { number: number; url: string; checks: string | null; mergeable: string | null; draft: boolean; /** The kinds of bump in it, from its body; unknown when any can't be told (#426). */ levels?: Level[] };
 /** Green, mergeable and not a draft: what may be ticked to merge. */

@@ -9,7 +9,7 @@ import { prNeeds } from "../sources/ghe.ts";
 
 const prHref = (p: { repo: string; number: number }) => `/prs#pr-${p.repo.replace(/[^\w-]/g, "-")}-${p.number}`;
 
-export type NeedKind = "deploy" | "ci" | "review" | "my-pr" | "mention" | "pack";
+type NeedKind = "deploy" | "ci" | "review" | "my-pr" | "mention" | "pack";
 
 /**
  * The core's kinds of notification (src/notify.ts RING_KINDS); packs add their own (manifest
@@ -41,7 +41,7 @@ export type Need = {
 export const KIND_LABEL: Record<NeedKind, string> = { deploy: "Deploy", ci: "Red build", review: "Review", "my-pr": "My PR", mention: "Mention", pack: "App" };
 
 /** Lower rank first, then the newest. */
-export const rankNeeds = (needs: Need[]): Need[] => [...needs].sort((a, b) => a.rank - b.rank || b.at - a.at);
+const rankNeeds = (needs: Need[]): Need[] => [...needs].sort((a, b) => a.rank - b.rank || b.at - a.at);
 
 const short = (repo: string, org: string) => repo.replace(new RegExp(`^${org}/`), "");
 

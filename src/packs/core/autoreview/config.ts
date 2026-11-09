@@ -12,9 +12,9 @@ import type { Ghe } from "../../../sources/ghe.ts";
 
 export const AUTO_CONFIG = ".dovre/auto.json";
 
-export type AutoConfig = { merge: boolean; sizeLimit?: number; notes: string[] };
+type AutoConfig = { merge: boolean; sizeLimit?: number; notes: string[] };
 
-export const NO_CONFIG: AutoConfig = { merge: false, notes: [] };
+const NO_CONFIG: AutoConfig = { merge: false, notes: [] };
 
 export function autoConfigOf(text: string | undefined): AutoConfig {
   if (text === undefined) return NO_CONFIG;

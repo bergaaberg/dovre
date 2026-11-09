@@ -174,7 +174,7 @@ type Spawn = (bin: string, args: string[], opts: { cwd: string; env?: Record<str
  * writes the agent's stream filtered down to what's shown here (never tool results), so that
  * file is safe to keep. Without it (tests), turns are this process's children, as before.
  */
-export type RunHost = { exe: string; dir: string };
+type RunHost = { exe: string; dir: string };
 
 /** A run as kept on disk: everything but what's rebuilt from its stream. */
 type Kept = Omit<Run, "events" | "partial"> & { pid?: number; mcp?: string };

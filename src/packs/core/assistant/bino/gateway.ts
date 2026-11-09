@@ -28,7 +28,7 @@ export const gatewayModelOf = (m: string | undefined) => GATEWAY_MODELS[(m ?? ""
 const within = (stop?: AbortSignal) => (stop ? AbortSignal.any([AbortSignal.timeout(180_000), stop]) : AbortSignal.timeout(180_000));
 
 /** Each `data:` of a Server-Sent Events body, parsed; `[DONE]` and what isn't JSON are skipped. */
-export async function eachEvent(res: Response, fn: (e: unknown) => void): Promise<void> {
+async function eachEvent(res: Response, fn: (e: unknown) => void): Promise<void> {
   if (!res.body) return;
   const read = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";

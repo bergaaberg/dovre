@@ -19,9 +19,9 @@ export type OmpAsker = {
 };
 
 /** Who is asking and which settings name its profile and model, for what it says when it can't run. */
-export type AskerWho = { name: string; profileVar: string; modelVar: string };
+type AskerWho = { name: string; profileVar: string; modelVar: string };
 
-export type OmpRun = (bin: string, args: string[], opts: { cwd: string; input: string; timeoutMs: number; maxBuffer: number }) => Promise<Ran>;
+type OmpRun = (bin: string, args: string[], opts: { cwd: string; input: string; timeoutMs: number; maxBuffer: number }) => Promise<Ran>;
 
 const PROFILE_NAME = /^[A-Za-z0-9_-]{1,40}$/;
 

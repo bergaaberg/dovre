@@ -9,7 +9,7 @@ export const HARNESS_LABEL: Record<HarnessId, string> = HARNESS_NAME;
 /** A mode in a few words, as this harness names it. */
 export const modeShort = (mode: string, h: HarnessId = "claude") => optionsOf(h).modes[mode as (typeof MODES)[number]]?.short ?? mode;
 
-export const modeSelect = (current = "default", h: HarnessId = "claude") => {
+const modeSelect = (current = "default", h: HarnessId = "claude") => {
   const names = optionsOf(h).modes;
   return html`<label class="field"><span class="label">Mode</span><select name="mode">${MODES.map((m) => html`<option value="${m}"${m === current ? html` selected` : ""}>${names[m].label}</option>`)}</select></label>`;
 };
@@ -24,7 +24,7 @@ export const modelSelect = (current = "", harnesses: HarnessId[] = ["claude"]) =
   }</select></label>`;
 
 /** The harness's effort levels, when it takes any. */
-export const effortSelect = (current = "", h: HarnessId = "claude") => {
+const effortSelect = (current = "", h: HarnessId = "claude") => {
   const list = optionsOf(h).efforts;
   return list.length ? html`<label class="field"><span class="label">Effort</span><select name="effort">${options(list, list.some((c) => c.value === current) ? current : "")}</select></label>` : "";
 };

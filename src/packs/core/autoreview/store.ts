@@ -8,7 +8,7 @@ import type { D1 } from "../../../db.ts";
 export type PrState = "reviewing" | "fixing" | "waiting-ci" | "merging" | "merged" | "closed" | "yours";
 
 /** One round's level, on the commit it reviewed. */
-export type LevelAt = { round: number; head: string; level: number; at: number };
+type LevelAt = { round: number; head: string; level: number; at: number };
 
 export type PrRow = {
   /** The PR's address on the forge. */

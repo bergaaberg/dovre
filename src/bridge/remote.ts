@@ -20,7 +20,7 @@ import type { Session } from "../sources/claude.ts";
 import { currentViewer, sees } from "../viewer.ts";
 import { LEGACY_MACHINE, type Call } from "./wire.ts";
 
-export type RemoteDesk = Desk & {
+type RemoteDesk = Desk & {
   /** Reads the hub's view of the machines again, unless it did a moment ago. */
   refresh(): Promise<void>;
   /** The models the machines online found in a harness's config (#238), without its default; none: the fixed list stays. */
@@ -33,7 +33,7 @@ const EMPTY: Sessions = { live: [], recent: [] };
 const READ_MS = 4000;
 
 /** How a machine is named on pages: the one from before several is "Mac"; else its own name. */
-export const machineName = (m: Pick<MachineView, "id" | "name">) => (m.id === LEGACY_MACHINE ? "Mac" : m.name || `machine ${m.id.slice(0, 6)}`);
+const machineName = (m: Pick<MachineView, "id" | "name">) => (m.id === LEGACY_MACHINE ? "Mac" : m.name || `machine ${m.id.slice(0, 6)}`);
 
 export function remoteDesk(hub: Pick<HubClient, "mac" | "call">, o: { ttlMs?: number; now?: () => number } = {}): RemoteDesk {
   const ttl = o.ttlMs ?? 2000;

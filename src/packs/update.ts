@@ -29,7 +29,7 @@ export { notesOf };
 
 export const META = ".pack.json";
 
-export type PackMeta = {
+type PackMeta = {
   /** `owner/repo` on GitHub, from the checkout's origin; null when it has none. */
   source: string | null;
   /** The commit copied from (the release's, or HEAD's when the pack has no releases); null outside git. */
@@ -101,7 +101,7 @@ export function instancePath(into: string, id: string): string {
 }
 
 /** The PACK_API a pack needs: a literal `api: "1.6"` in its index.ts, else the core its checkout links. */
-export function apiOf(repo: string, packDir: string): string {
+function apiOf(repo: string, packDir: string): string {
   const own = literalApi(readFileSync(join(packDir, "index.ts"), "utf8"));
   if (own) return own;
   const linked = join(repo, "node_modules", "dovre", "src", "packs", "types.ts");
@@ -149,7 +149,7 @@ export function targetOf(repo: string, id: string, to?: string): Target {
 }
 
 /** The pack's files at a commit, as paths inside it (`.pack.json` and node_modules left out). */
-export function filesAt(repo: string, commit: string, at: string): Map<string, Buffer> {
+function filesAt(repo: string, commit: string, at: string): Map<string, Buffer> {
   const out = new Map<string, Buffer>();
   const entries = (git(repo, ["ls-tree", "-r", "-z", commit, "--", `${at}/`]) ?? "")
     .split("\0")
@@ -278,7 +278,7 @@ export function describe(s: PackState): string {
 }
 
 export type FileChange = { file: string; how: "updated" | "added" | "removed" | "merged" };
-export type UpdateResult = { id: string; changes: FileChange[]; kept: string[]; from: string | null; to: string | null; fromVersion: string | null; toVersion: string | null };
+type UpdateResult = { id: string; changes: FileChange[]; kept: string[]; from: string | null; to: string | null; fromVersion: string | null; toVersion: string | null };
 
 function merge3(here: Buffer, base: Buffer, up: Buffer): Buffer | undefined {
   const tmp = mkdtempSync(join(tmpdir(), "dovre-merge-"));

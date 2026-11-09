@@ -10,7 +10,7 @@ import { MAX_FILE, ownedRepo, repoPath } from "../sources/files.ts";
 import { logAction } from "./deploys.ts";
 
 /** A file a PR writes: its new text, and what the pack saw there (null: no file). */
-export type ProposedFile = { path: string; text: string; expect: string | null };
+type ProposedFile = { path: string; text: string; expect: string | null };
 /** What the forge is asked to do, checked already (the owners, the paths, the sizes). */
 export type Proposal = { repo: string; files: ProposedFile[]; title: string; body: string; branch: string };
 /**

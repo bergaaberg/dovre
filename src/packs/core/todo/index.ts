@@ -8,10 +8,10 @@ import type { ListShare, Pack, PackContext } from "../../types.ts";
 import { addTodo, getTodo, listTodos } from "./store.ts";
 import { linkCtxOf, mountTodo, todoCard } from "./view.ts";
 
-export const TODO_PACK_ID = "todo";
+const TODO_PACK_ID = "todo";
 const HREF = "/todo";
 
-export type TodoDeps = {
+type TodoDeps = {
   /** Where a PR or issue reference links to: the forge's host and the owner a bare `repo#12` is in. */
   links: () => { ghe: string; org: string };
   /** Bino can answer now: the list offers talking a task through. */

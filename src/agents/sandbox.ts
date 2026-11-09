@@ -28,16 +28,16 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { allowOf, type Egress, openEgress, PLACEHOLDER_TOKEN } from "./egress.ts";
 
-export const SANDBOX_IMAGE = "dovre-sandbox";
+const SANDBOX_IMAGE = "dovre-sandbox";
 /** The host-only network every box is on. */
-export const SANDBOX_NET = "dovre-sandbox";
+const SANDBOX_NET = "dovre-sandbox";
 /** A repo's sandbox settings, read from its checkout at the run's base commit. */
-export const SANDBOX_CONFIG = ".dovre/sandbox.json";
+const SANDBOX_CONFIG = ".dovre/sandbox.json";
 /** A repo's toolchain on top of the base image, read from its checkout at the run's base commit. */
 export const TOOLCHAIN_FILE = ".dovre/sandbox.Containerfile";
 
 /** Where the subscription token is read from: SANDBOX_TOKEN_FILE, else ~/.dovre/sandbox-token. */
-export const sandboxTokenFile = (v: string | undefined = process.env.SANDBOX_TOKEN_FILE, home = homedir()) => v?.trim() || join(home, ".dovre", "sandbox-token");
+const sandboxTokenFile = (v: string | undefined = process.env.SANDBOX_TOKEN_FILE, home = homedir()) => v?.trim() || join(home, ".dovre", "sandbox-token");
 
 /** A sandbox run as the runner keeps it: its folder (the clone is `work/` in it), its container, the commit it started from, and the hosts it may reach. */
 export type SandboxBox = { dir: string; name: string; base: string; allow?: string[]; image?: string; siblings?: string[]; setup?: string };
@@ -261,7 +261,7 @@ export function toolchainWhy(file: string, base = SANDBOX_IMAGE): string | undef
 }
 
 /** A start that failed because of the repo (its clone, siblings, toolchain, base ref), not the machine: trying again won't help (#344). */
-export const repoError = (message: string): Error => Object.assign(new Error(message), { repo: true });
+const repoError = (message: string): Error => Object.assign(new Error(message), { repo: true });
 export const isRepoError = (e: unknown): boolean => (e as { repo?: unknown } | null)?.repo === true;
 
 /** The toolchain image's tag: the repo's folder name, and a hash of the base image and the file, so either changing builds anew. */
@@ -308,7 +308,7 @@ export function readToken(file: string): string {
 const RUN_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Free space a run needs before it starts: its clone, its container, and what the agent builds. */
-export const MIN_FREE = 10 * 2 ** 30;
+const MIN_FREE = 10 * 2 ** 30;
 const freeBytes = (dir: string): number => {
   const st = statfsSync(dir);
   return Number(st.bavail) * Number(st.bsize);

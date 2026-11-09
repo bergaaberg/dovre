@@ -11,8 +11,8 @@
 /** One call home. */
 export type SentCall = { k: "call"; at: number; host: string; path: string; method: string; purpose: string; status?: number; bytes: number; fields: string[] };
 /** Frames of one kind to one host within one hour (`hour` is the hour's start). */
-export type SentFrames = { k: "frames"; hour: number; host: string; kind: string; count: number; bytes: number };
-export type SentLine = SentCall | SentFrames;
+type SentFrames = { k: "frames"; hour: number; host: string; kind: string; count: number; bytes: number };
+type SentLine = SentCall | SentFrames;
 
 /** How long a record is kept. */
 export const KEEP_DAYS = 30;
@@ -157,7 +157,7 @@ export function recordOf(lines: SentLine[], now = Date.now(), maxCalls = 500): S
 export const frameKind = (t: string, op?: string) => (op && NAME.test(op) ? `${t}:${op}` : t);
 
 /** Every call Dovre can make to Dovre's own services, and why: the same list as dovre.dev's docs. */
-export type CatalogEntry = { id: string; who: string; what: string; to: string; sends: string; when: string; recorded: string };
+type CatalogEntry = { id: string; who: string; what: string; to: string; sends: string; when: string; recorded: string };
 export const CATALOG: readonly CatalogEntry[] = [
   {
     id: "bridge.token",

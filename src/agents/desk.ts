@@ -58,7 +58,7 @@ export type Copy = { sid?: string; run: string; startedAt: number; status: Run["
  * `replyCopies`: what I send goes to a copy (a terminal has the session open). `copies`: the
  * copies made of it from here; `copyOf`: the session this one is a copy of.
  */
-export type SessionView = { session?: Session; turns: Turn[]; run?: Run; queued: Queued[]; discardable: boolean; turnCost?: number; /** Its turns started here: cost, time, diff (#241). */ stats?: TurnStat[]; replyCopies?: boolean; copies?: Copy[]; copyOf?: string };
+type SessionView = { session?: Session; turns: Turn[]; run?: Run; queued: Queued[]; discardable: boolean; turnCost?: number; /** Its turns started here: cost, time, diff (#241). */ stats?: TurnStat[]; replyCopies?: boolean; copies?: Copy[]; copyOf?: string };
 
 /** A reply forks when the session is open elsewhere (a terminal; not a background agent, not this desk's own turn on it). */
 export const replyCopies = (session: Session | undefined, run: Run | undefined) => !!session?.live && session.kind !== "background" && run?.status !== "running";
@@ -109,9 +109,9 @@ export const modelOf = (v: unknown, h: HarnessId = "claude"): string => {
   return known.includes(String(v)) ? String(v) : "";
 };
 /** An effort the harness takes, else none (its own default). */
-export const effortOf = (v: unknown, h: HarnessId = "claude"): string | undefined => effortIn(optionsOf(h).efforts, v);
+const effortOf = (v: unknown, h: HarnessId = "claude"): string | undefined => effortIn(optionsOf(h).efforts, v);
 /** A ticked checkbox, as a form or the bridge sends it. */
-export const tickedOf = (v: unknown) => v === "on" || v === true;
+const tickedOf = (v: unknown) => v === "on" || v === true;
 /** A sandbox run's caps, as anyone may send them: a plain ref for the base, minutes 1–600 (as ms), dollars 0.01–1000, turns 1–500, a known effort. Anything else is left out. */
 export function capsOf(v: unknown): Pick<StartOpts, "base" | "maxMs" | "budget" | "turns" | "effort"> {
   if (!v || typeof v !== "object") return {};
@@ -126,10 +126,10 @@ export function capsOf(v: unknown): Pick<StartOpts, "base" | "maxMs" | "budget" 
 }
 /** A branch or remote-tracking ref: never an option (no leading dash), no revision syntax. */
 const REF = /^[\w][\w./-]{0,120}$/;
-export const promptOf = (v: unknown) => (typeof v === "string" && v.trim() && v.length <= 20_000 ? v.trim() : null);
+const promptOf = (v: unknown) => (typeof v === "string" && v.trim() && v.length <= 20_000 ? v.trim() : null);
 const one = (v: unknown) => (Array.isArray(v) ? v[0] : v);
 /** The specs of calls to allow: each one line, bounded, at most ten. */
-export const specsOf = (v: unknown): string[] =>
+const specsOf = (v: unknown): string[] =>
   [v]
     .flat()
     .filter((s): s is string => typeof s === "string" && s.length > 0 && s.length < 2000 && !/[\r\n]/.test(s))

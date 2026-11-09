@@ -41,7 +41,7 @@ export const ACTS = `You can also propose something for the user to do, when the
 The user sees each as a filled-in card: they can change it, and nothing happens until they press its button. Fill in everything you can, so one click is enough. Leave out a field you don't know rather than inventing it (an unknown repo or parent: leave it empty, and the form asks).`;
 
 /** A bug in Dovre itself: offered everywhere, since its card only opens the bug form (#384). */
-export const BUG_ACT = `When the user describes something broken in Dovre itself (this app, Bino included, or one of its packs), you can propose a bug report: a fenced block at the end of your reply, counted in the same ${MAX_ACTS}:
+const BUG_ACT = `When the user describes something broken in Dovre itself (this app, Bino included, or one of its packs), you can propose a bug report: a fenced block at the end of your reply, counted in the same ${MAX_ACTS}:
 
 \`\`\`${ACT_FENCE}
 {"kind": "bug", "title": "one line: what's wrong", "body": "what they did, what they expected, what happened", "page": "the Dovre page it happened on, a path like /prs, if known"}
@@ -100,7 +100,7 @@ Dev tasks: a repo in ${o.org}.`);
 export const APP_CHARS = 1500;
 const MAX_APPS = 24;
 /** Most core writes for a pack that says nothing itself. */
-export const DEFAULT_CHARS = 600;
+const DEFAULT_CHARS = 600;
 
 /**
  * What Bino hears about a pack that has no `bino` of its own: what it already shows on Today, from
@@ -155,7 +155,7 @@ export function transcriptOf(turns: Turn[], maxChars = 24_000, found = ""): stri
 }
 
 /** What the user's apps let Bino propose besides (the packs' acts), the same way: one block each, the same limit. */
-export function packActsPrompt(kinds: ActSpec[]): string {
+function packActsPrompt(kinds: ActSpec[]): string {
   if (!kinds.length) return "";
   const each = kinds.map((k) => {
     const example = JSON.stringify({ kind: k.kind, ...Object.fromEntries(k.fields.map((f) => [f.name, f.about])) });
@@ -176,7 +176,7 @@ export function systemOf(context: string, memories: string, o: { acts?: boolean;
 
 // ── A plan Bino proposes ──────────────────────────────────────────────────────
 
-export type PlanStep = { title: string; state: State; due: string | null };
+type PlanStep = { title: string; state: State; due: string | null };
 export type Plan = { title: string; notes: string; steps: PlanStep[] };
 
 const date = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) ? v : null);
