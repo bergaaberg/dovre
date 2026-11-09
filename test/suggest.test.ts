@@ -12,7 +12,6 @@ import { dependabotPack } from "../src/packs/core/dependabot/index.ts";
 import { deploysPack } from "../src/packs/core/deploys/index.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
 import { issuesPack } from "../src/packs/core/issues/index.ts";
-import { movementPack } from "../src/packs/core/movement/index.ts";
 import { prsPack } from "../src/packs/core/prs/index.ts";
 import { reviewsPack } from "../src/packs/core/reviews/index.ts";
 import { stacksPack } from "../src/packs/core/stacks/index.ts";
@@ -109,7 +108,7 @@ test("suggest: a bad id or a second pack with the same id is left out", () => {
 test("the core packs' declarations pass the checks unchanged, and a developer who uses agents gets the cockpit", () => {
   const core = [
     assistantPack(), autoreviewPack(), deploysPack({} as never), dependabotPack({} as never), historyPack({} as never), issuesPack({} as never),
-    movementPack(), prsPack({} as never), reviewsPack({} as never), stacksPack({} as never), terminalPack({} as never), todoPack({} as never),
+    prsPack({} as never), reviewsPack({} as never), stacksPack({} as never), terminalPack({} as never), todoPack({} as never),
   ].map((p) => p.manifest);
   for (const c of core) {
     assert.deepEqual(rolesOf(c), c.roles ?? [], c.id);

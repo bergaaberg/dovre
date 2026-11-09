@@ -71,7 +71,6 @@ import { bridgeEntry, registerTools, toolsState } from "./agents/mcpsetup.ts";
 import { type Need, needsOf } from "./home/needs.ts";
 import { listRepos } from "./sources/claude.ts";
 import { todoPack } from "./packs/core/todo/index.ts";
-import { movementPack } from "./packs/core/movement/index.ts";
 import { deploysPack } from "./packs/core/deploys/index.ts";
 import { systemOpener } from "./open-link.ts";
 import { type Policy, createNotifier, createRinger, loadPolicy, type Note, savePolicy, windowsToast } from "./notify.ts";
@@ -389,8 +388,6 @@ const corePacks = [
   summariesPack({ complete: summaryModel }),
   // Bino's switch (PACK_ASSISTANT=off).
   assistantPack(),
-  // Moved (/movement): what people did in the org lately, from the gather.
-  movementPack(),
   // Pull requests (/prs), and where the forge has it the PR viewer with my own review; Bino's model checks it.
   prsPack({ ghe, owners: () => ownersIn(env), forge, kept: keptAnswers, stale: () => gatherer.stale(), checker: () => { const ask = binoRoute.ask; return binoRoute.ready && ask ? { model: binoRoute.model, start: async (job, topic, publish) => void runCheck(db.DB, ask, job, () => publish([topic])) } : undefined; } }),
   // Stacked PRs (/stacks), where the forge has them; the viewer's "2 of 3 in a stack".

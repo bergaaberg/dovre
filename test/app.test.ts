@@ -9,7 +9,7 @@ import { historyPack } from "../src/packs/core/history/index.ts";
 import type { Run } from "../src/agents/runner.ts";
 import type { Pack } from "../src/packs/types.ts";
 
-const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", `/bino?q=${encodeURIComponent(H)}`, "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/movement", "/movement?view=timeline", "/movement?view=bots", "/movement?view=me", "/worktrees", "/deploys", "/stacks", "/search", "/search?q=a", "/stats"];
+const PAGES = ["/", "/terminal", "/code", "/compare", "/todo", "/bino", `/bino?q=${encodeURIComponent(H)}`, "/settings", `/settings?q=${encodeURIComponent(H)}`, "/settings/look", "/settings/layout", "/settings/notifications", "/settings/writes", "/settings/keys", "/settings/about", "/settings/calls", "/settings/sent", "/agents", "/agents/new", "/issues/new", "/issues/new?repo=ACME/FORMS", "/issues/new?kind=ticket&project=DEV", "/issues/new?kind=task", "/prs", "/worktrees", "/deploys", "/stacks", "/search", "/search?q=a", "/stats"];
 
 test("nobody without the cookie, or on another host, learns anything is here", async () => {
   const { app, get } = signedIn(snapshot());
@@ -499,4 +499,13 @@ test("Side by side (#242): hostile runs and what they said stay text; an unknown
   assert.ok(!out.includes('href="javascript:'), "a javascript: link got through");
   assert.equal((await get("/agents/pair/ffffffff")).status, 404);
   assert.equal((await get(`/agents/pair/${encodeURIComponent(H)}`)).status, 404);
+});
+
+test("without the Moved pack (dovre-packs since #465), core links nowhere it'd 404", async () => {
+  const { get } = signedIn(snapshot());
+  assert.equal((await get("/movement")).status, 404);
+  const today = await (await get("/")).text();
+  assert.doesNotMatch(today, /href="\/movement"/, "not on Today or in the menu");
+  assert.match(today, /<meta name="u-go-off" content="[^"]*\bm\b/, "g m does nothing");
+  assert.doesNotMatch(await (await get("/search?q=timeline")).text(), /href="\/movement"/);
 });
