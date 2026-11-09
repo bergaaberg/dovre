@@ -21,6 +21,31 @@ export { Ago, failed, Link, safeUrl, trunc } from "./pages/parts.ts";
 /** Core's Markdown, as inert HTML. */
 export { markdown } from "./ui/markdown.ts";
 
+// ── API 1.27 (#474): what packs reached into core for, by its own name ──
+
+/** What a pack's routes and its `ctx.db` are typed with. */
+export type { App, AppEnv } from "./env.ts";
+export type { D1, D1Statement } from "./db.ts";
+/** What's gathered (`ctx.snapshot()`), and what it says needs me. `needsOf` is pure. */
+export type { Snapshot } from "./gather.ts";
+export { type Need, needsOf } from "./home/needs.ts";
+/** The forge contract: what a pack that brings a forge (`manifest.forge`) implements, and what a forge hands out. */
+export type { Changelog, Deploy, Forge, ForgeCan, ForgeDecl, ForgeWork, Issue, IssueSets, Move, Note, Pr, PrRef } from "./forge/types.ts";
+export type { EveryRepo } from "./sources/files.ts";
+/** What `ctx.forge().propose` takes and answers. */
+export type { PackProposal, Proposal, Proposed } from "./actions/propose.ts";
+/** The guard for a pack's routes that run things as me: every write says it comes from this app's own origin. */
+export { strictOrigin } from "./strict.ts";
+/** Slow loads by key, each answered within a budget, and what the page shows meanwhile. */
+export { later, Reading } from "./pages/later.ts";
+/** The keys the `ai.summary` slot is asked by. */
+export { deploySummaryKey, prSummaryKey } from "./gather.ts";
+/** Pure helpers: moves per person, a PR's "in N files", the hour in my time zone, a short content hash, at most one call per `ms`. */
+export { byPerson, inFiles } from "./sources/ghe.ts";
+export { hourAt } from "./when.ts";
+export { hashOf } from "./ui/style.ts";
+export { throttle } from "./live.ts";
+
 /** The kit's requests-and-errors chart; as a type, what the header's pulse shows (`PulseFeed` is what a pack reports). */
 export const Pulse = PulseChart;
 export type Pulse = PulseState;

@@ -4,3 +4,5 @@
  */
 export * from "./packs/testing.ts";
 export { assertDoors, PACK_DOOR, PACK_TEST_DOOR, reachIns } from "./packs/imports.ts";
+/** A fresh in-memory database with core's tables, for a pack's store tests. */
+export { openDb } from "./db.ts";
