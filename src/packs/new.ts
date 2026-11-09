@@ -7,9 +7,11 @@
  *   packs/<id>/view.ts   its pages and cards (html`` only, every link through safeUrl)
  *   packs/<id>/test/<id>.test.ts  its tests, a hostile-input case among them (they live with the pack)
  *
+ * and, once per instance, test/imports.test.ts: packs import core only as dovre/pack.ts (#473).
+ *
  * Never overwrites a file. The instance's packs.ts gets the pack added by hand (the line to add is printed).
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { addPack, listAvailablePacks, resolvePacksRepo } from "./cli.ts";
 import { PACK_API } from "./types.ts";
@@ -30,7 +32,7 @@ export function scaffold(id: string, named?: string): Record<string, string> {
     [`packs/${id}/index.ts`]: `/**
  * ${name}: what this app is, in a line. Its page is /${id}; Today gets a card once it has read something.
  */
-import type { Pack } from "dovre/packs/types.ts";
+import type { Pack } from "dovre/pack.ts";
 import { type Kept, read } from "./data.ts";
 import { ${c}Card, ${c}Page } from "./view.ts";
 
@@ -62,7 +64,7 @@ export const ${c}Pack: Pack = {
 };
 `,
     [`packs/${id}/data.ts`]: `/** What ${name} says, read into memory by refresh(); pages and cards only ever read this. */
-import type { PackContext } from "dovre/packs/types.ts";
+import type { PackContext } from "dovre/pack.ts";
 
 export type Kept = { at: number; items: { title: string; href?: string }[] };
 
@@ -72,9 +74,7 @@ export async function read(ctx: PackContext, now = Date.now()): Promise<Kept> {
 }
 `,
     [`packs/${id}/view.ts`]: `/** ${name}'s page and Today card. Text goes in through html\`\`, which escapes it; links through safeUrl. */
-import { html } from "hono/html";
-import { safeUrl } from "dovre/pages/parts.ts";
-import { Card, Empty, Item, List, PageHeader, Panel } from "dovre/ui/kit.ts";
+import { Card, Empty, html, Item, List, PageHeader, Panel, safeUrl } from "dovre/pack.ts";
 import type { Kept } from "./data.ts";
 
 const items = (k: Kept) => List(k.items.map((i) => Item({ href: i.href ? safeUrl(i.href) : undefined, title: i.title })));
@@ -91,7 +91,7 @@ export const ${c}Card = (k: Kept) => Card({ id: "${id}-now", title: ${n}, childr
     [`packs/${id}/test/${id}.test.ts`]: `/** ${name}: its page from what it read, and hostile text inert. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertFragment, assertScoped, testContext } from "dovre/packs/testing.ts";
+import { assertFragment, assertScoped, testContext } from "dovre/pack-testing.ts";
 import { ${c}Pack } from "../index.ts";
 import { ${c}Page } from "../view.ts";
 
@@ -117,6 +117,15 @@ test("${id}: a refresh reads, then tells its pages", async () => {
 });
 `,
   };
+}
+
+/** The instance's one-door test (templates/instance has the same file): written with its first pack, then left alone. */
+export const DOORS_TEST = "test/imports.test.ts";
+export function writeDoorsTest(into: string): string | null {
+  if (existsSync(join(into, DOORS_TEST))) return null;
+  mkdirSync(dirname(join(into, DOORS_TEST)), { recursive: true });
+  writeFileSync(join(into, DOORS_TEST), readFileSync(join(import.meta.dirname, "..", "..", "templates", "instance", DOORS_TEST), "utf8"), { flag: "wx" });
+  return DOORS_TEST;
 }
 
 /** Writes the files into `into`; refuses to touch one that's there. */
@@ -200,6 +209,8 @@ if (import.meta.main) {
   try {
     const id = rest[1];
     for (const p of writeScaffold(into, scaffold(id))) console.log(`wrote ${join(into, p)}`);
+    const doors = writeDoorsTest(into);
+    if (doors) console.log(`wrote ${join(into, doors)} (packs import core only as dovre/pack.ts; list what can't move yet)`);
     console.log(`\nAdd it to ${join(into, "packs.ts")}:\n  import { ${camel(id)}Pack } from "./packs/${id}/index.ts";\n  …and ${camel(id)}Pack in its list.`);
   } catch (e) {
     console.error(String((e as Error).message ?? e));

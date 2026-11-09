@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { scaffold, writeScaffold } from "../src/packs/new.ts";
+import { DOORS_TEST, scaffold, writeDoorsTest, writeScaffold } from "../src/packs/new.ts";
 
 const core = resolve(import.meta.dirname, "..");
 
@@ -31,7 +31,9 @@ test("pack new: written into an instance that links core, its own tests pass and
   writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
   writeScaffold(dir, scaffold("fresh"));
   writeFileSync(join(dir, "packs.ts"), `import { freshPack } from "./packs/fresh/index.ts";\nexport default [freshPack];\n`);
-  const own = spawnSync(process.execPath, ["--test", join(dir, "packs", "fresh", "test", "fresh.test.ts")], { encoding: "utf8" });
+  assert.equal(writeDoorsTest(dir), DOORS_TEST);
+  assert.equal(writeDoorsTest(dir), null, "the one-door test is written once, then left alone");
+  const own = spawnSync(process.execPath, ["--test", join(dir, "packs", "fresh", "test", "fresh.test.ts"), join(dir, DOORS_TEST)], { encoding: "utf8" });
   assert.equal(own.status, 0, own.stdout + own.stderr);
   const check = spawnSync(process.execPath, ["--input-type=module", "-e", `
     const { loadPacks } = await import(${JSON.stringify(pathToFileURL(join(core, "src/packs/load.ts")).href)});
