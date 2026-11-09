@@ -644,8 +644,6 @@ export type LookupKind = {
  * pack that shows how things are (a picture of me: busy while anything works, rain in a storm).
  */
 export type PulseFeed = { working?: number; asking?: number; trouble?: { level: "storm" | "fire"; why: string; href?: string }; /** I'm on duty (an on-call rota). */ onDuty?: boolean };
-/** @deprecated The old name of PulseFeed. */
-export type AvatarFeed = PulseFeed;
 /** The packs' pulses summed (PackContext.pulse): counts kept to 0–99, a line per trouble. */
 export type Pulse = { working: number; asking: number; trouble: { level: "storm" | "fire"; why: string; href?: string }[]; /** A pack says I'm on duty. */ onDuty?: boolean; /** Something has me at work: a pack's thing working, or Bino answering. */ busy: boolean };
 
@@ -657,8 +655,6 @@ export type Defer = (p: Promise<unknown>) => void;
 export type PackWrite = {
   kind: string;
   label: string;
-  /** @deprecated Ignored: every kind takes one click unless I set it to ask twice. */
-  floor?: "twice";
 };
 
 /**
@@ -758,8 +754,6 @@ export type Pack = {
   refs?(ctx: PackContext): RefRule[];
   /** Its pulse now, from memory (agents: turns and sessions; signals: red ones): see PulseFeed. */
   pulse?(ctx: PackContext): PulseFeed | null | undefined;
-  /** @deprecated The old name of `pulse`, read when a pack has no `pulse`. */
-  avatar?(ctx: PackContext): PulseFeed | null | undefined;
   /**
    * PR links its pages show (URLs), from memory: the gather looks up each one's state and title
    * (Snapshot.refs), so a page can say it merged. Agents: the PRs their sessions opened.

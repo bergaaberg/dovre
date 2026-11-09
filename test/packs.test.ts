@@ -819,10 +819,7 @@ test("pulse and linked: summed and kept to size across the packs; troubles a lin
   assert.deepEqual(linkedFrom([a, b, boom, odd], () => ({}) as never, log), ["https://acme.ghe.com/ACME/x/pull/1"]);
   assert.deepEqual(logged, ["boom: pulse: no", "boom: linked: no"]);
   // On duty: one pack saying so is enough; anything but true says nothing.
-  // The old name (`avatar`) still counts; with both, `pulse` is read.
-  const duty = pack({ id: "duty" }, { avatar: () => ({ onDuty: true }) });
-  const both = pack({ id: "both" }, { pulse: () => ({ working: 1 }), avatar: () => ({ working: 50 }) });
-  assert.equal(pulseFrom([both], () => ({}) as never, log).working, 1);
+  const duty = pack({ id: "duty" }, { pulse: () => ({ onDuty: true }) });
   const maybe = pack({ id: "maybe" }, { pulse: () => ({ onDuty: "yes" as never }) });
   assert.equal(pulseFrom([a, duty], () => ({}) as never, log).onDuty, true);
   assert.equal(pulseFrom([a, maybe], () => ({}) as never, log).onDuty, undefined);
