@@ -13,7 +13,7 @@ import { assertDoors, reachIns } from "../src/pack-testing.ts";
 const src = resolve(import.meta.dirname, "..", "src");
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
-/** dovre/pack.ts at PACK_API 1.26, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
+/** dovre/pack.ts at PACK_API 1.27, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
   ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
@@ -23,11 +23,13 @@ const PACK = words(`
   Pick Pill Post PrSlotArg Pulse PulseFeed Read Ref RefRule RingDecl Role ScheduledEvent SetupStep SlotMap SlotName Slots SpanSlotArg Spark Stat
   StatUnit Stats Tab Tabs TodayCard Tone ToolCall ToolResult WasmFile Wrote assignAct commentAct createAct failed fieldInputs html icon
   investigateHref isExternal markdown newTab refused safeUrl statusAct trunc writeAct
+  App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
+  Reading Snapshot byPerson deploySummaryKey hashOf hourAt inFiles later needsOf prSummaryKey strictOrigin throttle
 `);
 
 /** dovre/pack-testing.ts. */
 const TESTING = words(`
-  HOSTILE PACK_DOOR PACK_TEST_DOOR assertDoors assertFragment assertInert assertScoped packApp reachIns testAgentLinks testAgentsPack testContext
+  HOSTILE PACK_DOOR PACK_TEST_DOOR assertDoors assertFragment assertInert assertScoped openDb packApp reachIns testAgentLinks testAgentsPack testContext
   testDeploy testPr testSession testSnapshot
 `);
 
