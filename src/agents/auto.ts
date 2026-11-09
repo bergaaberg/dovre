@@ -261,4 +261,3 @@ export function fixStore(db: D1, now: () => number = Date.now) {
     },
   };
 }
-export type FixStore = ReturnType<typeof fixStore>;

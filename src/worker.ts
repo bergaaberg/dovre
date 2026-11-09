@@ -257,7 +257,7 @@ const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Obj
 
 type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier };
 
-export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, for an instance not yet renamed. */ crates?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
+export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.1";
   // One app per isolate: its caches outlive a request (bindings don't change within an isolate).
   let hosted: Hosted | undefined;
@@ -283,7 +283,7 @@ export function createWorker(opts: { packs?: Pack[]; /** Its name before WP-M4, 
     const strings = stringsOf(bindings);
     // A store's reference (#428): its pack starts off, and turns on once the start has read it.
     const keys = hostedKeys(strings, { log: (l) => console.log(`secrets: ${l}`) });
-    const instancePacks = opts.packs ?? opts.crates ?? [];
+    const instancePacks = opts.packs ?? [];
     // GitHub unless FORGE names a forge one of the instance's packs brings (src/forge/pick.ts).
     const forgeId = forgeIdOf(bindings.FORGE);
     const ghe = forgeId === "github" ? createHostedGhe(bindings, opts.githubToken) : missingGhe(hostOf(bindings), `GitHub isn't this instance's forge (FORGE=${forgeId}).`);

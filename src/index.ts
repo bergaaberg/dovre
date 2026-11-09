@@ -18,8 +18,7 @@ import { startingPage } from "./pwa.ts";
 import { openDb } from "./db.ts";
 import { loadEnv, rawVars } from "./env.ts";
 import { createKeys } from "./secrets.ts";
-import { LEGACY_SWITCHES, legacyOff, loadConfig, panesOf, runningOf, saveConfig } from "./config.ts";
-import { layoutStore } from "./layout.ts";
+import { loadConfig, panesOf, runningOf, saveConfig } from "./config.ts";
 import { setWhen } from "./when.ts";
 import { ompAsker } from "./ai/omp.ts";
 import { runOff } from "./spawn.ts";
@@ -107,17 +106,6 @@ const db = openDb({ path: dbPath });
 if (db.applied.length) console.log(`migrations applied: ${db.applied.join(", ")}`);
 // What Settings keeps (src/config.ts), under the environment and .dev.vars.
 let config = await loadConfig(db.DB);
-// Terminal, Docker and Bino were switched off on Settings → Panes; now their packs are (#271). Moved once:
-// an "off" goes to the pack's switch, and the old key goes (BINO_VIA stays when it names a route).
-const oldSwitches = Object.keys(config).filter((k) => k === "TERMINAL" || k === "DOCKER" || (k in LEGACY_SWITCHES && legacyOff({ [k]: config[k] }).length));
-if (oldSwitches.length) {
-  const layout = layoutStore(db.DB);
-  await layout.ready;
-  const movedOff = legacyOff(config);
-  if (movedOff.length) await layout.save({ ...layout.get(), packsOff: [...new Set([...(layout.get().packsOff ?? []), ...movedOff])] });
-  config = Object.fromEntries(Object.entries(config).filter(([k]) => !oldSwitches.includes(k)));
-  await saveConfig(db.DB, config);
-}
 let env = loadEnv(config);
 setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
 const setup = { token: launch, port, dataDir, version, supervised, publicOrigin, listenHost };
@@ -155,8 +143,8 @@ const packEnv = rawVars(config);
 // Secret settings given as a store's reference (#416): read now, before the packs built from them load.
 const keys = createKeys(packEnv, { varsFile: ".dev.vars", log: (l) => console.log(`secrets: ${l}`) });
 await keys.read();
-// An old switch set off in .dev.vars or the environment can't be moved: it switches its pack off there.
-for (const id of legacyOff(packEnv)) packEnv[`PACK_${id.toUpperCase()}`] ??= "off";
+// The panes' old switches (#271) aren't read any more: say so, rather than a pack quietly coming back on.
+for (const [k, id] of Object.entries({ TERMINAL: "TERMINAL", DOCKER: "DOCKER", STATS: "HISTORY", REVIEWS: "REVIEWS" })) if (packEnv[k]) console.warn(`${k} isn't read any more: use PACK_${id}=off`);
 const loaded = await loadPacks(env.PACKS, packEnv);
 // GitHub as the forge needs a login: the setup page says how, until there is one. Another forge's pack asks for its own.
 const gheToken = !onGithub ? undefined : (env.GHE_TOKEN ?? (await serveSetup({ ...setup, problem: { kind: "login", host: env.GHE_HOST }, check: async () => !!loadEnv().GHE_TOKEN })));

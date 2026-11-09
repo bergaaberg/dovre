@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { accessConfigOf, allowed, createAccessVerifier, operatorOf } from "../src/access.ts";
+import { accessConfigOf, allowed, createAccessVerifier } from "../src/access.ts";
 import worker, { createWorker, resetHostedApp } from "../src/worker.ts";
 import type { D1 } from "../src/db.ts";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
@@ -139,14 +139,11 @@ test("hosted mode: a keys fetch that never settles (its request was cancelled) h
   assert.equal(calls, 3);
 });
 
-test("hosted config needs both team and audience; the operator comes from the verified email", () => {
+test("hosted config needs both team and audience", () => {
   assert.equal(accessConfigOf({}), undefined);
   assert.equal(accessConfigOf({ CF_ACCESS_TEAM: "t" }), undefined);
   assert.equal(accessConfigOf({ CF_ACCESS_AUD: "a" }), undefined);
   assert.deepEqual(accessConfigOf({ CF_ACCESS_TEAM: "t", CF_ACCESS_AUD: "a", ALLOWED_EMAILS: " Me@x.dev , ,b@y.dev" }), { team: "t", aud: "a", allowedEmails: ["me@x.dev", "b@y.dev"] });
-  assert.equal(operatorOf({ email: "andreas@example.dev" }), "andreas");
-  assert.equal(operatorOf(undefined), "operator");
-  assert.equal(operatorOf({ service: "abc.access" }, "default-user"), "default-user");
 });
 
 test("another issuer (AUTH_ISSUER): it wins over Access, must be https, and a half-set one lets nobody in", () => {

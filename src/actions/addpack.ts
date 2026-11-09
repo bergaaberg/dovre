@@ -71,8 +71,7 @@ export async function proposeAdd(ghe: Ghe, get: GetJson, p: AddProposal): Promis
   const info = await ghe.rest<{ default_branch: string }>(`/repos/${p.repo}`);
   const base = info.default_branch;
   const packsTs = await textAt(ghe, p.repo, "packs.ts", base);
-  const cratesTs = packsTs ? undefined : await textAt(ghe, p.repo, "crates.ts", base);
-  const listing = packsTs ? { path: "packs.ts", sub: "packs", ...packsTs } : cratesTs ? { path: "crates.ts", sub: "crates", ...cratesTs } : undefined;
+  const listing = packsTs ? { path: "packs.ts", sub: "packs", ...packsTs } : undefined;
   if (!listing) throw new Error(`${p.repo} has no packs.ts.`);
   const dest = `${listing.sub}/${p.id}`;
   const there = await ghe.rest(`/repos/${p.repo}/contents/${dest}?ref=${encodeURIComponent(base)}`).then(() => true, (e) => (is404(e) ? false : Promise.reject(e)));

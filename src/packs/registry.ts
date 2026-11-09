@@ -36,7 +36,7 @@ export const missingWhy = (key: string, unread?: Record<string, string>): string
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const OFF = /^(off|false|no|0)$/i;
-/** A pack's id as its switch names it: PACK_<ID> (CRATE_<ID>, its name before WP-M4, still read). */
+/** A pack's id as its switch names it: PACK_<ID>. */
 const envId = (id: string) => id.toUpperCase().replace(/-/g, "_");
 
 /** Sorts packs into those that run here and those that don't, each with its reason. */
@@ -50,7 +50,7 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
     if (!m || !ID.test(m.id)) no("its id isn't lowercase letters, digits and dashes");
     else if (seen.has(m.id)) no("another pack has the same id");
     else if (apiGap(m.api)) no(apiGap(m.api)!);
-    else if (OFF.test((opts.env[`PACK_${envId(m.id)}`] ?? opts.env[`CRATE_${envId(m.id)}`] ?? "").trim())) no(`switched off in .dev.vars or the environment (PACK_${envId(m.id)}=off)`);
+    else if (OFF.test((opts.env[`PACK_${envId(m.id)}`] ?? "").trim())) no(`switched off in .dev.vars or the environment (PACK_${envId(m.id)}=off)`);
     else if (opts.hosted && m.execution === "local-only") no("runs only on a machine, not hosted");
     else if (!opts.hosted && m.execution === "hosted-only") no("runs only hosted (it needs the Worker's bindings)");
     else if (opts.hosted && m.requiredBindings?.some((b) => !(b in (opts.bindings ?? {})))) no(`missing binding ${m.requiredBindings.find((b) => !(b in (opts.bindings ?? {})))}`);

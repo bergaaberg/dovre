@@ -1028,8 +1028,6 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
   });
 
-  // Its address before WP-M4.
-  app.get("/crates", (c) => c.redirect("/packs", 301));
   /** Investigate (#214): what a pack handed on, to send to Bino or a new agent session. */
   app.get("/investigate", async (c) => {
     const { frame } = await page();

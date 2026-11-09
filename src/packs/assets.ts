@@ -65,7 +65,7 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : undefined);
   const out = resolve(flag("--out") ?? ".assets");
-  const entry = ["packs.ts", "crates.ts"].map((f) => resolve(f)).find(existsSync);
+  const entry = [resolve("packs.ts")].find(existsSync);
   try {
     const packs = entry ? ((await import(pathToFileURL(entry).href)) as { default: Pack[] }).default : [];
     const wrote = await buildAssets({ packs, out });

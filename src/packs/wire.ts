@@ -1,5 +1,5 @@
 /**
- * Wiring a pack into an instance's `packs.ts` (or `crates.ts`), as text: `pnpm packs add` locally
+ * Wiring a pack into an instance's `packs.ts`, as text: `pnpm packs add` locally
  * (src/packs/cli.ts) and hosted Add's PR (src/actions/addpack.ts). Worker-safe.
  */
 const camel = (id: string) => id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
@@ -14,7 +14,7 @@ export function detectExportName(indexTs: string, id: string): string {
 }
 
 /**
- * Adds an import and array entry for `exportName` in an instance's `crates.ts` or `packs.ts`.
+ * Adds an import and array entry for `exportName` in an instance's `packs.ts`.
  * Idempotent: if already imported, returns the file unchanged.
  */
 export function wirePackIntoFile(sourceText: string, relImport: string, exportName: string): string {
@@ -31,8 +31,8 @@ export function wirePackIntoFile(sourceText: string, relImport: string, exportNa
     next = importLine + next;
   }
 
-  // Add to `const crates: Crate[] = [...]` or `const packs: Pack[] = [...]` or `export default [...]`
-  const listRe = /((?:const\s+(?:crates|packs)\s*(?::[^=]+)?=\s*|export\s+default\s*)\[)([^\]]*)(\])/;
+  // Add to `const packs: Pack[] = [...]` or `export default [...]`
+  const listRe = /((?:const\s+packs\s*(?::[^=]+)?=\s*|export\s+default\s*)\[)([^\]]*)(\])/;
   if (listRe.test(next)) {
     next = next.replace(listRe, (_m, open: string, inner: string, close: string) => {
       const trimmed = inner.trim();

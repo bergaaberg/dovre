@@ -76,7 +76,6 @@ export function harnessesOn(setting: string | undefined): (h: AgentCli) => boole
   return list.length ? (h) => list.includes(h) : () => true;
 }
 
-/** AI summaries go to Claude: on when Claude Code is here, unless SUMMARIES says no; never without it. */
 /**
  * Which model writes the summaries: `claude` (Haiku through Claude Code), `omp` (a Copilot model through
  * omp) or `copilot` (Copilot CLI). SUMMARIES may name one; `on` or unset takes Claude Code when it's here,
@@ -90,7 +89,6 @@ export function summariesVia(setting: string | undefined, claudeFound: boolean, 
   void agyFound;
   return claudeFound ? "claude" : ompFound ? "omp" : copilotFound ? "copilot" : "off";
 }
-export const summariesWanted = (claudeFound: boolean, setting?: string) => claudeFound && (setting ? !/^(off|no|false|0)$/i.test(setting.trim()) : true);
 
 /**
  * PATH with the folders agent CLIs install to (H8). A bridge started at login (launchd, systemd,

@@ -90,16 +90,14 @@ export function sourceOfUrl(url: string): string | null {
   return m ? `${m[1]}/${m[2]}` : null;
 }
 
-/** Where pack `<id>` lives in a dovre-packs checkout (packs/, or crates/ in old ones), as a path inside it. */
+/** Where pack `<id>` lives in a dovre-packs checkout, as a path inside it. */
 export function upstreamPath(repo: string, id: string): string | undefined {
-  for (const sub of ["packs", "crates"]) if (existsSync(join(repo, sub, id, "index.ts"))) return `${sub}/${id}`;
-  return undefined;
+  return existsSync(join(repo, "packs", id, "index.ts")) ? `packs/${id}` : undefined;
 }
 
-/** Where an instance keeps pack `<id>`: packs/, or crates/ in an instance that still has crates.ts. */
+/** Where an instance keeps pack `<id>`. */
 export function instancePath(into: string, id: string): string {
-  const crates = existsSync(join(into, "crates.ts")) && !existsSync(join(into, "packs.ts"));
-  return join(into, crates ? "crates" : "packs", id);
+  return join(into, "packs", id);
 }
 
 /** The PACK_API a pack needs: a literal `api: "1.6"` in its index.ts, else the core its checkout links. */

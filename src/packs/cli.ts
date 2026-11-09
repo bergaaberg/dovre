@@ -1,7 +1,7 @@
 /**
  * Installs a pre-built pack from `dovre-packs` (`pnpm packs add`, run from src/packs/new.ts) into an
  * instance repository, records where it came from in `.pack.json` (src/packs/update.ts), and wires
- * it into `crates.ts` / `packs.ts` (WP-M6).
+ * it into `packs.ts` (WP-M6).
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -19,7 +19,7 @@ export function packsCache(env: Record<string, string | undefined> = process.env
   return join(env.XDG_CACHE_HOME || join(env.HOME ?? homedir(), ".cache"), "dovre", "dovre-packs");
 }
 
-const isPacksRepo = (dir: string) => existsSync(join(dir, "packs")) || existsSync(join(dir, "crates"));
+const isPacksRepo = (dir: string) => existsSync(join(dir, "packs"));
 
 /**
  * The `dovre-packs` checkout: `from`, DOVRE_PACKS_DIR, one beside dovre, else the CLI's own clone
@@ -57,7 +57,7 @@ export function resolvePacksRepo(from?: string, coreDir = resolve(import.meta.di
 
 /** Lists available pre-built packs in a `dovre-packs` checkout. */
 export function listAvailablePacks(packsRepoDir: string): string[] {
-  const root = existsSync(join(packsRepoDir, "packs")) ? join(packsRepoDir, "packs") : join(packsRepoDir, "crates");
+  const root = join(packsRepoDir, "packs");
   if (!existsSync(root)) return [];
   return readdirSync(root)
     .filter((f) => ID.test(f) && statSync(join(root, f)).isDirectory() && existsSync(join(root, f, "index.ts")))
@@ -66,23 +66,18 @@ export function listAvailablePacks(packsRepoDir: string): string[] {
 
 /**
  * Copies pack `<id>`'s newest release (or `to`; HEAD when it has none) from the dovre-packs checkout
- * into `into` and wires it into `crates.ts` / `packs.ts`.
+ * into `into` and wires it into `packs.ts`.
  */
 export function addPack(o: { id: string; into: string; from?: string; to?: string; allowClone?: boolean }): { wrote: string[]; wired?: string; exportName: string; version: string | null } {
   if (!ID.test(o.id)) throw new Error(`"${o.id}" isn't a pack id: lowercase letters, digits and dashes`);
   const repoDir = resolvePacksRepo(o.from, undefined, o.allowClone ?? true);
-  const srcRoot = existsSync(join(repoDir, "packs", o.id))
-    ? join(repoDir, "packs", o.id)
-    : existsSync(join(repoDir, "crates", o.id))
-      ? join(repoDir, "crates", o.id)
-      : undefined;
-  if (!srcRoot) {
+  const srcRoot = join(repoDir, "packs", o.id);
+  if (!existsSync(srcRoot)) {
     const avail = listAvailablePacks(repoDir);
     throw new Error(`Pack "${o.id}" not found in ${repoDir}. Available packs: ${avail.join(", ") || "none"}`);
   }
 
-  const usesPacksDir = existsSync(join(o.into, "packs.ts")) && !existsSync(join(o.into, "crates.ts"));
-  const subDir = usesPacksDir ? "packs" : "crates";
+  const subDir = "packs";
   const destRoot = join(o.into, subDir, o.id);
   const { meta, files } = provenance(repoDir, o.id, o.to);
   const existing = [...files.keys()].filter((rel) => existsSync(join(destRoot, rel)));
@@ -102,11 +97,7 @@ export function addPack(o: { id: string; into: string; from?: string; to?: strin
 
   const indexText = readFileSync(join(destRoot, "index.ts"), "utf8");
   const exportName = detectExportName(indexText, o.id);
-  const entryFile = existsSync(join(o.into, "packs.ts"))
-    ? join(o.into, "packs.ts")
-    : existsSync(join(o.into, "crates.ts"))
-      ? join(o.into, "crates.ts")
-      : undefined;
+  const entryFile = existsSync(join(o.into, "packs.ts")) ? join(o.into, "packs.ts") : undefined;
   let wired: string | undefined;
   if (entryFile) {
     const prev = readFileSync(entryFile, "utf8");
