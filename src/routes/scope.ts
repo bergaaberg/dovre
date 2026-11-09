@@ -10,6 +10,7 @@ import type { Frame } from "../html.ts";
 import type { keyPrefsStore } from "../keys.ts";
 import type { LayoutStore } from "../layout.ts";
 import type { OnboardingStore } from "../onboarding.ts";
+import type { PackAiStore } from "../packs/ai.ts";
 import type { Off, refresher, Refreshes, ringsOf, statsFrom } from "../packs/registry.ts";
 import type { createReleases, GetJson } from "../packs/releases.ts";
 import type { onboardOf } from "../packs/suggest.ts";
@@ -57,6 +58,8 @@ export type AppScope = {
   publicOrigin: string | undefined;
   /** Each pack's refreshes lately (the Packs page). */
   refreshes: Refreshes;
+  /** What each pack may ask the model (#466); none without a database. */
+  aiStore: PackAiStore | undefined;
   /** Which writes ask twice (Settings → Writes). */
   clicks: ReturnType<typeof writeClicksStore>;
   /** Keyboard shortcuts (Settings → Keys). */

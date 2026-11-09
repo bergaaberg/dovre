@@ -64,7 +64,9 @@ export type Env = {
   AGENT_HARNESSES?: string;
   /** The model Bino and summaries ask through Copilot CLI (BINO_VIA / SUMMARIES = copilot). Unset: Copilot picks (auto). */
   COPILOT_CLI_MODEL?: string;
-  /** AI summaries of PRs and deploys through `claude -p`: `on` or `off`. Unset: on when Claude Code is here. */
+  /** The model packs ask once I allow them (#466): `claude` | `omp` | `copilot` | `agy` | `codex` | `off`. Unset: SUMMARIES, then Claude Code when it's here, else omp, else Copilot CLI. */
+  AI_VIA?: string;
+  /** The older name for AI_VIA, from when only summaries asked. */
   SUMMARIES?: string;
   /** Bino / Assistant (src/packs/core/assistant/): `claude` | `omp` | `copilot` | `agy` | `codex` | `api-key` | `cf-gateway` | `openrouter` | `off`. */
   BINO_VIA?: string;
@@ -172,6 +174,7 @@ export function loadEnv(stored: Record<string, string> = {}): Omit<Env, "DB"> {
     AGY_BIN: v.AGY_BIN || undefined,
     CODEX_BIN: v.CODEX_BIN || undefined,
     AGENT_HARNESSES: v.AGENT_HARNESSES || undefined,
+    AI_VIA: v.AI_VIA || undefined,
     SUMMARIES: v.SUMMARIES || undefined,
     BINO_VIA: v.ASSISTANT_VIA || v.BINO_VIA || undefined,
     ASSISTANT_VIA: v.ASSISTANT_VIA || v.BINO_VIA || undefined,

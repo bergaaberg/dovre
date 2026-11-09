@@ -43,6 +43,13 @@ export const GENERAL: Field[] = [
     kind: "set",
     choices: [{ value: "claude", label: "Claude Code" }, { value: "omp", label: "Copilot · omp" }, { value: "copilot", label: "Copilot CLI" }, { value: "agy", label: "Antigravity · agy" }, { value: "codex", label: "Codex" }],
   },
+  {
+    key: "AI_VIA",
+    label: "Model for packs",
+    hint: "What packs ask once you allow them (Settings → Packs → the pack). Automatic: Claude Code when it's here, else Copilot through omp, else Copilot CLI. Applies on restart",
+    kind: "choice",
+    choices: [{ value: "auto", label: "Automatic" }, { value: "claude", label: "Claude Code" }, { value: "omp", label: "Copilot · omp" }, { value: "copilot", label: "Copilot CLI" }, { value: "agy", label: "Antigravity · agy" }, { value: "codex", label: "Codex" }, { value: "off", label: "None" }],
+  },
   { key: "GREETING", label: "Greeting language", hint: "en (Good morning) or no (God morgen)", kind: "choice", choices: [{ value: "en", label: "English" }, { value: "no", label: "Norsk" }] },
   { key: "TZ_NAME", label: "Timezone", hint: "An IANA timezone name (e.g. Europe/Oslo). Empty or invalid: this machine's own zone (UTC when hosted)", kind: "text", pattern: /^[A-Za-z0-9_+\/-]{1,64}$/, placeholder: "this machine's zone" },
 ];

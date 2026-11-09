@@ -23,7 +23,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.21";
+export const PACK_API = "1.22";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -62,6 +62,12 @@ export type PackManifest = {
   settings?: PackSetting[];
   /** How often the core calls refresh() (default 5 min): an interval locally, cron and stale pages hosted. */
   everyMs?: number;
+  /**
+   * What it wants to ask the model, and why (API 1.22, #466): `text` is a prompt in, text out (no
+   * tools, no files). Nothing is allowed until I allow it on Settings → Packs → the pack; then
+   * `ctx.complete` answers, within the size and the day's dollars I set there.
+   */
+  ai?: PackAiAsk;
   /**
    * The cron triggers its scheduled() acts on (hosted), as wrangler writes them ("0 5 * * *"). The
    * instance's wrangler config lists the triggers; this says which are this pack's, for the Packs page.
@@ -282,6 +288,13 @@ export type PageOpts = { title: string; body: Html | string; current?: string; h
 /** The PR the "pr.*" slots are drawn on: which repo, and which PR of it (a pack can link a ticket named in its branch or title). */
 export type PrSlotArg = { repo: string; number: number; branch: string; title: string; url: string };
 /** A model's summary of a PR or deploy ("ai.summary" slot): written, still being written, or failed. */
+/** What a pack's manifest asks of the model (#466); `agent` comes in phase 2 (#467). */
+export type PackAiAsk = { text?: { why: string } };
+/** What it may ask now: `text` with the size and day's cap I allowed, or not, and why. */
+export type PackAi = { text: true; size: "small" | "any"; dayUsd: number } | { text: false; why: string };
+/** One question to the model. `size`: "small" (the default) or "large", if I allowed any. */
+export type PackCompleteAsk = { system: string; user: string; size?: "small" | "large"; signal?: AbortSignal };
+
 export type AiSummary = { state: "ready"; text: string } | { state: "pending" } | { state: "failed"; error: string };
 
 /**
@@ -426,6 +439,14 @@ export type PackContext = {
   pageOn(href: string): boolean;
   /** Every step of its setup (`manifest.onboard`) is done (API 1.16); true when it has none. */
   setupDone(): boolean;
+  /** What it may ask the model now (API 1.22): `text` true once I've allowed it and a model is here; else why not. */
+  ai(): PackAi;
+  /**
+   * Asks the model (API 1.22, #466): a prompt in, text out, through the route core picks. Throws
+   * unless I allowed this pack (`ai().text`), when it asks for the large model and I allowed only the
+   * small one, and once today's dollars are spent. Each call is logged by cost, never by content.
+   */
+  complete(p: PackCompleteAsk): Promise<{ text: string; cost: number }>;
 };
 
 // ── What packs share with the packs that require them (#326) ──
