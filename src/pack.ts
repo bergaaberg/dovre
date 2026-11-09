@@ -10,6 +10,8 @@
 import type { Pulse as PulseState } from "./packs/types.ts";
 import { Pulse as PulseChart } from "./ui/kit.ts";
 import { ago, bytes, count, duration, hourOf, percent, since, stamp, when } from "./format.ts";
+import { columns } from "./ui/chart.ts";
+import { shortDay } from "./ui/charts.ts";
 
 /** The contract: `Pack`, `PackContext`, `PACK_API` and every type they name. */
 export * from "./packs/types.ts";
@@ -53,7 +55,21 @@ export type Pulse = PulseState;
 
 /**
  * API 1.29 (#474): core's formatters for numbers and times, under one name so plain words like
- * `count` and `when` don't each become a name of the contract's top level. Times are in my zone.
+ * `count` and `when` don't each become a name of the contract's top level. Times are in my zone
+ * (`shortDay`, 1.30, reads a UTC day: «2026-10-07» → «7 Oct»).
  * `const { count, percent } = format;` reads as before.
  */
-export const format = { ago, bytes, count, duration, hourOf, percent, since, stamp, when };
+export const format = { ago, bytes, count, duration, hourOf, percent, shortDay, since, stamp, when };
+
+// ── API 1.30 (#474): the charts, a budget for a slow call, and three types packs name ──
+
+/** Server-rendered SVG charts, each with its table: no script, the categorical slots for more than one series. */
+export { ColumnChart, FunnelDiagram, HBars, Heatmap, SankeyChart, StackedBar } from "./ui/charts.view.ts";
+/** The series charts with tips and a legend, under one name like `format`: `chart.columns` (side by side or stacked). */
+export const chart = { columns };
+/** `run`'s answer within `ms`, or why not (it threw, or took longer): `{ ok, value }` or `{ ok: false, why }`. */
+export { within } from "./packs/registry.ts";
+/** A kit icon's name, a value `ctx.db` binds, and what `pack.pages` lists for search. */
+export type { IconName } from "./ui/icons.ts";
+export type { D1Value } from "./db.ts";
+export type { Page } from "./search/search.ts";
