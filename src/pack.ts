@@ -9,6 +9,7 @@
  */
 import type { Pulse as PulseState } from "./packs/types.ts";
 import { Pulse as PulseChart } from "./ui/kit.ts";
+import { ago, bytes, count, duration, hourOf, percent, since, stamp, when } from "./format.ts";
 
 /** The contract: `Pack`, `PackContext`, `PACK_API` and every type they name. */
 export * from "./packs/types.ts";
@@ -49,3 +50,10 @@ export { throttle } from "./live.ts";
 /** The kit's requests-and-errors chart; as a type, what the header's pulse shows (`PulseFeed` is what a pack reports). */
 export const Pulse = PulseChart;
 export type Pulse = PulseState;
+
+/**
+ * API 1.29 (#474): core's formatters for numbers and times, under one name so plain words like
+ * `count` and `when` don't each become a name of the contract's top level. Times are in my zone.
+ * `const { count, percent } = format;` reads as before.
+ */
+export const format = { ago, bytes, count, duration, hourOf, percent, since, stamp, when };
