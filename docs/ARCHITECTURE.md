@@ -10,7 +10,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
         │ imports core as `dovre/…`; core never imports an instance
  Core's packs (src/packs/core/)
-   agents, autoreview, history, assistant, terminal, tracker, storybook, movement, prs, deploys, dependabot, stacks
+   agents, autoreview, history, assistant, terminal, tracker, movement, prs, deploys, dependabot, stacks
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
@@ -292,6 +292,7 @@ Also:
 | 1.18 | Manifest `via: "forge"`: it reads and writes through the forge, and the Packs page groups it under the forge's name (#432) |
 | 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
 | 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
+| 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
 
 ## Open questions
 
