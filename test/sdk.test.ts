@@ -13,7 +13,7 @@ import { assertDoors, reachIns } from "../src/pack-testing.ts";
 const src = resolve(import.meta.dirname, "..", "src");
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
-/** dovre/pack.ts at PACK_API 1.28, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
+/** dovre/pack.ts at PACK_API 1.29, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
   ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
@@ -24,7 +24,7 @@ const PACK = words(`
   StatUnit Stats Tab Tabs TodayCard Tone ToolCall ToolResult WasmFile Wrote assignAct commentAct createAct failed fieldInputs html icon
   investigateHref isExternal markdown newTab refused safeUrl statusAct trunc writeAct
   App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
-  Reading Snapshot byPerson deploySummaryKey hashOf hourAt inFiles later needsOf prSummaryKey strictOrigin throttle
+  Reading Snapshot byPerson deploySummaryKey hashOf hourAt inFiles later needsOf prSummaryKey strictOrigin throttle format
 `);
 
 /** dovre/pack-testing.ts. */
@@ -54,6 +54,9 @@ test("dovre/pack.ts exports the listed names: one added is a PACK_API minor, one
   const values = Object.keys(await import("../src/pack.ts"));
   assert.deepEqual(values.filter((v) => !PACK.includes(v)), [], "a value the text scan missed");
   for (const v of ["PACK_API", "html", "safeUrl", "Panel", "Pulse", "writeAct", "markdown"]) assert.ok(values.includes(v), v);
+  const { format } = await import("../src/pack.ts");
+  assert.deepEqual(Object.keys(format).sort(), ["ago", "bytes", "count", "duration", "hourOf", "percent", "since", "stamp", "when"], "a formatter added is a minor too");
+  assert.equal(format.count(1234567).replace(/\D/g, ""), "1234567");
 });
 
 test("dovre/pack-testing.ts exports the listed names", async () => {
