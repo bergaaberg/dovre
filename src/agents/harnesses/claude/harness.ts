@@ -47,14 +47,16 @@ export function argsFor(o: HarnessOpts): string[] {
   const perm = o.yolo ? ["--dangerously-skip-permissions"] : ["--permission-mode", o.mode ?? "default"];
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", ...perm, "--append-system-prompt", o.yolo ? SANDBOX_NOTE : HEADLESS_NOTE];
   if (o.model) args.push("--model", o.model);
-  // A sandbox run's caps (#207): Claude Code stops itself at the budget.
-  if (o.yolo && o.budget) args.push("--max-budget-usd", String(o.budget));
-  if (o.yolo && o.turns) args.push("--max-turns", String(o.turns));
+  // A sandbox run's caps (#207), or a pack's turn (#467): Claude Code stops itself at the budget.
+  if (o.budget) args.push("--max-budget-usd", String(o.budget));
+  if (o.turns) args.push("--max-turns", String(o.turns));
   const effort = effortIn(CLAUDE_OPTIONS.efforts, o.effort);
   if (effort) args.push("--effort", effort);
   if (o.resume) args.push("--resume", o.resume);
   if (o.resume && o.fork) args.push("--fork-session");
   if (o.mcp) args.push("--mcp-config", mcpConfig(o.mcp));
+  // A pack's turn (#467): Dovre's server alone (scoped to its grant), none of my own.
+  if (o.scope) args.push("--strict-mcp-config");
   // Last: --allowedTools takes every argument after it.
   if (o.allowed?.length) args.push("--allowedTools", ...o.allowed);
   return args;

@@ -4,12 +4,12 @@
  */
 import { type KeyState, STORES } from "../secretrefs.ts";
 import { html } from "hono/html";
-import { type AiGrant, MAX_DAY_USD } from "../packs/ai.ts";
+import { AGENT_MINUTES, type AiGrant, MAX_DAY_USD, MAX_RUN_USD, MAX_TURNS } from "../packs/ai.ts";
 import { type Frame, shell } from "../html.ts";
 import { binoOf, hooksOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
 import type { Copy, ToAdd } from "../packs/copies.ts";
 import type { Available } from "../packs/releases.ts";
-import type { Pack, PackManifest, PackSetting } from "../packs/types.ts";
+import type { Pack, PackAgentWhere, PackAiAsk, PackManifest, PackSetting } from "../packs/types.ts";
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago, safeUrl } from "./parts.ts";
 import { apiText, parseApi } from "../packs/api.ts";
@@ -271,26 +271,46 @@ ${addPanel(v)}
 }
 
 /** What a pack may ask the model (#466): what it wants and why, my grant, and today's spend. */
-export function aiPanel(id: string, o: { why: string; grant: AiGrant; spent: number; route?: string; hosted: boolean }) {
+const PLACES: Record<PackAgentWhere, { label: string; hint: string }> = {
+  read: { label: "Read", hint: "Plan mode in its checkout: it reads, it changes nothing." },
+  sandbox: { label: "Sandbox", hint: "A fresh clone in a container, host-only network: it may edit and commit there. Its commits reach the forge only as a draft PR you confirm." },
+};
+
+const sel = (on: boolean) => (on ? " selected" : "");
+const tick = (on: boolean) => (on ? " checked" : "");
+
+export function aiPanel(id: string, o: { ask: PackAiAsk; grant: AiGrant; spent: number; route?: string; hosted: boolean; /** Agents can run here. */ agents: boolean }) {
   const g = o.grant;
+  const a = o.ask.agent;
   const state = o.hosted
     ? "Not hosted yet: packs ask a model only on a machine."
-    : !o.route
-      ? "No model here for packs: Settings → Work → Model for packs."
-      : g.level === "off"
-        ? "Not allowed."
-        : `Allowed: text, ${g.size === "any" ? "any size" : "the small model only"}, through ${o.route}.`;
+    : g.level === "off"
+      ? "Not allowed."
+      : g.level === "agent"
+        ? `Allowed: agent turns${g.where.length ? ` (${g.where.join(" and ")})` : ", but nowhere to run yet"}, ${g.size === "any" ? "any size" : "the small model only"}.${o.agents ? "" : " Agents can't run here."}`
+        : !o.route
+          ? "No model here for packs: Settings → Work → Model for packs."
+          : `Allowed: text, ${g.size === "any" ? "any size" : "the small model only"}, through ${o.route}.`;
+  const why = html`${o.ask.text ? html`<p class="notes">Text: a prompt in, text out, no tools and no files. Why: ${o.ask.text.why}</p>` : ""}${a ? html`<p class="notes">Agent turns in your repos (${a.where.join(", ")}). Why: ${a.why}</p>` : ""}`;
+  const agentFields = a
+    ? html`<div class="field"><span class="label">Where</span>${a.where.map((w) => html`<label class="check"><input type="checkbox" name="where_${w}" value="on"${tick(g.where.includes(w))}> ${PLACES[w].label}</label><span class="hint">${PLACES[w].hint}</span>`)}</div>
+    <label class="field"><span class="label">Repos</span><select name="reposAll"><option value="named"${sel(g.repos !== "mine")}>Only these</option><option value="mine"${sel(g.repos === "mine")}>All of mine</option></select><input type="text" name="repos" value="${g.repos === "mine" ? "" : g.repos.join(", ")}" placeholder="owner/name, owner/name" maxlength="2000" spellcheck="false"><span class="hint">Repos outside your owners are refused either way.</span></label>
+    ${a.tools?.length ? html`<div class="field"><span class="label">Other packs' tools</span>${a.tools.map((t) => html`<label class="check"><input type="checkbox" name="tool_${t}" value="on"${tick(g.tools.includes(t))}> <code>${t}</code></label>`)}<span class="hint">Its own tools it always has. A tool that asks for approval is refused: nobody is there to answer.</span></div>` : ""}
+    <label class="field"><span class="label">Dollars a run</span><input type="number" name="runUsd" min="0.01" max="${MAX_RUN_USD}" step="0.01" value="${g.runUsd}"><span class="hint">Held against the day's dollars while it runs.</span></label>
+    <label class="field"><span class="label">Turns a run</span><input type="number" name="turns" min="1" max="${MAX_TURNS}" step="1" value="${g.turns}"><span class="hint">And at most ${AGENT_MINUTES} minutes.</span></label>`
+    : "";
   return Panel({
     title: "AI",
     id: "ai",
     meta: g.level === "off" ? "off" : `$${o.spent.toFixed(2)} of $${g.dayUsd.toFixed(2)} today`,
-    children: html`<p class="notes">It asks for text: a prompt in, text out, no tools and no files. Why: ${o.why}</p><p class="t2">${state}</p>${o.hosted
+    children: html`${why}<p class="t2">${state}</p>${o.hosted
       ? ""
       : html`<form method="post" action="/settings/packs/${encodeURIComponent(id)}/ai">
   <div class="fields aligned">
-    <label class="field"><span class="label">May ask</span><select name="level"><option value="off"${g.level === "off" ? " selected" : ""}>Nothing</option><option value="text"${g.level === "text" ? " selected" : ""}>Text</option></select></label>
-    <label class="field"><span class="label">Model</span><select name="size"><option value="small"${g.size === "small" ? " selected" : ""}>The small one only</option><option value="any"${g.size === "any" ? " selected" : ""}>Any it asks for</option></select><span class="hint">Small is Haiku through Claude Code; other routes use their own model.</span></label>
+    <label class="field"><span class="label">May ask</span><select name="level"><option value="off"${sel(g.level === "off")}>Nothing</option>${o.ask.text ? html`<option value="text"${sel(g.level === "text")}>Text</option>` : ""}${a ? html`<option value="agent"${sel(g.level === "agent")}>${o.ask.text ? "Text and agent turns" : "Agent turns"}</option>` : ""}</select></label>
+    <label class="field"><span class="label">Model</span><select name="size"><option value="small"${sel(g.size === "small")}>The small one only</option><option value="any"${sel(g.size === "any")}>Any it asks for</option></select><span class="hint">Small is Haiku through Claude Code; other routes use their own model. Agent turns are Claude Code: Haiku, or Sonnet for large.</span></label>
     <label class="field"><span class="label">Dollars a day</span><input type="number" name="dayUsd" min="0" max="${MAX_DAY_USD}" step="0.01" value="${g.dayUsd}"><span class="hint">Once they're spent, it can't ask again until tomorrow. Copilot routes cost $0 here.</span></label>
+    ${agentFields}
   </div>
   <div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save</button></div>
 </form>`}`,

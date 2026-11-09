@@ -4,6 +4,7 @@
 
 Added:
 
+- **Packs** can start agent turns (pack API 1.23). A pack asks for them in its manifest (`ai: { agent: { why, where, tools, lands } }`). On Settings → Packs → the pack you choose where it may run (read: plan mode in its checkout; sandbox: a fresh clone in a container), which repos (named, or all of yours), which other packs' tools it gets beside its own, and its dollars and turns a run. Turns run one at a time per pack, and their dollars count against the day's cap while they run. Anything that would ask for approval is refused. A sandbox run's commits reach the forge only as a draft PR, from the pack's own Confirm. Logged by cost and repo, never the prompt or the output. Local only (#467).
 - **Packs** can ask the model (pack API 1.22): a pack says in its manifest what it wants and why (`ai: { text: { why } }`), and nothing is allowed until you allow it on Settings → Packs → the pack. There you choose the model size (small only, or any) and dollars a day. `ctx.complete({ system, user, size })` is a prompt in, text out, with no tools or files, through the route set in Settings → Work → Model for packs (`AI_VIA`, which replaces `SUMMARIES`). Each call is logged with when it happened, its cost and whether it answered, never the prompt or the reply. Local only for now. AI summaries keep their access (#466).
 
 Changed:
