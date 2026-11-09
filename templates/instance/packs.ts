@@ -4,7 +4,7 @@
  * `node ../dovre/src/packs/new.ts new <id> --into .`, then add it to the list (`… add <id>`
  * copies one from dovre-packs and lists it for you).
  */
-import type { Pack } from "dovre/packs/types.ts";
+import type { Pack } from "dovre/pack.ts";
 
 const packs: Pack[] = [];
 

@@ -1,7 +1,8 @@
 /**
  * Dovre Packs (PLAN D15, D22, D23): every app Dovre works with beyond the core comes as a pack,
  * kept in the instance's own packs repo and listed in that machine's config (PACKS). Core never
- * names a pack. A pack imports core as `dovre/…` (a pnpm `link:` to this checkout) and gets
+ * names a pack. A pack imports core as `dovre/pack.ts` (a pnpm `link:` to this checkout; the file
+ * re-exports this one, the kit and a few helpers) and gets
  * everything that belongs to the running instance through its context.
  */
 import type { Context, Hono } from "hono";
@@ -23,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.23";
+export const PACK_API = "1.24";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";

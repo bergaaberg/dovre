@@ -8,13 +8,14 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 ```
  Instance repo (one per machine or setup)
    packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
-        │ imports core as `dovre/…`; core never imports an instance
+        │ packs import core as `dovre/pack.ts`; core never imports an instance
  Core's packs (src/packs/core/)
    agents, autoreview, history, assistant, terminal, tracker, prs, deploys, dependabot, stacks
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
-   src/packs/types.ts     the contract (PACK_API = "1.23")
+   src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
+   src/packs/types.ts     its types (PACK_API = "1.24")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -206,10 +207,16 @@ Also:
 - Styles: give every rule a class of the pack's own (`.<id>-…`); restyle a kit component only
   inside it (`.mypack .item`). Tables go in `.table-wrap`; wide content scrolls inside the pack.
 - Tests live in `packs/<id>/test/`, with a hostile-input case per page. `testContext()`
-  (`dovre/packs/testing.ts`) gives safe defaults; `assertScoped(pack)` fails on a selector that
+  (`dovre/pack-testing.ts`) gives safe defaults; `assertScoped(pack)` fails on a selector that
   would be left out, `assertFragment(name, html)` on markup core would refuse.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).
   `pnpm packs new <id> --into <instance>` scaffolds it.
+- **One door (#473):** a pack imports core as `dovre/pack.ts` (the contract's types, the kit,
+  `safeUrl` and friends, the act helpers, `markdown`), and `dovre/pack-testing.ts` in its tests.
+  That file is the contract; anything else under `dovre/…` may move without notice, and stops
+  being importable at 2.0 (#484). A packs repo's `test/imports.test.ts` calls
+  `assertDoors(packsDir, allow)`: the reach-ins it still has, counted per module, in a list that
+  only shrinks (`src/packs/imports.ts`). `pnpm packs new` and `pnpm instance new` write that test.
 - A pack from dovre-packs is a copy with a `.pack.json` (source, the commit and release tag it
   came from, the pack's own version, the `PACK_API` it needs, file hashes). Each pack is released
   on its own: a semver `version` in its manifest, `packs/<id>/CHANGELOG.md`, and a tag
@@ -262,7 +269,8 @@ Also:
   4. Add its label to `hooksOf` and document it in types.ts.
   5. Test it in test/packs.test.ts: hostile answer, throwing pack, hidden pack.
 - **Changing the contract:** `PACK_API` is `"major.minor"` (#360, `src/packs/api.ts`). A new
-  optional hook, slot, field or markup contract is additive: bump the minor and add a row below. A
+  optional hook, slot, field or markup contract, or a new export of `src/pack.ts`, is additive:
+  bump the minor and add a row below (`test/sdk.test.ts` lists the exports, and fails on a change). A
   pack's manifest names the oldest API it works with (`api: "1.4"`; a plain `1` reads as `1.0`),
   so on an older core it shows as off ("needs core API 1.4, this is 1.3") instead of quietly doing
   nothing, and `packs update` refuses it. Removing or changing a hook, a field's meaning or a
@@ -295,6 +303,7 @@ Also:
 | 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
 | 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
 | 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
+| 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
 
 ## Open questions
 

@@ -1,7 +1,7 @@
 /**
  * For a pack's tests: a PackContext with harmless defaults (nothing gathered, an empty page, no
  * slots filled), so a test names only what it needs and keeps compiling when the context grows.
- * A pack imports it as `dovre/packs/testing.ts`. Below it, what a test of a pack's pages needs.
+ * A pack's tests import it as `dovre/pack-testing.ts`. Below it, what a test of a pack's pages needs.
  */
 import assert from "node:assert/strict";
 import { createApp } from "../app.ts";

@@ -2,6 +2,9 @@
  * The pack contract's version, "major.minor" (#360). A pack's manifest names the oldest core API
  * it works with; a core of that major and at least that minor runs it. The old integer `api: 1`
  * reads as "1.0". docs/ARCHITECTURE.md lists what each minor added.
+ *
+ * Since 1.24 (#473) the contract is what `src/pack.ts` exports (`dovre/pack.ts`), not only
+ * `types.ts`: a name added there is a minor, one removed or changed is a major.
  */
 import { PACK_API } from "./types.ts";
 
