@@ -17,7 +17,8 @@ import { callsPanels } from "../pages/calls.ts";
 import { CORE_CARDS, packOrder } from "../pages/home.ts";
 import { keysPanel } from "../pages/keys.ts";
 import { layoutPanel, type LayoutView, LOOK_KEYS, lookPanel } from "../pages/layout.ts";
-import { manifestPanel, manifestSettings, packsPage } from "../pages/packs.ts";
+import { aiAskOf, grantOf } from "../packs/ai.ts";
+import { aiPanel, manifestPanel, manifestSettings, packsPage } from "../pages/packs.ts";
 import { sentPanels, type SentView } from "../pages/sent.ts";
 import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
 import { speedPanels } from "../pages/speed.ts";
@@ -35,8 +36,8 @@ import { writeKinds } from "../writes.ts";
 import type { Context } from "hono";
 import type { AppScope } from "./scope.ts";
 
-export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
-  const { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, keyPrefs, openUrl, held, hidden, packIds, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
+export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
+  const { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, keyPrefs, openUrl, held, hidden, packIds, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
   let saved = false;
   /** Set when a save restarts Dovre: when this server started, so the page knows when the next one is up. */
@@ -307,7 +308,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
     // A pack's own panel counts when it draws something (an empty answer or a throw: none).
     const own = new Set(settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)).map((x) => x.id));
     return [
-      ...shown().map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: true, settings: set(p.manifest), panel: own.has(p.manifest.id) || !!p.ingest })),
+      ...shown().map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: true, settings: set(p.manifest), panel: own.has(p.manifest.id) || !!p.ingest || !!aiAskOf(p.manifest) })),
       ...packs.on.filter((p) => hidden(p.manifest.id)).map((p) => ({ id: p.manifest.id, name: p.manifest.name, on: false, settings: set(p.manifest), panel: false })),
       ...packs.off.map((o) => ({ id: o.id, name: o.name, on: false, settings: set(o.manifest), panel: false })),
     ].filter((k) => k.settings.length || k.panel);
@@ -389,7 +390,11 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
       const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, true, packs.keys?.state) : ""}`;
       return c.html(sessionSettings(frame, { name: k.name, notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body }));
     }
-    const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${settings.length ? manifestPanel(id, settings, packs.env, hosted, false, packs.keys?.state) : ""}${where}`;
+    // What it may ask the model (#466), when it asked for any.
+    const asks = on ? aiAskOf(on.manifest) : undefined;
+    if (asks?.text) await aiStore?.load().catch(() => {});
+    const ai = asks?.text && aiStore ? aiPanel(id, { why: asks.text.why, grant: aiStore.grant(id), spent: await aiStore.spent(id).catch(() => 0), route: deps.ai?.via, hosted }) : "";
+    const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${ai}${settings.length ? manifestPanel(id, settings, packs.env, hosted, false, packs.keys?.state) : ""}${where}`;
     return c.html(settingsArea(frame, "packs", { areas: settingsAreas(), rows: await rowsNow(frame), notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body, title: k.name, crumbs: [{ href: "/settings/packs", label: "Packs" }] }));
   };
   // What the last "Set up omp/agy" said, shown once on the next Settings.
@@ -456,6 +461,17 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
     return noStore(c.json({ at: Date.now(), catalog: CATALOG, ...(await sentNow()) }));
   });
   app.get("/settings/packs/:id", (c) => showPack(c, c.req.param("id")));
+  /** A pack's AI grant (#466): only for a shown pack that asked, only on a machine; logged. */
+  app.post("/settings/packs/:id/ai", strictOrigin, async (c) => {
+    const id = c.req.param("id");
+    const on = shown().find((p) => p.manifest.id === id);
+    if (hosted || deps.session || !aiStore || !on || !aiAskOf(on.manifest)?.text) return c.notFound();
+    await aiStore.load();
+    const g = grantOf(await c.req.parseBody());
+    await aiStore.set(id, g);
+    await logAction(env.DB, { kind: "packs.ai", target: id, detail: g.level === "off" ? "AI: nothing" : `AI: text, ${g.size}, $${g.dayUsd} a day`, ok: true }).catch(() => {});
+    return c.redirect(`/settings/packs/${encodeURIComponent(id)}#ai`, 303);
+  });
   app.get("/settings/:area", async (c) => {
     const area = c.req.param("area");
     if (!isArea(area) || !settingsAreas().includes(area)) return c.notFound();

@@ -57,6 +57,7 @@ import { agentsPack } from "./packs/core/agents/index.ts";
 import { autoreviewPack } from "./packs/core/autoreview/index.ts";
 import { reviewsPack } from "./packs/core/reviews/index.ts";
 import { summariesPack } from "./packs/core/summaries/index.ts";
+import { AI_ROUTE_NAMES } from "./packs/ai.ts";
 import { createHere } from "./packs/core/agents/here.ts";
 import { localSessions } from "./sources/sessions.ts";
 import { loadWorktrees } from "./sources/worktrees.ts";
@@ -234,8 +235,8 @@ console.log(`bino: ${binoRoute.ready ? `${binoRoute.via}, ${binoRoute.model}` : 
 const hub = createHub();
 // What I write to an agent while it works waits here for the turn to end (src/agents/queue.ts).
 const queue = createQueue({ file: join(dataDir, "queue.json"), onChange: (sid) => hub.publish([`run:${sid}`]) });
-// The model the summaries pack writes with (SUMMARIES, #390): none here, and the pack doesn't run.
-const sumVia = summariesVia(env.SUMMARIES, !!claude, !!omp, !!copilotTool, !!agy);
+// The model packs ask once I allow them (AI_VIA, once SUMMARIES; #390, #466): none here, and they're told so.
+const sumVia = summariesVia(env.AI_VIA ?? env.SUMMARIES, !!claude, !!omp, !!copilotTool, !!agy);
 const summaryModel = sumVia === "claude" && claude ? claudeCli({ bin: claude.bin, pre: claude.pre }) : sumVia === "omp" && copilot && !copilot.why() ? copilotComplete(copilot) : sumVia === "copilot" ? copilotAsk : sumVia === "agy" && agy ? agyCli({ bin: agy.bin, pre: agy.pre }) : sumVia === "codex" && codex ? codexCli({ bin: codex.bin, pre: codex.pre }) : undefined;
 // The refresher keeps the snapshot fresh; pages only read it, and never wait for GHE when there's one to show.
 let gathered = (_s: Snapshot) => {};
@@ -447,6 +448,8 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   forge,
   // A pack's picture for the starting page (written next to it, read at the next start).
   startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
+  // What packs ask once I allow them (#466); through Claude Code, small is Haiku and large Sonnet.
+  ...(summaryModel ? { ai: { complete: summaryModel, via: AI_ROUTE_NAMES[sumVia], ...(sumVia === "claude" ? { models: { small: "haiku", large: "sonnet" } } : {}) } } : {}),
   runner,
   mcpTurns: (t) => terminals?.byMcpToken(t),
   // Settings → Pack tools for agents: omp and agy read MCP servers only from their own config (#172).

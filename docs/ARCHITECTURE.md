@@ -293,6 +293,7 @@ Also:
 | 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
 | 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
 | 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
+| 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
 
 ## Open questions
 
