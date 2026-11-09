@@ -412,6 +412,8 @@ details > summary { cursor: pointer; }
   body:has(.tab-gap) .bino-btn span { display: none; }
   body:has(.tab-gap) .bino-btn svg { width: 26px; height: 26px; }
   body:has(.side.open) #bdock-btn { display: none; }
+  /* A pack's dock button would float over the page above the bar: on the phone its page is in More instead. */
+  body:has(.tabbar) .tdock:not(#bdock) { display: none; }
 }
 a.ava { text-decoration: none; }/* Search (Ctrl K): the button in the top bar, and the palette it opens (src/ui/app.js.ts) */
 .search-btn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 7px 5px 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink-3); text-decoration: none; }

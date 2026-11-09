@@ -70,8 +70,12 @@ function packDock(d: DockView): Html {
   return html`<div class="tdock" id="${id}" data-dock="/${d.id}/dock" data-dock-title="${d.label}"${d.key ? html` data-dock-key="${d.key}"` : ""}><div class="tdock-panel" id="${id}-panel" hidden></div><a class="tdock-btn" id="${id}-btn" href="/${d.id}" aria-controls="${id}-panel" aria-expanded="false"${d.key ? html` title="${d.label} (${d.key})"` : ""}><span data-live id="${id}-n">${d.label}${d.count ? html`<b class="${d.hot ? "hot" : ""}"${d.title ? html` title="${d.title}"` : ""}>${d.hot ? "@ " : ""}${d.count}</b>` : ""}</span></a></div>`;
 }
 
-/** A page shown inside a dock (Bino's, a pack's): no top bar or footer, the same style and script. */
-export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[]; /** Scripts after the core's (the packs'). */ scripts?: string[] }): Html {
+/** A pack's dock page's header, drawn by core: its title, bigger, its full page, and minimise. Bino draws its own. */
+const dockBar = (title: string, full: string) =>
+  html`<header class="dock-h"><h1 title="${title}">${title}</h1><button type="button" class="dock-i ghost" data-dock-wide title="Bigger or smaller" aria-label="Bigger or smaller">⤢</button><a class="dock-i" href="${full}" target="_top" title="Open as a page" aria-label="Open as a page">↗</a><button type="button" class="dock-i ghost" data-dock-close title="Minimise (Esc)" aria-label="Minimise">–</button></header>`;
+
+/** A page shown inside a dock (Bino's, a pack's): no top bar or footer, the same style and script. With `full`, core's header over a scrolling body. */
+export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[]; /** Scripts after the core's (the packs'). */ scripts?: string[]; /** A pack's: its full page, for the header core draws (Bino draws its own). */ full?: string }): Html {
   return html`<!doctype html>
 <html lang="en">
 <head>
@@ -86,7 +90,7 @@ ${(opts.scripts ?? []).map((h) => html`<script type="module" src="${h}"></script
 ${opts.head ?? ""}
 </head>
 <body class="dock-page">
-${opts.body}
+${opts.full ? html`${dockBar(opts.title, opts.full)}<div class="dock-b">${opts.body}</div>` : opts.body}
 </body>
 </html>`;
 }

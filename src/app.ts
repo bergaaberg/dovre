@@ -523,7 +523,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
             const { frame } = await page({ path: cx.req.path });
             return cx.html(shell({ title: o.title, frame, current: o.current ?? cx.req.path, body: boxed(o.body, c.manifest.id, c.manifest.name, "page", packLog(c.manifest.id)), head: guardHtml(o.head, c.manifest.name, "page head", packLog(c.manifest.id)) }));
           },
-          dockPage: (cx, o) => cx.html(dockShell({ title: o.title, body: boxed(o.body, c.manifest.id, c.manifest.name, "dock", packLog(c.manifest.id)), head: guardHtml(o.head, c.manifest.name, "dock head", packLog(c.manifest.id)), styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts })),
+          dockPage: (cx, o) => cx.html(dockShell({ title: o.title, full: `/${c.manifest.id}`, body: boxed(o.body, c.manifest.id, c.manifest.name, "dock", packLog(c.manifest.id)), head: guardHtml(o.head, c.manifest.name, "dock head", packLog(c.manifest.id)), styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts })),
           log: packLog(c.manifest.id),
           ring: (n) => {
             const note = noteFrom(c.manifest.id, n, packRings);
