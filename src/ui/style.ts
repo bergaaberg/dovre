@@ -783,7 +783,6 @@ form.find { display: flex; gap: .75rem; align-items: flex-end; margin: 0 0 22px;
 form.find .field { flex: 1; margin: 0; }
 td.num, th.num, table.data .num { text-align: right; white-space: nowrap; }
 pre.code, pre.output { font: var(--fs-xs)/1.55 var(--mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-s); padding: .7rem .9rem; margin: .5rem 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
-pre.docker-logs { margin: 0; border: 0; border-radius: 0; min-height: 12rem; max-height: 70vh; overflow-y: auto; }
 .buttons { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 /* hidden means hidden: a display rule below (buttons are inline-flex) would otherwise beat the browser's own. */
 [hidden] { display: none !important; }

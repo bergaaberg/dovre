@@ -10,7 +10,6 @@ import { assistantPack } from "../src/packs/core/assistant/index.ts";
 import { autoreviewPack } from "../src/packs/core/autoreview/index.ts";
 import { dependabotPack } from "../src/packs/core/dependabot/index.ts";
 import { deploysPack } from "../src/packs/core/deploys/index.ts";
-import { dockerPack } from "../src/packs/core/docker/index.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
 import { issuesPack } from "../src/packs/core/issues/index.ts";
 import { movementPack } from "../src/packs/core/movement/index.ts";
@@ -110,7 +109,7 @@ test("suggest: a bad id or a second pack with the same id is left out", () => {
 
 test("the core packs' declarations pass the checks unchanged, and a developer who uses agents gets the cockpit", () => {
   const core = [
-    assistantPack(), autoreviewPack(), dockerPack(() => ({}) as never), deploysPack({} as never), dependabotPack({} as never), historyPack({} as never), issuesPack({} as never),
+    assistantPack(), autoreviewPack(), deploysPack({} as never), dependabotPack({} as never), historyPack({} as never), issuesPack({} as never),
     movementPack(), prsPack({} as never), reviewsPack({} as never), stacksPack({} as never), storybookPack({} as never), terminalPack({} as never), todoPack({} as never),
   ].map((p) => p.manifest);
   for (const c of core) {
@@ -120,7 +119,7 @@ test("the core packs' declarations pass the checks unchanged, and a developer wh
     if (c.onboard) assert.deepEqual(onboardOf(c)!.steps, c.onboard.steps, c.id);
   }
   const dev = suggest(core, "dev", { agents: "many", tasks: ["github"] }, [".storybook/", "Dockerfile"]);
-  assert.deepEqual([...dev.keys()].sort(), ["assistant", "autoreview", "docker", "prs", "reviews", "stacks", "storybook", "terminal", "tracker"]);
+  assert.deepEqual([...dev.keys()].sort(), ["assistant", "autoreview", "prs", "reviews", "stacks", "storybook", "terminal", "tracker"]);
   assert.deepEqual(dev.get("storybook"), ["found .storybook/"]);
   // Bino is suggested to every role.
   for (const r of Object.keys(ROLES)) assert.ok(suggest(core, r as never, {}, []).has("assistant"), r);

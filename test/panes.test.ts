@@ -31,17 +31,6 @@ test("without Claude Code: Bino goes to Copilot through omp", () => {
 test("a pane that can't run here says why; one switched off doesn't", () => {
   const p = panesOf({}, none);
   assert.match(p.terminal.why ?? "", /launcher/);
-  assert.equal(p.docker.on, true, "unknown: as before");
-  const mac = panesOf({}, { ...none, windows: false });
-  assert.match(mac.docker.why ?? "", /No Docker Engine socket found/);
-  const macWithDocker = panesOf({}, { ...none, windows: false, dockerSocket: "/var/run/docker.sock" });
-  assert.equal(macWithDocker.docker.on, true);
-  assert.equal(macWithDocker.docker.why, undefined);
-  // Windows: on when berth is installed or something serves docker_engine, else pointed at berth.
-  const winNone = panesOf({}, { ...none, windows: true, dockerPipe: false });
-  assert.equal(winNone.docker.on, false);
-  assert.match(winNone.docker.why ?? "", /berth/);
-  assert.equal(panesOf({}, { ...none, windows: true, dockerPipe: true }).docker.on, true);
   assert.equal(p.bino.wanted, false, "no model at all: off");
   const on = runningOf(p);
   assert.equal("summaries" in on, false, "AI summaries are the summaries pack's now (#390)");
@@ -135,5 +124,4 @@ test("the old Terminal, Docker and Bino switches turn their packs off; Bino's ro
   const p = panesOf({ BINO_VIA: "off", TERMINAL: "off", DOCKER: "off" }, all);
   assert.equal(p.bino.via, "claude", "an old off is the pack's now: the route is the default");
   assert.equal(p.terminal.on, true, "can run: on or off is the pack's");
-  assert.equal(p.docker.on, true);
 });
