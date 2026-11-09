@@ -15,7 +15,7 @@ import type { Pack } from "./types.ts";
 import { fileWhy, isWasmFile, packFileAt, packFileNameOk, packFileWhy, shaOk, wasmFileAt, wasmNameOk } from "./wasm.ts";
 
 /** Dovre's own static files (icons, fonts). */
-export const CORE_ASSETS = resolve(import.meta.dirname, "..", "..", "assets");
+const CORE_ASSETS = resolve(import.meta.dirname, "..", "..", "assets");
 
 /** Writes `out` afresh; returns the pack files written, or throws naming every module that failed. */
 export async function buildAssets(o: { packs: Pack[]; out: string; core?: string }): Promise<string[]> {

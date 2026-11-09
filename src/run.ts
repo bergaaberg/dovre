@@ -66,7 +66,7 @@ export function mcpAddLine(id: string, port: number, token: string): string {
 }
 
 /** Where a session's setting came from (#369). */
-export type SettingSource = "--set" | "environment" | "local instance";
+type SettingSource = "--set" | "environment" | "local instance";
 
 /**
  * The pack's own settings (only the keys its manifest names), first found wins: `--set` flags, this

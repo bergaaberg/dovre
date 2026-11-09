@@ -12,7 +12,7 @@ import { PACK_API } from "./types.ts";
 /** Where released packs come from: always allowed as a source (src/packs/update.ts). */
 export const HOME_SOURCE = "bergaaberg/dovre-packs";
 
-export type Semver = [number, number, number];
+type Semver = [number, number, number];
 export const semver = (v: string | null | undefined): Semver | null => {
   const m = v?.match(/^(\d+)\.(\d+)\.(\d+)$/);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
@@ -180,7 +180,7 @@ export async function listedFor(get: GetJson, here: string[], source = HOME_SOUR
 }
 
 /** How often the releases are read again. */
-export const RELEASES_MS = 3600_000;
+const RELEASES_MS = 3600_000;
 
 /**
  * Hosted: the kept answer for the Packs page, read again in the background once an hour old.

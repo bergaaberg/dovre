@@ -9,14 +9,14 @@ import type { D1 } from "../db.ts";
 import type { SetupLine } from "../pages/settings.ts";
 
 /** The bindings this reads: the same names as the Worker's (src/worker.ts). */
-export type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
+type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
 
 const set = (v: unknown) => typeof v === "string" && v.trim() !== "";
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const isDb = (v: unknown): v is D1 => !!v && typeof (v as D1).prepare === "function";
 
 /** Each line: on or off, what it gives, and how to turn it on. `needed`: nothing works without it. */
-export type HostedLine = SetupLine & { needed?: boolean };
+type HostedLine = SetupLine & { needed?: boolean };
 
 /** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
 export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean } = {}): HostedLine[] {

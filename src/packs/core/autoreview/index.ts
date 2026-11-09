@@ -18,7 +18,7 @@ import { reviewPass } from "./round.ts";
 import { type PrRow, prsStore } from "./store.ts";
 import { levelFact } from "./view.ts";
 
-export type AutoreviewDeps = {
+type AutoreviewDeps = {
   /** The forge, to read PRs and post reviews: without it, PRs are kept but not reviewed. */
   github?: { ghe: Pick<Ghe, "rest" | "graphql">; owners: () => string };
   /** The model route the reviewer asks (the assistant's), when one can answer. */

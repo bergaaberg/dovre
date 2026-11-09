@@ -27,7 +27,7 @@ export type Draft = ReviewDraft | TriageDraft;
 export const VERDICTS = ["comment", "approve", "request-changes"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 export const VERDICT_LABEL: Record<Verdict, string> = { comment: "Comment", approve: "Approve", "request-changes": "Request changes" };
-export const EVENT: Record<Verdict, string> = { comment: "COMMENT", approve: "APPROVE", "request-changes": "REQUEST_CHANGES" };
+const EVENT: Record<Verdict, string> = { comment: "COMMENT", approve: "APPROVE", "request-changes": "REQUEST_CHANGES" };
 export const verdictOf = (v: unknown): Verdict => (VERDICTS as readonly unknown[]).includes(v) ? (v as Verdict) : "comment";
 
 /** Text as a comment takes it: newlines normalised, control characters out, trimmed, capped. */

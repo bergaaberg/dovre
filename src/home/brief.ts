@@ -8,7 +8,7 @@ import type { Snapshot } from "../gather.ts";
 
 import { currentGreeting, currentTz, type GreetingLang, dtf } from "../when.ts";
 
-export type GreetingOpts = { tz?: string; lang?: GreetingLang };
+type GreetingOpts = { tz?: string; lang?: GreetingLang };
 export type { Bit };
 
 const DAY = 86400e3;

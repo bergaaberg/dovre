@@ -8,7 +8,7 @@ import { MARK, type OwnerSaid } from "./owner.ts";
 import type { Tag } from "./reviewer.ts";
 
 /** The fence a fix session answers the comments in. */
-export const REPLIES_FENCE = "auto-replies";
+const REPLIES_FENCE = "auto-replies";
 
 /** A review comment as the forge has it, with the tag the reviewer put in front. */
 export type OpenComment = { id: number; path: string; line: number | null; tag: Tag; text: string };

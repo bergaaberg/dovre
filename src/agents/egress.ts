@@ -56,7 +56,7 @@ export function inSubnet(addr: string | undefined, cidr: string): boolean {
 }
 
 /** One run as the proxy knows it. */
-export type EgressRun = { token: string; allow: string[]; onDeny?: (host: string) => void };
+type EgressRun = { token: string; allow: string[]; onDeny?: (host: string) => void };
 
 export type Egress = {
   port: number;

@@ -185,7 +185,7 @@ code { font: 13px "Nordwand Mono", "Cascadia Mono", Consolas, monospace; }
 }
 
 /** What the service worker keeps for when the server can't answer. */
-export const OFFLINE = startingPage();
+const OFFLINE = startingPage();
 
 /** `files: false` (hosted): the icons and fonts come from the Worker's static assets instead (src/worker.ts). */
 /** `on`: whether a page answers here; a shortcut to one whose pack is off is left out. */

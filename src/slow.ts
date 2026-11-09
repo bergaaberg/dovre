@@ -12,7 +12,7 @@ let last = 0;
 let timer: ReturnType<typeof setInterval> | undefined;
 
 /** Milliseconds the event loop has been blocked since the sampler started, the gap under way included. */
-export function blockedMs(): number {
+function blockedMs(): number {
   if (!timer) {
     last = performance.now();
     timer = setInterval(() => {

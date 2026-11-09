@@ -15,9 +15,9 @@ import type { Ghe } from "../sources/ghe.ts";
 import { ConfirmSubmit, Notice, PageHeader, Panel } from "../ui/kit.ts";
 import { safeUrl } from "./parts.ts";
 
-export type BugView = { wheres: Where[]; home: Home; report: Report; /** Which of the wheres the token may file in. */ canFile: (repo: string) => boolean; nonce: string; filed?: { url: string; ref: string }; problem?: string };
+type BugView = { wheres: Where[]; home: Home; report: Report; /** Which of the wheres the token may file in. */ canFile: (repo: string) => boolean; nonce: string; filed?: { url: string; ref: string }; problem?: string };
 
-export function bugPage(frame: Frame, v: BugView) {
+function bugPage(frame: Frame, v: BugView) {
   const r = v.report;
   const where = html`<div class="field"><span class="label">Where it goes</span><span>${v.wheres.map(
     (w) => html`<label class="check"><input type="radio" name="where" value="${w.home}"${w.home === v.home ? html` checked` : ""}> ${w.label} <code>${w.repo}</code></label>`,
@@ -39,7 +39,7 @@ ${Panel({ children: form })}`;
 }
 
 /** `https://<host>/<owner>/<repo>/issues/<n>` → `owner/repo#n`; anything else null. */
-export function filedRef(host: string, url: unknown): string | null {
+function filedRef(host: string, url: unknown): string | null {
   if (typeof url !== "string") return null;
   const m = url.match(/^https:\/\/([^/]+)\/([\w.-]+)\/([\w.-]+)\/issues\/(\d{1,9})$/);
   return m && m[1] === host ? `${m[2]}/${m[3]}#${m[4]}` : null;

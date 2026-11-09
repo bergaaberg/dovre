@@ -18,7 +18,7 @@ import { upsertDevVar } from "./setup.ts";
 
 const UUID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
 
-export type WranglerInfo = {
+type WranglerInfo = {
   worker: string;
   dbName: string;
   dbId: string;
@@ -48,7 +48,7 @@ export function extractD1Uuid(output: string): string | undefined {
   return output.match(UUID_RE)?.[1]?.toLowerCase();
 }
 
-export type WranglerPatch = {
+type WranglerPatch = {
   databaseId?: string;
   domain?: string;
   repoOwners?: string;
@@ -82,14 +82,14 @@ export function patchWranglerConfig(jsoncText: string, patch: WranglerPatch): st
   return out;
 }
 
-export type CmdRunner = (cmd: string, args: string[], opts?: { cwd?: string; input?: string }) => { status: number; stdout: string; stderr: string };
+type CmdRunner = (cmd: string, args: string[], opts?: { cwd?: string; input?: string }) => { status: number; stdout: string; stderr: string };
 
 const defaultRun: CmdRunner = (cmd, args, opts) => {
   const r = spawnSync(cmd, args, { cwd: opts?.cwd, input: opts?.input, encoding: "utf8" });
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 };
 
-export type ProvisionOpts = {
+type ProvisionOpts = {
   dir: string;
   coreVarsFile?: string;
   domain?: string;

@@ -45,7 +45,7 @@ export type ViewApp = {
 };
 
 /** How long a pack's `about` may take before Bino goes on with the page's name alone. */
-export const ABOUT_MS = 2000;
+const ABOUT_MS = 2000;
 
 /** Said when Bino has only the page's name: it says so, rather than guessing from the rest of its context. */
 const ONLY_NAME = "You only know which page this is, not what it shows: if asked about it, say so in one line first.";

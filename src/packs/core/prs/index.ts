@@ -20,7 +20,7 @@ import { prsBody } from "./listview.ts";
 import { createPrRoutes } from "./routes.ts";
 import { PRS } from "./view.ts";
 
-export type PrsDeps = {
+type PrsDeps = {
   /** The forge, to read a PR and post my review. */
   ghe: Ghe;
   /** Whose repos are mine (REPO_OWNERS): only their PRs open here. */

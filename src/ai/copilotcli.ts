@@ -36,7 +36,7 @@ export function copilotCliArgs(cwd: string, model?: string): string[] {
 }
 
 /** The system text and the message as one prompt. */
-export const copilotPrompt = (system: string, user: string) => `<instructions>\n${system.trim()}\n</instructions>\n\n${user}`;
+const copilotPrompt = (system: string, user: string) => `<instructions>\n${system.trim()}\n</instructions>\n\n${user}`;
 
 /** What `--output-format json` printed: the last assistant message, and the session and its premium requests. */
 export function parseCopilotJsonl(stdout: string): { text: string; sessionId?: string; premiumRequests?: number; model?: string; error?: string } {

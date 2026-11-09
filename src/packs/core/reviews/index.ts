@@ -22,7 +22,7 @@ import { allowedFor, cloneCommand, KIND_LABEL, kindFor, prKey, type ReviewKind, 
 import { type AgentReview, latestReviews, liveOf, markPosted, recordReview, reviewOf, syncReviews } from "./store.ts";
 import { agentBlock, confirmPage, type DraftDiff, draftHref, draftPage, prOfKey, sessionHref } from "./view.ts";
 
-export type ReviewsDeps = {
+type ReviewsDeps = {
   runner: Runner;
   /** The forge, to read the reviewed diff and post. */
   ghe: Ghe;

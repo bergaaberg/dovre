@@ -28,13 +28,13 @@ import { createIssueRoutes } from "./compose/routes.ts";
 import { CURRENT as NEW_WORK } from "./compose/work.ts";
 import { ACT, BULK, BULK_DO, BULK_MAX, type BulkDo, bulkOf, COMMENT, commentPreview, doneOf, HREF, refusedBody, trackerBody } from "./view.ts";
 
-export const ISSUES_PACK_ID = "tracker";
+const ISSUES_PACK_ID = "tracker";
 /** Where its setup keeps the repos to triage, in Dovre's settings table. */
 const TRIAGE_KEY = "tracker.triage";
 const MAX_TRIAGE = 100;
 const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
 
-export type IssuesDeps = {
+type IssuesDeps = {
   forge: Pick<Forge, "host" | "can" | "issues" | "viewer" | "issue" | "issueAct"> & Partial<Pick<Forge, "name" | "thread" | "searchThreads">>;
   /** The owners' list (OWNERS), as the gather uses it. */
   owners: () => string;

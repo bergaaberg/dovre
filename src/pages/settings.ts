@@ -80,7 +80,7 @@ export function fieldInput(f: Field, value: string | undefined, fixed: boolean, 
 }
 
 /** The Work form: what Settings keeps, and what .dev.vars or the environment fixes. */
-export type PanesView = { values: Record<string, string | undefined>; fixed: Set<string> };
+type PanesView = { values: Record<string, string | undefined>; fixed: Set<string> };
 
 /** "Saved, starting again": the page waits for the new server (src/ui/app.js.ts), then opens `then`. */
 export function restartingNote(started: number, then: string, text: string) {
@@ -260,12 +260,12 @@ export const isArea = (s: string): s is AreaId => AREAS.some((a) => a.id === s);
 const areaOf = (id: AreaId) => AREAS.find((a) => a.id === id)!;
 
 /** One setting, to find: where it lives, what it's set to now, and whether that's other than the default. */
-export type SettingRow = { area: AreaId; label: string; href: string; now?: string; changed?: boolean; also?: string[] };
+type SettingRow = { area: AreaId; label: string; href: string; now?: string; changed?: boolean; also?: string[] };
 
 /** A pack with settings: its manifest's (set or not), and whether it has its own panel or ingest tokens. */
 export type PackSettings = { id: string; name: string; on: boolean; settings: { key: string; label: string; set: boolean }[]; panel: boolean };
 
-export type RowsState = {
+type RowsState = {
   layout: Layout;
   policy: Policy;
   rings: { kind: string; label: string; off?: boolean }[];

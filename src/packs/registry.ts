@@ -20,7 +20,7 @@ import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type 
 export type Off = { id: string; name: string; why: string; manifest?: PackManifest; pack?: Pack; needs?: string[] };
 export type Active = { on: Pack[]; off: Off[] };
 
-export type ActiveOpts = {
+type ActiveOpts = {
   env: Record<string, string | undefined>;
   /** The Worker's bindings (hosted); empty locally. */
   bindings?: Record<string, unknown>;
@@ -390,7 +390,7 @@ export function whereFrom(fill: Fill, a: { kind: string; target: string }): stri
 
 /** A pack's dock as the frame draws it: its id (its pages are /<id>/dock…), the label and count cut to size. */
 export type DockView = { id: string; label: string; count: number; hot: boolean; title?: string; /** Its key (one capital letter), when the pack asked for one no other dock has. */ key?: string };
-export const MAX_DOCKS = 3;
+const MAX_DOCKS = 3;
 
 /** Capitals the page's own keys already use (src/ui/app.js.ts): B is Bino's pane; F, G, H, J, K and L move about. */
 export const TAKEN_KEYS = "BFGHJKL";

@@ -19,7 +19,7 @@ import { agyCli, codexCli } from "../../../../ai/llm.ts";
 import { type ApiKeyOpts, apiKeyRouteOf, type CfGatewayOpts, gatewayRouteOf, type OpenRouterOpts, openRouterRouteOf } from "./gateway.ts";
 
 export const VIAS = ["claude", "omp", "copilot", "agy", "codex", "api-key", "cf-gateway", "openrouter", "off"] as const;
-export type BinoVia = (typeof VIAS)[number];
+type BinoVia = (typeof VIAS)[number];
 
 /** How Bino can answer, for its setting (ASSISTANT_VIA, the assistant pack's): every route but off. */
 export const VIA_CHOICES: { value: Exclude<BinoVia, "off">; label: string }[] = [
@@ -103,7 +103,7 @@ const resultLine = (out: string): Result | undefined => {
 };
 
 /** What the CLI answered (one JSON object, or stream-json's lines): the reply and its cost, or why it didn't. */
-export function parseReply(r: Ran): { text: string; cost: number } {
+function parseReply(r: Ran): { text: string; cost: number } {
   let j: Result | undefined;
   try {
     j = JSON.parse(r.stdout);
@@ -118,7 +118,7 @@ export function parseReply(r: Ran): { text: string; cost: number } {
 type Run = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal; onStdout?: (chunk: string) => void }) => Promise<Ran>;
 
 /** Reads stream-json as it comes: each text delta grows the reply, which goes to `onText`. */
-export function streamText(onText: (soFar: string) => void): (chunk: string) => void {
+function streamText(onText: (soFar: string) => void): (chunk: string) => void {
   let buf = "";
   let text = "";
   return (chunk) => {

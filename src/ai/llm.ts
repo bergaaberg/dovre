@@ -13,7 +13,7 @@ import { codexCost } from "../agents/harnesses/codex/harness.ts";
 /** `onText`, where the route streams: the reply so far, as it grows. */
 export type Complete = (p: { system: string; user: string; model?: string; signal?: AbortSignal; onText?: (soFar: string) => void }) => Promise<{ text: string; cost: number }>;
 
-export function cliArgs(system: string, model: string): string[] {
+function cliArgs(system: string, model: string): string[] {
   return [
     "-p",
     "--model", model,
@@ -61,14 +61,14 @@ export function claudeCli(opts: { bin?: string; pre?: string[]; timeoutMs?: numb
   };
 }
 
-export type RunFn = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal }) => Promise<Ran>;
+type RunFn = (bin: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string; signal?: AbortSignal }) => Promise<Ran>;
 
 /**
  * agy, only when chosen (BINO_VIA / SUMMARIES=agy): unlike the other routes it can't be run without
  * its tools and MCP servers, so it runs sandboxed (`--sandbox`), with slash commands off, in an
  * empty folder of its own; what it's asked stays in agy's own history. `pre`: arguments before agy's own.
  */
-export const AGY_LLM_DIR = join(tmpdir(), "dovre-llm-agy");
+const AGY_LLM_DIR = join(tmpdir(), "dovre-llm-agy");
 export function agyCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number; run?: RunFn } = {}): Complete {
   const bin = opts.bin ?? "agy";
   const cwd = AGY_LLM_DIR;
@@ -109,7 +109,7 @@ export function agyCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number;
  * checkout), the text on stdin. Like agy it keeps its tools, so it's never picked by itself. The
  * reply is the turn's last agent message; the cost an estimate from its tokens (src/agents/harnesses/codex/).
  */
-export const CODEX_LLM_DIR = join(tmpdir(), "dovre-llm-codex");
+const CODEX_LLM_DIR = join(tmpdir(), "dovre-llm-codex");
 export function codexCli(opts: { bin?: string; pre?: string[]; timeoutMs?: number; run?: RunFn } = {}): Complete {
   const bin = opts.bin ?? "codex";
   const cwd = CODEX_LLM_DIR;

@@ -11,8 +11,8 @@ import type { Ghe } from "../../../sources/ghe.ts";
 import type { PrFile } from "../../../sources/prview.ts";
 import { marked } from "./owner.ts";
 
-export const FENCE = "auto-review";
-export const TAGS = ["blocker", "should-fix", "nit"] as const;
+const FENCE = "auto-review";
+const TAGS = ["blocker", "should-fix", "nit"] as const;
 export type Tag = (typeof TAGS)[number];
 export type Tagged = LineComment & { tag: Tag };
 export const MAX_COMMENTS = 20;
@@ -46,7 +46,7 @@ A few strong comments beat many; at most ${MAX_COMMENTS}. Answer with one fenced
 "line" is as numbered in the diff; "side" is RIGHT for a new or unchanged line, LEFT for a removed one. "reasons" are one to ${MAX_REASONS} short sentences on why that level. "summary" is two to four sentences for the author: the overall take and the main things to fix. Texts are Markdown.`;
 
 export type Issue = { repo: string; number: number; title: string; body: string };
-export type PrText = { repo: string; number: number; title: string; body: string };
+type PrText = { repo: string; number: number; title: string; body: string };
 
 export function reviewPrompt(issue: Issue, pr: PrText, files: PrFile[]): string {
   return [
@@ -173,7 +173,7 @@ export function reviewDraft(v: Verdict, c: Capped, o: { model: string; head: str
 // ── Which model reviews ──
 
 /** A model's family, so an alias and its full id match: "opus" and "claude-opus-5-5" are one. */
-export function familyOf(model: string): string {
+function familyOf(model: string): string {
   const m = model.trim().toLowerCase().replace(/^[\w-]+\//, "");
   for (const f of ["opus", "sonnet", "haiku"]) if (m.includes(f)) return f;
   return m;

@@ -103,7 +103,7 @@ export function issueSetsOf(d: Found, owners: string): IssueSets {
 }
 
 /** The issue lists every isolate shares (5 GraphQL points a read); a write shows at once anyway (withActs). */
-export const ISSUES_SHARE_MS = 2 * 60_000;
+const ISSUES_SHARE_MS = 2 * 60_000;
 
 export async function loadIssues(ghe: Ghe, login: string, owners: string, opts: { triage?: string[] } = {}): Promise<IssueSets> {
   const queries = issueQueries(login, owners, opts.triage);
@@ -142,7 +142,7 @@ type RestIssue = {
   pull_request?: unknown;
 };
 
-export function restIssue(repo: string, r: RestIssue): Issue {
+function restIssue(repo: string, r: RestIssue): Issue {
   return {
     repo,
     number: r.number,

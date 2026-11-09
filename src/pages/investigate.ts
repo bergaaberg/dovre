@@ -12,7 +12,7 @@ import type { AgentShare } from "../packs/types.ts";
 import { type Html, Notice, PageHeader, Panel } from "../ui/kit.ts";
 
 /** Longest prompt carried in the link. */
-export const INVESTIGATE_MAX = 4000;
+const INVESTIGATE_MAX = 4000;
 
 export type Investigate = { prompt: string; repo: string; from: string };
 

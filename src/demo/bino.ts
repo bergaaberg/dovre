@@ -8,9 +8,9 @@ import { type Bino, type Conv, createBino, type Engine } from "../packs/core/ass
 import type { BinoMemory } from "../packs/core/assistant/bino/memory.ts";
 import type { Snapshot } from "../gather.ts";
 
-export const DEMO_FALLBACK = "In the demo I only know a few things. On your own Dovre I'd answer with your model of choice.";
+const DEMO_FALLBACK = "In the demo I only know a few things. On your own Dovre I'd answer with your model of choice.";
 
-export function answerRed(s: Snapshot): string {
+function answerRed(s: Snapshot): string {
   const red = s.red ?? [];
   const failingPrs = s.prs.ok ? s.prs.value.mine.filter((p) => p.checks === "FAILURE") : [];
   if (!red.length && !failingPrs.length) return "Nothing is red right now — all builds and checks are green.";
@@ -24,7 +24,7 @@ export function answerRed(s: Snapshot): string {
   return `Here is what is currently red:\n\n${parts.map((p) => `• ${p}`).join("\n")}`;
 }
 
-export function answerFirst(s: Snapshot): string {
+function answerFirst(s: Snapshot): string {
   const steps: string[] = [];
   const reviews = s.prs.ok ? s.prs.value.review : [];
   if (reviews.length) {
@@ -42,7 +42,7 @@ export function answerFirst(s: Snapshot): string {
   return `Here's what to look at first:\n\n${steps.map((st, i) => `${i + 1}. ${st}`).join("\n")}`;
 }
 
-export function answerPrs(s: Snapshot): string {
+function answerPrs(s: Snapshot): string {
   const mine = s.prs.ok ? s.prs.value.mine : [];
   if (!mine.length) return "You have no open pull requests.";
   const lines = mine.map((p) => {
@@ -52,7 +52,7 @@ export function answerPrs(s: Snapshot): string {
   return `You have ${mine.length} pull requests:\n\n${lines.join("\n")}`;
 }
 
-export function extractLastUserMessage(user: string): string {
+function extractLastUserMessage(user: string): string {
   const parts = user.split(/\n(?=User: )/);
   const lastUserPart = parts.reverse().find((p) => p.startsWith("User: "));
   if (!lastUserPart) return user.trim();
@@ -62,7 +62,7 @@ export function extractLastUserMessage(user: string): string {
 /** A scripted answer a demo adds: when the question matches, Bino says this. */
 export type DemoAnswer = { match: RegExp; answer: (s: Snapshot) => string };
 
-export function matchScriptedAnswer(prompt: string, s: Snapshot, answers: DemoAnswer[] = []): string {
+function matchScriptedAnswer(prompt: string, s: Snapshot, answers: DemoAnswer[] = []): string {
   const clean = prompt.replace(/^\[Looking at [^\]]+\]\s*/i, "").trim().toLowerCase();
   const own = answers.find((a) => a.match.test(clean));
   if (own) return own.answer(s);
@@ -118,7 +118,7 @@ export function demoSeedConvs(s: Snapshot, now = Date.now()): Conv[] {
 }
 
 /** The longest question the demo keeps, in characters. */
-export const DEMO_CHARS = 500;
+const DEMO_CHARS = 500;
 
 /** A fresh scripted Bino with only the seeded conversations: the demo makes one per request. */
 export function demoEngine(o: { route: Route; memory: BinoMemory; seed: () => Conv[] }): Engine {

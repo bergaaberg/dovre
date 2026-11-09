@@ -24,7 +24,7 @@ function termItem(t: Term): Html {
 }
 
 /** The open terminals. */
-export function terminalList(terms: Term[]): Html {
+function terminalList(terms: Term[]): Html {
   return html`<div data-live id="terminals">${terms.length ? List(terms.map(termItem)) : Empty({ title: "No terminals open", children: html`<p class="t2">Start one below, or from a worktree or an ended agent session.</p>` })}</div>`;
 }
 

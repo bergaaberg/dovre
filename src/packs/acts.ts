@@ -14,7 +14,7 @@ import type { ActDone, ActField, ActKind, PackContext } from "./types.ts";
 import type { Html } from "../ui/kit.ts";
 
 /** The app said no, or the thing isn't as it was: the card shows `refuse`, the log keeps `log` (default `refuse`). */
-export type Refusal = { refuse: string; log?: string };
+type Refusal = { refuse: string; log?: string };
 export const refused = (r: unknown): r is Refusal => typeof (r as Refusal | undefined)?.refuse === "string";
 
 /** What a write did: the card's line after, a link to the thing, and a short detail for the log (a title, never a body). */
@@ -23,7 +23,7 @@ export type Wrote = { done: string; href?: string; detail?: string };
 /** What the card's form asked for, checked: who it's about in the log (`target`), and the values the write needs. */
 export type Read<T> = { target: string; value: T };
 
-export type WriteSpec<T, C> = {
+type WriteSpec<T, C> = {
   /** The pack's id: the write is logged as `<pack>.<kind>`. */
   pack: string;
   kind: string;

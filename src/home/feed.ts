@@ -6,7 +6,7 @@
  */
 import type { Snapshot } from "../gather.ts";
 
-export type FeedTone = "ok" | "warn" | "bad" | "acc" | "mute";
+type FeedTone = "ok" | "warn" | "bad" | "acc" | "mute";
 export type FeedEvent = {
   key: string;
   at: number;

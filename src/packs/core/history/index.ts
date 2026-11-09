@@ -9,7 +9,7 @@ import { type Pack, type PackContext, PACK_API } from "../../types.ts";
 import type { HistoryStore } from "./store.ts";
 import { historyStats } from "./view.ts";
 
-export type HistoryDeps = {
+type HistoryDeps = {
   /** Made on first use, with a way to tell open Stats pages a gather ended. */
   history: (changed: () => void) => HistoryStore;
   /** The forge's name, for "from GitHub" (default GitHub). */

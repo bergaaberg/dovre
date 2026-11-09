@@ -20,7 +20,7 @@ export type AgentOf = (p: Pr) => Html | "";
 export const prAnchor = (p: { repo: string; number: number }) => `pr-${p.repo.replace(/[^\w-]/g, "-")}-${p.number}`;
 
 /** The line that says what a change is, or that it's being worked out. */
-export function aiLine(s: Summary | undefined): Html | "" {
+function aiLine(s: Summary | undefined): Html | "" {
   if (!s) return "";
   if (s.state === "pending") return html`<p class="ai pending">Writing a summary…</p>`;
   if (s.state === "failed") return html`<p class="ai failed" title="${s.error}">No summary: ${s.error.slice(0, 120)}</p>`;

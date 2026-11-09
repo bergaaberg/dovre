@@ -369,7 +369,7 @@ ${Empty({ title: "That run isn't here any more", children: html`<p class="t2">A 
 }
 
 /** One side of a pair (#242): its run (with what it said, when the machine answered), and its pages. */
-export type PairSide = { run: Run; said?: string; diff?: string };
+type PairSide = { run: Run; said?: string; diff?: string };
 
 const RUN_STATE: Record<Run["status"], { label: string; tone?: "ok" | "bad" }> = { running: { label: "working" }, done: { label: "done", tone: "ok" }, failed: { label: "failed", tone: "bad" }, stopped: { label: "stopped" } };
 

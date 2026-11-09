@@ -22,11 +22,11 @@ import { type PrRow, prsStore } from "./store.ts";
 import { AUTOREVIEW_SYSTEM, capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, tagCounts, verdictOf } from "./reviewer.ts";
 
 /** How long the reviewer may take. */
-export const REVIEW_MS = 180_000;
+const REVIEW_MS = 180_000;
 /** A claim older than this was a pass that went away: another may take the PR. */
 export const CLAIM_MS = REVIEW_MS + 120_000;
 /** At most this many reviews a pass, so one pass stays inside a cron run. */
-export const PER_PASS = 3;
+const PER_PASS = 3;
 /** How long a review waits for CI that's still running on the head commit; then it reviews anyway (and the level is capped). */
 export const CI_WAIT_MS = 30 * 60_000;
 /** Fix rounds per PR; then it's handed to me. */

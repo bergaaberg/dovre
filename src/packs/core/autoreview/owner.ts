@@ -17,7 +17,7 @@ export const MARK = "<!-- dovre:autoreview -->";
 export const marked = (body: string) => `${body}\n\n${MARK}`;
 
 /** At most this many owner comments go into one fix round; the rest wait for the next. */
-export const MAX_SAID = 30;
+const MAX_SAID = 30;
 const MAX_TEXT = 3000;
 
 /** One thing an owner said. `line` ones are review threads, which a fix session replies on. */

@@ -62,7 +62,7 @@ export async function blob(g: Git, dir: string, sha: string, path: string): Prom
 }
 
 export type Hit = { path: string; line: number; text: string };
-export const MAX_HITS = 200;
+const MAX_HITS = 200;
 
 /** Lines with the text, at that commit: fixed string, case-insensitive, capped. */
 export async function grep(g: Git, dir: string, sha: string, q: string): Promise<{ hits: Hit[]; more: boolean } | null> {

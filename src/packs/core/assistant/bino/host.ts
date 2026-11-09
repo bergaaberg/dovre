@@ -11,7 +11,7 @@ import type { DockAssets } from "./routes.ts";
 import type { ViewApp } from "./view.ts";
 import type { Frame } from "../../../../html.ts";
 
-export type AssistantHost = {
+type AssistantHost = {
   bino: Bino;
   /** The shell's frame for a page of Bino's. */
   frame(): Promise<Frame>;

@@ -86,7 +86,7 @@ export function writeClicksStore(db: D1, now: () => number = Date.now, kinds: ()
 }
 
 /** The request's choices, put there by the app (see app.ts): Confirm reads them while a page is drawn. */
-export const CLICKS_VAR = "clicks";
+const CLICKS_VAR = "clicks";
 
 /** Whether this kind of write takes one click on the page being drawn now: yes, unless I set it to ask twice. */
 export function oneClickNow(kind: string | undefined): boolean {

@@ -14,7 +14,7 @@ const dayTip = (key: string) => fmtDay(key, { weekday: "short", day: "numeric", 
 const weekTip = (key: string, label: string) => `${label} · ${fmtDay(key, { day: "numeric", month: "short" })} – ${fmtDay(new Date(Date.parse(key) + 6 * DAY).toISOString().slice(0, 10), { day: "numeric", month: "short" })}`;
 
 /** What to say while there's nothing to draw: gathering, the forge's error, or press Gather again. */
-export function emptyOf(v: HistoryView, forge: string): string {
+function emptyOf(v: HistoryView, forge: string): string {
   if (v.gathering) return `Gathering the weeks from ${forge}. This takes about half a minute; the page fills in by itself.`;
   if (v.historyError) return `${forge} didn't answer: ${v.historyError}`.slice(0, 200);
   return `Nothing from ${forge} yet. Press Gather again; it takes about half a minute.`;

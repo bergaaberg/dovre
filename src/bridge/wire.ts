@@ -13,7 +13,7 @@
  * What the bodies carry is checked here too (parseUp / parseDown), by shape and size.
  */
 
-export const PROTOCOL = "dovre-bridge/1";
+const PROTOCOL = "dovre-bridge/1";
 /** A hello older or newer than this is refused. */
 export const HELLO_SKEW_MS = 2 * 60_000;
 /** The largest frame either side sends or takes (workerd's own limit is 1 MiB). */

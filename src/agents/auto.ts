@@ -128,7 +128,7 @@ export function autoPrompt(i: { repo: string; number: number; title: string; bod
 
 // ── The queue ──
 
-export type AutoState = "queued" | "starting" | "running" | "waiting" | "done" | "stuck" | "refused";
+type AutoState = "queued" | "starting" | "running" | "waiting" | "done" | "stuck" | "refused";
 export type AutoRow = {
   key: string;
   repo: string;
@@ -222,7 +222,7 @@ export type AutoStore = ReturnType<typeof autoStore>;
 
 export type FixState = "starting" | "running" | "ended";
 /** A fix session Auto review asked for: the slot it holds, and its run once started. */
-export type FixRow = { id: string; key: string; pr: string; state: FixState; run: string | null; cost: number; at: number; updated: number };
+type FixRow = { id: string; key: string; pr: string; state: FixState; run: string | null; cost: number; at: number; updated: number };
 
 /** Fix sessions in `auto_fixes`: each holds an at-once slot while starting or running, and its cost counts toward the day's cap. */
 export function fixStore(db: D1, now: () => number = Date.now) {

@@ -13,7 +13,7 @@ import { type AiSummary, type Pack, PACK_API } from "../../types.ts";
 import { decide, rejectSuperseded } from "./act.ts";
 import { deploysBody } from "./view.ts";
 
-export type DeploysDeps = {
+type DeploysDeps = {
   /** The forge, to decide on a run. */
   ghe: Ghe;
   /** Whose repos are mine (REPO_OWNERS): a run of anyone else's is refused. */

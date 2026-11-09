@@ -9,7 +9,7 @@ import type { D1 } from "../../../../db.ts";
 import type { Ghe } from "../../../../sources/ghe.ts";
 import { ensureType, msg, type RawIssue } from "./create.ts";
 
-export type IssueRef = { repo: string; number: number };
+type IssueRef = { repo: string; number: number };
 
 /** `ACME/x#12`, `x#12` (the first owner's) or an issue URL on the host. Anything outside the owners is refused. */
 export function parseRef(input: string, org: string, host?: string): IssueRef | null {

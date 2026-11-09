@@ -35,7 +35,7 @@ import { cleanUserText, type Turn } from "../agents/conversation.ts";
 import { alive, tail, type Session } from "./claude.ts";
 import { argvOf, commandLines, type ProcRow } from "./procs.ts";
 
-export const OMP_AGENT_DIR = join(homedir(), ".omp", "agent");
+const OMP_AGENT_DIR = join(homedir(), ".omp", "agent");
 
 /** The default agent folder and every profile's, with the profile's name. */
 export function ompAgentDirs(home = homedir()): { profile?: string; dir: string }[] {
@@ -74,7 +74,7 @@ export function ompTranscriptOf(agentDir: string, id: string): string | undefine
 }
 
 /** What a session file says about itself. `state` comes from its last entries. */
-export type OmpMeta = {
+type OmpMeta = {
   sessionId?: string;
   cwd?: string;
   title?: string;
@@ -197,7 +197,7 @@ function metaOf(file: string): OmpMeta {
 }
 
 /** omp's newest recap and title per session, from history.db. Empty when it can't be read. */
-export function ompRecaps(agentDir: string): { recaps: Map<string, { text: string; at: string }>; titles: Map<string, string> } {
+function ompRecaps(agentDir: string): { recaps: Map<string, { text: string; at: string }>; titles: Map<string, string> } {
   const recaps = new Map<string, { text: string; at: string }>();
   const titles = new Map<string, string>();
   const f = join(agentDir, "history.db");
@@ -219,7 +219,7 @@ export function ompRecaps(agentDir: string): { recaps: Map<string, { text: strin
 }
 
 /** A running omp: its profile, and the session it was started with when it says (`--resume`). */
-export type OmpProcess = { pid: number; profile?: string; resume?: string };
+type OmpProcess = { pid: number; profile?: string; resume?: string };
 
 /** omp commands that aren't a session (`omp collab list`, `omp models`, …). */
 const COMMANDS = new Set("acp agents anonymize auth auth-broker auth-gateway bench browser-relay cleanse clip collab commit completions compress config dry-balance find gallery gc git grep grievances if-bench images install join login models play plugin predict ps read render say search session setup share shell skill ssh stats stream tiny-models token toks ttsr update usage worktree".split(" "));
@@ -242,7 +242,7 @@ export function parseOmpCommandLine(pid: number, commandLine: string): OmpProces
 }
 
 /** Running omp processes (src/sources/procs.ts). */
-export function ompProcesses(timeoutMs = 15_000): Promise<OmpProcess[]> {
+function ompProcesses(timeoutMs = 15_000): Promise<OmpProcess[]> {
   return commandLines(["omp"], timeoutMs).then(ompProcessesOf);
 }
 
@@ -252,7 +252,7 @@ export function ompProcessesOf(rows: ProcRow[]): OmpProcess[] {
 }
 
 /** What `omp collab list --json` says about one shared session. */
-export type CollabHost = { pid: number; sessionId: string; cwd?: string; model?: string; busy?: boolean; inputRequired?: boolean; startedAt?: number };
+type CollabHost = { pid: number; sessionId: string; cwd?: string; model?: string; busy?: boolean; inputRequired?: boolean; startedAt?: number };
 
 export function parseCollabHosts(json: string): CollabHost[] {
   const j = JSON.parse(json);
@@ -265,7 +265,7 @@ export function parseCollabHosts(json: string): CollabHost[] {
     }));
 }
 
-export function ompCollabHosts(bin = "omp", profile?: string, timeoutMs = 20_000): Promise<CollabHost[]> {
+function ompCollabHosts(bin = "omp", profile?: string, timeoutMs = 20_000): Promise<CollabHost[]> {
   const args = [...(profile && /^[\w.-]+$/.test(profile) ? ["--profile", profile] : []), "collab", "list", "--json"];
   return new Promise((resolve, reject) =>
     execFile(bin, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, out) => {

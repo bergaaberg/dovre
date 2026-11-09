@@ -10,7 +10,7 @@ import { throttle } from "../../../live.ts";
 import { type Pack, type PackContext, PACK_API } from "../../types.ts";
 import { createSummaries, deployPrompt, prPrompt, type Summaries } from "./store.ts";
 
-export type SummariesDeps = {
+type SummariesDeps = {
   /** The model that writes them (SUMMARIES picks it in src/index.ts); undefined: none here, so the pack doesn't run. */
   complete?: Complete;
   now?: () => number;

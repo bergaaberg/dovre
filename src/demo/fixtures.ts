@@ -15,7 +15,7 @@ import type { SpendDay } from "../packs/core/agents/spend.ts";
 import { osloDay } from "../when.ts";
 
 /** The demo's numbers for /stats: the forge's weeks (the history pack's) and agent spend (the agents pack's). */
-export type DemoStatsView = { history?: History; spend?: SpendDay[]; gathering?: boolean };
+type DemoStatsView = { history?: History; spend?: SpendDay[]; gathering?: boolean };
 export type Stats = { view(): DemoStatsView; refresh?(): void };
 
 export const DEMO_HOST = "git.example.com";
@@ -237,7 +237,7 @@ export function demoPrs(now: number): { mine: Pr[]; review: Pr[] } {
   };
 }
 
-export function demoNotes(now: number): Note[] {
+function demoNotes(now: number): Note[] {
   return [
     { id: "n1", reason: "review_requested", type: "PullRequest", title: "Show the delivery estimate in the basket", repo: `${DEMO_ORG}/checkout`, updatedAt: ago(now, 25), url: `${base}/${DEMO_ORG}/checkout/pull/415` },
     { id: "n2", reason: "mention", type: "Issue", title: "Search returns old prices after a sale ends", repo: `${DEMO_ORG}/catalog`, updatedAt: ago(now, 70), url: `${base}/${DEMO_ORG}/catalog/issues/91` },
@@ -245,7 +245,7 @@ export function demoNotes(now: number): Note[] {
   ];
 }
 
-export function demoMoves(now: number): Move[] {
+function demoMoves(now: number): Move[] {
   const m = (min: number, o: Omit<Move, "at" | "bot">): Move => ({ at: ago(now, min), bot: false, ...o });
   return [
     m(12, { actor: "ola-demo", repo: `${DEMO_ORG}/checkout`, type: "PullRequestReviewEvent", verb: "reviewed (approved)", ref: `${DEMO_ORG}/checkout#412`, title: "Retry card payments once on a gateway timeout", url: `${base}/${DEMO_ORG}/checkout/pull/412` }),
@@ -255,7 +255,7 @@ export function demoMoves(now: number): Move[] {
   ];
 }
 
-export function demoDeploys(now: number): Deploy[] {
+function demoDeploys(now: number): Deploy[] {
   return [
     {
       id: 7001, name: "Deploy to production", title: "Deploy to production", actor: "lise-demo", createdAt: ago(now, 35),
@@ -469,7 +469,7 @@ export function demoHistory(now = Date.now()): History {
 }
 
 /** 7–14 days of plausible agent spend (Claude Code and omp). */
-export function demoSpend(now = Date.now()): SpendDay[] {
+function demoSpend(now = Date.now()): SpendDay[] {
   const baseSpend = [
     { claude: 18.4, omp: 0.25, sessions: 3 },
     { claude: 32.1, omp: 0.40, sessions: 5 },

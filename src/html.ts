@@ -34,14 +34,14 @@ export type { Html };
 export type NavItem = { href: string; title: string; icon?: IconName; group?: string; /** Its place within its group (lower first; unset: 50, in the order given). */ order?: number; count?: number; hot?: boolean; minor?: boolean; place?: "main" | "more" | "action"; /** A tab in the phone's bar at the foot (after Today, three at most, in nav order). */ tab?: boolean; /** Where among the tabs, when I've ordered them (src/layout.ts). */ tabAt?: number; /** Its label in the phone's tab bar, when the title is too long there. */ short?: string };
 const placeOf = (p: NavItem) => p.place ?? (p.minor ? "more" : "main");
 /** The menu's groups, in order (Today has none); any other group a pack names comes after these. */
-export const NAV_GROUPS = ["", "Code", "Agents", "Plan", "Ops"];
+const NAV_GROUPS = ["", "Code", "Agents", "Plan", "Ops"];
 const groupRank = (g: string) => (NAV_GROUPS.includes(g) ? NAV_GROUPS.indexOf(g) : NAV_GROUPS.length);
 
 /** What every page knows: who's signed in, the sections (app.ts), when the data was gathered. */
 /** The browser's bar in the page's colour (--sky): the picked theme's, else both, by the system's setting. */
 /** Each theme's --sky (src/ui/style.ts; test/layout.test.ts holds them equal). */
 export const SKY: Record<string, string> = { light: "#efe7db", dark: "#0e1922", birch: "#e6ebf0", polar: "#05080b", ember: "#1b140f" };
-export function themeColor(theme?: string) {
+function themeColor(theme?: string) {
   if (theme && Object.hasOwn(SKY, theme)) return html`<meta name="theme-color" content="${SKY[theme]}">`;
   return html`<meta name="theme-color" content="${SKY.light}" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="${SKY.dark}" media="(prefers-color-scheme: dark)">`;

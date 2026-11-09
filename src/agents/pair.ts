@@ -14,7 +14,7 @@ export const PAIR_ID = /^[0-9a-f]{8}$/;
 export const pairId = () => randomBytes(4).toString("hex");
 
 /** The branch and folder name of one side of a pair: `<checkout>-<harness>-<id>`. */
-export const pairName = (checkout: string, harness: string, id: string) => `${checkout}-${harness}-${id}`;
+const pairName = (checkout: string, harness: string, id: string) => `${checkout}-${harness}-${id}`;
 
 /** Creates one side's worktree beside `checkout` (a folder right under the code folder): its path. */
 export async function pairWorktree(checkout: string, harness: string, id: string): Promise<string> {

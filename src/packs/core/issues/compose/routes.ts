@@ -145,7 +145,7 @@ function repoTabs(ctx: Ctx, repo: string): Html {
 }
 
 /** Step 1: which repo, which form. A repo that takes no hand-made issues shows its own ways in. */
-export function pickPage(ctx: Ctx, o: { repo: string; templates: Res<Templates>; types: Res<IssueType[]>; notice?: string }): Page {
+function pickPage(ctx: Ctx, o: { repo: string; templates: Res<Templates>; types: Res<IssueType[]>; notice?: string }): Page {
   const types = o.types.ok ? new Map(o.types.value.map((t) => [t.name, t])) : null;
   const ts = o.templates.ok ? o.templates.value.templates : [];
   const everyday = ts.filter((t) => !t.planning).map((t) => templateItem(o.repo, t, types));
@@ -172,7 +172,7 @@ ${agentPanel(ctx, { kind: "forms", repo: o.repo })}`
 }
 
 /** Step 2: the form itself, with what failed validation marked. */
-export function formPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; offered: Offered; labels: Res<string[]>; errors?: Errors }): Page {
+function formPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; offered: Offered; labels: Res<string[]>; errors?: Errors }): Page {
   const d = o.draft;
   const e = o.errors ?? { fields: [] };
   const t = d.template;
@@ -203,7 +203,7 @@ ${agentPanel(ctx, { kind: "forms", repo: d.repo, ...(t ? { template: t.file } : 
 }
 
 /** Step 3: what will be created, and the button that creates it (the confirm step). */
-export function previewPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; nonce: string; problem?: string }): Page {
+function previewPage(ctx: Ctx, o: { draft: Draft; types: Res<IssueType[]>; nonce: string; problem?: string }): Page {
   const d = o.draft;
   const body = composeBody(d);
   const labels = labelsOf(d);
@@ -233,7 +233,7 @@ ${Grid2([
 }
 
 /** After: the link, what didn't stick, and the way to the next one. */
-export function donePage(ctx: Ctx, o: { repo: string; number: number; url: string; result?: Extract<Created, { ok: true }> }): Page {
+function donePage(ctx: Ctx, o: { repo: string; number: number; url: string; result?: Extract<Created, { ok: true }> }): Page {
   return page(
     ctx,
     "Issue created",

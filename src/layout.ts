@@ -9,7 +9,7 @@ import type { D1 } from "./db.ts";
 import type { NavItem } from "./html.ts";
 
 export type Column = "left" | "right";
-export type CardPlace = { col: Column | "off"; order: number };
+type CardPlace = { col: Column | "off"; order: number };
 export type Layout = {
   /** The phone's tabs after Today, in order (hrefs, three at most). Unset: the menu's own marks; empty: no bar. */
   tabs?: string[];
@@ -42,22 +42,22 @@ export type Layout = {
   /** /stats by day instead, over this many days. */
   statsDays?: StatsDays;
 };
-export type StatPlace = { show: boolean; order: number };
-export const STATS_WEEKS = [4, 12, 26] as const;
-export type StatsWeeks = (typeof STATS_WEEKS)[number];
-export const STATS_DAYS = [14, 28] as const;
-export type StatsDays = (typeof STATS_DAYS)[number];
+type StatPlace = { show: boolean; order: number };
+const STATS_WEEKS = [4, 12, 26] as const;
+type StatsWeeks = (typeof STATS_WEEKS)[number];
+const STATS_DAYS = [14, 28] as const;
+type StatsDays = (typeof STATS_DAYS)[number];
 export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
 export type Theme = (typeof THEMES)[number];
-export const ACCENTS = ["heather", "glacier"] as const;
+const ACCENTS = ["heather", "glacier"] as const;
 export type Accent = (typeof ACCENTS)[number];
 /** Sans is the default (unset); a layout saved before #419 that says "sans" reads as unset. */
-export const FONTS = ["mono", "serif"] as const;
+const FONTS = ["mono", "serif"] as const;
 export type Font = (typeof FONTS)[number];
-export const TEXT_SIZES = ["small", "large", "larger"] as const;
-export type TextSize = (typeof TEXT_SIZES)[number];
-export const LINE_HEIGHTS = ["tight", "loose"] as const;
-export type LineHeight = (typeof LINE_HEIGHTS)[number];
+const TEXT_SIZES = ["small", "large", "larger"] as const;
+type TextSize = (typeof TEXT_SIZES)[number];
+const LINE_HEIGHTS = ["tight", "loose"] as const;
+type LineHeight = (typeof LINE_HEIGHTS)[number];
 
 const HREF = /^\/[\w\-/]{0,80}$/;
 const ID = /^[a-z][a-z0-9-]{0,64}$/;

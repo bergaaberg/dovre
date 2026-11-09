@@ -42,7 +42,7 @@ import type { Sessions } from "../sources/sessions.ts";
 import type { Turn } from "../agents/conversation.ts";
 
 /** A database that holds nothing and keeps nothing: every read is empty, every write is dropped. */
-export function emptyD1(): D1 {
+function emptyD1(): D1 {
   const statement = {
     bind: () => statement,
     first: async () => null,
@@ -54,7 +54,7 @@ export function emptyD1(): D1 {
 
 /** GitHub that isn't there: pages that ask it directly say it failed, as they do when GitHub is down. */
 /** The demo's forge: it answers a demo PR's page and files from the fixtures (#265), and nothing else. */
-export function makeNoGhe(host: string = DEMO_HOST): Ghe {
+function makeNoGhe(host: string = DEMO_HOST): Ghe {
   const no = () => Promise.reject(new Error("Not in the demo: it shows made-up data."));
   return {
     host,
@@ -72,7 +72,7 @@ export function makeNoGhe(host: string = DEMO_HOST): Ghe {
 }
 
 /** The snapshot, made fresh each minute so its times read as this morning. */
-export function demoGatherer(snapshotFn: (now?: number) => Snapshot = demoSnapshot): Gatherer {
+function demoGatherer(snapshotFn: (now?: number) => Snapshot = demoSnapshot): Gatherer {
   let s = snapshotFn();
   const now = () => {
     if (Date.now() - s.at > 120_000) s = snapshotFn();
@@ -82,14 +82,14 @@ export function demoGatherer(snapshotFn: (now?: number) => Snapshot = demoSnapsh
 }
 
 /** Where an external link would have gone: GitHub paths by default, or another app's when the path starts with its host. */
-export function whereTo(path: string): { label: string; site: string } {
+function whereTo(path: string): { label: string; site: string } {
   const clean = path.replace(/^\/+/, "");
   const host = clean.match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)+)\/(.*)$/i);
   if (host) return { label: host[2]!.split("/").filter(Boolean).pop() || host[1]!, site: host[1]! };
   return { label: describeTarget(clean), site: "GitHub" };
 }
 
-export function describeTarget(path: string): string {
+function describeTarget(path: string): string {
   const clean = path.replace(/^\/+/, "");
   const prOrIssue = clean.match(/^([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)/);
   if (prOrIssue) return `${prOrIssue[1]}#${prOrIssue[2]}`;
@@ -173,7 +173,7 @@ const demoPack = (): Pack => ({
 });
 
 /** Why a button does nothing here, by the path it posted to. */
-export function whyReadOnly(path: string): string {
+function whyReadOnly(path: string): string {
   if (path === "/refresh" || path === "/stats/refresh") return "Refreshing reads GitHub and your packs again. The demo's data is made up, so there's nothing new to read.";
   if (path.startsWith("/deploys/")) return "On your own Dovre, approving or rejecting a deploy goes to GitHub after a second click to confirm. The demo's deploys are made up.";
   if (path.startsWith("/todo")) return "Your list is saved in your own Dovre. The demo keeps nothing between clicks.";
@@ -183,7 +183,7 @@ export function whyReadOnly(path: string): string {
 }
 
 /** The only writes the demo takes: asking its scripted Bino, in a new conversation or one of your own. */
-export function isAllowedDemoWrite(request: Request): boolean {
+function isAllowedDemoWrite(request: Request): boolean {
   if (request.method !== "POST") return false;
   const url = new URL(request.url);
   return url.pathname === "/bino/new" || /^\/bino\/c\/[0-9a-f-]{36}\/say$/i.test(url.pathname);
@@ -193,7 +193,7 @@ export function isAllowedDemoWrite(request: Request): boolean {
 const CONV_PAGE = /^\/bino\/(?:dock\/)?c\/[0-9a-f-]{36}$/i;
 
 /** Made-up data a demo repo can supply in place of core's (src/demo/fixtures.ts). */
-export type DemoFixtures = {
+type DemoFixtures = {
   host?: string;
   org?: string;
   login?: string;
@@ -203,7 +203,7 @@ export type DemoFixtures = {
   stats?: () => Stats;
 };
 
-export type DemoOpts = {
+type DemoOpts = {
   version?: string;
   /** More writes to let through, beyond asking Bino (isAllowedDemoWrite). Every other non-GET stays 403. */
   allowWrite?: (req: Request) => boolean;

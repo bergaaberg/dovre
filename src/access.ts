@@ -12,10 +12,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { MACHINE_ID } from "./bridge/wire.ts";
 
-export const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 export const COOKIE = "u_tk";
 
-export type CfAccessPayload = {
+type CfAccessPayload = {
   aud?: string | string[];
   email?: string;
   exp?: number;
@@ -38,7 +38,7 @@ export function sameSecret(presented: string | undefined, expected: string | und
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function cookieOf(request: Request, name: string): string | undefined {
+function cookieOf(request: Request, name: string): string | undefined {
   const header = request.headers.get("cookie") ?? "";
   for (const part of header.split(/;\s*/)) {
     const at = part.indexOf("=");
@@ -110,7 +110,7 @@ const b64urlBytes = (s: string): Uint8Array<ArrayBuffer> => {
 };
 const b64urlJson = (s: string): unknown => JSON.parse(new TextDecoder().decode(b64urlBytes(s)));
 
-export type AccessConfig = {
+type AccessConfig = {
   /** Cloudflare Access: the team, "myteam" or "myteam.cloudflareaccess.com". */
   team?: string;
   /** Any other issuer: its exact `iss` (https), and where its keys are (default `<issuer>/.well-known/jwks.json`). Wins over `team`. */
@@ -126,7 +126,7 @@ export type AccessConfig = {
   waitMs?: number;
 };
 
-export type AccessEnv = { CF_ACCESS_TEAM?: string; CF_ACCESS_AUD?: string; AUTH_ISSUER?: string; AUTH_AUD?: string; AUTH_JWKS_URL?: string; ALLOWED_EMAILS?: string };
+type AccessEnv = { CF_ACCESS_TEAM?: string; CF_ACCESS_AUD?: string; AUTH_ISSUER?: string; AUTH_AUD?: string; AUTH_JWKS_URL?: string; ALLOWED_EMAILS?: string };
 
 const httpsUrl = (v: string): boolean => {
   try {

@@ -21,7 +21,7 @@ function combinedState(c: Combined): Html {
 }
 
 /** Green, and every bump in it is a level the setup picked (#426): it starts ticked. */
-export const preTicked = (c: Combined, auto: Level[] | undefined) => !!auto && !!c.levels && combinedReady(c) && c.levels.every((l) => auto.includes(l));
+const preTicked = (c: Combined, auto: Level[] | undefined) => !!auto && !!c.levels && combinedReady(c) && c.levels.every((l) => auto.includes(l));
 
 /** The combined PRs Dovre opened: tick the green ones and merge them at once (dovre#108); the setup's levels start ticked (#426). */
 function combinedPanel(repos: RepoQueue[], running: boolean, auto: Level[] | undefined): Html {

@@ -54,7 +54,7 @@ ${target ? html`<fieldset class="bino-target"><legend>Where</legend><label class
 
 
 /** What a card needs from outside Bino: the org, and what packs' cards need. */
-export type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>> };
+type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>> };
 const out = (ax?: ActCtx) => (ax?.dock ? html` target="_top"` : "");
 
 const actKey = (c: Conv, i: number, n: number) => `${c.id}:${i}:${n}`;
@@ -167,7 +167,7 @@ function draftItem(c: Conv): Html | "" {
 }
 
 /** What the page swaps while Bino writes: the answer so far and the line with Stop. Nothing once it's done (the page then swaps whole). */
-export function draftFragment(c: Conv, dock: boolean): Html | "" {
+function draftFragment(c: Conv, dock: boolean): Html | "" {
   return c.thinking ? html`${draftItem(c)}${answering(c, dock)}` : "";
 }
 
@@ -218,7 +218,7 @@ export function groupsOf(convs: Conv[], now: number, tz: string): { label: strin
 }
 
 /** Whether a conversation says this, in its title or anything said in it. */
-export const saysIt = (c: Conv, q: string) => {
+const saysIt = (c: Conv, q: string) => {
   const n = q.toLowerCase();
   return c.title.toLowerCase().includes(n) || c.msgs.some((m) => m.text.toLowerCase().includes(n));
 };
@@ -294,7 +294,7 @@ const PANES = html`<button type="button" class="ghost bino-pane-b" data-bino-pan
 const workspace = (nav: Html, main: Html, side: Html) => html`<div class="bino-ws">${nav}<section class="bino-main">${main}</section>${side}</div>`;
 
 /** One conversation; the messages sit in a live region, the box to answer in outside it. */
-export async function convPage(frame: Frame, b: Bino, c: Conv, ws: Ws, target?: Todo, ax?: ActCtx): Promise<Html> {
+async function convPage(frame: Frame, b: Bino, c: Conv, ws: Ws, target?: Todo, ax?: ActCtx): Promise<Html> {
   const main = html`<div class="bino-thread"><div class="bino-scroll" id="bino-scroll" data-scroller><div data-live id="bino-conv">${thread(c, target, ax)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
 ${answering(c, false)}</div></div>
@@ -310,7 +310,7 @@ const STARTERS = ["What should I do first today?", "Group and tidy what's on my 
 const DOCK_STARTERS = ["What matters on this page?", ...STARTERS.slice(0, 2)];
 
 /** A new chat: a box for anything and the openings, beside the conversations and what Bino sees. */
-export async function binoPage(frame: Frame, b: Bino, ws: Ws): Promise<Html> {
+async function binoPage(frame: Frame, b: Bino, ws: Ws): Promise<Html> {
   const starts = html`<div class="bino-starts"><p class="bino-starts-h">Or start from</p><div class="bino-chips">${STARTERS.map((q) => html`<button type="submit" class="bino-chip" name="q" value="${q}" formnovalidate>${q}</button>`)}</div></div>`;
   const start = b.route.ready ? composer({ action: "/bino/new", label: "What's on your mind?", placeholder: "What's on your mind? Something to think through, group or break down.", button: "Talk it through", busy: "Starting", extra: starts }) : cantAnswer(b);
   const body = html`${PageHeader({ title: "Bino", sub: "Ask about your work, or think something through. It changes nothing by itself.", actions: html`${PANES}${binoTag(b)}${binoFace(frame, ws.convs.some((x) => x.thinking))}` })}
@@ -334,7 +334,7 @@ function dockBar(title: string, o: { full: string; fresh?: boolean; others?: Con
 /** The packs' stylesheet and scripts, for a pane to draw what a pack draws on a page (math, diagrams in an answer). */
 export type DockAssets = { styles?: string[]; scripts?: string[] };
 
-export async function binoDockPage(b: Bino, assets: DockAssets = {}): Promise<Html> {
+async function binoDockPage(b: Bino, assets: DockAssets = {}): Promise<Html> {
   const convs = (await b.list()).slice(0, 8);
   const body = html`${dockBar("Bino", { full: "/bino" })}
 <div class="dock-b" id="dock-scroll"><div data-live id="bino-list">${
@@ -347,7 +347,7 @@ ${b.route.ready ? composer({ action: "/bino/new", label: "Ask Bino", placeholder
 }
 
 /** One conversation in the pane: the thread scrolls, the box stays at the bottom. */
-export function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = [], assets: DockAssets = {}): Html {
+function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = [], assets: DockAssets = {}): Html {
   const body = html`${dockBar(c.title, { fresh: true, full: `/bino/c/${c.id}`, others })}
 <div class="dock-b" id="dock-scroll"><div data-live id="bino-conv">${thread(c, target, ax)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
@@ -364,7 +364,7 @@ const CONV = /^[0-9a-f-]{36}$/;
 const BACK = /^\/bino(\/c\/[0-9a-f-]{36})?$/;
 
 /** The plan as the card's form says it now: the same checks as Bino's own block. */
-export function planFromForm(form: Record<string, unknown>): Plan | null {
+function planFromForm(form: Record<string, unknown>): Plan | null {
   const titles = all(form.step_title);
   const states = all(form.step_state);
   const dues = all(form.step_due);

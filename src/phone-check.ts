@@ -16,7 +16,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-export type Stray = { what: string; pack?: string; right: number; width: number };
+type Stray = { what: string; pack?: string; right: number; width: number };
 export type Fit = { path: string; status: number; viewport: number; page: number; wide: Stray[]; clipped: Stray[] };
 
 /** The sidebar's own pages, from a page's HTML: same-site paths, no queries. */
@@ -34,7 +34,7 @@ export function pagesOf(page: string): string[] {
  * Runs in the page: what sticks out past the screen (outermost only, and not inside something
  * that scrolls or clips sideways), and what runs past its pack's box by more than the box's 16px.
  */
-export const MEASURE = `(() => {
+const MEASURE = `(() => {
   const vw = document.documentElement.clientWidth;
   const name = (el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + [...el.classList].slice(0, 3).map((c) => "." + c).join("");
   const pathOf = (el) => { const out = []; for (let e = el; e && e !== document.body && out.length < 4; e = e.parentElement) out.unshift(name(e)); return out.join(" > "); };

@@ -77,7 +77,7 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
 };
 
 /** data/bino.json: written whole, through a temporary file. */
-export function fileStore(file: string): ConvStore {
+function fileStore(file: string): ConvStore {
   return {
     load() {
       try {

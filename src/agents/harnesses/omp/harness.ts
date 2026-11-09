@@ -60,7 +60,7 @@ export const OMP_MODELS: { value: string; label: string }[] = [
 ];
 
 /** omp's approval modes for Dovre's three, its `--thinking` levels, and `--fork` on a reply. */
-export const OMP_OPTIONS: HarnessOptions = {
+const OMP_OPTIONS: HarnessOptions = {
   modes: {
     default: { label: "Always ask: only reads run, the rest asks", short: "always ask" },
     acceptEdits: { label: "Write: edits run, commands ask", short: "write" },
@@ -70,7 +70,7 @@ export const OMP_OPTIONS: HarnessOptions = {
   fork: true,
 };
 
-export const OMP_PLAN_PROMPT =
+const OMP_PLAN_PROMPT =
   "Plan mode: read and search as much as you need, but do not edit or write files and do not run commands. " +
   "End with a short numbered plan and wait for the user to approve it.";
 
@@ -119,7 +119,7 @@ export function allowOverlay(allowed: string[], dir = join(tmpdir(), "dovre")): 
   return file;
 }
 
-export type OmpHarnessOpts = {
+type OmpHarnessOpts = {
   /** Where allow overlays go (default: the temp folder). */
   overlayDir?: string;
   /** The omp profile a session lives in (`~/.omp/profiles/<name>`), so a resume runs in it. */

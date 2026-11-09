@@ -81,7 +81,7 @@ ${agentPanel(ctx, { kind: "task", parent: refText(o.parent), ...(d.repo ? { repo
   );
 }
 
-export function taskPairs(parent: Parent, d: TaskDraft): [string, string][] {
+function taskPairs(parent: Parent, d: TaskDraft): [string, string][] {
   return [["parent", refText(parent)], ["repo", d.repo], ["title", d.title], ["type", d.type], ["body", d.body], ...(d.assign ? ([["assign", "on"]] as [string, string][]) : [])];
 }
 

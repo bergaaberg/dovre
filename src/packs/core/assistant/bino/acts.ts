@@ -11,9 +11,9 @@ export const MAX_ACTS = 3;
 export const MAX_TITLE = 255;
 export const MAX_BODY = 8000;
 
-export type TaskAct = { kind: "task"; parent: string; repo: string; title: string; body: string };
+type TaskAct = { kind: "task"; parent: string; repo: string; title: string; body: string };
 /** A bug in Dovre itself (#384): its card opens /bug filled in; nothing is filed from the card. */
-export type BugAct = { kind: "bug"; title: string; body: string; page: string };
+type BugAct = { kind: "bug"; title: string; body: string; page: string };
 /** A pack's (src/packs/types.ts ActKind): kind `<pack>.<kind>`, its fields as checked. */
 export type PackAct = { kind: `${string}.${string}`; fields: Record<string, string> };
 export type Act = (TaskAct | BugAct | PackAct) & {

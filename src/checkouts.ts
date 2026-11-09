@@ -40,7 +40,7 @@ export function checkouts(codeDir: string, host: string, org: string): Checkout[
 }
 
 /** GHE repo names ignore case (a checkout's remote may say ACME/forms for ACME/FORMS). */
-export const sameRepo = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const sameRepo = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export const inRepos = (list: string[], repo: string) => list.some((r) => sameRepo(r, repo));
 
 /** The folder to run an agent in for a repo: its main checkout, the one named like it. */

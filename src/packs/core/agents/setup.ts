@@ -19,12 +19,12 @@ const CONFIG = ".dovre/sandbox.json";
 const TOOLCHAIN = ".dovre/sandbox.Containerfile";
 const KEY = "agents.sandboxes";
 /** PRs one press opens, at most. */
-export const MAX_PRS = 30;
+const MAX_PRS = 30;
 export const SANDBOX_KIND = "sandbox-pr";
 /** Where a press goes: the job that opens the PRs. */
 const OPEN = "/agents/setup/open";
 
-export type Lang = { id: string; label: string; /** The file that says a repo is this language. */ marker: string; allow: string[]; setup: string; containerfile: string };
+type Lang = { id: string; label: string; /** The file that says a repo is this language. */ marker: string; allow: string[]; setup: string; containerfile: string };
 
 const HEAD = "# Dovre's sandbox toolchain: built on dovre-sandbox (Node 24, git, curl), cached until this file changes.\nFROM dovre-sandbox\n";
 /** In the order a repo is matched: a Rust repo with a package.json for its tooling is a Rust repo. */

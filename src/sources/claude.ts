@@ -105,7 +105,7 @@ export function tail(file: string, bytes: number): string {
 }
 
 /** tail(), without blocking. */
-export async function tailAsync(file: string, bytes: number): Promise<string> {
+async function tailAsync(file: string, bytes: number): Promise<string> {
   const f = await open(file, "r");
   try {
     const size = (await f.stat()).size;
@@ -213,7 +213,7 @@ function promptsIn(text: string): Map<string, string> {
 }
 
 /** Last typed prompt per session, from the tail of history.jsonl. Slash commands don't count. */
-export function lastPrompts(claude: string): Map<string, string> {
+function lastPrompts(claude: string): Map<string, string> {
   const f = join(claude, "history.jsonl");
   const m = new Map<string, string>();
   if (!existsSync(f)) return m;
