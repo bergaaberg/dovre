@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.36")
+   src/packs/types.ts     its types (PACK_API = "1.37")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -310,7 +310,9 @@ Also:
   `test/docs.test.ts` fails while this doc lacks the row, a `ctx` member, a hook, or the slot count). A
   pack's manifest names the oldest API it works with (`api: "1.4"`; a plain `1` reads as `1.0`),
   so on an older core it shows as off ("needs core API 1.4, this is 1.3") instead of quietly doing
-  nothing, and `packs update` refuses it. Removing or changing a hook, a field's meaning or a
+  nothing, and `packs update` refuses it. The number is checked (#482): each minor's names are
+  also in `API_ADDED` (`src/packs/api.ts`), and a packs repo's test runs `assertApi` on each pack,
+  which fails on "uses ctx.agent (1.23), declares 1.6". Removing or changing a hook, a field's meaning or a
   slot's `arg` is breaking: bump the major, and older packs show as off until updated. A pack
   written `api: PACK_API` claims whatever core it links, so only a literal protects it.
 
@@ -341,8 +343,8 @@ Also:
   | 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
   | 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
   | 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
-  | 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database (#474) |
-  | 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool` (#474) |
+  | 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database. Type `PackLogged` (#474) |
+  | 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool`. Types `PackRunOpts`, `PackRan` (#474) |
   | 1.27 | `dovre/pack.ts` also exports what packs reached into core for: the types `App`, `AppEnv`, `D1`, `D1Statement`, `Snapshot`, `Need`, `EveryRepo`, `PackProposal`, `Proposal`, `Proposed` and the forge contract (`Forge`, `ForgeCan`, `ForgeDecl`, `ForgeWork`, `Pr`, `PrRef`, `Issue`, `IssueSets`, `Deploy`, `Move`, `Note`, `Changelog`); `strictOrigin`; `later` and `Reading`; and the pure helpers `needsOf`, `prSummaryKey`, `deploySummaryKey`, `byPerson`, `inFiles`, `hourAt`, `hashOf`, `throttle`. `dovre/pack-testing.ts` gains `openDb` (#474) |
   | 1.28 | `dovre/pack-testing.ts` gains what packs' tests reached into core for: `testPage` (a page in core's shell), `testForge` (the forge a pack brings), `testList` (My list, in memory), `assertStyled`, `activePacks`, `apiGap`, `ON_JS`, `setWhen`, `resetWhen`, `createWorker` and `ingestToken`; `testContext` with a `codeDir` has its `checkouts` too (#474) |
   | 1.29 | `format` in `dovre/pack.ts`: core's formatters as one object (`format.count`, `percent`, `bytes`, `duration`, `ago`, `since`, `when`, `stamp`, `hourOf`), so their plain names stay out of the contract's top level (#474) |
@@ -353,6 +355,7 @@ Also:
   | 1.34 | `manifest.ai.mcp` (why, one `server`, `reads`, `writes`: tool → write kind) and `ctx.mcp` (`can`, `call`, `write`): exact calls to one MCP server through Claude Code's sign-in to it, each tool's own result handed back matched by tool and arguments; off until I tick it on Settings → Packs, under the day's dollars, logged by cost only; results in memory only, local only. Types `PackMcp`, `PackMcpAsk`, `PackMcpCall`, `PackMcpCan`, `PackMcpResult`, `PackMcpSetup` (#488) |
   | 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
   | 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
+  | 1.37 | `assertApi(pack, dir)` and `apiOver(pack, dir)` in `dovre/pack-testing.ts`: fail on (or list) what a pack uses that's newer than its manifest's `api`, read from the pack and its files against what each minor added (`API_ADDED` in `src/packs/api.ts`) (#482) |
 
 ## Open questions
 

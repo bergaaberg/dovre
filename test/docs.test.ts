@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { API_ADDED } from "../src/packs/api.ts";
 import { PACK_API } from "../src/packs/types.ts";
 
 const DOC = readFileSync("docs/ARCHITECTURE.md", "utf8");
@@ -75,6 +76,16 @@ test("the API table has a row for every minor up to PACK_API, as one table", () 
   const [major, minor] = PACK_API.split(".").map(Number);
   assert.deepEqual(rows, Array.from({ length: minor + 1 }, (_, n) => `${major}.${n}`), "one row a minor, in order, the last being PACK_API");
   assert.ok(DOC.includes(`(PACK_API = "${PACK_API}")`), "the layers diagram names this PACK_API");
+});
+
+test("each row of the API table names what api.ts says that minor added", () => {
+  const rows = new Map(part("  | API | Added |", "\n## ").split("\n").map((l) => [l.split("|")[1]?.trim() ?? "", l] as const));
+  assert.deepEqual(Object.keys(API_ADDED), [...rows.keys()].filter((k) => /^\d+\.\d+$/.test(k) && k !== "1.0"), "API_ADDED has every minor the table has, in order");
+  for (const [api, uses] of Object.entries(API_ADDED)) {
+    // A name's last word is what the row has to say: `ctx.agent` wants `agent`, "a setting's choices" `choices`.
+    const want = uses.map((u) => u.name.match(/[A-Za-z_]\w*/g)!.at(-1)!);
+    assert.deepEqual(unnamed(want, rows.get(api)!), [], `row ${api} doesn't name what API_ADDED has for it`);
+  }
 });
 
 test("the layers diagram lists core's packs by id", () => {

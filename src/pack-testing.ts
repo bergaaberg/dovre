@@ -9,6 +9,8 @@ export { openDb } from "./db.ts";
 /** For a packs repo's own tests: which of its packs core takes, and whether a pack's `api` runs on this core. */
 export { activePacks } from "./packs/registry.ts";
 export { apiGap } from "./packs/api.ts";
+/** Whether a pack uses anything newer than its manifest's `api` says (#482). */
+export { apiOver, assertApi } from "./packs/floor.ts";
 /** Core's client script (`dovreOn`), for testing a pack script that listens with it. */
 export { ON_JS } from "./ui/on.js.ts";
 /** My time zone and greeting for a test, and back. */

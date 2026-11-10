@@ -90,15 +90,17 @@ export const ${c}Card = (k: Kept) => Card({ id: "${id}-now", title: ${n}, childr
 `,
     [`packs/${id}/test/${id}.test.ts`]: `/** ${name}: its page from what it read, and hostile text inert. */
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { test } from "node:test";
-import { assertFragment, assertScoped, testContext } from "dovre/pack-testing.ts";
+import { assertApi, assertFragment, assertScoped, testContext } from "dovre/pack-testing.ts";
 import { ${c}Pack } from "../index.ts";
 import { ${c}Page } from "../view.ts";
 
 const H = \`<script>alert(1)</script><img src=x onerror=alert(1)>\`;
 
-test("${id}: a manifest the core takes, and styles only for its own markup", () => {
+test("${id}: a manifest the core takes, an api no older than what it uses, and styles only for its own markup", () => {
   assert.equal(${c}Pack.manifest.id, ${JSON.stringify(id)});
+  assertApi(${c}Pack, join(import.meta.dirname, ".."));
   assertScoped(${c}Pack);
 });
 
