@@ -69,6 +69,7 @@ import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFro
 import type { Keys } from "./secretrefs.ts";
 import { createReleases, type GetJson } from "./packs/releases.ts";
 import { manifestSettings } from "./pages/packs.ts";
+import { envReads, packEnv } from "./packs/env.ts";
 import type { Copies } from "./packs/copies.ts";
 import { strictOrigin } from "./strict.ts";
 import { webUrl } from "./open-link.ts";
@@ -466,6 +467,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const packs = { env: {}, ...deps.packs, on: [...(deps.packs?.on ?? [])], off: [...(deps.packs?.off ?? [])] };
   const packLog = (id: string) => (line: string) => console.log(`pack ${id}: ${line}`);
   const contexts = new Map<string, PackContext>();
+  const envSeen = envReads();
   /** Each pack's questions in the bar, by id (`asking`). */
   const asked = new Map<string, Set<string>>();
   const askedBy = (id: string) => asked.get(id) ?? asked.set(id, new Set()).get(id)!;
@@ -504,7 +506,8 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       contexts.set(
         c.manifest.id,
         (ctx = {
-          env: packs.env,
+          // Dovre's own packs are wired by closure (#480); the rest read through a view that notes what isn't theirs (#475).
+          env: packs.core?.includes(c.manifest.id) ? packs.env : packEnv(c.manifest, packs.env, (key) => envSeen.note(c.manifest.id, key) && packLog(c.manifest.id)(`reads ${key}, which isn't one of its settings`)),
           bindings: packs.bindings ?? {},
           hosted,
           ...(hosted ? {} : { codeDir: env.CODE_DIR, checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout) : []), checkout: (name: unknown) => (env.CODE_DIR ? checkoutIn(env.CODE_DIR, name, deps.session?.checkout) : null) }),
@@ -976,7 +979,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
-  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
+  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
   const { setUp } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──

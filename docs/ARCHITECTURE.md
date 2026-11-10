@@ -98,7 +98,10 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 `src/packs/types.ts` is the whole contract.
 
 **`PackContext`** gives a pack:
-- `env`, `bindings`, `hosted`, `db`
+- `env`, `bindings`, `hosted`, `db`. `env` is meant to hold the pack's own keys: its manifest's `settings`,
+  `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). For now every key still comes back,
+  and a read of a set key that isn't the pack's is logged once and named on its card on the Packs page
+  ("Also reads"); filtering follows (#475). Dovre's own packs get the plain settings.
 - `run(binary, args, opts)`, `onPath(binary)`, `dir()` (local): run a program its manifest names (`requiredBinaries`, or `binaries` for ones it can do without), in a checkout or in its own folder. Never an agent CLI. The folder is where the program starts, not a fence around it
 - `publish(topics)`: tell open pages a region changed
 - `snapshot()`, `gathered()`: what the gather read from the forge
