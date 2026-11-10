@@ -15,7 +15,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.34")
+   src/packs/types.ts     its types (PACK_API = "1.35")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -315,6 +315,7 @@ Also:
 | 1.32 | `ctx.forge().owns(repo)`: whether a repo is one of the owners', asked of core rather than worked out from the setting. `owners` in `dovre/pack.ts` (`owners.of`): the setting's owners as a list, for a pack that brings a forge (#474, #480) |
 | 1.33 | `ctx.store.kv`: a pack's own small state in Dovre's database (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`), JSON by key under the pack's id, capped a value and a pack; in memory in `testContext`. Types `PackStore`, `PackKv` (#476) |
 | 1.34 | `manifest.ai.mcp` (why, one `server`, `reads`, `writes`: tool → write kind) and `ctx.mcp` (`can`, `call`, `write`): exact calls to one MCP server through Claude Code's sign-in to it, each tool's own result handed back matched by tool and arguments; off until I tick it on Settings → Packs, under the day's dollars, logged by cost only; results in memory only, local only. Types `PackMcp`, `PackMcpAsk`, `PackMcpCall`, `PackMcpCan`, `PackMcpResult`, `PackMcpSetup` (#488) |
+| 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
 
 ## Open questions
 

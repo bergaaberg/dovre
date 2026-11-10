@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { Context } from "hono";
-import { createApp } from "../app.ts";
+import { createApp, packsOf } from "../app.ts";
 import type { McpRun } from "../ai/mcpcalls.ts";
 import type { AgentHost, AiRoute } from "./ai.ts";
 import { type D1, openDb } from "../db.ts";
@@ -22,7 +22,8 @@ import { routeOf } from "./core/assistant/bino/route.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { loggedFor } from "./logged.ts";
 import { kvInMemory } from "./store.ts";
-import { activePacks, lookupsFrom } from "./registry.ts";
+import { activePacks, initAll, lookupsFrom } from "./registry.ts";
+import { foreignTables, migrationsGap, tablePrefix } from "./migrations.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
 import { type AgentShare, type ListItem, type ListShare, type Pack, PACK_API, type PackContext, type PageOpts } from "./types.ts";
@@ -176,6 +177,19 @@ export function assertScoped(pack: Pack) {
   assert.deepEqual(dropped, [], `${pack.manifest.id}: these selectors style core's markup, not the pack's own (give each a class of the pack's)`);
 }
 
+/**
+ * Fails when the pack's migrations aren't its own: a list core would refuse (not one statement
+ * each), or a table or index not named after the pack (`<id>` with dashes as underscores, alone
+ * or followed by `_`). `also`: tables it had before this rule, by their full names.
+ */
+export function assertTables(pack: Pack, o: { also?: string[] } = {}) {
+  const id = pack.manifest.id;
+  assert.equal(migrationsGap(pack), undefined, `${id}: ${migrationsGap(pack)}`);
+  const also = new Set((o.also ?? []).map((n) => n.toLowerCase()));
+  const foreign = foreignTables(pack).filter((line) => !also.has(line.slice(line.indexOf(": ") + 2).toLowerCase()));
+  assert.deepEqual(foreign, [], `${id}: these tables or indexes aren't named after the pack (start each "${tablePrefix(id)}_")`);
+}
+
 export const testPr = (o: Partial<Pr> = {}): Pr => ({
   repo: "ACME/shop-api", number: 1, title: "A PR", url: "https://acme.ghe.com/ACME/shop-api/pull/1", draft: false,
   updatedAt: "2026-10-22T07:00:00Z", branch: "feat/x", author: "ola-nordmann", review: "REVIEW_REQUIRED", checks: "SUCCESS", openThreads: 0,
@@ -219,12 +233,16 @@ export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instanc
   const ghe: Ghe = { host: "acme.ghe.com", rest: () => Promise.reject(new Error("no GitHub in tests")), graphql: () => Promise.reject(new Error("no GitHub in tests")) };
   const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: o.codeDir ?? "x", CLAUDE_DIR: "x", DB: db.DB, ...(o.dataDir ? { U_DB: join(o.dataDir, "dovre.sqlite") } : {}) } as Env;
   const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {} }, session: o.session, mcpTurns: o.mcpTurns, ai: o.ai, agents: o.agents, mcp: o.mcp });
-  const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
-  const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
+  // The packs' own tables (Pack.migrations) are made before the first request through get or post.
+  const mounted = packsOf(app)!;
+  const ready = initAll(mounted, mounted.ctxOf, () => {}, { init: false });
+  const get = async (path: string, headers: Record<string, string> = {}) => (await ready, app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } }));
+  const post = async (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
+    (await ready,
     app.request(`http://localhost${path}`, {
       method: "POST",
       headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost", ...headers },
       body: new URLSearchParams(body).toString(),
-    });
-  return { app, get, post, db };
+    }));
+  return { app, get, post, db, /** Settled once the packs' migrations ran; `get` and `post` wait for it themselves. */ ready };
 }

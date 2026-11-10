@@ -18,7 +18,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
-import { createApp } from "./app.ts";
+import { createApp, packsOf } from "./app.ts";
 import { openDb } from "./db.ts";
 import { type Env, parseVars } from "./env.ts";
 import type { Snapshot } from "./gather.ts";
@@ -29,7 +29,7 @@ import { routeOf } from "./packs/core/assistant/bino/route.ts";
 import { apiCompare } from "./packs/api.ts";
 import { resolvePacksRepo } from "./packs/cli.ts";
 import { createKeys } from "./secrets.ts";
-import { activePacks } from "./packs/registry.ts";
+import { activePacks, initAll } from "./packs/registry.ts";
 import type { Pack } from "./packs/types.ts";
 import type { Ghe } from "./sources/ghe.ts";
 import { which } from "./tools.ts";
@@ -188,6 +188,10 @@ async function main(args: string[]) {
     session: { pack: id, checkout: dir ? basename(dir) : "" },
     mcpTurns: sessionTurn(mcpToken, { id: `session-${id}`, repo: dir ? basename(dir) : id, cwd: dir ?? process.cwd() }),
   });
+  // Its tables (Pack.migrations) are made before its first page; the database is this session's own.
+  const mounted = packsOf(app)!;
+  await initAll(mounted, mounted.ctxOf, (l) => console.log(l), { init: false });
+  if (!waiting && !mounted.on.length) throw new Error(`${id} is off here: ${mounted.off.map((o) => o.why).join("; ")}`);
   const start = waiting ? `/settings/packs/${encodeURIComponent(id)}` : firstPage(pack);
   // / goes to the pack (createApp's session gate answers 404 for every other core page).
   const fetch = (req: Request) => (new URL(req.url).pathname === "/" ? Response.redirect(new URL(start, req.url), 302) : app.fetch(req));

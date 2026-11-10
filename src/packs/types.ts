@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.34";
+export const PACK_API = "1.35";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -860,6 +860,14 @@ export type Pack = {
   forge?: ForgeDecl;
   /** Runs here? Called after the manifest's checks (bindings, binaries); default yes. */
   available?(ctx: PackContext): boolean;
+  /**
+   * API 1.35: its own tables, as SQL core runs (#476). Append-only, one statement each: every entry
+   * runs once, in order, before `init`, and is remembered (`_migrations`, as `pack:<id>:<n>`). Never
+   * edit or reorder one that has shipped: add another. One that fails keeps the pack off, saying
+   * why. Name each table after the pack (`<id>` with dashes as underscores, then `_…`):
+   * `assertTables` in the pack's tests fails on one that isn't.
+   */
+  migrations?: string[];
   init?(ctx: PackContext): Promise<void> | void;
   /**
    * Re-reads what its pages show, into memory (or its own storage), then publishes what changed.
