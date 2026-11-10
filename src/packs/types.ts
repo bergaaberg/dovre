@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.30";
+export const PACK_API = "1.31";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -442,6 +442,13 @@ export type PackContext = {
    * `writes` go by, and adds who pressed when hosted. A log that can't be kept never fails the write.
    */
   logged(a: PackLogged): Promise<void>;
+  /**
+   * API 1.31: whom the current request is for, where a hook gets no request (a Today card, an act):
+   * hosted, their verified email, lowercased (a route's `c.get("who")`, and in `scheduled` the
+   * instance's owner). Undefined locally, and in background work that's for no one (a gather).
+   * What's private to someone is shown only to them.
+   */
+  viewer(): string | undefined;
   /** Tell open pages these data-live regions changed (src/live.ts). Today listens to "snapshot" and each pack's id. */
   publish(topics: string[]): void;
   /** The newest gathered snapshot, if any. */

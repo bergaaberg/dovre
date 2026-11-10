@@ -463,7 +463,7 @@ test("createWorker: hosted packs get the bindings; cron, email and stale refresh
       init: (c) => void seen.push(`init ${typeof c.bindings.QUILL}`),
       refresh: async () => void seen.push("refresh"),
       beforePage: async () => void seen.push("before"),
-      scheduled: async (e) => void seen.push(`cron ${e.cron} as ${currentViewer()}`),
+      scheduled: async (e, c) => void seen.push(`cron ${e.cron} as ${currentViewer()}`, `ctx.viewer ${c.viewer()}`),
       email: async (msg) => (seen.push(`mail ${(msg as { to: string }).to}`), true),
     },
   );
@@ -477,6 +477,7 @@ test("createWorker: hosted packs get the bindings; cron, email and stale refresh
   await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: 0 }, bindings, ctx);
   // The cron acts as the instance's owner: it sees what their pages see (their paired machines).
   assert.ok(seen.includes("cron */5 * * * * as me@example.dev"), seen.join(" | "));
+  assert.ok(seen.includes("ctx.viewer me@example.dev"), "and a pack reads who that is from its context");
   // And reads what a page reads first (the remote desk's machines), before the scheduled hooks.
   assert.ok(seen.indexOf("before") >= 0 && seen.indexOf("before") < seen.indexOf("cron */5 * * * * as me@example.dev"), seen.join(" | "));
   let rejected = "";

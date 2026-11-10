@@ -20,7 +20,7 @@ import { noMemory } from "./core/assistant/bino/memory.ts";
 import { routeOf } from "./core/assistant/bino/route.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { loggedFor } from "./logged.ts";
-import { activePacks } from "./registry.ts";
+import { activePacks, lookupsFrom } from "./registry.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
 import { type AgentShare, type ListItem, type ListShare, type Pack, PACK_API, type PackContext, type PageOpts } from "./types.ts";
@@ -36,6 +36,8 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     db: undefined as unknown as D1,
     // Checks the kind as core does, keeps nothing: pass your own to see what was logged.
     logged: loggedFor("test", undefined, () => {}),
+    // No one, as locally: `{ ...ctx, viewer: () => "ann@example.dev" }` for a person's request.
+    viewer: () => undefined,
     publish: () => {},
     snapshot: () => undefined,
     gathered: async () => undefined,
@@ -114,6 +116,16 @@ export function testList(): ListShare {
     },
     href: (id) => `/todo#t-${id}`,
   };
+}
+
+/**
+ * What core keeps of a pack's lookups, as Bino gets them: `kinds` by their full names
+ * (`<id>.<kind>`), and `left`, a line for each one left out (a bad field, one past the caps).
+ */
+export function keptLookups(pack: Pack, ctx: PackContext = testContext()): { kinds: string[]; left: string[] } {
+  const left: string[] = [];
+  const kinds = lookupsFrom([pack], () => ctx, (_id, line) => left.push(line)).map((l) => l.kind);
+  return { kinds, left };
 }
 
 /** Fails when a class in this source's `class="…"` is styled by neither core's stylesheet nor the pack's own (`css`). A name built in place (`x-${kind}`) isn't checked. */
