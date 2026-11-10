@@ -166,7 +166,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 | Setup | `setup`: its page at `/setup/<id>`, a step for each in manifest `onboard` | on request |
 | Pulse | `pulse`: working/asking counts, trouble, on duty | from memory |
 | Lifecycle | `available`, `migrations` (its own tables, run once each before `init`), `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s total |
-| Outside callers | `callback`, `ingest`, `tools`, `scheduled`, `email` | when called |
+| Outside callers | `callback`, `ingest`, `tools`, `scheduled` and `email` (hosted) | when called |
 | Forge | `forge` (`src/forge/types.ts`): PRs, CI, notifications, deploys when `FORGE` is its id | once, before `init` |
 
 **Pages draw from memory.** A pack reads its app in `refresh` or `scheduled`, keeps the result,
@@ -306,8 +306,10 @@ Also:
   1. Add it to `Pack` in types.ts with when it's called and its time limit.
   2. Add a `…From` in registry.ts that calls it isolated, validates the result, and logs failures.
   3. Call it from app.ts or the entry point, for `shown()` packs only.
-  4. Add its label to `hooksOf` and document it in types.ts.
-  5. Test it in test/packs.test.ts: hostile answer, throwing pack, hidden pack.
+  4. Add its row to `HOOKS` (`src/packs/hooks.ts`): its label on the Packs page, its row in the
+     hooks table above, how it's called, and its `…From`. Document it in types.ts.
+  5. `test/hooks.test.ts` then runs it with a throwing pack and hostile answers. Test what's its
+     own in test/packs.test.ts (what a good answer becomes, a hidden pack).
 - **Changing the contract:** `PACK_API` is `"major.minor"` (#360, `src/packs/api.ts`). A new
   optional hook, slot, field or markup contract, or a new export of `src/pack.ts`, is additive:
   bump the minor and add a row below (`test/sdk.test.ts` lists the exports, and fails on a change;

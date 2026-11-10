@@ -65,7 +65,7 @@ import { type Html, Notice, PageHeader } from "./ui/kit.ts";
 import { writeClicksStore, writeKinds } from "./writes.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountIngest } from "./packs/ingest.ts";
-import { actsFrom, lookupsFrom, beforePages, bannersFrom, briefingFrom, docksFrom, fillOf, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
+import { actsFrom, lookupsFrom, beforePages, TODAY_MS, bannersFrom, briefingFrom, docksFrom, fillOf, whatFrom, whereFrom, linkedFrom, needsFrom, noteFrom, type Off, statsFrom, pulseFrom, type Refreshes, refresher, refreshLog, ringsOf, safely, settleRequires, heldOff, requiresOf, todayCards, usesOf } from "./packs/registry.ts";
 import type { Keys } from "./secretrefs.ts";
 import { createReleases, type GetJson } from "./packs/releases.ts";
 import { manifestSettings } from "./pages/packs.ts";
@@ -714,7 +714,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   };
   /** The packs' kinds of reference (a ticket key…), for links in My list and deploys. */
   const packRefs = () => shown().flatMap((c) => (c.refs ? safely(() => c.refs!(ctxOf(c)), [], (e) => packLog(c.manifest.id)(`refs: ${(e as Error)?.message ?? e}`)) : []));
-  const packCards = (): Promise<{ cards: TodayCard[]; failed: Off[] }> => todayCards(shown(), ctxOf, packs.budgetMs ?? 250, (id, line) => packLog(id)(line));
+  const packCards = (): Promise<{ cards: TodayCard[]; failed: Off[] }> => todayCards(shown(), ctxOf, packs.budgetMs ?? TODAY_MS, (id, line) => packLog(id)(line));
   /** The packs' kinds of notification (Settings), and what they say needs me (rung once per key by the composition root). */
   const packRings = ringsOf(packs.on, RING_KINDS.map((k) => k.kind), (id, line) => packLog(id)(line));
   /** The packs' kinds that are off until I switch them on. */
