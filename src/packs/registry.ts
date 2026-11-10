@@ -7,7 +7,7 @@ import type { Need } from "../home/needs.ts";
 import { safeUrl } from "../pages/parts.ts";
 import type { Html } from "../ui/kit.ts";
 import type { NavItem } from "../html.ts";
-import { boxed, guardHtml } from "./guard.ts";
+import { boxed, guardHtml, isHtml } from "./guard.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
@@ -174,7 +174,8 @@ export function fillOf(on: () => Pack[], ctxOf: (c: Pack) => PackContext, log: (
       if (!c.slots) return [];
       const out = safely(
         () => {
-          const f = c.slots!(ctxOf(c))[name];
+          // Core's places only: another pack's ("<host id>/<name>", fillOwnOf) isn't asked for here.
+          const f = (c.slots!(ctxOf(c)) as { [P in SlotName]?: (arg: SlotMap[P]["arg"]) => SlotMap[P]["out"] })[name];
           return f ? [guardSlot(name, f(arg), c, (line) => log(c.manifest.id, line))] : [];
         },
         [],
@@ -182,6 +183,61 @@ export function fillOf(on: () => Pack[], ctxOf: (c: Pack) => PackContext, log: (
       );
       return out;
     });
+}
+
+const HOST = /^[a-z][a-z0-9.-]{0,39}$/;
+/** The places a manifest says other packs may fill (`hosts`, API 1.39): a lowercase name each, once, with what goes there. */
+export const hostsOf = (m: PackManifest | undefined): { name: string; about: string }[] => {
+  const seen = new Set<string>();
+  return (Array.isArray(m?.hosts) ? m.hosts : []).flatMap((h) => (h && typeof h.name === "string" && HOST.test(h.name) && !seen.has(h.name) && seen.add(h.name) ? [{ name: h.name, about: typeof h.about === "string" ? h.about.replace(/\s+/g, " ").trim().slice(0, 200) : "" }] : []));
+};
+
+/** The other packs' places a pack fills (the `"<host id>/<name>"` keys of its `slots`), for the Packs page. */
+export function fillsOf(c: Pack, ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): string[] {
+  if (!c.slots) return [];
+  return safely(() => Object.keys(c.slots!(ctxOf(c)) ?? {}).filter((k) => /^[a-z][a-z0-9-]{0,31}\/[a-z][a-z0-9.-]{0,39}$/.test(k)), [], (e) => log(c.manifest.id, `slots: ${(e as Error)?.message ?? e}`));
+}
+
+/**
+ * What the other packs put in a place of a pack's own (`ctx.fillOwn`, #477), routed as `fill` is:
+ * shown packs only, each isolated, its markup checked. The place must be one the host's manifest
+ * lists, the filler must list the host in `uses` or `requires`, and each filler gets its own copy
+ * of `arg`, which has to be plain data.
+ */
+export function fillOwnOf(on: () => Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): (host: Pack, name: string, arg: unknown) => (Html | "")[] {
+  const said = new Set<string>();
+  const once = (id: string, line: string) => {
+    if (said.size >= 500 || said.has(`${id} ${line}`)) return;
+    said.add(`${id} ${line}`);
+    log(id, line);
+  };
+  return (host, name, arg) => {
+    const id = host.manifest.id;
+    if (typeof name !== "string" || !hostsOf(host.manifest).some((h) => h.name === name)) {
+      once(id, `fillOwn ${String(name).slice(0, 40)}: not one of its manifest's hosts`);
+      return [];
+    }
+    const key = `${id}/${name}` as const;
+    const copy = safely(() => [structuredClone(arg)], undefined, () => once(id, `fillOwn ${name}: its arg isn't plain data`));
+    if (!copy) return [];
+    return on().flatMap((c) => {
+      if (c === host || !c.slots) return [];
+      return safely<(Html | "")[]>(
+        () => {
+          const f = c.slots!(ctxOf(c))[key];
+          if (typeof f !== "function") return [];
+          if (!usesOf(c.manifest).includes(id) && !requiresOf(c.manifest).includes(id)) {
+            once(c.manifest.id, `slot ${key}: not asked, ${id} isn't in its uses or requires`);
+            return [];
+          }
+          const out = guardHtml(f(structuredClone(copy[0])), c.manifest.name, `slot ${key}`, (line) => log(c.manifest.id, line));
+          return typeof out === "string" || isHtml(out) ? [out as Html | ""] : [];
+        },
+        [],
+        (e) => log(c.manifest.id, `slot ${key}: ${(e as Error)?.message ?? e}`),
+      );
+    });
+  };
 }
 
 /** Slots that take a block of their own: what a pack puts there goes in its box (src/packs/guard.ts). The rest sit in a line or a row of buttons, and are only checked. */

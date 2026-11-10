@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.38")
+   src/packs/types.ts     its types (PACK_API = "1.39")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -133,6 +133,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `publish(topics)`: tell open pages a region changed
 - `snapshot()`, `gathered()`: what the gather read from the forge
 - `fill(slot, arg)`: host other packs' slots on its pages
+- `fillOwn(name, arg)`: what other packs put in a place of its own (its manifest's `hosts`); they answer in `slots` under `"<its id>/<name>"`, and must list it in `uses` or `requires`
 - `page()`, `dockPage()`: draw inside the shell
 - `pageOn(href)`: whether a page answers here, to leave out a link to a pack that's off
 - `viewer()`: whom the current request is for (hosted: their email; no one locally)
@@ -233,7 +234,9 @@ Also:
 
 ## Rules for packs
 
-- Packs reach each other's pages through slots, never imports.
+- Packs reach each other's pages through slots, never imports. A place on a pack's own page is
+  that pack's (`hosts` in its manifest, `ctx.fillOwn`), not a name in core's `SlotMap`: core routes
+  and checks it as any slot, and never learns what the place is for.
 - Writes to a pack's own app re-check state, log to `actions`, and go through a Confirm with
   `kind: "<id>.<kind>"` (listed in `writes`). Each kind takes one click unless Settings →
   Writes sets it to ask twice.
@@ -367,6 +370,7 @@ Also:
   | 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
   | 1.37 | `assertApi(pack, dir)` and `apiOver(pack, dir)` in `dovre/pack-testing.ts`: fail on (or list) what a pack uses that's newer than its manifest's `api`, read from the pack and its files against what each minor added (`API_ADDED` in `src/packs/api.ts`) (#482) |
   | 1.38 | A share of a pack's own: `shares()` may answer names core doesn't know, and `ctx.required(id, name)` hands such a one back as `unknown` for the reader to narrow. `PackShares` is now only what core reads itself (`agent`, `list`); `auto` is the agents pack's own, and `AutoShare` and its types stay at the door, deprecated, until 2.0 (#478) |
+  | 1.39 | A pack's own places (#477): `hosts` in the manifest names places on its pages (`{ name, about }`), its page asks with `ctx.fillOwn(name, arg)`, and a pack listing it in `uses` or `requires` answers from `slots` under `"<host id>/<name>"` with `Html` or `""`. `arg` is plain data, a copy for each pack and `unknown` to it; core checks the markup and isolates each answer as for `fill`. The Packs page lists what a pack hosts and fills |
 
 ## Open questions
 

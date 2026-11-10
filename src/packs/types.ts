@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.38";
+export const PACK_API = "1.39";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -94,6 +94,13 @@ export type PackManifest = {
    * Unlike `requires`, it stays on without them: `ctx.required` answers undefined then.
    */
   uses?: string[];
+  /**
+   * Places on its own pages that other packs may fill (API 1.39, #477), each a lowercase name
+   * ("span.actions") and what goes there, for the Packs page. Its page asks with
+   * `ctx.fillOwn(name, arg)`; a pack that lists this one in `uses` or `requires` answers from
+   * its `slots` under `"<this id>/<name>"`.
+   */
+  hosts?: { name: string; about: string }[];
   /**
    * Top-level paths it owns besides /<id> (agents: "worktrees"), each a lowercase word. One that's a
    * core path or another pack's keeps the pack off, as a route outside them does.
@@ -450,7 +457,12 @@ export type SlotMap = {
 /** An HTTP span as the "span.actions" slot sees it. */
 export type SpanSlotArg = { service: string; kind: "server" | "client" | "other"; method: string; route: string; attrs: Record<string, string | number | boolean> };
 export type SlotName = keyof SlotMap;
-export type Slots = { [K in SlotName]?: (arg: SlotMap[K]["arg"]) => SlotMap[K]["out"] };
+/**
+ * What a pack puts in named places: core pages' by their name in `SlotMap`, and (API 1.39) another
+ * pack's by `"<host id>/<name>"`, a place that pack lists in its manifest's `hosts`. Core doesn't
+ * know such a place's `arg`: it's plain data the host made (a copy), so check what you read of it.
+ */
+export type Slots = { [K in SlotName]?: (arg: SlotMap[K]["arg"]) => SlotMap[K]["out"] } & { [place: `${string}/${string}`]: (arg: unknown) => Html | "" };
 
 export type PackContext = {
   /**
@@ -509,6 +521,12 @@ export type PackContext = {
   gathered(): Promise<Snapshot | undefined>;
   /** What the packs put in a named place (SlotMap) on one of this pack's own pages: its page can host others' slots too. */
   fill<K extends SlotName>(name: K, arg: SlotMap[K]["arg"]): SlotMap[K]["out"][];
+  /**
+   * API 1.39 (#477): what other packs put in a place of this pack's own (one its manifest lists in
+   * `hosts`), from memory. `arg` is plain data (each pack gets a copy); only shown packs that list
+   * this one in `uses` or `requires` are asked, and what they answer is checked as any slot's is.
+   */
+  fillOwn(name: string, arg: unknown): (Html | "")[];
   /** A page inside Dovre's shell (nav, docks, styles), for a route this pack mounts. */
   page(c: Context<AppEnv>, opts: PageOpts): Promise<Response>;
   /** A page for inside its dock (`dock`, under /<id>/dock): no menu or footer, the same styles and script. */
