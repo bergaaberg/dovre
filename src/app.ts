@@ -502,6 +502,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           ...(hosted ? {} : programsFor(c.manifest, { dir: packDirOf(env.U_DB, c.manifest.id), checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout).flatMap((n) => checkoutIn(env.CODE_DIR!, n) ?? []) : []) })),
           db: env.DB,
           logged: loggedFor(c.manifest.id, env.DB, packLog(c.manifest.id)),
+          viewer: currentViewer,
           publish: (topics) => deps.hub?.publish(topics),
           snapshot: () => gatherer.peek(),
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),

@@ -13,7 +13,7 @@ import { assertDoors, reachIns } from "../src/pack-testing.ts";
 const src = resolve(import.meta.dirname, "..", "src");
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
-/** dovre/pack.ts at PACK_API 1.30, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
+/** dovre/pack.ts at PACK_API 1.31, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
   ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
@@ -30,7 +30,7 @@ const PACK = words(`
 
 /** dovre/pack-testing.ts. */
 const TESTING = words(`
-  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap assertDoors assertFragment assertInert assertScoped assertStyled createWorker ingestToken openDb
+  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap assertDoors assertFragment assertInert assertScoped assertStyled createWorker ingestToken keptLookups openDb
   packApp reachIns resetWhen setWhen testAgentLinks testAgentsPack testContext testDeploy testForge testList testPage testPr testSession testSnapshot
 `);
 
@@ -130,4 +130,11 @@ test("the testing door's stand-ins: a page in core's shell, My list in memory, a
   assert.equal(ctx.checkout!("shop"), join(dir, "shop"));
   assert.equal(ctx.checkout!("notes"), null);
   assert.equal(t.testContext().checkouts, undefined);
+  assert.equal(t.testContext().viewer(), undefined, "no one, as locally");
+
+  const look = (kind: string) => ({ kind, when: "When asked.", fields: [], run: () => "x" });
+  const looks = { manifest: { api: t.testAgentsPack().manifest.api, id: "looks", name: "Looks", description: "x", domain: "general" as const }, lookups: () => [look("one"), look("Not A Word"), look("two")] };
+  const kept = t.keptLookups(looks);
+  assert.deepEqual(kept.kinds, ["looks.one", "looks.two"]);
+  assert.equal(kept.left.length, 1, kept.left.join(" | "));
 });
