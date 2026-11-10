@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.41";
+export const PACK_API = "2.0";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -66,8 +66,16 @@ export type PackManifest = {
   requiredBinaries?: string[];
   /** API 1.26: programs it may run with `ctx.run` when they're on PATH (local), besides `requiredBinaries`; a missing one doesn't turn it off. Plain names, never an agent CLI. */
   binaries?: string[];
-  /** Worker bindings it needs (hosted): without them it's off. */
+  /** Worker bindings it needs (hosted): without them it's off. They and `bindings` are all it gets in `ctx.bindings`. */
   requiredBindings?: string[];
+  /** Worker bindings it reads when they're there (hosted), besides `requiredBindings`; a missing one doesn't turn it off. */
+  bindings?: string[];
+  /**
+   * `"raw"`: it reads and writes Dovre's database through `ctx.db` with no `migrations` of its own
+   * (tables it made itself before there were any, or another's). Without this line or `migrations`,
+   * `ctx.db` throws when used. Its card on the Packs page says so.
+   */
+  db?: "raw";
   settings?: PackSetting[];
   /** How often the core calls refresh() (default 5 min): an interval locally, cron and stale pages hosted. */
   everyMs?: number;
@@ -447,16 +455,12 @@ export type SlotMap = {
    * a chat's name). The first pack that answers names it, cut to a line; undefined: not one of its.
    */
   "actions.where": { arg: { kind: string; target: string }; out: string | undefined };
-  /**
-   * An HTTP span on a pack's trace page (otel-sink's waterfall): a button or two (http: open it
-   * in the HTTP client). Only what the trace kept: the method, the route and the allowlisted
-   * attributes (URLs already without their query). Never a header or a body.
-   */
-  "span.actions": { arg: SpanSlotArg; out: Html | "" };
 };
-/** An HTTP span as the "span.actions" slot sees it. */
-export type SpanSlotArg = { service: string; kind: "server" | "client" | "other"; method: string; route: string; attrs: Record<string, string | number | boolean> };
 export type SlotName = keyof SlotMap;
+/** What `ctx.can` is asked about. */
+export type PackCanWhat = "ask" | "ring" | "acts" | "tools" | "checkouts" | "programs" | "text" | "agent" | "mcp";
+/** `ctx.can`'s answer. */
+export type PackCan = { ok: true } | { ok: false; why: string };
 /**
  * What a pack puts in named places: core pages' by their name in `SlotMap`, and (API 1.39) another
  * pack's by `"<host id>/<name>"`, a place that pack lists in its manifest's `hosts`. Core doesn't
@@ -468,19 +472,30 @@ export type PackContext = {
   /**
    * The instance's settings (strings): this pack reads its own keys (its manifest's `settings`, `PACK_<ID>`,
    * the keys a `namesKeys` setting names,
-   * and `TZ_NAME`, `PORT`, `CODE_DIR`, `U_DB`). From API 1.41 nothing else: another key reads as unset, and asking
+   * and `TZ_NAME`, `PORT`, `CODE_DIR`, `U_DB`). Nothing else: another key reads as unset, and asking
    * for one that is set is noted on the pack's card on the Packs page (#475). Read-only.
    */
   env: Record<string, string | undefined>;
-  /** The Worker's bindings when hosted (D1, R2, service bindings, send_email…); empty locally. */
+  /**
+   * The Worker's bindings when hosted (D1, R2, service bindings, send_email…); empty locally. Only
+   * the ones its manifest names (`requiredBindings`, `bindings`): another reads as missing, and
+   * asking for one that is there is noted on the pack's card (#484). Read-only.
+   */
   bindings: Record<string, unknown>;
   hosted: boolean;
   /** Local: the folder the checkouts are in (CODE_DIR), read-only. Unset hosted. */
   codeDir?: string;
-  /** Local (API 1.7): the checkouts' names, git repos directly under codeDir (no symlinks). In a pack session, only its one checkout. */
-  checkouts?(): string[];
-  /** Local (API 1.7): a checkout's folder by name, or null when it isn't one of `checkouts()`. */
-  checkout?(name: unknown): string | null;
+  /** The checkouts' names, git repos directly under codeDir (no symlinks). In a pack session, only its one checkout. None hosted. */
+  checkouts(): string[];
+  /** A checkout's folder by name, or null when it isn't one of `checkouts()` (always, hosted). */
+  checkout(name: unknown): string | null;
+  /**
+   * Whether something works here, and why not when it doesn't: the one answer for what's local
+   * only or needs my OK (#484). `ask` (the bar), `ring`, `acts` (Bino's cards), `tools` (agent
+   * turns' tools), `checkouts`, `programs` (`run`, `onPath`, `dir`), and `text`, `agent`, `mcp`
+   * (what `ai()`, `agent.can()` and `mcp.can()` say, without their limits). The `why` is a line for me.
+   */
+  can(what: PackCanWhat): PackCan;
   /** Local (API 1.26): this pack's own folder (`packs/<id>` next to the database), made when first asked for. Unset hosted. */
   dir?(): string;
   /**
@@ -493,7 +508,7 @@ export type PackContext = {
   run?(binary: string, args: string[], opts?: PackRunOpts): Promise<PackRan>;
   /** Local (API 1.26): whether a program its manifest names is on PATH now, to say so before it's needed. Throws like `run` on a name it didn't declare. Unset hosted. */
   onPath?(binary: string): boolean;
-  /** Dovre's own database. */
+  /** Dovre's own database, for a pack with `migrations` (to read its own tables) or whose manifest says `db: "raw"`. For the rest (`store.kv` is theirs) every call on it throws, saying so. */
   db: D1;
   /**
    * API 1.33 (#476): this pack's own small state, kept in Dovre's database under its id: it
@@ -655,11 +670,10 @@ export type PackForge = {
   /** Whose repos this instance follows (comma-separated). */
   owners: string;
   /**
-   * API 1.32: whether a repo (`owner/name`, or an owner alone) is one of the owners', any case: the
-   * check before a pack reads or links something by a repo's name. Core always brings it; it stays
-   * optional in the type until 2.0, so a stand-in written before it still typechecks.
+   * Whether a repo (`owner/name`, or an owner alone) is one of the owners', any case: the
+   * check before a pack reads or links something by a repo's name.
    */
-  owns?(repo: string): boolean;
+  owns(repo: string): boolean;
   /** What I did since a day (YYYY-MM-DD). Absent: this forge doesn't say. */
   work?(since: string): Promise<ForgeWork>;
   /** How many of my PRs merged since a time (ISO). Absent: this forge doesn't say. */

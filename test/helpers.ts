@@ -13,6 +13,7 @@ import type { Runner } from "../src/agents/runner.ts";
 import { createQueue, type Queue } from "../src/agents/queue.ts";
 import type { Pack } from "../src/packs/types.ts";
 import type { Copies } from "../src/packs/copies.ts";
+import { CORE_PACKS } from "../src/packs/own.ts";
 import { activePacks } from "../src/packs/registry.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,7 +90,7 @@ export function signedIn(s: Snapshot, routes: Record<string, unknown | ((body: u
   // The agents pack, with the desk and the sessions cleared away, as index.ts makes them.
   const { pack: agents } = agentsFor({ ...ENV, DB: db.DB }, { here: hereOf(extra), desk: extra.desk });
   const packs = [agents, terminalPack(terminals), assistantPack(), todoPack({ links: () => ({ ghe: ENV.GHE_HOST, org: ENV.GHE_ORG }) }), prsPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), ...(extra.forge ? { forge: extra.forge } : {}), stale: () => gatherer.stale() }), deploysPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), approve: !extra.forge || forgeCan(extra.forge, "deployApproval"), stale: () => gatherer.stale() }), ...(!extra.forge || forgeCan(extra.forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }) })] : []), ...(!extra.forge || forgeCan(extra.forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn({ ...ENV, ...extra.env }), stale: () => gatherer.stale() })] : []), ...(extra.packs ?? [])];
-  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, unread: extra.keys?.unread(), hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, keys: extra.keys, budgetMs: extra.budgetMs, routeMs: extra.routeMs, core: ["agents", "terminal", "assistant", "todo", "movement", "deploys", "dependabot", "stacks"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent, notify: extra.notify });
+  const app = createApp({ ...ENV, ...extra.env, DB: db.DB }, { gatherer, ghe, forge: extra.forge, startPicture: extra.startPicture, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, panes: extra.panes, config: extra.config, packs: { ...activePacks(packs, { env: extra.packEnv ?? {}, unread: extra.keys?.unread(), hosted: false, which: () => "/bin/x" }), env: extra.packEnv ?? {}, keys: extra.keys, budgetMs: extra.budgetMs, routeMs: extra.routeMs, core: [...CORE_PACKS, "movement"], varsFile: extra.varsFile, copies: extra.copies }, sent: extra.sent, notify: extra.notify });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
     app.request(`http://localhost${path}`, {
@@ -121,7 +122,7 @@ export function appWithAgents(env: Parameters<typeof createApp>[0], deps: Parame
   const agents = agentsFor(env, { here: hereOf({ sessions, worktrees }), desk, runner: rest.runner, queue });
   const given = rest.packs;
   const active = activePacks([agents.pack, ...extra], { env: packEnv, hosted: env.IS_HOSTED === "1", which: () => "/bin/x" });
-  return createApp(env, { ...rest, packs: { ...given, on: [...active.on, ...(given?.on ?? [])], off: [...active.off, ...(given?.off ?? [])], env: given?.env ?? packEnv, core: ["agents", ...(given?.core ?? [])] } });
+  return createApp(env, { ...rest, packs: { ...given, on: [...active.on, ...(given?.on ?? [])], off: [...active.off, ...(given?.off ?? [])], env: given?.env ?? packEnv, core: [...CORE_PACKS, ...(given?.core ?? [])] } });
 }
 
 /** The PRs pack's viewer routes on their own (src/packs/core/prs/routes.ts): pages drawn in a plain shell, the org's PRs only. */

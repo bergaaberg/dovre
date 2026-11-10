@@ -80,7 +80,7 @@ test("the API table has a row for every minor up to PACK_API, as one table", () 
 
 test("each row of the API table names what api.ts says that minor added", () => {
   const rows = new Map(part("  | API | Added |", "\n## ").split("\n").map((l) => [l.split("|")[1]?.trim() ?? "", l] as const));
-  assert.deepEqual(Object.keys(API_ADDED), [...rows.keys()].filter((k) => /^\d+\.\d+$/.test(k) && k !== "1.0"), "API_ADDED has every minor the table has, in order");
+  assert.deepEqual(Object.keys(API_ADDED), [...rows.keys()].filter((k) => /^\d+\.\d+$/.test(k) && !k.endsWith(".0")), "API_ADDED has every minor the table has, in order");
   for (const [api, uses] of Object.entries(API_ADDED)) {
     // A name's last word is what the row has to say: `ctx.agent` wants `agent`, "a setting's choices" `choices`.
     const want = uses.map((u) => u.name.match(/[A-Za-z_]\w*/g)!.at(-1)!);

@@ -1,9 +1,14 @@
 /** A pack's env (#475, API 1.41): its own keys only; one that isn't the pack's reads as unset, and asking for a set one is noted once. */
 import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { type Pack, PACK_API } from "../src/pack.ts";
 import { packApp } from "../src/pack-testing.ts";
-import { envReads, namedKeys, namesIn, ownKeys, packEnv, switchKey } from "../src/packs/env.ts";
+import { envReads, namedKeys, namesIn, ownKeys, packBindings, packEnv, switchKey } from "../src/packs/env.ts";
+import { packCan } from "../src/packs/can.ts";
+import { CORE_PACKS } from "../src/packs/own.ts";
 
 const manifest = (id: string, keys: string[] = []) => ({ api: PACK_API, id, name: id, description: "", domain: "personal" as const, settings: keys.map((key) => ({ key, label: key })) });
 
@@ -114,4 +119,78 @@ test("the Packs page lists the keys a pack reads by name, escaped", async () => 
   assert.match(page, /Reads by name[\s\S]{0,80}API_TOKEN/);
   assert.ok(!page.includes("Asked for, not given"), "a named key isn't beyond its settings");
   assert.ok(!page.includes("tok_secret"));
+});
+
+test("bindings (#484): only the ones its manifest names; another reads as missing and is noted; read-only", () => {
+  const all: Record<string, unknown> = { OPS_DB: { d1: true }, MAIL: { r2: true }, DB: { core: true }, SECRET_STORE: { s: true } };
+  const seen: string[] = [];
+  const b = packBindings({ ...manifest("inbox"), requiredBindings: ["OPS_DB"], bindings: ["MAIL", "NOT_BOUND"] }, all, (k) => seen.push(k));
+  assert.equal(b.OPS_DB, all.OPS_DB, "the binding itself, not a copy");
+  assert.equal(b.MAIL, all.MAIL);
+  assert.equal(b.NOT_BOUND, undefined);
+  assert.deepEqual(seen, []);
+  assert.equal(b.DB, undefined, "core's database isn't a pack's by asking");
+  assert.equal(b.SECRET_STORE, undefined);
+  assert.equal("DB" in b, false);
+  assert.deepEqual(seen, ["DB", "SECRET_STORE"]);
+  assert.deepEqual(Object.keys(b), ["OPS_DB", "MAIL"]);
+  assert.deepEqual(Object.keys({ ...b }), ["OPS_DB", "MAIL"]);
+  assert.throws(() => { b.DB = 1; }, TypeError);
+  assert.throws(() => { delete b.OPS_DB; }, TypeError);
+  assert.deepEqual(Object.keys(packBindings(manifest("none"), all, () => {})), [], "a pack that names none gets none");
+  assert.deepEqual(Object.keys(packBindings({ ...manifest("odd"), requiredBindings: "OPS_DB" as never, bindings: [7 as never, "MAIL"] }, all, () => {})), ["MAIL"], "a wrong-shaped list names nothing");
+});
+
+test("ctx.db (#484): a pack with migrations or `db: \"raw\"` gets the database; any other gets one that throws, on its own page only; the card says raw", async () => {
+  const use = (id: string, more: Partial<Pack> = {}, db?: "raw"): Pack => ({
+    manifest: { ...manifest(id), ...(db ? { db } : {}) },
+    ...more,
+    routes: (app, ctx) => app.get(`/${id}`, async (c) => c.text(String((await ctx.db.prepare("SELECT 1 AS one").first<{ one: number }>())?.one))),
+  });
+  const { get } = packApp([use("plain"), use("rawone", {}, "raw"), use("tabled", { migrations: ["CREATE TABLE tabled_notes (id TEXT PRIMARY KEY)"] })]);
+  assert.equal(await (await get("/rawone")).text(), "1");
+  assert.equal(await (await get("/tabled")).text(), "1");
+  const plain = await get("/plain");
+  assert.equal(plain.status, 500, "its own error page");
+  assert.match(await plain.text(), /ctx\.db needs migrations of its own, or db: &quot;raw&quot;/);
+  const page = await (await get("/packs")).text();
+  assert.equal(page.split("raw: reads and writes Dovre").length - 1, 1, "on the raw pack's card only");
+});
+
+test("ctx.can and the checkouts (#484): one answer for what's local only, with a line saying why", async () => {
+  const pack: Pack = { manifest: manifest("asker"), routes: (app, ctx) => app.get("/asker", (c) => c.json({ ask: ctx.can("ask"), acts: ctx.can("acts"), tools: ctx.can("tools"), programs: ctx.can("programs"), checkouts: ctx.can("checkouts"), agent: ctx.can("agent"), odd: ctx.can("fly" as never), list: ctx.checkouts(), one: ctx.checkout("shop") })) };
+  const local = (await (await packApp([pack]).get("/asker")).json()) as Record<string, { ok: boolean; why?: string }>;
+  assert.deepEqual([local.ask, local.acts, local.tools, local.programs, local.checkouts], [{ ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: true }]);
+  assert.equal(local.agent!.ok, false, "not until I allow it");
+  assert.ok(local.agent!.why);
+  assert.equal(local.odd!.ok, false);
+  // Hosted, and with no code folder: the same shape, saying why.
+  const here = { hosted: true, rings: false, ai: () => ({ text: false as const, why: "no model" }), agent: () => ({ ok: false as const, why: "not allowed" }), mcp: () => ({ ok: true as const, reads: [], writes: [] }) };
+  for (const what of ["ask", "acts", "tools", "programs", "checkouts"] as const) {
+    const c = packCan(what, here);
+    assert.ok(!c.ok && /only where Dovre runs on your own machine/.test(c.why), what);
+  }
+  assert.deepEqual(packCan("ring", here), { ok: false, why: "Nothing rings here" });
+  assert.deepEqual(packCan("text", here), { ok: false, why: "no model" });
+  assert.deepEqual(packCan("agent", here), { ok: false, why: "not allowed" });
+  assert.deepEqual(packCan("mcp", here), { ok: true });
+  assert.deepEqual(packCan("checkouts", { ...here, hosted: false }), { ok: false, why: "No code folder is set (CODE_DIR)" });
+  assert.deepEqual(packCan("checkouts", { ...here, hosted: false, codeDir: "/code" }), { ok: true });
+});
+
+test("core's package exports name files, each one there: no wildcard into src (#484)", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const exportsOf = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).exports as Record<string, string>;
+  assert.ok(exportsOf["./pack.ts"] && exportsOf["./pack-testing.ts"], "the two doors");
+  for (const [name, file] of Object.entries(exportsOf)) {
+    assert.ok(!name.includes("*") && !file.includes("*"), `${name}: a wildcard`);
+    assert.equal(file, `./src/${name.slice(2)}`);
+    assert.ok(existsSync(join(root, file)), `${file} isn't there`);
+  }
+});
+
+test("CORE_PACKS names every folder of Dovre's own packs, and no more", () => {
+  const folders = readdirSync(fileURLToPath(new URL("../src/packs/core/", import.meta.url)), { withFileTypes: true }).filter((e) => e.isDirectory());
+  assert.equal(CORE_PACKS.length, folders.length, "a pack was added to or taken out of src/packs/core: fix src/packs/own.ts");
+  assert.equal(new Set(CORE_PACKS).size, CORE_PACKS.length);
 });

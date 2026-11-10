@@ -12,6 +12,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Gatherer, Snapshot } from "../gather.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import { fixedLayout, type Layout, type LayoutStore } from "../layout.ts";
+import { CORE_PACKS } from "../packs/own.ts";
 import { activePacks, refresher, within } from "../packs/registry.ts";
 import { type Pack, PACK_API } from "../packs/types.ts";
 import { agentsPack } from "../packs/core/agents/index.ts";
@@ -279,7 +280,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
       // The one open door: everyone is the demo visitor. Only this entry passes it.
       access: async () => ({ email: "visitor@demo.dovre.dev" }),
       info: { version: `${version}-demo`, startedAt: Date.now() },
-      packs: { on, off, env: settings, bindings: {}, core: ["agents", "history", "assistant", "todo", "deploys"] },
+      packs: { on, off, env: settings, bindings: {}, core: [...CORE_PACKS, "demo"] },
     });
     // Packs fed made-up data read it the way they'd read their app: on their schedule, before the page.
     refresh = refresher(on, packsOf(app)!.ctxOf, () => {});

@@ -18,7 +18,7 @@ import { stacksPack } from "../src/packs/core/stacks/index.ts";
 import { terminalPack } from "../src/packs/core/terminal/index.ts";
 import { todoPack } from "../src/packs/core/todo/index.ts";
 
-const m = (id: string, more: Partial<PackManifest> = {}): PackManifest => ({ api: "1.14", id, name: id, description: "", domain: "general", ...more });
+const m = (id: string, more: Partial<PackManifest> = {}): PackManifest => ({ api: "2.0", id, name: id, description: "", domain: "general", ...more });
 
 test("every role has two questions the interview knows, and every option is lowercase", () => {
   for (const [role, qs] of Object.entries(INTERVIEW)) {

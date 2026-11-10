@@ -26,7 +26,8 @@ import { agentHostOf } from "./agenthost.ts";
 import type { Run } from "../agents/runner.ts";
 import { type AgentHost, aiAskOf, packAiFor, packAiStore } from "./ai.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
-import { envReads, packEnv } from "./env.ts";
+import { packCan } from "./can.ts";
+import { envReads, packBindings, packEnv } from "./env.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./guard.ts";
 import { loggedFor } from "./logged.ts";
 import { packDirOf, programsFor } from "./programs.ts";
@@ -117,6 +118,7 @@ export function mountPacks(app: App, o: MountOpts) {
   const own = (id: string) => packs.core?.includes(id);
   const contexts = new Map<string, PackContext>();
   const envSeen = envReads();
+  const bindingsSeen = envReads();
   /** Each pack's questions in the bar, by id (`asking`). */
   const asked = new Map<string, Set<string>>();
   const askedBy = (id: string) => asked.get(id) ?? asked.set(id, new Set()).get(id)!;
@@ -147,19 +149,32 @@ export function mountPacks(app: App, o: MountOpts) {
     const { lands: _, ...agent } = a.agent;
     return { ...a, agent };
   };
+  /** `ctx.db` for a pack that didn't ask for it: anything done with it throws, naming the line it lacks. */
+  const noDb = (id: string): PackContext["db"] =>
+    new Proxy({} as PackContext["db"], {
+      get: (_, key) => (typeof key === "symbol" || key === "then" ? undefined : () => { throw new Error(`pack ${id}: ctx.db needs migrations of its own, or db: "raw" in its manifest (ctx.store.kv needs neither)`); }),
+    });
+
   const ctxOf = (c: Pack): PackContext => {
     let ctx = contexts.get(c.manifest.id);
+    // Dovre's own packs are wired by closure (#480): the plain settings, bindings and database.
+    const own = !!packs.core?.includes(c.manifest.id);
     if (!ctx)
       contexts.set(
         c.manifest.id,
         (ctx = {
           // Dovre's own packs are wired by closure (#480); the rest read their own keys through a view that notes what else they asked for (#475).
-          env: packs.core?.includes(c.manifest.id) ? packs.env : packEnv(c.manifest, packs.env, (key) => envSeen.note(c.manifest.id, key) && packLog(c.manifest.id)(`asked for ${key}, which isn't one of its settings: not given`)),
-          bindings: packs.bindings ?? {},
+          env: own ? packs.env : packEnv(c.manifest, packs.env, (key) => envSeen.note(c.manifest.id, key) && packLog(c.manifest.id)(`asked for ${key}, which isn't one of its settings: not given`)),
+          // The same for the Worker's bindings: the ones its manifest names (#484).
+          bindings: own ? (packs.bindings ?? {}) : packBindings(c.manifest, packs.bindings ?? {}, (name) => bindingsSeen.note(c.manifest.id, name) && packLog(c.manifest.id)(`asked for the binding ${name}, which its manifest doesn't name: not given`)),
           hosted,
-          ...(hosted ? {} : { codeDir: env.CODE_DIR, checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout) : []), checkout: (name: unknown) => (env.CODE_DIR ? checkoutIn(env.CODE_DIR, name, deps.session?.checkout) : null) }),
+          ...(hosted ? {} : { codeDir: env.CODE_DIR }),
+          checkouts: () => (!hosted && env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout) : []),
+          checkout: (name: unknown) => (!hosted && env.CODE_DIR ? checkoutIn(env.CODE_DIR, name, deps.session?.checkout) : null),
+          can: (what) => packCan(what, { hosted, codeDir: env.CODE_DIR, rings: !!deps.notify?.ring, ai: () => ctxOf(c).ai(), agent: () => ctxOf(c).agent.can(), mcp: () => ctxOf(c).mcp.can() }),
           ...(hosted ? {} : programsFor(c.manifest, { dir: packDirOf(env.U_DB, c.manifest.id), checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout).flatMap((n) => checkoutIn(env.CODE_DIR!, n) ?? []) : []) })),
-          db: env.DB,
+          // The database only for Dovre's own packs, a pack with `migrations` (its own tables) and one that says `db: "raw"` (#484).
+          db: own || c.manifest.db === "raw" || (Array.isArray(c.migrations) && c.migrations.length > 0) ? env.DB : noDb(c.manifest.id),
           store: { kv: env.DB ? kvFor(c.manifest.id, env.DB) : kvInMemory() },
           logged: loggedFor(c.manifest.id, env.DB, packLog(c.manifest.id)),
           viewer: currentViewer,
@@ -566,7 +581,7 @@ export function mountPacks(app: App, o: MountOpts) {
     packNav, packFeed, packBino, packApps, packFrames, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
     refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
-    setupOf, setupLeft, aiStore, aiAsk, envSeen,
+    setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen,
     mountCallbacks, mountAssets, mountRoutes,
   };
 }

@@ -228,7 +228,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts,
     packNav, packFeed, packBino, packApps, packFrames, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
-    setupOf, setupLeft, aiStore, aiAsk, envSeen, mountCallbacks, mountAssets, mountRoutes,
+    setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen, mountCallbacks, mountAssets, mountRoutes,
   } = mountPacks(app, { env, deps, hosted, ghe, forge, asks, layout, onboarding, publicOrigin, page: (o) => page(o), thinking: () => !!engine?.list().some((x) => x.thinking), settle: (id) => settleSettings(id), pending: (err) => err instanceof Pending, bugHref });
   const scriptSrc = shipsWasm ? ["'self'", "'wasm-unsafe-eval'"] : ["'self'"];
   const appPolicy = (frames: string[] = []) =>
@@ -547,7 +547,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
-  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
+  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
   const { setUp } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──

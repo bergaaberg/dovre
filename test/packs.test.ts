@@ -54,8 +54,8 @@ test("activePacks: each pack on or off, with why", () => {
     pack({ id: "Bad_Id" }),
     pack({ id: "fine" }),
     { manifest: { ...m({ id: "old" }), api: 0 } },
-    { manifest: { ...m({ id: "ahead" }), api: "1.99" } },
-    { manifest: { ...m({ id: "plain" }), api: 1 } },
+    { manifest: { ...m({ id: "ahead" }), api: "2.99" } },
+    { manifest: { ...m({ id: "plain" }), api: 2 } },
     { manifest: { ...m({ id: "garbled" }), api: "one" } },
     pack({ id: "switched" }),
     pack({ id: "machine", execution: "local-only" }),
@@ -69,7 +69,7 @@ test("activePacks: each pack on or off, with why", () => {
   assert.match(why.Bad_Id!, /lowercase/);
   assert.match(why.fine!, /same id/);
   assert.match(why.old!, /contract 0/);
-  assert.equal(why.ahead, `needs core API 1.99, this is ${PACK_API}`);
+  assert.equal(why.ahead, `needs core API 2.99, this is ${PACK_API}`);
   assert.match(why.garbled!, /isn't a version/);
   assert.match(why.switched!, /switched off/);
   assert.match(why.edge!, /only hosted/);
@@ -586,7 +586,7 @@ test("refresher.agent: a turn that ended is told to the pack's refresh, after a 
 
 test("loadPacks: a folder's packs.ts, and a pack folder that won't load is named", async () => {
   const dir = mkdtempSync(join(tmpdir(), "dovre-packs-"));
-  writeFileSync(join(dir, "packs.ts"), `export default (env: Record<string, string | undefined>) => [{ manifest: { api: 1, id: "fromdisk", name: env.NAME, description: "", domain: "personal" } }];\n`);
+  writeFileSync(join(dir, "packs.ts"), `export default (env: Record<string, string | undefined>) => [{ manifest: { api: 2, id: "fromdisk", name: env.NAME, description: "", domain: "personal" } }];\n`);
   const { packs, failed } = await loadPacks(`${dir}, ${join(dir, "missing")}`, { NAME: "From disk" });
   assert.deepEqual(packs.map((c) => c.manifest.name), ["From disk"]);
   assert.equal(failed.length, 1);
@@ -803,8 +803,6 @@ test("Dovre's own packs (src/packs/core/) are reached only through the registry:
   // Bino's engine sits in the assistant pack's folder (WP-M4) but is still wired by core (the dock,
   // the hub, Settings) until it goes through the Pack API: that one folder, and nothing else in it.
   const bino = join(core, "assistant", "bino") + sep;
-  // The door still names the agents pack's `auto` share types (types only), until they leave at 2.0 (#484).
-  const door = (rel: string, to: string) => rel === "pack.ts" && to === join(core, "agents", "share.ts");
   const bad: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -813,7 +811,7 @@ test("Dovre's own packs (src/packs/core/) are reached only through the registry:
         if (rel !== join("packs", "core")) walk(join(dir, e.name));
       } else if (e.name.endsWith(".ts") && !entry.has(rel)) {
         const text = readFileSync(join(dir, e.name), "utf8");
-        for (const m of text.matchAll(/(?:from|import)\s*\(?\s*"(\.[^"]+)"/g)) if (resolve(dir, m[1]!).startsWith(core) && !resolve(dir, m[1]!).startsWith(bino) && !door(rel, resolve(dir, m[1]!))) bad.push(`${rel}: ${m[1]}`);
+        for (const m of text.matchAll(/(?:from|import)\s*\(?\s*"(\.[^"]+)"/g)) if (resolve(dir, m[1]!).startsWith(core) && !resolve(dir, m[1]!).startsWith(bino)) bad.push(`${rel}: ${m[1]}`);
       }
     }
   };
@@ -1313,19 +1311,6 @@ test("acts with Bino: a pack's block becomes its card, two clicks; run on my pre
   const last = asked.at(-1)!;
   assert.match(last.user, /"kind":"track\.ticket","title":"Fix it[^\n]*\n```\s*\(done\)/, "Bino hears its own proposal, and that it was done");
   assert.doesNotMatch(last.user, /Typed by me|once more/, "not what I typed");
-});
-
-test("a pack's page hosts another pack's slot (span.actions): the second pack's button shows, hostile text inert, one that throws adds none", async () => {
-  const sink = pack({ id: "sink" }, {
-    routes: (app, ctx) =>
-      app.get("/sink/trace", (c) => ctx.page(c, { title: "Trace", body: html`<ul>${ctx.fill("span.actions", { service: "api", kind: "server", method: "GET", route: `/users/:id ${H}`, attrs: { "server.address": "api.local" } })}</ul>` })),
-  });
-  const client = pack({ id: "client" }, { slots: () => ({ "span.actions": (s) => html`<button type="submit">Open ${s.method} ${s.route} on ${String(s.attrs["server.address"])}</button>` }) });
-  const boom = pack({ id: "boom" }, { slots: () => ({ "span.actions": () => { throw new Error("no button"); } }) });
-  const { get } = signedIn(snapshot(), {}, { packs: [sink, boom, client] });
-  const page = await (await get("/sink/trace")).text();
-  assert.match(page, /<button type="submit">Open GET \/users\/:id .* on api\.local<\/button>/);
-  assertInert("a span's actions", page);
 });
 
 test("a pack's own place (hosts, ctx.fillOwn): packs that use it fill it under \"<host id>/<name>\"; hostile text inert, and nothing from one that throws, doesn't list the host, or is hidden", async () => {

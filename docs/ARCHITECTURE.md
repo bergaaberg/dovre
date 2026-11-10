@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.41")
+   src/packs/types.ts     its types (PACK_API = "2.0")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -135,9 +135,14 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `env`, `bindings`, `hosted`, `db`. `env` is meant to hold the pack's own keys: its manifest's `settings`,
   the keys a `namesKeys` setting names, `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). Nothing else (API 1.41): another key reads as unset,
   and asking for one that is set is logged once and named on the pack's card on the Packs page
-  ("Asked for, not given"). The view is read-only (#475). Dovre's own packs get the plain settings.
+  ("Asked for, not given"). The view is read-only (#475). `bindings` is the same for the Worker's
+  bindings: the ones its manifest names (`requiredBindings`, and `bindings` for ones it can do without) and no other (#484).
+  `db` is Dovre's database for a pack with `migrations` (its own tables) or the manifest line `db: "raw"`
+  (named on its card, "Database: raw"); for any other pack it throws when used. Dovre's own packs
+  (`CORE_PACKS` in `src/packs/own.ts`) get the plain settings, bindings and database.
+- `can(what)`: whether something works here and why not (`{ ok: false, why }`): `ask`, `ring`, `acts`, `tools`, `checkouts`, `programs`, and `text`, `agent`, `mcp`. The one answer for what's local only or needs my OK
 - `store.kv`: its own small state in Dovre's database, JSON by key under its id (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`). Tables of its own are `migrations`
-- `codeDir`, `checkouts()`, `checkout(name)` (local): the code folder and the git repos directly under it; only the one in a pack session
+- `codeDir` (local), `checkouts()`, `checkout(name)`: the code folder and the git repos directly under it (none hosted); only the one in a pack session
 - `run(binary, args, opts)`, `onPath(binary)`, `dir()` (local): run a program its manifest names (`requiredBinaries`, or `binaries` for ones it can do without), in a checkout or in its own folder. Never an agent CLI. The folder is where the program starts, not a fence around it
 - `publish(topics)`: tell open pages a region changed
 - `snapshot()`, `gathered()`: what the gather read from the forge
@@ -172,7 +177,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 | Search | `pages`, `finds` | from memory |
 | Attention | `needs` (+ manifest `rings`), `banner`, `dock` | from memory |
 | Bino | `bino`, `about`, `lookups`, `acts` (local) | `bino` from memory; `about` may read its app (2 s at most); lookups run when Bino asks (8 s at most); acts run in the background |
-| Core pages | `slots` (19 in `SlotMap`) | from memory |
+| Core pages | `slots` (18 in `SlotMap`) | from memory |
 | Framing | `frames`: `https://` origins its pages may frame | from memory |
 | Links | `refs` (ticket keys), `linked` (PR links to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
@@ -331,58 +336,17 @@ Also:
   optional hook, slot, field or markup contract, or a new export of `src/pack.ts`, is additive:
   bump the minor and add a row below (`test/sdk.test.ts` lists the exports, and fails on a change;
   `test/docs.test.ts` fails while this doc lacks the row, a `ctx` member, a hook, or the slot count). A
-  pack's manifest names the oldest API it works with (`api: "1.4"`; a plain `1` reads as `1.0`),
-  so on an older core it shows as off ("needs core API 1.4, this is 1.3") instead of quietly doing
+  pack's manifest names the oldest API it works with (`api: "2.1"`; a plain `2` reads as `2.0`),
+  so on an older core it shows as off ("needs core API 2.1, this is 2.0") instead of quietly doing
   nothing, and `packs update` refuses it. The number is checked (#482): each minor's names are
   also in `API_ADDED` (`src/packs/api.ts`), and a packs repo's test runs `assertApi` on each pack,
-  which fails on "uses ctx.agent (1.23), declares 1.6". Removing or changing a hook, a field's meaning or a
-  slot's `arg` is breaking: bump the major, and older packs show as off until updated. A pack
+  which fails on "uses ctx.agent (1.23), declares 1.6" (2.x starts with nothing to check: a 2.0 pack may use all of 1.x). Removing or changing a hook, a field's meaning or a
+  slot's `arg` is breaking: bump the major, and older packs show as off until updated ("written for pack contract 1, this Dovre speaks 2: update the pack"). A pack
   written `api: PACK_API` claims whatever core it links, so only a literal protects it.
 
   | API | Added |
   | --- | --- |
-  | 1.0 | Everything through pack containment (#347, 2026-11-01) |
-  | 1.1 | `Pack.files`: big scripts and stylesheets served outside the bundle (#354) |
-  | 1.2 | The `pr.file` slot; `forge.file` at a commit (#355) |
-  | 1.3 | A `Pack.files` script can carry WebAssembly (`wasm: true`) (#356) |
-  | 1.4 | Closed fences in core Markdown name their language (`data-lang`); pack scripts get `dovreFiles` (#357) |
-  | 1.5 | Math in core Markdown is marked for a pack to draw (`code[data-tex]`, `pre.code[data-lang=math]`) (#358) |
-  | 1.6 | `manifest.version`, a pack's own release, on the Packs page (#364) |
-  | 1.7 | `ctx.checkouts()` and `ctx.checkout(name)`: the git repos directly under the code folder, narrowed to one in a pack session (#368) |
-  | 1.8 | A `PackStat` bar list (`bars`) and `partialLast`; `refresh(ctx, { asked })` when I pressed Gather again (#387) |
-  | 1.9 | Slots `pr.agent` (a block on a PR card) and `review.draft` (an agent's draft for my own review); agent reviews became the `reviews` pack (#389) |
-  | 1.10 | Slot `ai.summary` (a PR's or deploy's summary by key, drawn by core); AI summaries became the `summaries` pack (#390) |
-  | 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
-  | 1.12 | Share `agent` (where the agents pack starts an agent and shows a session or run): My list, New work, reviews and core link through it and leave the link out while agents is off (#394) |
-  | 1.13 | `ctx.pageOn(href)`: whether a page answers here, so a pack leaves out a tab to another pack's page that's off; slot `pr.stack` (the viewer's "2 of 3 in a stack", from the stacks pack) (#408) |
-  | 1.14 | Manifest `roles`, `answers` and `markers` (who it suits, which interview answers, which files the checkout scan looks for) and `onboard` (its own setup, up to 3 steps), for first run's suggestions (`src/packs/suggest.ts`) (#415) |
-  | 1.15 | A setting's `choices`: the values it takes, shown as a picker on its settings page; a value outside them isn't kept (the assistant's `ASSISTANT_VIA`, #417) |
-  | 1.16 | `setup`: a setup page at /setup/<id> for the steps `onboard` declares. The pack draws each step's body (`draw`, and `save` for a form step); core draws the frame, Today lists the packs not set up yet, and `ctx.setupDone()` says whether every step is done (#418) |
-  | 1.17 | `forge().propose` takes `files`: up to five files in one PR, each checked against what the pack saw; a setup step's `refresh` loads its page again while a job runs (#425) |
-  | 1.18 | Manifest `via: "forge"`: it reads and writes through the forge, and the Packs page groups it under the forge's name (#432) |
-  | 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
-  | 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
-  | 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
-  | 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
-  | 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
-  | 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
-  | 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database. Type `PackLogged` (#474) |
-  | 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool`. Types `PackRunOpts`, `PackRan` (#474) |
-  | 1.27 | `dovre/pack.ts` also exports what packs reached into core for: the types `App`, `AppEnv`, `D1`, `D1Statement`, `Snapshot`, `Need`, `EveryRepo`, `PackProposal`, `Proposal`, `Proposed` and the forge contract (`Forge`, `ForgeCan`, `ForgeDecl`, `ForgeWork`, `Pr`, `PrRef`, `Issue`, `IssueSets`, `Deploy`, `Move`, `Note`, `Changelog`); `strictOrigin`; `later` and `Reading`; and the pure helpers `needsOf`, `prSummaryKey`, `deploySummaryKey`, `byPerson`, `inFiles`, `hourAt`, `hashOf`, `throttle`. `dovre/pack-testing.ts` gains `openDb` (#474) |
-  | 1.28 | `dovre/pack-testing.ts` gains what packs' tests reached into core for: `testPage` (a page in core's shell), `testForge` (the forge a pack brings), `testList` (My list, in memory), `assertStyled`, `activePacks`, `apiGap`, `ON_JS`, `setWhen`, `resetWhen`, `createWorker` and `ingestToken`; `testContext` with a `codeDir` has its `checkouts` too (#474) |
-  | 1.29 | `format` in `dovre/pack.ts`: core's formatters as one object (`format.count`, `percent`, `bytes`, `duration`, `ago`, `since`, `when`, `stamp`, `hourOf`), so their plain names stay out of the contract's top level (#474) |
-  | 1.30 | `dovre/pack.ts` gains the charts (`ColumnChart`, `FunnelDiagram`, `HBars`, `Heatmap`, `SankeyChart`, `StackedBar`), `chart` (one object like `format`: `chart.columns`), `format.shortDay`, `within` (a call's answer within a budget, or why not) and the types `IconName`, `D1Value` and `Page` (#474) |
-  | 1.31 | `ctx.viewer()`: whom the current request is for (hosted: their email, lowercased; the owner in `scheduled`; no one locally), for a hook that gets no request. `keptLookups` in `dovre/pack-testing.ts`: the lookups core keeps of a pack, and a line for each left out (#474) |
-  | 1.32 | `ctx.forge().owns(repo)`: whether a repo is one of the owners', asked of core rather than worked out from the setting. `owners` in `dovre/pack.ts` (`owners.of`): the setting's owners as a list, for a pack that brings a forge (#474, #480) |
-  | 1.33 | `ctx.store.kv`: a pack's own small state in Dovre's database (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`), JSON by key under the pack's id, capped a value and a pack; in memory in `testContext`. Types `PackStore`, `PackKv` (#476) |
-  | 1.34 | `manifest.ai.mcp` (why, one `server`, `reads`, `writes`: tool → write kind) and `ctx.mcp` (`can`, `call`, `write`): exact calls to one MCP server through Claude Code's sign-in to it, each tool's own result handed back matched by tool and arguments; off until I tick it on Settings → Packs, under the day's dollars, logged by cost only; results in memory only, local only. Types `PackMcp`, `PackMcpAsk`, `PackMcpCall`, `PackMcpCan`, `PackMcpResult`, `PackMcpSetup` (#488) |
-  | 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
-  | 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
-  | 1.37 | `assertApi(pack, dir)` and `apiOver(pack, dir)` in `dovre/pack-testing.ts`: fail on (or list) what a pack uses that's newer than its manifest's `api`, read from the pack and its files against what each minor added (`API_ADDED` in `src/packs/api.ts`) (#482) |
-  | 1.38 | A share of a pack's own: `shares()` may answer names core doesn't know, and `ctx.required(id, name)` hands such a one back as `unknown` for the reader to narrow. `PackShares` is now only what core reads itself (`agent`, `list`); `auto` is the agents pack's own, and `AutoShare` and its types stay at the door, deprecated, until 2.0 (#478) |
-  | 1.39 | A pack's own places (#477): `hosts` in the manifest names places on its pages (`{ name, about }`), its page asks with `ctx.fillOwn(name, arg)`, and a pack listing it in `uses` or `requires` answers from `slots` under `"<host id>/<name>"` with `Html` or `""`. `arg` is plain data, a copy for each pack and `unknown` to it; core checks the markup and isolates each answer as for `fill`. The Packs page lists what a pack hosts and fills |
-  | 1.40 | Follow-up work without timers (#479): `ctx.soon(ms?)` asks for the pack's `refresh` again in about `ms` (10 s by default, 5 s at least; one pending per pack, never beside a run in flight, cut off after 30 minutes of asking on end), as `refresh(ctx, { soon: true })`; hosted it's best effort, due at the next request or cron. When an agent turn the pack started ends, its refresh is told once: `refresh(ctx, { agent })`, the turn as `ctx.agent.result` gives it. A test reads what was asked with `soonOf` |
-  | 1.41 | A pack's env is its own settings (#475): `ctx.env` holds the keys in its manifest's `settings`, the keys a `namesKeys` setting names, `PACK_<ID>` and the shared few, and nothing else. Another key reads as unset; asking for one that is set is named on the pack's card ("Asked for, not given"). The view is read-only. Nothing new to call |
+  | 2.0 | Everything 1.x added (docs/PACK-API-1.md), with the old ways gone (#484). A pack moving from 1.x: `ctx.db` only with `migrations` or the manifest line `db: "raw"`; `ctx.bindings` holds only `requiredBindings` and the new `bindings` (read when there); `ctx.checkouts()` and `ctx.checkout()` are always there (none hosted) and `forge().owns` too; `ctx.can(what)` is the one answer for what's local only or needs my OK; `span.actions` is otel-sink's own place, not core's slot; the door no longer names the agents pack's `auto` share types; and core's `package.json` exports the doors, not every file. |
 
 ## Open questions
 

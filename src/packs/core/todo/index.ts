@@ -4,7 +4,7 @@
  * with what reads or adds to it: Bino's context and its plans, search, New work's "Also put it on
  * My list". Hosted it runs too, off the menu.
  */
-import type { ListShare, Pack, PackContext } from "../../types.ts";
+import { type ListShare, type Pack, type PackContext, PACK_API } from "../../types.ts";
 import { addTodo, getTodo, listTodos } from "./store.ts";
 import { linkCtxOf, mountTodo, todoCard } from "./view.ts";
 
@@ -24,7 +24,7 @@ export function todoPack(o: TodoDeps): Pack {
   const changed = (ctx: PackContext) => ctx.publish([TODO_PACK_ID]);
   return {
     manifest: {
-      api: "1.12",
+      api: PACK_API,
       id: TODO_PACK_ID,
       name: "My list",
       description: "Small things and small initiatives that live nowhere else, with dates",

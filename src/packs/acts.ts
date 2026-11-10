@@ -84,7 +84,7 @@ export function writeAct<T, C = undefined>(s: WriteSpec<T, C>): ActKind {
       if (typeof r === "string") return { ok: false, error: r };
       const target = r.target.slice(0, 200);
       const fail = async (error: string, log = error): Promise<ActDone> => {
-        await logAction(ctx.db, { kind, target, ok: false, error: log.slice(0, 300) }).catch(() => {});
+        await ctx.logged({ kind: s.kind, target, ok: false, error: log.slice(0, 300) }).catch(() => {});
         return { ok: false, error };
       };
       try {
@@ -92,7 +92,7 @@ export function writeAct<T, C = undefined>(s: WriteSpec<T, C>): ActKind {
         if (refused(checked)) return await fail(checked.refuse, checked.log);
         const w = await s.write(r.value, checked, ctx);
         if (refused(w)) return await fail(w.refuse, w.log);
-        await logAction(ctx.db, { kind, target, ...(w.detail ? { detail: w.detail.slice(0, 200) } : {}), ok: true });
+        await ctx.logged({ kind: s.kind, target, ...(w.detail ? { detail: w.detail.slice(0, 200) } : {}), ok: true });
         return { ok: true, done: w.done, ...(w.href ? { href: w.href } : {}) };
       } catch (e) {
         return await fail(message(e));

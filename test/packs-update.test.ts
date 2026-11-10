@@ -149,9 +149,9 @@ test("update refuses a newer PACK_API, uncommitted upstream changes, and a sourc
     writeFileSync(join(s.up, "index.ts"), INDEX.replace("PACK_API", "99"));
     s.commit("api 99");
     assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /needs PACK_API 99\.0/);
-    writeFileSync(join(s.up, "index.ts"), INDEX.replace("PACK_API", '"1.999"'));
-    s.commit("api 1.999");
-    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /needs PACK_API 1\.999; this core has/, "a newer minor is refused too");
+    writeFileSync(join(s.up, "index.ts"), INDEX.replace("PACK_API", '"2.999"'));
+    s.commit("api 2.999");
+    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /needs PACK_API 2\.999; this core has/, "a newer minor is refused too");
     assert.equal(readFileSync(join(s.pack, "index.ts"), "utf8"), INDEX);
   } finally {
     s.done();
@@ -200,7 +200,7 @@ test("sources: GitHub remotes parse; only dovre-packs and REPO_OWNERS are allowe
   assert.ok(!sourceAllowed(null, { REPO_OWNERS: "me" }));
 });
 
-const released = (version: string, api = "1.0") => `export const fooPack = {\n  id: "foo",\n  api: "${api}",\n  version: "${version}",\n};\n`;
+const released = (version: string, api = "2.0") => `export const fooPack = {\n  id: "foo",\n  api: "${api}",\n  version: "${version}",\n};\n`;
 
 test("releases: add takes the newest tag; outdated names the next release and its changelog; update takes it, not HEAD; --to picks one", () => {
   const s = setup();
@@ -243,10 +243,10 @@ test("releases: add takes the newest tag; outdated names the next release and it
     assert.equal(readFileSync(join(s.pack, "data.ts"), "utf8"), DATA);
     assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo, to: "9.9.9" }), /no release 9\.9\.9 .*\(it has 1\.1\.0, 1\.0\.0\)/);
 
-    writeFileSync(join(s.up, "index.ts"), released("2.0.0", "1.999"));
+    writeFileSync(join(s.up, "index.ts"), released("2.0.0", "2.999"));
     s.commit("foo 2.0.0 needs a newer core");
     git(s.repo, "tag", "foo@2.0.0");
-    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /foo@2\.0\.0 needs PACK_API 1\.999; this core has/);
+    assert.throws(() => updatePack({ id: "foo", into: s.into, repo: s.repo }), /foo@2\.0\.0 needs PACK_API 2\.999; this core has/);
     assert.equal(readMeta(s.pack)!.version, "1.0.0", "nothing written");
   } finally {
     s.done();
