@@ -71,7 +71,7 @@ test("every page renders, and hostile text from every source stays text", async 
             gathering: false,
             history: { at: Date.now(), login: H, mine: [{ repo: `ACME/${H}`, number: 1, title: H, url: "javascript:x", createdAt: new Date().toISOString(), mergedAt: new Date().toISOString(), state: "MERGED", draft: false }], reviewsGiven: [], open: [{ repo: `ACME/${H}`, number: 2, title: H, url: "javascript:x", createdAt: "2026-01-01T00:00:00Z", draft: true, mine: false }], orgMerged: [], releases: [{ repo: H, at: new Date().toISOString(), tag: H }], commits: [], repos: 1 },
           }),
-          refresh: () => {},
+          refresh: async () => {},
         }),
       }),
     ],
