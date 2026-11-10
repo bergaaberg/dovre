@@ -11,6 +11,7 @@ import type { Pulse as PulseState } from "./packs/types.ts";
 import { Pulse as PulseChart } from "./ui/kit.ts";
 import { ago, bytes, count, duration, hourOf, percent, since, stamp, when } from "./format.ts";
 import { columns } from "./ui/chart.ts";
+import { ownersOf } from "./owners.ts";
 import { shortDay } from "./ui/charts.ts";
 
 /** The contract: `Pack`, `PackContext`, `PACK_API` and every type they name. */
@@ -60,6 +61,15 @@ export type Pulse = PulseState;
  * `const { count, percent } = format;` reads as before.
  */
 export const format = { ago, bytes, count, duration, hourOf, percent, shortDay, since, stamp, when };
+
+// ── API 1.32 (#474): the owners setting, for a pack that brings a forge ──
+
+/**
+ * `owners.of(list)`: the owners in the comma-separated setting a `Forge` is handed, each once, in
+ * order, anything that isn't a plain login dropped. A pack that reads a forge asks
+ * `ctx.forge().owns(repo)` instead.
+ */
+export const owners = { of: ownersOf };
 
 // ── API 1.30 (#474): the charts, a budget for a slow call, and three types packs name ──
 

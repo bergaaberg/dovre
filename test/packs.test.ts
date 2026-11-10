@@ -872,14 +872,14 @@ test("forge and startPicture: a pack reads the forge as me, in the owners' repos
           ctx.startPicture("<svg viewBox='0 0 1 1'></svg>");
           ctx.startPicture(`<script>${H}</script>`);
           ctx.startPicture(`<svg>${"x".repeat(200_001)}</svg>`);
-          return c.json({ id: f?.id, host: f?.host, login: f?.login, owners: f?.owners, work: await f?.work?.("2026-08-01"), merged: await f?.merged?.("2026-10-26T10:00:00Z") });
+          return c.json({ id: f?.id, host: f?.host, login: f?.login, owners: f?.owners, owns: ["acme/shop", "Acme", "other/shop", "acme", ""].map((r) => f?.owns?.(r)), work: await f?.work?.("2026-08-01"), merged: await f?.merged?.("2026-10-26T10:00:00Z") });
         });
       },
     },
   );
   const pictures: string[] = [];
   const { get } = signedIn(snapshot(), {}, { packs: [reader], startPicture: (svg) => pictures.push(svg), forge: { id: "github", name: "GitHub", can: [], host: "github.com", work: async (login, owners, since) => (asked.push(`${login} ${owners} ${since}`), work), merged: async (login, owners, since) => (asked.push(`${login} ${owners} ${since}`), 4) } });
-  assert.deepEqual(await (await get("/reader")).json(), { id: "github", host: "github.com", login: snapshot().login, owners: "ACME", work, merged: 4 });
+  assert.deepEqual(await (await get("/reader")).json(), { id: "github", host: "github.com", login: snapshot().login, owners: "ACME", owns: [true, true, false, true, false], work, merged: 4 });
   assert.deepEqual(asked, [`${snapshot().login} ACME 2026-08-01`, `${snapshot().login} ACME 2026-10-26T10:00:00Z`]);
   assert.deepEqual(pictures, ["<svg viewBox='0 0 1 1'></svg>"], "only an SVG, 200 kB at most");
 });

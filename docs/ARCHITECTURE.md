@@ -15,7 +15,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.31")
+   src/packs/types.ts     its types (PACK_API = "1.32")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -312,6 +312,7 @@ Also:
 | 1.29 | `format` in `dovre/pack.ts`: core's formatters as one object (`format.count`, `percent`, `bytes`, `duration`, `ago`, `since`, `when`, `stamp`, `hourOf`), so their plain names stay out of the contract's top level (#474) |
 | 1.30 | `dovre/pack.ts` gains the charts (`ColumnChart`, `FunnelDiagram`, `HBars`, `Heatmap`, `SankeyChart`, `StackedBar`), `chart` (one object like `format`: `chart.columns`), `format.shortDay`, `within` (a call's answer within a budget, or why not) and the types `IconName`, `D1Value` and `Page` (#474) |
 | 1.31 | `ctx.viewer()`: whom the current request is for (hosted: their email, lowercased; the owner in `scheduled`; no one locally), for a hook that gets no request. `keptLookups` in `dovre/pack-testing.ts`: the lookups core keeps of a pack, and a line for each left out (#474) |
+| 1.32 | `ctx.forge().owns(repo)`: whether a repo is one of the owners', asked of core rather than worked out from the setting. `owners` in `dovre/pack.ts` (`owners.of`): the setting's owners as a list, for a pack that brings a forge (#474, #480) |
 
 ## Open questions
 

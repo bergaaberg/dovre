@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.31";
+export const PACK_API = "1.32";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -612,6 +612,12 @@ export type PackForge = {
   login: string;
   /** Whose repos this instance follows (comma-separated). */
   owners: string;
+  /**
+   * API 1.32: whether a repo (`owner/name`, or an owner alone) is one of the owners', any case: the
+   * check before a pack reads or links something by a repo's name. Core always brings it; it stays
+   * optional in the type until 2.0, so a stand-in written before it still typechecks.
+   */
+  owns?(repo: string): boolean;
   /** What I did since a day (YYYY-MM-DD). Absent: this forge doesn't say. */
   work?(since: string): Promise<ForgeWork>;
   /** How many of my PRs merged since a time (ISO). Absent: this forge doesn't say. */

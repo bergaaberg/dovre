@@ -13,7 +13,7 @@ import { assertDoors, reachIns } from "../src/pack-testing.ts";
 const src = resolve(import.meta.dirname, "..", "src");
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
-/** dovre/pack.ts at PACK_API 1.31, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
+/** dovre/pack.ts at PACK_API 1.32, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
   ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
@@ -25,7 +25,7 @@ const PACK = words(`
   investigateHref isExternal markdown newTab refused safeUrl statusAct trunc writeAct
   App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
   Reading Snapshot byPerson deploySummaryKey hashOf hourAt inFiles later needsOf prSummaryKey strictOrigin throttle format
-  ColumnChart D1Value FunnelDiagram HBars Heatmap IconName Page SankeyChart StackedBar chart within
+  ColumnChart D1Value FunnelDiagram HBars Heatmap IconName Page SankeyChart StackedBar chart within owners
 `);
 
 /** dovre/pack-testing.ts. */
@@ -58,8 +58,10 @@ test("dovre/pack.ts exports the listed names: one added is a PACK_API minor, one
   const { format } = await import("../src/pack.ts");
   assert.deepEqual(Object.keys(format).sort(), ["ago", "bytes", "count", "duration", "hourOf", "percent", "shortDay", "since", "stamp", "when"], "a formatter added is a minor too");
   assert.equal(format.shortDay("2026-10-07"), "7 Oct");
-  const { chart, within } = await import("../src/pack.ts");
+  const { chart, owners, within } = await import("../src/pack.ts");
   assert.deepEqual(Object.keys(chart), ["columns"], "a chart added is a minor too");
+  assert.deepEqual(Object.keys(owners), ["of"]);
+  assert.deepEqual(owners.of(" acme, Acme ,me,../x,"), ["acme", "me"]);
   assert.deepEqual(await within(1000, () => 7), { ok: true, value: 7 });
   const slow = await within(5, () => new Promise((res) => setTimeout(res, 200)));
   assert.equal(slow.ok, false);
