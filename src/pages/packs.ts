@@ -7,7 +7,7 @@ import { html } from "hono/html";
 import { AGENT_MINUTES, type AiGrant, MAX_DAY_USD, MAX_RUN_USD, MAX_TURNS } from "../packs/ai.ts";
 import { type Frame, shell } from "../html.ts";
 import { hooksOf } from "../packs/hooks.ts";
-import { binoOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
+import { binoOf, hostsOf, type Off, type Refreshes, type RefreshState, requiresOf } from "../packs/registry.ts";
 import type { Copy, ToAdd } from "../packs/copies.ts";
 import type { Available } from "../packs/releases.ts";
 import type { Pack, PackAgentWhere, PackAiAsk, PackManifest, PackSetting } from "../packs/types.ts";
@@ -22,7 +22,7 @@ const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 /** A secret setting's store, or why it can't be read. */
 type KeyLookup = (key: string) => KeyState | undefined;
 
-type PacksView = { /** The forge's name ("GitHub"): the packs `via: "forge"` are listed under it (#432). */ forge?: string; /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; /** Settings a pack read that aren't its own (#475), by its id: names only. */ alsoReads?: (id: string) => string[]; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Where each secret setting's key came from, or why it can't be read (#416, hosted #428). */ keys?: KeyLookup };
+type PacksView = { /** The forge's name ("GitHub"): the packs `via: "forge"` are listed under it (#432). */ forge?: string; /** Packs with a setup page (#418): its id → whether steps are left. */ setups?: Map<string, boolean>; on: Pack[]; off: Off[]; env: Record<string, string | undefined>; /** The other packs' places a pack fills (`"<host id>/<name>"` in its slots, #477). */ fills?: (c: Pack) => string[]; /** Settings a pack read that aren't its own (#475), by its id: names only. */ alsoReads?: (id: string) => string[]; hosted: boolean; refreshes?: Refreshes; now?: number; /** Ids of Dovre's own packs. */ core?: string[]; /** Local: the packs copied from dovre-packs, against its checkout (src/packs/copies.ts). */ copies?: Map<string, Copy>; canRestart?: boolean; /** Packs switched off here (Settings → Layout's list, the same switch). */ hidden?: string[]; /** Off with a switched-off pack it requires (#326): its id → that pack's id. */ held?: Map<string, string>; /** Hosted (#362): newer releases from dovre-packs' tags, when last read (src/packs/releases.ts). */ releases?: { at: number; available: Map<string, Available>; error?: string }; /** dovre-packs' packs this instance doesn't list (#88), and locally the folder Add writes into. */ toAdd?: { packs: ToAdd[]; into?: string }; /** Where each secret setting's key came from, or why it can't be read (#416, hosted #428). */ keys?: KeyLookup };
 
 const WHERE = { any: "here and hosted", "local-only": "on a machine only", "hosted-only": "hosted only" } as const;
 
@@ -189,6 +189,11 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (named.length) pairs.push(["Reads by name", named.join(", ")]);
   const also = v.alsoReads?.(id) ?? [];
   if (also.length) pairs.push(["Also reads", also.join(", ")]);
+  // Places on its pages for other packs (#477), and the other packs' places it fills.
+  const hosts = hostsOf(m);
+  if (hosts.length) pairs.push(["Hosts", hosts.map((h) => (h.about ? `${h.name} (${h.about})` : h.name)).join(", ")]);
+  const fills = (o.pack && v.fills?.(o.pack)) || [];
+  if (fills.length) pairs.push(["Fills", fills.join(", ")]);
   const requires = requiresOf(m);
   if (requires.length) pairs.push(["Requires", requires.map((r) => v.on.find((c) => c.manifest.id === r)?.manifest.name ?? v.off.find((x) => x.id === r)?.name ?? r).join(", ")]);
   const copy = v.copies?.get(id);

@@ -13,7 +13,7 @@ import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
 import { buildAssets } from "../src/packs/assets.ts";
 import { sha16 } from "../src/packs/wasm.ts";
-import { activePacks, binoOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
+import { activePacks, binoOf, fillOwnOf, fillsOf, hostsOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -1189,6 +1189,71 @@ test("a pack's page hosts another pack's slot (span.actions): the second pack's 
   const page = await (await get("/sink/trace")).text();
   assert.match(page, /<button type="submit">Open GET \/users\/:id .* on api\.local<\/button>/);
   assertInert("a span's actions", page);
+});
+
+test("a pack's own place (hosts, ctx.fillOwn): packs that use it fill it under \"<host id>/<name>\"; hostile text inert, and nothing from one that throws, doesn't list the host, or is hidden", async () => {
+  const span = { service: "api", method: "GET", route: `/users/:id ${H}`, attrs: { "server.address": "api.local" } };
+  const logged: string[] = [];
+  const said = console.log;
+  console.log = (line: unknown) => void logged.push(String(line));
+  try {
+    const sink = pack({ id: "sink", hosts: [{ name: "span.actions", about: `Buttons beside a span ${H}` }, { name: "Bad Name", about: "x" }] }, {
+      routes: (app, ctx) => {
+        app.get("/sink/trace", (c) => ctx.page(c, { title: "Trace", body: html`<ul>${ctx.fillOwn("span.actions", span)}</ul><ol>${ctx.fillOwn("undeclared", span)}</ol><p>${ctx.fillOwn("span.actions", { run: () => 1 }).length} from an arg that isn't data</p>` }));
+      },
+      // Its own answer to its own place isn't asked for.
+      slots: () => ({ "sink/span.actions": () => html`<b>itself</b>` }),
+    });
+    const client = pack({ id: "client", uses: ["sink"] }, {
+      slots: () => ({
+        "sink/span.actions": (arg) => {
+          const a = arg as typeof span;
+          a.attrs["server.address"] = "changed";
+          return html`<button type="submit">Open ${a.method} ${a.route}</button>`;
+        },
+        "sink/undeclared": () => html`<i>undeclared</i>`,
+      }),
+    });
+    const second = pack({ id: "second", requires: ["sink"] }, { slots: () => ({ "sink/span.actions": (arg) => html`<em>on ${String((arg as typeof span).attrs["server.address"])}</em>` }) });
+    const boom = pack({ id: "boom", uses: ["sink"] }, { slots: () => ({ "sink/span.actions": () => { throw new Error("no button"); } }) });
+    const stranger = pack({ id: "stranger" }, { slots: () => ({ "sink/span.actions": () => html`<s>stranger</s>` }) });
+    const odd = pack({ id: "odd", uses: ["sink"] }, { slots: () => ({ "sink/span.actions": () => 42 as never }) });
+    const script = pack({ id: "script", uses: ["sink"] }, { slots: () => ({ "sink/span.actions": () => html`<style>ul { display: none }</style>` }) });
+    const { get, app } = signedIn(snapshot(), {}, { packs: [sink, boom, client, second, stranger, odd, script] });
+    const page = await (await get("/sink/trace")).text();
+    assert.match(page, /<ul><button type="submit">Open GET \/users\/:id .*<\/button><em>on api\.local<\/em><p class="pack-broke t3">[^<]* draw this part\.<\/p><\/ul>/, "each filler in turn, its own copy of the arg; refused markup is a note");
+    assert.match(page, /<ol><\/ol><p>0 from an arg that isn't data<\/p>/);
+    assert.doesNotMatch(page.slice(page.indexOf("<ul><button"), page.indexOf("</ol>")), /itself|stranger|undeclared|42|display: none/);
+    assertInert("a pack's own place", page);
+    assert.equal(span.attrs["server.address"], "api.local", "the host's own arg is untouched");
+    assert.ok(logged.includes("pack boom: slot sink/span.actions: no button"));
+    assert.ok(logged.includes("pack stranger: slot sink/span.actions: not asked, sink isn't in its uses or requires"));
+    assert.ok(logged.includes("pack sink: fillOwn undeclared: not one of its manifest's hosts"));
+    assert.ok(logged.includes("pack sink: fillOwn span.actions: its arg isn't plain data"));
+    await (await get("/sink/trace")).text();
+    assert.equal(logged.filter((l) => l.startsWith("pack stranger: ")).length, 1, "said once");
+    // The Packs page says what it hosts, and what the others fill.
+    const cards = await (await get("/packs")).text();
+    assert.match(cards, /Hosts[\s\S]{0,80}span\.actions \(Buttons beside a span /);
+    assert.match(cards, /Fills[\s\S]{0,80}sink\/span\.actions, sink\/undeclared/);
+    assert.doesNotMatch(cards, /Bad Name/);
+    assertInert("the Packs page's hosts", cards);
+    // Switched off on the Packs page: it fills nothing.
+    const fillOwn = (on: Pack[]) => fillOwnOf(() => on, packsOf(app)!.ctxOf, () => {})(sink, "span.actions", span);
+    assert.equal(fillOwn([sink, client, second, odd]).length, 2, "what isn't markup or text is left out");
+    assert.equal(fillOwn([sink, second]).length, 1);
+  } finally {
+    console.log = said;
+  }
+});
+
+test("hostsOf and fillsOf: a manifest's places by lowercase name, once each; the other packs' places a pack fills", () => {
+  assert.deepEqual(hostsOf({ ...m({ id: "sink" }), hosts: [{ name: "span.actions", about: " Buttons\n beside a span " }, { name: "span.actions", about: "again" }, { name: "a/b", about: "x" }, { name: "UP", about: "x" }, null as never, { name: "bare" } as never] }), [{ name: "span.actions", about: "Buttons beside a span" }, { name: "bare", about: "" }]);
+  assert.deepEqual(hostsOf({ ...m({ id: "sink" }), hosts: "nope" as never }), []);
+  const ctxOf = () => testContext();
+  assert.deepEqual(fillsOf(pack({ id: "c" }, { slots: () => ({ "sink/span.actions": () => "", "pr.lead": () => "", "Sink/x": () => "" }) }), ctxOf, () => {}), ["sink/span.actions"]);
+  assert.deepEqual(fillsOf(pack({ id: "c" }, { slots: () => { throw new Error("no"); } }), ctxOf, () => {}), []);
+  assert.deepEqual(fillsOf(pack({ id: "c" }), ctxOf, () => {}), []);
 });
 
 test("the work slots and Settings: a deploy's prod line, My list's proposals, a name on the actions log, a pack's panel; hostile text inert, one that throws adds none", async () => {

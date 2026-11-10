@@ -29,7 +29,7 @@ import { envReads, packEnv } from "./env.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./guard.ts";
 import { loggedFor } from "./logged.ts";
 import { packDirOf, programsFor } from "./programs.ts";
-import { aboutFrom, actsFrom, binoFrom, feedFrom, fillOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
+import { aboutFrom, actsFrom, binoFrom, feedFrom, fillOf, fillOwnOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
 import { createReleases, type GetJson } from "./releases.ts";
 import { kvFor, kvInMemory } from "./store.ts";
 import { onboardOf } from "./suggest.ts";
@@ -162,6 +162,7 @@ export function mountPacks(app: App, o: MountOpts) {
           snapshot: () => gatherer.peek(),
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),
           fill: (name, arg) => fill(name, arg),
+          fillOwn: (name, arg) => fillOwn(c, name, arg),
           pageOn: (href) => pageOn(href),
           setupDone: () => setupLeft(c).length === 0,
           ...packAiFor({
@@ -288,6 +289,8 @@ export function mountPacks(app: App, o: MountOpts) {
   const packFrames = (path: string) => framesFrom(packs.on, ctxOf, path, log);
   // Core pages' named places (types.ts SlotMap): what each shown pack puts there.
   const fill = fillOf(shown, ctxOf, log);
+  // A pack's own named places (its manifest's `hosts`, #477): what the shown packs that use it put there.
+  const fillOwn = fillOwnOf(shown, ctxOf, log);
   /** What the packs call an actions-log entry of theirs (a name for an id). */
   const packWhere = (a: { kind: string; target: string }) => whereFrom(fill, a);
   const packWhat = (kind: string) => whatFrom(fill, kind);

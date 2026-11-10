@@ -57,7 +57,7 @@ export function checkHtml(s: string): string | undefined {
 }
 
 type Log = (line: string) => void;
-const isHtml = (v: unknown): v is Html => v instanceof Promise || (v instanceof String && (v as { isEscaped?: boolean }).isEscaped === true);
+export const isHtml = (v: unknown): v is Html => v instanceof Promise || (v instanceof String && (v as { isEscaped?: boolean }).isEscaped === true);
 const broke = (name: string) => html`<p class="pack-broke t3">${name} couldn't draw this part.</p>`;
 
 /**

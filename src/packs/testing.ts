@@ -47,6 +47,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     snapshot: () => undefined,
     gathered: async () => undefined,
     fill: () => [],
+    fillOwn: () => [],
     page: async () => new Response(),
     dockPage: () => new Response(),
     log: () => {},
