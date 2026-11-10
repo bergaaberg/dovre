@@ -9,7 +9,8 @@ import { createRunner, type Run } from "../src/agents/runner.ts";
 import type { SandboxOut } from "../src/agents/sandbox.ts";
 import { mountMcp } from "../src/mcp.ts";
 import { type AgentHost, aiAskOf, grantOf } from "../src/packs/ai.ts";
-import { assertInert, HOSTILE, packApp } from "../src/packs/testing.ts";
+import { packsOf } from "../src/app.ts";
+import { assertInert, HOSTILE, packApp, soonOf, testContext } from "../src/packs/testing.ts";
 import { type Pack, type PackAgentAsk, PACK_API, type PackAgentStart, type PackTool } from "../src/packs/types.ts";
 
 /** A pack whose page starts, reads and lands turns as its query says. */
@@ -51,6 +52,73 @@ function host() {
 const ASK: PackAgentAsk = { why: "Looks into my repos", where: ["read", "sandbox"], tools: ["todo_add"], lands: "open" };
 const allow = (extra: Record<string, string> = {}) => ({ level: "agent", size: "small", dayUsd: "5", where_read: "on", reposAll: "named", repos: "me/app", runUsd: "2", turns: "10", ...extra });
 const json = async (r: Response | Promise<Response>) => (await (await r).json()) as any;
+
+test("a turn that ends is told to its pack's refresh once ({ agent }), a sandbox run's once its commits are home; ctx.soon asks for the next refresh (#479)", async () => {
+  const k = host();
+  const seen: unknown[] = [];
+  let ctxSeen: Parameters<NonNullable<Pack["refresh"]>>[0] | undefined;
+  const follower: Pack = {
+    ...runner(ASK),
+    refresh: async (ctx, o) => {
+      ctxSeen = ctx;
+      seen.push(o);
+    },
+  };
+  const other: Pack = { manifest: { api: PACK_API, id: "other", name: "Other", description: "x", domain: "general" }, refresh: async (_ctx, o) => void seen.push(["other", o]) };
+  const { app, get, post } = packApp([follower, other], { agents: k.h });
+  const mounted = packsOf(app)!;
+  const settle = async () => {
+    for (let i = 0; i < 20; i++) await new Promise((res) => setImmediate(res));
+  };
+  await post("/settings/packs/runner/ai", allow({ where_sandbox: "on" }));
+  assert.equal((await json(get("/runner/start"))).run, "run-1");
+  const run = k.h.get("run-1")!;
+  Object.assign(run, { scope: { pack: "runner", tools: [] } });
+  mounted.agentChanged(run);
+  await settle();
+  assert.deepEqual(seen, [], "still running: nothing yet");
+  k.end("run-1", 0.25);
+  mounted.agentChanged(run);
+  mounted.agentChanged(run);
+  await settle();
+  assert.deepEqual(seen, [{ agent: { run: "run-1", where: "read", repo: "me/app", status: "done", cost: 0.25, said: "found two things" } }], "once, as result() gives it, to its own pack only");
+
+  // A sandbox run: told when its commits are home, not when it stops.
+  assert.equal((await json(get("/runner/start?where=sandbox"))).run, "run-2");
+  const box = k.h.get("run-2")!;
+  Object.assign(box, { scope: { pack: "runner", tools: [] } });
+  k.end("run-2", 0.5);
+  mounted.agentChanged(box);
+  k.end("run-2", 0.5, { state: "collecting" });
+  mounted.agentChanged(box);
+  await settle();
+  assert.equal(seen.length, 1, "its commits aren't home yet");
+  k.end("run-2", 0.5, { state: "ready", commits: [{ sha: "a", subject: "x" }], repo: "me/app", ci: false } as never);
+  mounted.agentChanged(box);
+  await settle();
+  assert.deepEqual(seen[1], { agent: { run: "run-2", where: "sandbox", repo: "me/app", status: "done", cost: 0.5, said: "found two things", commits: 1 } });
+
+  // A turn no pack started, or one of a pack that isn't on: no one is told.
+  mounted.agentChanged({ id: "run-9", status: "done", cost: 0, events: [] } as unknown as Run);
+  mounted.agentChanged({ id: "run-8", status: "done", cost: 0, events: [], scope: { pack: "nope", tools: [] } } as unknown as Run);
+  mounted.agentChanged({ id: "run-7", status: "done", cost: 0, events: [], scope: { pack: "other", tools: [] } } as unknown as Run);
+  await settle();
+  assert.equal(seen.length, 2, "and a run id that isn't the pack's own turn is no turn of its");
+
+  // ctx.soon: the pack's next refresh says so; the schedule's due() finds it too.
+  await mounted.refresh.due(true);
+  seen.length = 0;
+  ctxSeen!.soon();
+  await mounted.refresh.due(false, Date.now() + 11_000);
+  assert.deepEqual(seen, [{ soon: true }]);
+
+  // In a pack's own tests: what was asked.
+  const ctx = testContext();
+  ctx.soon();
+  ({ ...ctx }).soon(20_000);
+  assert.deepEqual(soonOf(ctx), [undefined, 20_000]);
+  assert.deepEqual(soonOf(testContext()), []);
+});
 
 test("off until I allow it: the pack is told why, and nothing starts", async () => {
   const k = host();

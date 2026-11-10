@@ -6,6 +6,7 @@
  * The packs' side (each one's ctx, core's call of every hook, their assets and routes) is src/packs/mount.ts.
  */
 import type { McpRun } from "./ai/mcpcalls.ts";
+import type { Run } from "./agents/runner.ts";
 import { type AgentHost, type AiRoute } from "./packs/ai.ts";
 import { ownersIn } from "./owners.ts";
 import { slowLog } from "./slow.ts";
@@ -114,7 +115,7 @@ function navOf(s: Snapshot, opts: { hosted?: boolean; bino?: boolean; /** Some p
 }
 
 /** A built app's packs, for the composition roots (their refresh schedule, cron, email). */
-const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups; /** Whether a page answers here (its pack is on and shown). */ pageOn: (href: string) => boolean; /** Hosted (#428): once the start read the keys, their packs on or off as they came back. */ keysRead: () => Promise<void>; /** After a pack's refresh failed: its keys read again, at most every 10 minutes. */ keysAgain: (p: Pack) => void }>();
+const appPacks = new WeakMap<App, { on: Pack[]; off: Off[]; ctxOf: (c: Pack) => PackContext; /** Where the composition root's refresher and cron say how each run went. */ refreshes: Refreshes; /** Hidden in Settings → Layout: its refresh doesn't run. */ hidden: (id: string) => boolean; /** What the shown packs say needs me now (src/packs/registry.ts needsFrom). */ needs: () => Need[]; /** Their ring kinds that start off (RingDecl.off). */ startsOff: ReadonlySet<string>; /** The PR links their pages show, for the gather (linkedFrom). */ linked: () => string[]; /** What Bino may look up (hosted: the DO asks through src/hosted/lookups.ts). */ lookups: Lookups; /** Whether a page answers here (its pack is on and shown). */ pageOn: (href: string) => boolean; /** Hosted (#428): once the start read the keys, their packs on or off as they came back. */ keysRead: () => Promise<void>; /** After a pack's refresh failed: its keys read again, at most every 10 minutes. */ keysAgain: (p: Pack) => void; /** The packs' one refresher: the roots' schedule calls its `due()`. */ refresh: ReturnType<typeof refresher>; /** Local: the runner says a turn changed; a pack's turn that ended is told to its refresh (#479). */ agentChanged: (r: Run) => void }>();
 export { PACK_ROUTE_MS };
 export const packsOf = (app: App) => appPacks.get(app);
 
@@ -226,7 +227,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts,
     packNav, packFeed, packBino, packApps, packFrames, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
-    packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
+    packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, mountCallbacks, mountAssets, mountRoutes,
   } = mountPacks(app, { env, deps, hosted, ghe, forge, asks, layout, onboarding, publicOrigin, page: (o) => page(o), thinking: () => !!engine?.list().some((x) => x.thinking), settle: (id) => settleSettings(id), pending: (err) => err instanceof Pending, bugHref });
   const scriptSrc = shipsWasm ? ["'self'", "'wasm-unsafe-eval'"] : ["'self'"];
@@ -383,7 +384,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const listOf = async (l: ListShare | undefined) => (l ? { items: await l.items().catch(() => []), href: (id: number) => l.href(id) } : undefined);
   /** A PR's or deploy's summary, from the pack that writes them ("ai.summary"): only its own shape is drawn. */
   const summary = (key: string): AiSummary | undefined => fill("ai.summary", { key }).find((x): x is AiSummary => !!x && (x.state === "pending" || (x.state === "ready" && typeof x.text === "string") || (x.state === "failed" && typeof x.error === "string")));
-  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: packLinked, lookups: { specs: () => packLookups().map(({ run: _r, pack: _p, ...spec }) => spec), run: runLookup }, pageOn: (href) => pageOn(href), keysRead, keysAgain });
+  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: packLinked, lookups: { specs: () => packLookups().map(({ run: _r, pack: _p, ...spec }) => spec), run: runLookup }, pageOn: (href) => pageOn(href), keysRead, keysAgain, refresh: runPackRefresh, agentChanged });
   mountAssets();
 
   /**

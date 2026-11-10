@@ -13,7 +13,7 @@ import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
 import { buildAssets } from "../src/packs/assets.ts";
 import { sha16 } from "../src/packs/wasm.ts";
-import { activePacks, binoOf, fillOwnOf, fillsOf, hostsOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
+import { activePacks, binoOf, fillOwnOf, fillsOf, hostsOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, SOON_CHAIN_MS, SOON_MIN_MS, SOON_MS, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -445,6 +445,143 @@ test("refresher: a refresh stuck past maxMs is given up, and the next due() star
   await new Promise((res) => setImmediate(res));
   assert.equal(runs, 2);
   assert.match(lines[0] ?? "", /pack stuck: gave up on a refresh running 30 s/);
+});
+
+test("refresher.soon (ctx.soon): once per pack, the sooner ask stands, 5 s at least, after a run in flight, dropped for a pack that's off or hidden", async () => {
+  const clock = { t: 1_000_000 };
+  const seen: unknown[] = [];
+  const timers: { fn: () => void; ms: number; off: boolean }[] = [];
+  const hidden = new Set<string>();
+  let release: (() => void) | undefined;
+  let hold = false;
+  const c = pack({ id: "s", everyMs: 300_000 }, { refresh: (_ctx, o) => { seen.push(o); return hold ? new Promise<void>((res) => (release = res)) : Promise.resolve(); } });
+  const bare = pack({ id: "bare" });
+  const on = [c, bare];
+  const r = refresher(on, () => ({}) as never, () => {}, { now: () => clock.t, skip: (id) => hidden.has(id), timer: (fn, ms) => { const t = { fn, ms, off: false }; timers.push(t); return () => (t.off = true); } });
+  const tick = () => new Promise((res) => setImmediate(res));
+  const live = () => timers.filter((t) => !t.off);
+  await r.due(true, clock.t);
+  assert.deepEqual(seen, [undefined]);
+
+  r.soon(c);
+  r.soon(c, 60_000);
+  r.soon(bare);
+  assert.deepEqual(live().map((t) => t.ms), [SOON_MS], "one timer: the later ask is the same wish; a pack without refresh has none");
+  r.soon(c, 1);
+  assert.deepEqual(live().map((t) => t.ms), [SOON_MIN_MS], "a sooner ask replaces it, never under the floor");
+  r.soon(c, Number.NaN);
+  r.soon(c, "7000" as never);
+  assert.equal(live().length, 1, "what isn't a number is the default, which is later");
+  live()[0]!.fn();
+  await tick();
+  assert.deepEqual(seen, [undefined, { soon: true }]);
+  timers.at(-1)!.fn();
+  await tick();
+  assert.equal(seen.length, 2, "it fires once: a timer that's answered does nothing");
+  await r.due(false, clock.t + 60_000);
+  assert.equal(seen.length, 2, "a soon run doesn't count as its scheduled one, and nothing is pending");
+
+  // Asked from inside a run: after it, not beside it.
+  hold = true;
+  const asked = r.one(c, { asked: true });
+  await tick();
+  r.soon(c);
+  live()[0]!.fn();
+  await tick();
+  assert.deepEqual(seen.slice(2), [{ asked: true }], "still running: the soon waits");
+  hold = false;
+  release!();
+  await asked;
+  await tick();
+  await tick();
+  assert.deepEqual(seen.slice(2), [{ asked: true }, { soon: true }]);
+
+  // Any refresh that starts answers a pending soon.
+  r.soon(c);
+  await r.one(c);
+  assert.ok(timers.at(-1)!.off);
+  assert.equal(seen.length, 5);
+
+  // Without a timer (hosted): due at the next due().
+  const h = refresher(on, () => ({}) as never, () => {}, { now: () => clock.t });
+  await h.due(true, clock.t);
+  h.soon(c, 5_000);
+  await h.due(false, clock.t + 4_000);
+  assert.equal(seen.length, 6);
+  await h.due(false, clock.t + 5_000);
+  assert.deepEqual(seen.slice(6), [{ soon: true }]);
+
+  // Hidden or switched off when it's due: dropped.
+  r.soon(c);
+  hidden.add("s");
+  live()[0]!.fn();
+  await tick();
+  hidden.clear();
+  r.soon(c);
+  on.splice(0, 1);
+  live()[0]!.fn();
+  r.soon(c);
+  await tick();
+  assert.equal(seen.length, 7);
+  assert.equal(live().length, 0);
+});
+
+test("refresher.soon: a pack that asks back to back for 30 minutes is cut off, until a refresh of it doesn't ask", async () => {
+  const clock = { t: 1_000_000 };
+  const lines: string[] = [];
+  let runs = 0;
+  let asks = true;
+  let wake: (() => void) | undefined;
+  const c: Pack = pack({ id: "spin", everyMs: 3_600_000 }, { refresh: async () => { runs++; if (asks) r.soon(c); } });
+  const r = refresher([c], () => ({}) as never, (l) => lines.push(l), { now: () => clock.t, timer: (fn) => ((wake = fn), () => (wake = undefined)) });
+  await r.one(c);
+  for (let i = 0; i < 400 && wake; i++) {
+    clock.t += SOON_MS;
+    const fn = wake;
+    wake = undefined;
+    fn();
+    await new Promise((res) => setImmediate(res));
+  }
+  assert.equal(runs, 1 + SOON_CHAIN_MS / SOON_MS + 1, "30 minutes of it, then no more");
+  assert.deepEqual(lines, ["pack spin: asked to be refreshed soon for 30 min on end; no more until a refresh of it doesn't ask"]);
+  await r.one(c);
+  assert.equal(wake, undefined, "still asking: still cut off");
+  asks = false;
+  await r.one(c);
+  asks = true;
+  await r.one(c);
+  assert.ok(wake, "it stopped once, so it may ask again");
+  assert.equal(lines.length, 1);
+});
+
+test("refresher.agent: a turn that ended is told to the pack's refresh, after a run in flight and in order", async () => {
+  const seen: unknown[] = [];
+  let release!: () => void;
+  let hold = true;
+  const c = pack({ id: "a" }, { refresh: (_ctx, o) => { seen.push(o?.agent?.run ?? o); return hold ? new Promise<void>((res) => (release = res)) : Promise.resolve(); } });
+  const on = [c];
+  const r = refresher(on, () => ({}) as never, () => {});
+  const gone = pack({ id: "gone" }, { refresh: async () => void seen.push("gone") });
+  const turn = (run: string) => ({ run, status: "done" as const, where: "read" as const, repo: "me/app", cost: 0.1, said: "" });
+  const tick = () => new Promise((res) => setImmediate(res));
+  const first = r.due(true);
+  await tick();
+  void r.agent(c, turn("run-1"));
+  void r.agent(c, turn("run-2"));
+  await tick();
+  assert.deepEqual(seen, [undefined]);
+  hold = false;
+  release();
+  await first;
+  await tick();
+  await tick();
+  await tick();
+  assert.deepEqual(seen, [undefined, "run-1", "run-2"]);
+  await r.agent(c, turn("run-3"));
+  assert.deepEqual(seen.at(-1), "run-3");
+  await r.agent(gone, turn("run-4"));
+  await r.agent(pack({ id: "bare" }), turn("run-5"));
+  assert.equal(seen.length, 4, "not one of the packs that are on, or no refresh: nothing");
 });
 
 test("loadPacks: a folder's packs.ts, and a pack folder that won't load is named", async () => {

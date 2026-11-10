@@ -14,7 +14,7 @@ import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
 import { appsOf, defaultBinoOf } from "./core/assistant/bino/context.ts";
 import { apiGap } from "./api.ts";
 import { migratePack, migrationsGap } from "./migrations.ts";
-import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackContext, type PackManifest, type PackNote, type PackShares, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
+import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackAgentRun, type PackContext, type PackManifest, type PackNote, type PackShares, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /**
  * A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page
@@ -718,15 +718,43 @@ export function refreshLog(changed: () => void = () => {}): Refreshes {
   };
 }
 
+/** `ctx.soon(ms)` (#479): the shortest wait, the one with no `ms`, the longest, and how long a pack may keep asking back to back. */
+export const SOON_MIN_MS = 5_000;
+export const SOON_MS = 10_000;
+export const SOON_MAX_MS = 600_000;
+export const SOON_CHAIN_MS = 30 * 60_000;
+/** Agent turns that ended while the pack's refresh ran, held for after it: this many at most. */
+const AGENT_WAITING = 20;
+
 /** Calls every pack's refresh, one at a time per pack (a refresh still running is skipped). */
 /** `maxMs`: a refresh running longer is given up and the next due() starts it again (hosted: a cancelled request's I/O never settles). */
 /** `record`: where each refresh's start, end and failure go (the Packs page). */
-export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (line: string) => void, opts: { maxMs?: number; now?: () => number; record?: Refreshes; /** Packs I've hidden (Settings → Layout): not refreshed. */ skip?: (id: string) => boolean; /** After a refresh failed. */ failed?: (c: Pack, why: string) => void } = {}) {
+/**
+ * `soon` (`ctx.soon`, #479) is a second way to become due: once per pack (the sooner ask stands),
+ * after a run in flight, and any refresh that starts answers it. `timer`: how to be woken for it
+ * (local: a timeout); without one a soon is due at the next `due()` (hosted: the next request or
+ * cron). `agent`: one of the pack's agent turns ended, its refresh is told once.
+ */
+export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (line: string) => void, opts: { maxMs?: number; now?: () => number; record?: Refreshes; /** Packs I've hidden (Settings → Layout): not refreshed. */ skip?: (id: string) => boolean; /** After a refresh failed. */ failed?: (c: Pack, why: string) => void; /** Calls `fn` in about `ms`; answers how to call that off. */ timer?: (fn: () => void, ms: number) => () => void } = {}) {
   const clock = opts.now ?? Date.now;
   const running = new Map<string, Promise<void>>();
   const startedAt = new Map<string, number>();
   const last = new Map<string, number>();
-  const one = (c: Pack, o?: { asked?: boolean }): Promise<void> => {
+  /** When each pack asked to be refreshed again (`soon`), and how to call its timer off. */
+  const soonAt = new Map<string, number>();
+  const wake = new Map<string, () => void>();
+  /** Since when a pack has asked back to back; those cut off for it; those that asked since their last refresh started. */
+  const chain = new Map<string, number>();
+  const cut = new Set<string>();
+  const asked = new Set<string>();
+  /** Turns that ended while their pack's refresh ran. */
+  const waiting = new Map<string, PackAgentRun[]>();
+  const unsoon = (id: string) => {
+    soonAt.delete(id);
+    wake.get(id)?.();
+    wake.delete(id);
+  };
+  const one = (c: Pack, o?: { asked?: boolean; soon?: boolean; agent?: PackAgentRun }): Promise<void> => {
     const id = c.manifest.id;
     if (!c.refresh) return Promise.resolve();
     const was = running.get(id);
@@ -738,7 +766,7 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
     } else if (was) return was;
     let failed: string | undefined;
     const p = Promise.resolve()
-      .then(() => c.refresh!(ctxOf(c), o?.asked ? { asked: true } : undefined))
+      .then(() => c.refresh!(ctxOf(c), o?.asked ? { asked: true } : o?.agent ? { agent: o.agent } : o?.soon ? { soon: true } : undefined))
       .catch((e) => {
         failed = why(e);
         log(`pack ${id}: refresh failed: ${failed}`);
@@ -749,19 +777,86 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
       .finally(() => {
         if (running.get(id) !== p) return;
         running.delete(id);
-        last.set(id, clock());
+        // Only a soon or a turn's end counts as the pack's own follow-up: its schedule isn't put off by them.
+        if (!o?.soon && !o?.agent) last.set(id, clock());
         opts.record?.ended(id, clock(), failed);
+        // It didn't ask again: whatever it was following is done.
+        if (!asked.has(id)) {
+          chain.delete(id);
+          cut.delete(id);
+        }
+        const next = waiting.get(id)?.shift();
+        if (next && on.includes(c)) void one(c, { agent: next });
+        else waiting.delete(id);
       });
+    // Any refresh that starts answers a soon asked before it.
+    unsoon(id);
+    asked.delete(id);
     running.set(id, p);
     startedAt.set(id, clock());
     opts.record?.started(id, clock());
     return p;
   };
+  const fire = (c: Pack) => {
+    const id = c.manifest.id;
+    if (!soonAt.has(id)) return;
+    // Switched off or hidden meanwhile: dropped.
+    if (!on.includes(c) || opts.skip?.(id)) {
+      unsoon(id);
+      chain.delete(id);
+      return;
+    }
+    const was = running.get(id);
+    // It asked from inside this run: after it, never beside it.
+    if (was) void was.then(() => fire(c));
+    else void one(c, { soon: true });
+  };
   return {
     one,
-    /** Every pack whose refresh is due (or all, with `force`). */
+    /** Every pack whose refresh is due (or all, with `force`), and those that asked for one soon. */
     due(force = false, now = Date.now()): Promise<void> {
-      return Promise.all(on.filter((c) => c.refresh && !opts.skip?.(c.manifest.id) && (force || now - (last.get(c.manifest.id) ?? 0) >= (c.manifest.everyMs ?? 300_000))).map((c) => one(c))).then(() => undefined);
+      return Promise.all(
+        on
+          .filter((c) => c.refresh && !opts.skip?.(c.manifest.id))
+          .map((c) => {
+            const id = c.manifest.id;
+            if (force || now - (last.get(id) ?? 0) >= (c.manifest.everyMs ?? 300_000)) return one(c);
+            return (soonAt.get(id) ?? Infinity) <= now ? one(c, { soon: true }) : undefined;
+          }),
+      ).then(() => undefined);
+    },
+    /** `ctx.soon(ms)`: this pack's refresh again in about `ms` (`{ soon: true }`), unless it has asked for too long. */
+    soon(c: Pack, ms?: unknown): void {
+      const id = c.manifest.id;
+      if (!c.refresh || !on.includes(c)) return;
+      asked.add(id);
+      if (cut.has(id)) return;
+      const t = clock();
+      const since = chain.get(id) ?? t;
+      chain.set(id, since);
+      if (t - since > SOON_CHAIN_MS) {
+        cut.add(id);
+        unsoon(id);
+        log(`pack ${id}: asked to be refreshed soon for ${Math.round(SOON_CHAIN_MS / 60_000)} min on end; no more until a refresh of it doesn't ask`);
+        return;
+      }
+      const wait = Math.min(SOON_MAX_MS, Math.max(SOON_MIN_MS, typeof ms === "number" && Number.isFinite(ms) ? ms : SOON_MS));
+      // One pending per pack: the sooner ask stands.
+      if ((soonAt.get(id) ?? Infinity) <= t + wait) return;
+      unsoon(id);
+      soonAt.set(id, t + wait);
+      const off = opts.timer?.(() => fire(c), wait);
+      if (off) wake.set(id, off);
+    },
+    /** One of its agent turns ended: its refresh hears of it (`{ agent }`), after a run in flight. */
+    agent(c: Pack, run: PackAgentRun): Promise<void> {
+      const id = c.manifest.id;
+      if (!c.refresh || !on.includes(c)) return Promise.resolve();
+      const was = running.get(id);
+      if (!was) return one(c, { agent: run });
+      const q = waiting.get(id) ?? [];
+      if (q.length < AGENT_WAITING) waiting.set(id, [...q, run]);
+      return was;
     },
   };
 }

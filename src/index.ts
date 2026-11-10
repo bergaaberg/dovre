@@ -10,7 +10,7 @@ import { serve } from "@hono/node-server";
 import { packsOf, createApp } from "./app.ts";
 import { createCopies } from "./packs/copies.ts";
 import { loadPacks } from "./packs/load.ts";
-import { activePacks, initAll, refresher as packRefresher } from "./packs/registry.ts";
+import { activePacks, initAll } from "./packs/registry.ts";
 import { launchToken, maskedLogin, serveSetup } from "./boot.ts";
 import { publicOriginOf } from "./access.ts";
 import { findTool, found, harnessesOn, summariesVia, which } from "./tools.ts";
@@ -265,6 +265,8 @@ const runChanged = new Map<string, (r: Run) => void>();
 const runStatus = new Map<string, Run["status"]>();
 /** The agents pack hears each turn change (one that ends may ring); set once it's made. */
 let turnChanged = (_r: Run) => {};
+/** A pack hears when a turn it started ends (its refresh, #479); set once the app is built. */
+let packTurnChanged = (_r: Run) => {};
 // Agent turns run through the launcher's agent host when it's built: they go on when the server
 // restarts, and are picked up again from data/runs (launcher/agenthost.go keeps tool results out).
 /** Whether any pack offers agent turns tools (src/mcp.ts); set once the packs are loaded. */
@@ -293,6 +295,7 @@ const runner = createRunner({
     runStatus.set(r.id, r.status);
     if (was === "running" && r.status !== "running") queue.ended(r);
     turnChanged(r);
+    packTurnChanged(r);
     let fn = runChanged.get(r.id);
     if (!fn) {
       fn = throttle((run: Run) => {
@@ -494,10 +497,11 @@ packNeeds = mountedPacks.needs;
 startsOff = mountedPacks.startsOff;
 packLinked = mountedPacks.linked;
 pageOn = mountedPacks.pageOn;
+packTurnChanged = mountedPacks.agentChanged;
 await initAll(mountedPacks, mountedPacks.ctxOf, (l) => console.log(l));
 if (mountedPacks.on.length) {
   console.log(`packs: ${mountedPacks.on.map((c) => c.manifest.id).join(", ")}`);
-  const packRefresh = packRefresher(mountedPacks.on, mountedPacks.ctxOf, (l) => console.log(l), { record: mountedPacks.refreshes, skip: mountedPacks.hidden });
+  const packRefresh = mountedPacks.refresh;
   void packRefresh.due(true);
   setInterval(() => void packRefresh.due(), 30_000).unref();
 }
