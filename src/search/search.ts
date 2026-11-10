@@ -85,7 +85,7 @@ export type Sources = {
   remote?: Row[];
   /** My list, when its pack shares it (`list`): its items, and where each is shown. */
   list?: { items: ListItem[]; href(id: number): string };
-  /** What the packs offer for search (their `finds`, checked in app.ts), under "In your apps". */
+  /** What the packs offer for search (their `finds`, checked by findsFrom, src/packs/registry.ts), under "In your apps". */
   apps?: Row[];
   /** What the packs offer for one of search's own groups (a find's `kind`): agents, worktrees, things to start. */
   kinds?: { agents?: Row[]; code?: Row[]; actions?: Row[] };

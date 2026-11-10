@@ -1,5 +1,5 @@
 /**
- * Packs' WebAssembly (Pack.wasm) and big files (Pack.files): the rules the app (src/app.ts) and the hosted assets build
+ * Packs' WebAssembly (Pack.wasm) and big files (Pack.files): the rules the app (src/packs/mount.ts) and the hosted assets build
  * (src/packs/assets.ts) share, so a module is checked the same way wherever it's served from.
  */
 import type { WasmFile } from "./types.ts";

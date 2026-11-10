@@ -18,6 +18,8 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
    src/packs/types.ts     its types (PACK_API = "1.38")
    src/packs/registry.ts  core's side of every hook
+   src/packs/hooks.ts     every hook, as one table
+   src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
 ```
 
 - **Core** never names, imports or defaults to an instance or its packs.
@@ -302,14 +304,16 @@ Also:
   `test/harnesses.test.ts` checks the pairs line up.
 - **A new place on a core page:** add a slot to `SlotMap` (`arg` in, `out` back); the page calls
   `fill(name, arg)`. Prefer slots.
-- **A new hook**, only when no slot fits:
-  1. Add it to `Pack` in types.ts with when it's called and its time limit.
+- **A new hook**, only when no slot fits, is three edits:
+  1. Add it to `Pack` in types.ts, documented there: when it's called and its time limit.
   2. Add a `…From` in registry.ts that calls it isolated, validates the result, and logs failures.
-  3. Call it from app.ts or the entry point, for `shown()` packs only.
-  4. Add its row to `HOOKS` (`src/packs/hooks.ts`): its label on the Packs page, its row in the
-     hooks table above, how it's called, and its `…From`. Document it in types.ts.
-  5. `test/hooks.test.ts` then runs it with a throwing pack and hostile answers. Test what's its
-     own in test/packs.test.ts (what a good answer becomes, a hidden pack).
+  3. Add its row to `HOOKS` (`src/packs/hooks.ts`): its label on the Packs page, its row in the
+     hooks table above, how it's called, and its `…From` as `from`.
+
+  `test/hooks.test.ts` then runs it with a throwing pack and hostile answers, and fails while a
+  hook core calls has no `from`. Whatever reads it gets it from `src/packs/mount.ts` (one line
+  there: the `…From` over `shown()` packs), or from the entry point. Test what's its own in
+  test/packs.test.ts (what a good answer becomes, a hidden pack).
 - **Changing the contract:** `PACK_API` is `"major.minor"` (#360, `src/packs/api.ts`). A new
   optional hook, slot, field or markup contract, or a new export of `src/pack.ts`, is additive:
   bump the minor and add a row below (`test/sdk.test.ts` lists the exports, and fails on a change;

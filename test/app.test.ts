@@ -511,7 +511,7 @@ test("without the Moved pack (dovre-packs since #465), core links nowhere it'd 4
 });
 
 test("frames: https origins, and http only for this machine on a port", async () => {
-  const { frameOrigin } = await import("../src/app.ts");
+  const { frameOrigin } = await import("../src/packs/registry.ts");
   assert.equal(frameOrigin("https://a.io/x/y"), "https://a.io");
   assert.equal(frameOrigin("http://localhost:4849/"), "http://localhost:4849");
   assert.equal(frameOrigin("http://127.0.0.1:4849"), "http://127.0.0.1:4849");

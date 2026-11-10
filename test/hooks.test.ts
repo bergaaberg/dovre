@@ -47,6 +47,10 @@ test("each hook is in the doc's row it names, with its time box and where it onl
   }
 });
 
+test("every hook core calls from memory or in a time box has its `from`; a special one has none", () => {
+  for (const h of HOOKS) assert.equal(!!h.from, h.call !== "special", h.name);
+});
+
 test("hooksOf: a pack's labels in the table's order, one for hooks that share a label, none for a bare pack", () => {
   const manifest: PackManifest = { api: PACK_API, id: "p", name: "P", description: "p", domain: "general" };
   assert.deepEqual(hooksOf({ manifest }), []);
