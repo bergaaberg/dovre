@@ -10,7 +10,7 @@ import { type Layout, layoutFromForm } from "../layout.ts";
 import { policyOf, RING_KINDS } from "../notify.ts";
 import type { ToAdd } from "../packs/copies.ts";
 import { createToken, listTokens, revokeToken, sourceOk, tokensPanel } from "../packs/ingest.ts";
-import { missingWhy, settingsFrom, settleRequires } from "../packs/registry.ts";
+import { missingWhy, settingsFrom, settleRequires, startPack } from "../packs/registry.ts";
 import type { Listed } from "../packs/releases.ts";
 import type { Pack, PackManifest } from "../packs/types.ts";
 import { callsPanels } from "../pages/calls.ts";
@@ -224,11 +224,10 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
       const starting = [p, ...settleRequires(packs)];
       for (const q of [...packs.on]) {
         if (!starting.includes(q) || !packs.on.includes(q)) continue;
-        try {
-          await q.init?.(ctxOf(q));
-        } catch (e) {
+        const failed = await startPack(q, ctxOf, (l) => console.log(l));
+        if (failed) {
           packs.on.splice(packs.on.indexOf(q), 1);
-          packs.off.push({ id: q.manifest.id, name: q.manifest.name, why: `didn't start: ${(e as Error)?.message ?? e}`, manifest: q.manifest });
+          packs.off.push({ id: q.manifest.id, name: q.manifest.name, why: failed, manifest: q.manifest });
           settleRequires(packs);
         }
       }

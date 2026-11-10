@@ -11,6 +11,7 @@ import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
 import { apiGap } from "./api.ts";
+import { migratePack, migrationsGap } from "./migrations.ts";
 import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /**
@@ -50,6 +51,7 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
     if (!m || !ID.test(m.id)) no("its id isn't lowercase letters, digits and dashes");
     else if (seen.has(m.id)) no("another pack has the same id");
     else if (apiGap(m.api)) no(apiGap(m.api)!);
+    else if (migrationsGap(c)) no(migrationsGap(c)!);
     else if (OFF.test((opts.env[`PACK_${envId(m.id)}`] ?? "").trim())) no(`switched off in .dev.vars or the environment (PACK_${envId(m.id)}=off)`);
     else if (opts.hosted && m.execution === "local-only") no("runs only on a machine, not hosted");
     else if (!opts.hosted && m.execution === "hosted-only") no("runs only hosted (it needs the Worker's bindings)");
@@ -696,21 +698,37 @@ export function refresher(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (lin
 }
 
 /**
- * Starts every pack, each after what it requires; one whose init throws is taken off (`on`
- * shrinks) and named in `off`, and so is what requires it, unstarted.
+ * Starts one pack: its migrations (`Pack.migrations`, #476), then its `init`. Returns why it
+ * didn't start, or nothing.
  */
-export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, log: (line: string) => void): Promise<void> {
-  for (const c of [...active.on]) {
-    if (!c.init || !active.on.includes(c)) continue;
-    try {
-      await c.init(ctxOf(c));
-    } catch (e) {
-      const why = `didn't start: ${(e as Error)?.message ?? e}`;
-      log(`pack ${c.manifest.id}: ${why}`);
-      active.on.splice(active.on.indexOf(c), 1);
-      active.off.push({ id: c.manifest.id, name: c.manifest.name, why, manifest: c.manifest });
-      settleRequires(active);
+export async function startPack(c: Pack, ctxOf: (c: Pack) => PackContext, log: (line: string) => void, o: { init?: boolean } = {}): Promise<string | undefined> {
+  try {
+    const ctx = c.migrations?.length || (c.init && o.init !== false) ? ctxOf(c) : undefined;
+    if (ctx && c.migrations?.length) {
+      const failed = await migratePack(c, ctx.db, { log });
+      if (failed) return `didn't start: ${failed}`;
     }
+    if (ctx && c.init && o.init !== false) await c.init(ctx);
+    return undefined;
+  } catch (e) {
+    return `didn't start: ${(e as Error)?.message ?? e}`;
+  }
+}
+
+/**
+ * Starts every pack, each after what it requires; one whose migrations fail or whose init throws
+ * is taken off (`on` shrinks) and named in `off`, and so is what requires it, unstarted.
+ * `init: false`: migrations only (a pack session and `packApp`, which never called init).
+ */
+export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, log: (line: string) => void, o: { init?: boolean } = {}): Promise<void> {
+  for (const c of [...active.on]) {
+    if (!active.on.includes(c)) continue;
+    const why = await startPack(c, ctxOf, log, o);
+    if (!why) continue;
+    log(`pack ${c.manifest.id}: ${why}`);
+    active.on.splice(active.on.indexOf(c), 1);
+    active.off.push({ id: c.manifest.id, name: c.manifest.name, why, manifest: c.manifest });
+    settleRequires(active);
   }
 }
 
