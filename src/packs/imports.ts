@@ -1,8 +1,9 @@
 /**
  * The one-door rule (#473): a pack imports core as `dovre/pack.ts`, and `dovre/pack-testing.ts`
- * in its tests. Any other `dovre/…` path is a reach-in: it works while `package.json` exports all
- * of `src/`, and may move without notice. A packs repo's test calls `assertDoors` with the
- * reach-ins it still has, counted per module, so a new one fails and the list only shrinks.
+ * in its tests. Any other `dovre/…` path is a reach-in: since 2.0 `package.json` exports only the
+ * doors and an instance's wiring, and the rest may move without notice. A packs repo's test calls
+ * `assertDoors`; an instance still moving may pass the reach-ins it has left, counted per module,
+ * so a new one fails and the list only shrinks.
  */
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";

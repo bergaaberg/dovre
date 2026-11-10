@@ -38,14 +38,22 @@ Your own server instead: [docs/SELF-HOST.md](docs/SELF-HOST.md). Reaching a loca
 
 ## Packs
 
-Each app Dovre works with is a pack. Six ship with core, each switched off with `PACK_<ID>=off`:
+Each app Dovre works with is a pack. Twelve ship with core, each switched off with `PACK_<ID>=off`:
 
 | Pack | What it does |
 |---|---|
 | `agents` | Agent sessions, live turns, worktrees, tool approvals |
 | `assistant` | Bino and its [memlet](https://github.com/bergaaberg/memlet) memory |
+| `autoreview` | Review rounds on auto runs' PRs, fix sessions from the comments, a merge when it's good |
+| `dependabot` | Dependabot's open bumps, combined into one PR per repo and merged when green |
+| `deploys` | Runs waiting for your approval, approved or rejected from here |
+| `history` | The forge's weeks on Stats |
+| `prs` | Your PRs and the ones asking for your review, with files and your own review |
+| `reviews` | An agent's review of a PR, drafted for you to go through before it's posted (local) |
+| `stacks` | Stacked PRs, bottom first, retargeted when a base merges |
 | `terminal` | Web terminals in your checkouts (local) |
-| `tracker` | Your open issues on `/tracker` |
+| `todo` | My list: small things that live nowhere else, with dates |
+| `tracker` | Your open issues on `/tracker`, and triage |
 
 More in [`bergaaberg/dovre-packs`](https://github.com/bergaaberg/dovre-packs). A pack is copied into your instance repo, so you can edit it:
 
@@ -72,7 +80,7 @@ dovre run topo ../my-repo --set TOPO_MAP=rings   # a non-secret setting, for thi
 
 `dovre run` starts `src/run.ts` of the core checkout the launcher was built in, on the launcher's pinned Node (downloaded once, as for the bridge), and passes the arguments through; `node src/run.ts …` in the checkout does the same.
 
-The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack sees only the checkout it was started on (packs on API 1.7 and up). The pack's settings (only the keys its manifest names) come, first found wins, from `--set KEY=value` (never a secret one: the command line lands in shell history), the shell's environment, then the local instance's `.dev.vars`, which is read, never written. The menu's Settings page sets the rest for this session only, in memory; a pack missing a required setting starts on that page and turns on once it's given. A pack with tools also prints a `claude mcp add` line: a Claude Code session gets that one pack's tools on the session's `/mcp`, with a token made for the session (never the launch token), good until it ends.
+The session has its own launch token and an in-memory database, and serves nothing of the cockpit. The pack sees only the checkout it was started on. The pack's settings (only the keys its manifest names) come, first found wins, from `--set KEY=value` (never a secret one: the command line lands in shell history), the shell's environment, then the local instance's `.dev.vars`, which is read, never written. The menu's Settings page sets the rest for this session only, in memory; a pack missing a required setting starts on that page and turns on once it's given. A pack with tools also prints a `claude mcp add` line: a Claude Code session gets that one pack's tools on the session's `/mcp`, with a token made for the session (never the launch token), good until it ends.
 
 ## Topo
 
