@@ -10,7 +10,8 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    packs/<id>/, packs.ts, worker.ts + wrangler config, .dev.vars
         │ packs import core as `dovre/pack.ts`; core never imports an instance
  Core's packs (src/packs/core/)
-   agents, autoreview, history, assistant, terminal, tracker, prs, deploys, dependabot, stacks
+   agents, assistant, autoreview, dependabot, deploys, history, prs, reviews, stacks,
+   terminal, todo, tracker
  Core (this repo)
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
@@ -20,8 +21,13 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 ```
 
 - **Core** never names, imports or defaults to an instance or its packs.
-- **Core's packs** use the same contract as any pack, so they can be switched off.
-  `test/packs.test.ts` fails if core imports them anywhere but the entry points.
+- **Core's packs** use the same hooks as any pack, so they can be switched off.
+  `test/packs.test.ts` fails if core imports them anywhere but the entry points. They aren't a
+  trust tier (#480): today the entry points hand them things no outside pack gets (the forge
+  client, the agent runner, Bino's route), and that's a debt, not a rule. A pack outside core may
+  get the same power through `ctx`, behind a grant where it matters (as `ctx.complete`,
+  `ctx.agent` and `ctx.mcp` are). Each capability is designed once (a scoped forge client,
+  `ctx.run`), not as one method per pack that leaves, and `ctx` grows as packs really leave.
 - **An instance** is a repo such as `../my-dovre` holding one setup's packs and config.
 
 ## Entry points
@@ -29,7 +35,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
 | | Local (`src/index.ts`) | Hosted (`src/worker.ts`) |
 |---|---|---|
 | Packs from | `PACKS` folders, each `packs.ts` imported at start (`src/packs/load.ts`) | The instance's worker.ts calls `createWorker({ packs })` |
-| Core's packs | all of them (terminal when enabled, history with GitHub) | agents (over the bridge), autoreview, history (GitHub), assistant, prs, deploys, dependabot and stacks (GitHub), tracker |
+| Core's packs | all of them (terminal when enabled; history with GitHub; reviews, stacks and dependabot where the forge has them) | agents (over the bridge), autoreview, history (GitHub), assistant, todo, prs, deploys, stacks and dependabot (where the forge has them), tracker; never reviews or terminal |
 | Refresh | interval, checked every 30 s | after a response (`waitUntil`) and on cron |
 | Extra hooks | `callback`, `ingest`, `acts`, `tools` | `scheduled`, `email` |
 
@@ -71,27 +77,40 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 4. **Mounted** (`createApp`). Each pack gets its own `PackContext`. If `available` says no or
    throws, the pack is off. Routes go on a sub-app mounted after the guard and all core routes.
    The mount is refused for a route outside `/<id>` and the manifest's `paths`, a path core or
-   another pack owns, or a `routes` that throws. Pack `styles` are served as one hashed file,
-   each pack's rules scoped to its own markup (see Containment); each pack's `script` as a hashed
-   file of its own, inside a `try`; and each `wasm` module (lowercase name, real WebAssembly) at a hashed path;
-   while any pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. A module is either
-   bytes (8 MB at most, carried in the Worker bundle: keep them small) or a `WasmFile`
-   (`{ sha256, load }`, 25 MB at most) kept out of the bundle: locally core calls `load` on the
-   first request and serves the bytes only if their SHA-256 matches; hosted, the wrangler `build`
-   step (`src/packs/assets.ts`) loads and checks each one under Node and writes it into the
-   Worker's static assets, and the Worker serves it from `ASSETS` without calling `load`. A stale
-   `sha256` fails the build, naming the pack. A pack's `files` (a browser library too big for the
-   bundle: `mermaid.js`, `katex.css`; lowercase, `.js` or `.css`) go the same way as a `WasmFile`,
-   at `/assets/files/<id>.<name>.<sha>.<ext>`, and widen the CSP only for a script marked `wasm`
-   (it carries WebAssembly inside, like Graphviz's build), which counts as shipping WebAssembly: its own script loads them, finding their paths in `dovreFiles` on any page. Core's Markdown marks a closed fence's language (`pre.code[data-lang]`), so a pack's script may draw it in place (mermaid in Bino's answers), and its math (`code[data-tex]`, a `$$` block as a `math` fence); without one, the source shows. Scripts listen for `dovre:change` and `dovre:swap` on `document`.
-   A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
-   `data-motion="always"` (Settings → Look → Motion): scope those rules under
-   `:root:not([data-motion="always"])`, and check the attribute in scripts too.
+   another pack owns, or a `routes` that throws. Its styles, script and files are served as
+   below (A pack's assets).
 5. **Started** (`initAll`). A pack whose `init` throws is turned off.
 6. **Refreshed** (`refresher`). Every `everyMs` (default 5 min), one run at a time per pack.
    Runs longer than `maxMs` are abandoned. Starts, ends and errors go to the Packs page.
 7. **Hidden.** Settings → Layout hides a pack: it leaves every hook, its routes 404 and it
    isn't refreshed. `PACK_<ID>=off` stops it loading at all.
+
+## A pack's assets
+
+- **`styles`**: every pack's rules are served as one hashed file, each pack's scoped to its own
+  markup (see Containment).
+- **`script`**: a hashed file per pack, its body in a `try`. It hears what changed through
+  `dovreOn(topics, fn, { notes })`; a script that listens to `dovre:change` itself isn't served
+  (every open tab hears every change). On `document` it may hear `dovre:swap`. `dovreFiles` holds
+  its `files`' paths on any page.
+- **`wasm`**: each module (lowercase name, real WebAssembly) is served at a hashed path. While any
+  pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. A module is either bytes (8 MB
+  at most, carried in the Worker bundle: keep them small) or a `WasmFile` (`{ sha256, load }`,
+  25 MB at most) kept out of the bundle. Locally core calls `load` on the first request and
+  serves the bytes only if their SHA-256 matches. Hosted, the wrangler `build` step
+  (`src/packs/assets.ts`) loads and checks each one under Node and writes it into the Worker's
+  static assets, and the Worker serves it from `ASSETS` without calling `load`. A stale `sha256`
+  fails the build, naming the pack.
+- **`files`**: a browser library too big for the bundle (`mermaid.js`, `katex.css`; lowercase,
+  `.js` or `.css`) goes the same way as a `WasmFile`, at `/assets/files/<id>.<name>.<sha>.<ext>`.
+  The pack's own script loads them. The CSP widens only for a script marked `wasm` (it carries
+  WebAssembly inside, like Graphviz's build), which counts as shipping WebAssembly.
+- **Markdown.** Core's Markdown marks a closed fence's language (`pre.code[data-lang]`) and its
+  math (`code[data-tex]`, a `$$` block as a `math` fence), so a pack's script may draw them in
+  place (mermaid in Bino's answers). Without one, the source shows.
+- **Motion.** A pack's motion stops under `prefers-reduced-motion` only while `<html>` isn't
+  `data-motion="always"` (Settings → Look → Motion): scope those rules under
+  `:root:not([data-motion="always"])`, and check the attribute in scripts too.
 
 ## The contract
 
@@ -102,14 +121,25 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
   the keys a `namesKeys` setting names, `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). For now every key still comes back,
   and a read of a set key that isn't the pack's is logged once and named on its card on the Packs page
   ("Also reads"); filtering follows (#475). Dovre's own packs get the plain settings.
+- `store.kv`: its own small state in Dovre's database, JSON by key under its id (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`). Tables of its own are `migrations`
+- `codeDir`, `checkouts()`, `checkout(name)` (local): the code folder and the git repos directly under it; only the one in a pack session
 - `run(binary, args, opts)`, `onPath(binary)`, `dir()` (local): run a program its manifest names (`requiredBinaries`, or `binaries` for ones it can do without), in a checkout or in its own folder. Never an agent CLI. The folder is where the program starts, not a fence around it
 - `publish(topics)`: tell open pages a region changed
 - `snapshot()`, `gathered()`: what the gather read from the forge
 - `fill(slot, arg)`: host other packs' slots on its pages
 - `page()`, `dockPage()`: draw inside the shell
+- `pageOn(href)`: whether a page answers here, to leave out a link to a pack that's off
+- `viewer()`: whom the current request is for (hosted: their email; no one locally)
 - `log()`, `ring()`: log, or a one-off notification
+- `logged()`: a write it made, into the actions log as `<id>.<kind>`
 - `ask()`, `asking()`: put a question in the top bar and wait for the answer (local only)
-- `forge()`: user, owners, and the forge's `work` and `merged` (read-only); `repos()` and `file()` to read the owners' repos, and `everyRepo(paths)` for every repo's files at once (one call per owner, kept for every isolate up to the age the pack takes); `propose()` to open a PR changing one file (one of the pack's `writes` kinds, re-checked against `expect`, logged)
+- `required(id, name)`: what a pack it `requires` or `uses` shares, while that pack is on
+- `refs()`: every shown pack's kinds of reference, for linking what I write
+- `setupDone()`: whether every step of its setup is done
+- `forge()`: read-only, and undefined before the first gather. Who I am there (`id`, `name`, `host`, `login`, `owners`) and `owns(repo)`; the forge's `work`, `merged` and `untriaged`; `repos()`, `file()`, `dir()` and `pr()` to read the owners' repos, and `everyRepo(paths)` for every repo's files at once (one call per owner, kept for every isolate up to the age the pack takes); `propose()` to open a PR changing up to five files (one of the pack's `writes` kinds, re-checked against `expect`, logged)
+- `ai()`, `complete()`: what it may ask the model, and a prompt in, text out. Off until I allow it on Settings → Packs, capped per day, logged by cost only
+- `agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, in plan mode in its checkout or in the sandbox
+- `mcp` (`can`, `call`, `write`): exact calls to the one MCP server its manifest names, results in memory only (local)
 - `startPicture(svg)`, `pulse()`
 - `wasm(name)`: where one of its `wasm` modules is served
 - `file(name)`: where one of its `files` is served
@@ -118,18 +148,20 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 
 | Where | Hooks | Timing |
 |---|---|---|
+| Declared | `manifest` (id, name, `api`, `settings`, `requires`, `uses`, `ai`…), `writes` (its write kinds), `shares` (what packs requiring it read) | at load; `shares` from memory |
 | Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `nav`, manifest `paths` | on request |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
 | Stats | `stats` (chart, headline number or bar list); Stats exists only while a pack draws there | from memory |
 | Search | `pages`, `finds` | from memory |
 | Attention | `needs` (+ manifest `rings`), `banner`, `dock` | from memory |
 | Bino | `bino`, `about`, `lookups`, `acts` (local) | `bino` from memory; `about` may read its app (2 s at most); lookups run when Bino asks (8 s at most); acts run in the background |
-| Core pages | `slots` (14 in `SlotMap`) | from memory |
+| Core pages | `slots` (19 in `SlotMap`) | from memory |
 | Framing | `frames`: `https://` origins its pages may frame | from memory |
 | Links | `refs` (ticket keys), `linked` (PR links to look up) | from memory |
 | Settings | `settings` panel, manifest `settings` keys | from memory |
+| Setup | `setup`: its page at `/setup/<id>`, a step for each in manifest `onboard` | on request |
 | Pulse | `pulse`: working/asking counts, trouble, on duty | from memory |
-| Lifecycle | `available`, `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s total |
+| Lifecycle | `available`, `migrations` (its own tables, run once each before `init`), `init`, `refresh`, `beforePage`, `dispose` | `beforePage`: 1.5 s total |
 | Outside callers | `callback`, `ingest`, `tools`, `scheduled`, `email` | when called |
 | Forge | `forge` (`src/forge/types.ts`): PRs, CI, notifications, deploys when `FORGE` is its id | once, before `init` |
 
@@ -274,7 +306,8 @@ Also:
   5. Test it in test/packs.test.ts: hostile answer, throwing pack, hidden pack.
 - **Changing the contract:** `PACK_API` is `"major.minor"` (#360, `src/packs/api.ts`). A new
   optional hook, slot, field or markup contract, or a new export of `src/pack.ts`, is additive:
-  bump the minor and add a row below (`test/sdk.test.ts` lists the exports, and fails on a change). A
+  bump the minor and add a row below (`test/sdk.test.ts` lists the exports, and fails on a change;
+  `test/docs.test.ts` fails while this doc lacks the row, a `ctx` member, a hook, or the slot count). A
   pack's manifest names the oldest API it works with (`api: "1.4"`; a plain `1` reads as `1.0`),
   so on an older core it shows as off ("needs core API 1.4, this is 1.3") instead of quietly doing
   nothing, and `packs update` refuses it. Removing or changing a hook, a field's meaning or a
@@ -292,34 +325,34 @@ Also:
   | 1.6 | `manifest.version`, a pack's own release, on the Packs page (#364) |
   | 1.7 | `ctx.checkouts()` and `ctx.checkout(name)`: the git repos directly under the code folder, narrowed to one in a pack session (#368) |
   | 1.8 | A `PackStat` bar list (`bars`) and `partialLast`; `refresh(ctx, { asked })` when I pressed Gather again (#387) |
-| 1.9 | Slots `pr.agent` (a block on a PR card) and `review.draft` (an agent's draft for my own review); agent reviews became the `reviews` pack (#389) |
-| 1.10 | Slot `ai.summary` (a PR's or deploy's summary by key, drawn by core); AI summaries became the `summaries` pack (#390) |
-| 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
-| 1.12 | Share `agent` (where the agents pack starts an agent and shows a session or run): My list, New work, reviews and core link through it and leave the link out while agents is off (#394) |
-| 1.13 | `ctx.pageOn(href)`: whether a page answers here, so a pack leaves out a tab to another pack's page that's off; slot `pr.stack` (the viewer's "2 of 3 in a stack", from the stacks pack) (#408) |
-| 1.14 | Manifest `roles`, `answers` and `markers` (who it suits, which interview answers, which files the checkout scan looks for) and `onboard` (its own setup, up to 3 steps), for first run's suggestions (`src/packs/suggest.ts`) (#415) |
-| 1.15 | A setting's `choices`: the values it takes, shown as a picker on its settings page; a value outside them isn't kept (the assistant's `ASSISTANT_VIA`, #417) |
-| 1.16 | `setup`: a setup page at /setup/<id> for the steps `onboard` declares. The pack draws each step's body (`draw`, and `save` for a form step); core draws the frame, Today lists the packs not set up yet, and `ctx.setupDone()` says whether every step is done (#418) |
-| 1.17 | `forge().propose` takes `files`: up to five files in one PR, each checked against what the pack saw; a setup step's `refresh` loads its page again while a job runs (#425) |
-| 1.18 | Manifest `via: "forge"`: it reads and writes through the forge, and the Packs page groups it under the forge's name (#432) |
-| 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
-| 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
-| 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
-| 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
-| 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
-| 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
-| 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database (#474) |
-| 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool` (#474) |
-| 1.27 | `dovre/pack.ts` also exports what packs reached into core for: the types `App`, `AppEnv`, `D1`, `D1Statement`, `Snapshot`, `Need`, `EveryRepo`, `PackProposal`, `Proposal`, `Proposed` and the forge contract (`Forge`, `ForgeCan`, `ForgeDecl`, `ForgeWork`, `Pr`, `PrRef`, `Issue`, `IssueSets`, `Deploy`, `Move`, `Note`, `Changelog`); `strictOrigin`; `later` and `Reading`; and the pure helpers `needsOf`, `prSummaryKey`, `deploySummaryKey`, `byPerson`, `inFiles`, `hourAt`, `hashOf`, `throttle`. `dovre/pack-testing.ts` gains `openDb` (#474) |
-| 1.28 | `dovre/pack-testing.ts` gains what packs' tests reached into core for: `testPage` (a page in core's shell), `testForge` (the forge a pack brings), `testList` (My list, in memory), `assertStyled`, `activePacks`, `apiGap`, `ON_JS`, `setWhen`, `resetWhen`, `createWorker` and `ingestToken`; `testContext` with a `codeDir` has its `checkouts` too (#474) |
-| 1.29 | `format` in `dovre/pack.ts`: core's formatters as one object (`format.count`, `percent`, `bytes`, `duration`, `ago`, `since`, `when`, `stamp`, `hourOf`), so their plain names stay out of the contract's top level (#474) |
-| 1.30 | `dovre/pack.ts` gains the charts (`ColumnChart`, `FunnelDiagram`, `HBars`, `Heatmap`, `SankeyChart`, `StackedBar`), `chart` (one object like `format`: `chart.columns`), `format.shortDay`, `within` (a call's answer within a budget, or why not) and the types `IconName`, `D1Value` and `Page` (#474) |
-| 1.31 | `ctx.viewer()`: whom the current request is for (hosted: their email, lowercased; the owner in `scheduled`; no one locally), for a hook that gets no request. `keptLookups` in `dovre/pack-testing.ts`: the lookups core keeps of a pack, and a line for each left out (#474) |
-| 1.32 | `ctx.forge().owns(repo)`: whether a repo is one of the owners', asked of core rather than worked out from the setting. `owners` in `dovre/pack.ts` (`owners.of`): the setting's owners as a list, for a pack that brings a forge (#474, #480) |
-| 1.33 | `ctx.store.kv`: a pack's own small state in Dovre's database (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`), JSON by key under the pack's id, capped a value and a pack; in memory in `testContext`. Types `PackStore`, `PackKv` (#476) |
-| 1.34 | `manifest.ai.mcp` (why, one `server`, `reads`, `writes`: tool → write kind) and `ctx.mcp` (`can`, `call`, `write`): exact calls to one MCP server through Claude Code's sign-in to it, each tool's own result handed back matched by tool and arguments; off until I tick it on Settings → Packs, under the day's dollars, logged by cost only; results in memory only, local only. Types `PackMcp`, `PackMcpAsk`, `PackMcpCall`, `PackMcpCan`, `PackMcpResult`, `PackMcpSetup` (#488) |
-| 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
-| 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
+  | 1.9 | Slots `pr.agent` (a block on a PR card) and `review.draft` (an agent's draft for my own review); agent reviews became the `reviews` pack (#389) |
+  | 1.10 | Slot `ai.summary` (a PR's or deploy's summary by key, drawn by core); AI summaries became the `summaries` pack (#390) |
+  | 1.11 | Manifest `uses` (packs it reads while they're on, without needing them); `ctx.refs()`; share `list` (My list, read by Bino, search and New work). My list became the `todo` pack (#393) |
+  | 1.12 | Share `agent` (where the agents pack starts an agent and shows a session or run): My list, New work, reviews and core link through it and leave the link out while agents is off (#394) |
+  | 1.13 | `ctx.pageOn(href)`: whether a page answers here, so a pack leaves out a tab to another pack's page that's off; slot `pr.stack` (the viewer's "2 of 3 in a stack", from the stacks pack) (#408) |
+  | 1.14 | Manifest `roles`, `answers` and `markers` (who it suits, which interview answers, which files the checkout scan looks for) and `onboard` (its own setup, up to 3 steps), for first run's suggestions (`src/packs/suggest.ts`) (#415) |
+  | 1.15 | A setting's `choices`: the values it takes, shown as a picker on its settings page; a value outside them isn't kept (the assistant's `ASSISTANT_VIA`, #417) |
+  | 1.16 | `setup`: a setup page at /setup/<id> for the steps `onboard` declares. The pack draws each step's body (`draw`, and `save` for a form step); core draws the frame, Today lists the packs not set up yet, and `ctx.setupDone()` says whether every step is done (#418) |
+  | 1.17 | `forge().propose` takes `files`: up to five files in one PR, each checked against what the pack saw; a setup step's `refresh` loads its page again while a job runs (#425) |
+  | 1.18 | Manifest `via: "forge"`: it reads and writes through the forge, and the Packs page groups it under the forge's name (#432) |
+  | 1.19 | A setup step's `go` (its main button, in place of Next) and `carry` (go presses itself again while there's work left); `refresh` redraws the step in place (#441) |
+  | 1.20 | `forge().untriaged()`: how many open issues with no assignee and no label each of the owners' repos has, for Issues setup (#447) |
+  | 1.21 | `forge().pr(repo, n)` (a PR's head, base and changed paths) and `forge().dir(repo, path, sha)` (a folder's files at a commit), so Storybook could leave core |
+  | 1.22 | `manifest.ai` (what it wants of the model, and why), `ctx.ai()` and `ctx.complete()`: a prompt in, text out, once I allow it on Settings → Packs, capped per day; AI summaries left core on it (#466) |
+  | 1.23 | `manifest.ai.agent` (why, `where`: `read` and/or `sandbox`, other packs' `tools` by name, `lands`: a write kind) and `ctx.agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, plan mode in its checkout or a fresh clone in the sandbox, one at a time within its run's and day's dollars; over /mcp it sees only its own tools and the ones I ticked, none of my own MCP servers; a sandbox run's commits land as a draft PR under its kind (#467) |
+  | 1.24 | The SDK entry: `dovre/pack.ts` (everything in `packs/types.ts`, the kit, `packs/acts.ts`, `safeUrl`, `Link`, `Ago`, `failed`, `trunc`, `markdown`) and `dovre/pack-testing.ts` (`testContext` and friends, `assertDoors`). The old paths still work until 2.0; a pack importing the new ones says `api: "1.24"` (#473) |
+  | 1.25 | `ctx.logged({ kind, target, detail, ok, error })`: a pack's write into the actions log as `<id>.<kind>`, with who pressed when hosted, so a pack no longer imports `logAction` and passes the database (#474) |
+  | 1.26 | `ctx.run(binary, args, opts)`, `ctx.onPath(binary)` and `ctx.dir()` (local), and manifest `binaries`: a pack runs the programs it names, by name, in a checkout or its own folder (`packs/<id>` next to the database), never an agent CLI, so a pack no longer imports `runOff` and `findTool` (#474) |
+  | 1.27 | `dovre/pack.ts` also exports what packs reached into core for: the types `App`, `AppEnv`, `D1`, `D1Statement`, `Snapshot`, `Need`, `EveryRepo`, `PackProposal`, `Proposal`, `Proposed` and the forge contract (`Forge`, `ForgeCan`, `ForgeDecl`, `ForgeWork`, `Pr`, `PrRef`, `Issue`, `IssueSets`, `Deploy`, `Move`, `Note`, `Changelog`); `strictOrigin`; `later` and `Reading`; and the pure helpers `needsOf`, `prSummaryKey`, `deploySummaryKey`, `byPerson`, `inFiles`, `hourAt`, `hashOf`, `throttle`. `dovre/pack-testing.ts` gains `openDb` (#474) |
+  | 1.28 | `dovre/pack-testing.ts` gains what packs' tests reached into core for: `testPage` (a page in core's shell), `testForge` (the forge a pack brings), `testList` (My list, in memory), `assertStyled`, `activePacks`, `apiGap`, `ON_JS`, `setWhen`, `resetWhen`, `createWorker` and `ingestToken`; `testContext` with a `codeDir` has its `checkouts` too (#474) |
+  | 1.29 | `format` in `dovre/pack.ts`: core's formatters as one object (`format.count`, `percent`, `bytes`, `duration`, `ago`, `since`, `when`, `stamp`, `hourOf`), so their plain names stay out of the contract's top level (#474) |
+  | 1.30 | `dovre/pack.ts` gains the charts (`ColumnChart`, `FunnelDiagram`, `HBars`, `Heatmap`, `SankeyChart`, `StackedBar`), `chart` (one object like `format`: `chart.columns`), `format.shortDay`, `within` (a call's answer within a budget, or why not) and the types `IconName`, `D1Value` and `Page` (#474) |
+  | 1.31 | `ctx.viewer()`: whom the current request is for (hosted: their email, lowercased; the owner in `scheduled`; no one locally), for a hook that gets no request. `keptLookups` in `dovre/pack-testing.ts`: the lookups core keeps of a pack, and a line for each left out (#474) |
+  | 1.32 | `ctx.forge().owns(repo)`: whether a repo is one of the owners', asked of core rather than worked out from the setting. `owners` in `dovre/pack.ts` (`owners.of`): the setting's owners as a list, for a pack that brings a forge (#474, #480) |
+  | 1.33 | `ctx.store.kv`: a pack's own small state in Dovre's database (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`), JSON by key under the pack's id, capped a value and a pack; in memory in `testContext`. Types `PackStore`, `PackKv` (#476) |
+  | 1.34 | `manifest.ai.mcp` (why, one `server`, `reads`, `writes`: tool → write kind) and `ctx.mcp` (`can`, `call`, `write`): exact calls to one MCP server through Claude Code's sign-in to it, each tool's own result handed back matched by tool and arguments; off until I tick it on Settings → Packs, under the day's dollars, logged by cost only; results in memory only, local only. Types `PackMcp`, `PackMcpAsk`, `PackMcpCall`, `PackMcpCan`, `PackMcpResult`, `PackMcpSetup` (#488) |
+  | 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
+  | 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
 
 ## Open questions
 
