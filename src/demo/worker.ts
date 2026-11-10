@@ -259,7 +259,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     const settings = { ...opts.settings };
     const stats = (fx.stats ?? demoStats)();
     // The fixtures' weeks and spend, through the same packs as a real instance; nothing is gathered.
-    const history = historyPack({ history: () => ({ view: () => ({ history: stats.view().history, gathering: false }), refresh: () => {} }) });
+    const history = historyPack({ history: () => ({ view: () => ({ history: stats.view().history, gathering: false }), refresh: async () => {} }) });
     const spend = { days: async () => stats.view().spend ?? [], known: () => stats.view().spend };
     const ghe = makeNoGhe(host);
     const { on, off } = activePacks([agentsPack({ desk, dismissed, here, spend }), history, assistantPack(), todoPack({ links: () => ({ ghe: host, org }) }), prsPack({ ghe, owners: () => org }), deploysPack({ ghe, owners: () => org, approve: true }), demoPack(), ...(opts.packs ?? [])], { env: settings, bindings: {}, hosted: true });

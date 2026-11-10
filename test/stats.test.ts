@@ -13,7 +13,7 @@ import { PACK_API, type Pack, type PackContext, type PackStat, type StatUnit } f
 import { packApp } from "../src/packs/testing.ts";
 import { daysOf, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/packs/core/history/history.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
-import { createHistory as createStats, type HistoryView } from "../src/packs/core/history/store.ts";
+import { createHistory as createStats, d1HistoryKept, type HistoryView } from "../src/packs/core/history/store.ts";
 import { historyStats } from "../src/packs/core/history/view.ts";
 import { claudeCostDays, createSpend, ompCostDays, type SpendDay, spendStats } from "../src/packs/core/agents/spend.ts";
 import { columns, niceTicks } from "../src/ui/chart.ts";
@@ -111,6 +111,47 @@ test("spend from the folders: Claude Code's projects and omp's sessions, read ag
   assert.deepEqual({ ...days.at(-1)! }, { day: "2026-10-22", claude: 2, omp: 0.1, sessions: 2 });
   writeFileSync(cf, `{"type":"user","timestamp":"2026-10-22T08:00:00.000Z"}\n{"type":"cost-state","totalCostUSD":2}\n{"type":"cost-state","totalCostUSD":5}\n`);
   assert.equal((await s.days()).at(-1)!.claude, 5);
+});
+
+test("hosted: kept in D1, so a fresh isolate draws the last one; refresh resolves once it's kept; a lost gather starts again", async () => {
+  const { DB } = openDb();
+  let now = NOW;
+  let calls = 0;
+  let hang = false;
+  const h = historyOf(people, repos, { login: "me", weeks: weeksOf(NOW), now: NOW });
+  const gather = async () => {
+    calls++;
+    if (hang) return new Promise<never>(() => {});
+    return { ...h, at: now };
+  };
+  const make = () => createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", kept: d1HistoryKept(DB), now: () => now, gather, log: () => {} });
+  const a = make();
+  await a.refresh();
+  assert.equal(calls, 1);
+  const row = await DB.prepare("SELECT value FROM settings WHERE key = 'history'").first<{ value: string }>();
+  assert.equal(JSON.parse(row!.value).login, "me", "kept by the time refresh resolves");
+
+  const b = make();
+  await b.refresh();
+  assert.equal(calls, 1, "a fresh isolate reads the kept one, no gather");
+  assert.equal(b.view().history?.mine.length, 3);
+
+  // A gather cut off with its request never settles: past five minutes it's lost, and one starts again.
+  now += 7 * 3600e3;
+  hang = true;
+  void b.refresh();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 2);
+  assert.equal(b.view().gathering, true);
+  void b.refresh();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 2, "still in flight");
+  now += 6 * 60e3;
+  assert.equal(b.view().gathering, false, "lost");
+  hang = false;
+  await b.refresh();
+  assert.equal(calls, 3, "gathered again");
+  assert.equal(b.view().gathering, false);
 });
 
 test("kept and gathered when due: once at a time, again after six hours or when asked; a failure keeps what was there", async () => {

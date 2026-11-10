@@ -34,13 +34,14 @@ export function historyPack({ history, forge = "GitHub", now = Date.now }: Histo
       execution: "any",
       everyMs: 60 * 60_000,
     },
+    // Waited on, so the cron (hosted) keeps the gather alive until it's kept.
     async refresh(ctx, o) {
-      storeOf(ctx).refresh(o?.asked === true);
+      await storeOf(ctx).refresh(o?.asked === true);
     },
     stats(ctx, o) {
       const s = storeOf(ctx);
       // A visit gathers when it's due, or at once for a reach the kept history lacks; never waits.
-      s.refresh(false, o);
+      void s.refresh(false, o);
       return historyStats(s.view(), { now: now(), weeks: o.weeks, days: o.days, forge, viewer: ctx.pageOn("/prs") });
     },
   };
