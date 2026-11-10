@@ -10,7 +10,7 @@ import type { PackAiAsk } from "./packs/types.ts";
 import { checkoutIn, checkoutsIn } from "./packs/checkouts.ts";
 import { loggedFor } from "./packs/logged.ts";
 import { packDirOf, programsFor } from "./packs/programs.ts";
-import { ownersIn } from "./owners.ts";
+import { ownersIn, owns } from "./owners.ts";
 import { d1Reads, packReads } from "./sources/files.ts";
 import { packProposals } from "./actions/propose.ts";
 import { resolve } from "node:path";
@@ -525,7 +525,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
             if (!login) return undefined;
             const owners = ownersIn(env);
             const f = forge;
-            return { id: f.id, name: f.name, host: f.host ?? env.GHE_HOST, login, owners, ...(f.work ? { work: (since: string) => f.work!(login, owners, since) } : {}), ...(f.merged ? { merged: (since: string) => f.merged!(login, owners, since) } : {}), ...reads, ...(f.propose ? { propose: proposals(c) } : {}) };
+            return { id: f.id, name: f.name, host: f.host ?? env.GHE_HOST, login, owners, owns: (repo: string) => typeof repo === "string" && owns(owners, repo.split("/")[0]!), ...(f.work ? { work: (since: string) => f.work!(login, owners, since) } : {}), ...(f.merged ? { merged: (since: string) => f.merged!(login, owners, since) } : {}), ...reads, ...(f.propose ? { propose: proposals(c) } : {}) };
           },
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
           file: (name) => filePaths.get(c.manifest.id)?.get(name),
