@@ -342,8 +342,13 @@ export function linkedFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id
   return [...out].slice(0, 200);
 }
 
+/** What every pack's `beforePage` gets together before a page goes out. */
+export const BEFORE_PAGE_MS = 1500;
+/** What every pack's Today cards get together. */
+export const TODAY_MS = 250;
+
 /** Each pack's `beforePage`, together, `ms` at most; one that throws or hangs only logs. */
-export async function beforePages(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, ms = 1500): Promise<void> {
+export async function beforePages(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, ms = BEFORE_PAGE_MS): Promise<void> {
   const each = on.filter((c) => c.beforePage).map((c) =>
     Promise.resolve()
       .then(() => c.beforePage!(ctxOf(c)))
@@ -600,8 +605,14 @@ export async function todayCards(on: Pack[], ctxOf: (c: Pack) => PackContext, bu
   const cards: TodayCard[] = [];
   const failed: Off[] = [];
   for (const { c, r } of results) {
-    if (r.ok) cards.push(...r.value.map((card) => ({ ...card, id: `${c.manifest.id}-${card.id}`, render: boxed(card.render, c.manifest.id, c.manifest.name, `today card ${card.id}`, (line) => log(c.manifest.id, line)) })));
-    else failed.push({ id: c.manifest.id, name: c.manifest.name, why: r.why });
+    // An answer that isn't a list is that pack's failure; a card that isn't one is left out.
+    if (r.ok && Array.isArray(r.value))
+      cards.push(
+        ...r.value
+          .filter((card) => card && typeof card === "object" && typeof card.id === "string")
+          .map((card) => ({ ...card, id: `${c.manifest.id}-${card.id}`, render: boxed(card.render, c.manifest.id, c.manifest.name, `today card ${card.id}`, (line) => log(c.manifest.id, line)) })),
+      );
+    else failed.push({ id: c.manifest.id, name: c.manifest.name, why: r.ok ? "today didn't answer a list of cards" : r.why });
   }
   return { cards: cards.sort((a, b) => (a.order ?? 100) - (b.order ?? 100)), failed };
 }
@@ -732,7 +743,6 @@ export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, l
   }
 }
 
-/** Which hooks a pack answers, in words, for the Packs page. */
 /**
  * What a pack gives Bino and agents (#262), as /packs says it: its context (its own lines, what it
  * shows on Today, or only its name when private), what it says of its pages, its lookups, proposals and tools.
@@ -742,31 +752,4 @@ export function binoOf(c: Pack): string {
   const context = c.bino ? "its own lines" : c.glance || c.needs || c.pulse || c.feed ? "what it shows on Today" : "nothing";
   const pages = c.about ? "what its pages are" : c.routes ? "its pages by name only" : "";
   return [`context: ${context}`, pages, c.lookups ? "lookups" : "", c.acts ? "proposes acts" : "", c.tools ? "tools for agents" : ""].filter(Boolean).join(" · ");
-}
-
-export function hooksOf(c: Pack): string[] {
-  const has: [unknown, string][] = [
-    [c.routes, "pages"],
-    [c.nav, "menu"],
-    [c.today, "Today cards"],
-    [c.glance || c.brief || c.lane, "Today's briefing"],
-    [c.feed, "feed"],
-    [c.finds || c.pages, "search"],
-    [c.refs || c.linked, "links"],
-    [c.bino || c.about, "Bino"],
-    [c.slots, "core pages"],
-    [c.acts, "Bino's proposals"],
-    [c.settings, "Settings"],
-    [c.needs, "needs"],
-    [c.banner, "bar"],
-    [c.dock, "dock"],
-    [c.callback, "sign-in return"],
-    [c.ingest, "ingest"],
-    [c.pulse, "pulse"],
-    [c.refresh || c.beforePage, "refresh"],
-    [c.scheduled, "cron"],
-    [c.email, "mail"],
-    [c.forge, "forge"],
-  ];
-  return has.filter(([h]) => !!h).map(([, w]) => w);
 }
