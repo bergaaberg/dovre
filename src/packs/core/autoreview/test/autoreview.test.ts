@@ -5,8 +5,9 @@ import { openDb } from "../../../../db.ts";
 import { autoStore } from "../../../../agents/auto.ts";
 import type { Desk } from "../../../../agents/desk.ts";
 import { testContext } from "../../../testing.ts";
-import type { AutoPr, AutoShare, PackContext } from "../../../types.ts";
-import { autoShare } from "../../agents/share.ts";
+import type { PackContext } from "../../../types.ts";
+import type { AutoPr, AutoShare } from "../../agents/share.ts";
+import { autoOf, autoShare } from "../../agents/share.ts";
 import { autoreviewPack } from "../index.ts";
 import { prOf, prsStore } from "../store.ts";
 import { levelFact } from "../view.ts";
@@ -87,4 +88,13 @@ test("the PR page's row: waiting for a first review, then the level, the round a
   assert.match(out, /^Level 4 of 5 · round 2 · handed to you: /);
   assert.match(out, /Levels so far: 1 → 3 → 4/);
   assertInert("level row", out);
+});
+
+test("autoOf: the agents pack's own share, narrowed; anything else under that name is nothing (#478)", () => {
+  const share = shareOf([]);
+  const asked: string[] = [];
+  const ctxWith = (got: unknown) => ({ required: ((id: string, name: string) => (asked.push(`${id}/${name}`), got)) as PackContext["required"] });
+  assert.equal(autoOf(ctxWith(share)), share);
+  assert.deepEqual(asked, ["agents/auto"]);
+  for (const off of [undefined, null, "auto", 5, {}, { ...share, land: "soon" }, { prs: share.prs }]) assert.equal(autoOf(ctxWith(off)), undefined);
 });

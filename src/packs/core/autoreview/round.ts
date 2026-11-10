@@ -15,7 +15,7 @@ import { owns } from "../../../owners.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { loadPrFiles } from "../../../sources/prview.ts";
 import type { Clicks } from "../../../writes.ts";
-import type { AutoShare } from "../../types.ts";
+import type { AutoShare } from "../agents/share.ts";
 import { AUTO_CONFIG, loadAutoConfig } from "./config.ts";
 import { type Heard, heardLine, heardOpen, ownerSays } from "./owner.ts";
 import { type PrRow, prsStore } from "./store.ts";

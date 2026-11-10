@@ -10,7 +10,7 @@ import type { D1 } from "../../../db.ts";
 import { owns, ownersOf } from "../../../owners.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import type { Clicks } from "../../../writes.ts";
-import type { AutoShare } from "../../types.ts";
+import type { AutoShare } from "../agents/share.ts";
 import { fixPrompt, type OpenComment, repliesOf, taggedOf } from "./fixer.ts";
 import { MARK, marked, ownerSays } from "./owner.ts";
 import { CLAIM_MS, PR_ROUNDS_USD } from "./round.ts";

@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.37")
+   src/packs/types.ts     its types (PACK_API = "1.38")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -70,7 +70,11 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
    comes back with it. `on` is ordered so each pack starts and refreshes after what it requires.
    A pack switched off on the Packs page takes what requires it off too. A pack reaches what it
    requires only through what that pack shares (`shares`, read with `ctx.required(id, name)`),
-   never by importing it. Each shared contract's shape is core's (`PackShares` in types.ts).
+   never by importing it. The shares core reads itself have core's shapes (`PackShares` in
+   types.ts: `agent`, `list`). Any other is its pack's own (1.38): core passes it along unread,
+   `ctx.required` answers `unknown`, and the pack that shares it ships the type with a reader
+   that narrows (the agents pack's `auto`: `AutoShare` and `autoOf` in its `share.ts`, which
+   Auto review imports and nothing else of that pack).
    A pack that only `uses` another (1.11) reads its shares the same way while it's on, and stays
    on without it. Core reads shares too: Bino, search and New work find My list as `list`.
    Links to the agents pack's pages come from its `agent` share (1.12), so they go away with it.
@@ -356,6 +360,7 @@ Also:
   | 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
   | 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
   | 1.37 | `assertApi(pack, dir)` and `apiOver(pack, dir)` in `dovre/pack-testing.ts`: fail on (or list) what a pack uses that's newer than its manifest's `api`, read from the pack and its files against what each minor added (`API_ADDED` in `src/packs/api.ts`) (#482) |
+  | 1.38 | A share of a pack's own: `shares()` may answer names core doesn't know, and `ctx.required(id, name)` hands such a one back as `unknown` for the reader to narrow. `PackShares` is now only what core reads itself (`agent`, `list`); `auto` is the agents pack's own, and `AutoShare` and its types stay at the door, deprecated, until 2.0 (#478) |
 
 ## Open questions
 

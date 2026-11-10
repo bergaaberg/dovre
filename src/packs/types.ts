@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.37";
+export const PACK_API = "1.38";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -550,6 +550,8 @@ export type PackContext = {
    * manifest's `requires`, that pack is on and shown, and it shares one by that name now.
    */
   required<K extends keyof PackShares>(id: string, name: K): PackShares[K] | undefined;
+  /** A share of that pack's own (API 1.38): core doesn't know its shape, so the reader narrows it. */
+  required(id: string, name: string): unknown;
   /** Every shown pack's kinds of reference (`refs`, API 1.11), for linking what I write. */
   refs(): RefRule[];
   /**
@@ -577,52 +579,8 @@ export type PackContext = {
 };
 
 // ── What packs share with the packs that require them (#326) ──
-// Core defines each shape here, so the pack that shares and the one that uses it never import each other.
-
-/** An auto run that ended in a draft PR (I OK'd it, or it opened on its own); it may have closed since. */
-export type AutoPr = { key: string; repo: string; number: number; title: string; pr: string; run: string | null; cost: number; updated: number };
-
-/** A run as its machine reports it now. `said`: the agent's last word, once it has one. */
-export type AutoRunResult = { id: string; status: "running" | "done" | "failed" | "stopped"; cost: number; model: string; endedAt?: number; said?: string };
-
-/** Settings' limits for auto runs, which fix sessions share: whether auto runs are on for a repo, and the dollar and minute caps. */
-export type AutoLimits = { on: boolean; runUsd: number; dayUsd: number; minutes: number };
-
-/**
- * A fix session (#326): a sandbox run from an auto PR's head commit, whose commits go onto the PR's
- * branch. `key` is the auto run's issue; `budget` is capped at Settings' `runUsd` again.
- */
-export type AutoFixAsk = { key: string; pr: string; repo: string; head: string; prompt: string; model: string; budget: number };
-
-/** Its commits on the PR's branch now (`head`); none made (`none` says why); not ended yet (`wait`); or a failure to hand on. */
-export type AutoFixLanded =
-  | { head: string; commits: number; said: string; cost: number }
-  | { none: string; said: string; cost: number }
-  | { wait: string }
-  | { error: string; cost?: number };
-
-/** The agents pack's auto runs (#207), as Auto review reads and extends them. */
-export type AutoShare = {
-  /** The auto runs that ended in a draft PR, newest first. */
-  prs(): Promise<AutoPr[]>;
-  /** A run's result, or undefined when no machine has it now. */
-  run(id: string): Promise<AutoRunResult | undefined>;
-  /** Settings' limits, for `repo`. */
-  limits(repo: string): Promise<AutoLimits>;
-  /**
-   * Starts a fix session within auto runs' limits: the at-once slot it shares with them, the day's
-   * cap, quiet hours, Settings' minutes and at most `FIX_TURNS` agent turns. `wait`: not now, and why.
-   */
-  fix(a: AutoFixAsk): Promise<{ run: string } | { wait: string } | { error: string }>;
-  /**
-   * A fix session that ended: its commits pushed onto `branch` (never forced), checked to be what
-   * it made from `base`, and logged under `kind`. Commits that change CI config aren't pushed.
-   */
-  land(run: string, to: { repo: string; branch: string; base: string; pr: { number: number; url: string }; kind: string }): Promise<AutoFixLanded>;
-};
-
-/** A fix session's agent turns at most (`--max-turns`). */
-export const FIX_TURNS = 60;
+// The shapes core reads itself are defined here. Any other share is its pack's own (#478): the
+// pack that shares it ships the type and a reader that narrows, and core passes it along unread.
 
 /** Where an item on My list stands. */
 export type ListState = "doing" | "next" | "waiting" | "done";
@@ -652,10 +610,9 @@ export type AgentShare = {
   run(id: string): string;
 };
 
-/** Each contract a pack can share, by name. A new one is additive. */
+/** The shares core reads itself, by name. A pack may share more under names of its own (`Pack.shares`). */
 export type PackShares = {
   agent?: AgentShare;
-  auto?: AutoShare;
   list?: ListShare;
 };
 
@@ -891,8 +848,11 @@ export type Pack = {
    * Confirms pass `kind: "<pack id>.<kind>"`: those take one click unless I set that kind to ask twice.
    */
   writes?: PackWrite[];
-  /** What it shares with the packs that require it (#326): read through their `ctx.required`. */
-  shares?(ctx: PackContext): PackShares;
+  /**
+   * What it shares with the packs that require it (#326): read through their `ctx.required`.
+   * Beside core's names (`PackShares`) it may share under names of its own (API 1.38).
+   */
+  shares?(ctx: PackContext): PackShares & { [name: string]: unknown };
   /**
    * CSS for its own classes, served beside the core's and linked from every page. A selector is
    * kept only when the element it styles, or an ancestor, has a class of the pack's own: one that

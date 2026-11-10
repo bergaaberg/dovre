@@ -6,7 +6,7 @@ import { DEFAULT_AUTO, autoStore, fixStore, saveAutoSettings } from "../src/agen
 import type { Desk } from "../src/agents/desk.ts";
 import type { Run } from "../src/agents/runner.ts";
 import { followFixes, landFix, startFix } from "../src/actions/autofix.ts";
-import type { AutoFixAsk } from "../src/packs/types.ts";
+import type { AutoFixAsk } from "../src/actions/autofix.types.ts";
 
 const HEAD = "a".repeat(40);
 const NEW = "b".repeat(40);

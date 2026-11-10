@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
 import type { PrFile } from "../../../../sources/prview.ts";
-import type { AutoShare } from "../../../types.ts";
+import type { AutoShare } from "../../agents/share.ts";
 import { autoConfigOf } from "../config.ts";
 import { capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, riskOf, verdictOf } from "../reviewer.ts";
 import { CI_WAIT_MS, MAX_ROUNDS, reviewPass, type ReviewDeps } from "../round.ts";
