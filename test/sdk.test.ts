@@ -31,7 +31,7 @@ const PACK = words(`
 /** dovre/pack-testing.ts. */
 const TESTING = words(`
   HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap apiOver assertApi assertDoors assertFragment assertInert assertScoped assertStyled assertTables createWorker ingestToken keptLookups openDb
-  packApp reachIns resetWhen setWhen testAgentLinks testAgentsPack testContext testDeploy testForge testList testPage testPr testSession testSnapshot
+  packApp reachIns resetWhen setWhen soonOf testAgentLinks testAgentsPack testContext testDeploy testForge testList testPage testPr testSession testSnapshot
 `);
 
 /** Every name a file exports, types too (which only its text has), following `export * from`. */

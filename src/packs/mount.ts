@@ -23,6 +23,7 @@ import { Notice, PageHeader } from "../ui/kit.ts";
 import { hashOf, STYLE } from "../ui/style.ts";
 import { currentViewer } from "../viewer.ts";
 import { agentHostOf } from "./agenthost.ts";
+import type { Run } from "../agents/runner.ts";
 import { type AgentHost, aiAskOf, packAiFor, packAiStore } from "./ai.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { envReads, packEnv } from "./env.ts";
@@ -36,6 +37,10 @@ import { onboardOf } from "./suggest.ts";
 import type { ListShare, Pack, PackAiAsk, PackContext, PackShares, Pulse, TodayCard, WasmFile } from "./types.ts";
 import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./wasm.ts";
 
+/** Hosted: a pack's refresh running longer than this is given up (as the worker gives up a gather). */
+const REFRESH_STUCK_MS = 25_000;
+/** How long a sandbox run that ended may take to bring its commits home before its pack is told anyway. */
+const TURN_HOME_MS = 120_000;
 /** How long a pack's page may take before it shows as broken (a long job redirects to a page that fills itself in). */
 export const PACK_ROUTE_MS = 30_000;
 
@@ -163,6 +168,7 @@ export function mountPacks(app: App, o: MountOpts) {
           gathered: async () => gatherer.peek() ?? (await Promise.race([gatherer.get().catch(() => undefined), new Promise<undefined>((res) => setTimeout(res, 1200))])),
           fill: (name, arg) => fill(name, arg),
           fillOwn: (name, arg) => fillOwn(c, name, arg),
+          soon: (ms) => runPackRefresh.soon(c, ms),
           pageOn: (href) => pageOn(href),
           setupDone: () => setupLeft(c).length === 0,
           ...packAiFor({
@@ -351,7 +357,49 @@ export function mountPacks(app: App, o: MountOpts) {
     keysAgainAt.set(id, Date.now());
     void packs.keys!.read(ks).then((changed) => (changed ? o.settle(id).then(() => deps.hub?.publish([id, "packs"])) : undefined)).catch(() => {});
   };
-  const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), { record: refreshes, skip: hidden, failed: keysAgain });
+  // The one refresher: the composition roots' schedule runs through it too (`packsOf(app).refresh`),
+  // so an asked, a scheduled and a soon refresh of a pack never run beside each other. Hosted, a
+  // refresh that never settles is given up (a cancelled request's I/O); locally a soon gets a timer.
+  const runPackRefresh = refresher(packs.on, ctxOf, (l) => console.log(l), {
+    record: refreshes,
+    skip: hidden,
+    failed: keysAgain,
+    ...(hosted
+      ? { maxMs: REFRESH_STUCK_MS }
+      : {
+          timer: (fn: () => void, ms: number) => {
+            const t = setTimeout(fn, ms);
+            t.unref?.();
+            return () => clearTimeout(t);
+          },
+        }),
+  });
+  /** Agent turns whose end their pack has heard of (or is about to), newest last. */
+  const toldTurns = new Set<string>();
+  /**
+   * A turn changed (the runner says so, local only): once it has ended, and a sandbox run's commits
+   * are home (or two minutes passed without), its pack's refresh is told, once (#479).
+   */
+  const agentChanged = (r: Run, late = false): void => {
+    const id = r.scope?.pack;
+    if (!id || r.status === "running" || toldTurns.has(r.id)) return;
+    if (r.sandbox && (!r.out || r.out.state === "collecting") && !late) {
+      if (lateTurns.has(r.id)) return;
+      lateTurns.add(r.id);
+      setTimeout(() => agentChanged(r, true), TURN_HOME_MS).unref?.();
+      return;
+    }
+    lateTurns.delete(r.id);
+    toldTurns.add(r.id);
+    if (toldTurns.size > 500) toldTurns.delete(toldTurns.values().next().value!);
+    const c = packs.on.find((p) => p.manifest.id === id);
+    if (!c?.refresh || hidden(id)) return;
+    void Promise.resolve()
+      .then(() => ctxOf(c).agent.result(r.id))
+      .then((run) => (run && run.status !== "running" ? runPackRefresh.agent(c, run) : undefined))
+      .catch((e) => packLog(id)(`a turn's end wasn't told: ${(e as Error)?.message ?? e}`));
+  };
+  const lateTurns = new Set<string>();
   const keysRead = async () => {
     const ids = [...packs.on.map((p) => p.manifest), ...packs.off.map((o) => o.manifest)].filter((m) => m && manifestSettings(m).some((s) => s.secret && packs.keys?.state(s.key))).map((m) => m!.id);
     for (const id of ids) await o.settle(id);
@@ -517,7 +565,7 @@ export function mountPacks(app: App, o: MountOpts) {
     styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts,
     packNav, packFeed, packBino, packApps, packFrames, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
-    refreshes, runPackRefresh, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
+    refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen,
     mountCallbacks, mountAssets, mountRoutes,
   };

@@ -12,7 +12,7 @@ import { keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
 import { viewingAs } from "./viewer.ts";
 import { packsOf, createApp } from "./app.ts";
-import { activePacks, beforePages, initAll, refresher } from "./packs/registry.ts";
+import { activePacks, beforePages, initAll, type refresher } from "./packs/registry.ts";
 import type { Pack, Defer, ScheduledEvent } from "./packs/types.ts";
 import type { D1 } from "./db.ts";
 import type { App, Env } from "./env.ts";
@@ -355,7 +355,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       sync.seed(shownOf(s));
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
-    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: refresher(mounted.on, mounted.ctxOf, (l) => console.log(l), { maxMs: STUCK_MS, record: mounted.refreshes, skip: mounted.hidden, failed: mounted.keysAgain }) };
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: mounted.refresh };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;

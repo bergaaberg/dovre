@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.39";
+export const PACK_API = "1.40";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -527,6 +527,15 @@ export type PackContext = {
    * this one in `uses` or `requires` are asked, and what they answer is checked as any slot's is.
    */
   fillOwn(name: string, arg: unknown): (Html | "")[];
+  /**
+   * API 1.40 (#479): call this pack's `refresh` again in about `ms` (10 s when left out, 5 s at
+   * least, 10 minutes at most), with `{ soon: true }`, in place of a timer of its own. One pending
+   * at a time (the sooner ask stands), never beside a refresh still running, and it doesn't repeat:
+   * ask again from `refresh` while there's something to follow. A pack that keeps asking for 30
+   * minutes on end is cut off until a refresh of it doesn't ask. Hosted it's best effort: due at
+   * the next request or cron, since nothing stays up to wake it.
+   */
+  soon(ms?: number): void;
   /** A page inside Dovre's shell (nav, docks, styles), for a route this pack mounts. */
   page(c: Context<AppEnv>, opts: PageOpts): Promise<Response>;
   /** A page for inside its dock (`dock`, under /<id>/dock): no menu or footer, the same styles and script. */
@@ -857,9 +866,13 @@ export type Pack = {
   /**
    * Re-reads what its pages show, into memory (or its own storage), then publishes what changed.
    * The core calls it on its schedule; pages and cards never wait for it. `asked` (API 1.8): I
-   * pressed a refresh button (Stats' Gather again), so read again even if it isn't due.
+   * pressed a refresh button (Stats' Gather again), so read again even if it isn't due. API 1.40
+   * (#479): `soon`, the pack asked for this one (`ctx.soon`), so it can do only the cheap part;
+   * `agent`, one of its agent turns (`ctx.agent.start`) ended, as `ctx.agent.result` gives it:
+   * told once, when it ends while Dovre is running (a sandbox run's once its commits are home).
+   * A turn that ended while Dovre was down isn't told, so look at open turns in a plain refresh too.
    */
-  refresh?(ctx: PackContext, o?: { asked?: boolean }): Promise<void>;
+  refresh?(ctx: PackContext, o?: { asked?: boolean; soon?: boolean; agent?: PackAgentRun }): Promise<void>;
   dispose?(): Promise<void> | void;
   /**
    * Its kinds of write to its own app (dovre#104), listed on Settings → Writes under its name. Its

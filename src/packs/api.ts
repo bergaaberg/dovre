@@ -64,7 +64,7 @@ const testing = (names: string): ApiUse[] => names.split(/\s+/).filter(Boolean).
  * against it and fails on a name newer than its manifest's `api`. Text matching is crude on purpose:
  * it catches the forgotten bump. Not seen: `forge().file` at a commit (1.2), a `propose` with
  * `files` and a setup step's `refresh` (1.17), a pack's own share read by a name that isn't a
- * literal in the call (1.38), and what a pack only reads off a type.
+ * literal in the call (1.38), `refresh`'s `soon` and `agent` (1.40), and what a pack only reads off a type.
  */
 export const API_ADDED: Record<string, ApiUse[]> = {
   "1.1": [has("Pack.files", (p) => p.files && Object.keys(p.files).length)],
@@ -115,4 +115,5 @@ export const API_ADDED: Record<string, ApiUse[]> = {
   "1.37": testing("assertApi apiOver"),
   "1.38": [text("a pack's own share in ctx.required", /\brequired\(\s*[^,()]+,\s*["'](?!(?:agent|list|auto)["'])[\w.-]+["']\s*\)/)],
   "1.39": [has("manifest.hosts", (p) => p.manifest.hosts?.length), ctx("fillOwn"), text("another pack's place in slots", /(?<!\?\s*)["'](?!(?:application|text|image|audio|video|font|multipart|message|model)\/)[a-z][a-z0-9-]*\/[a-z][a-z0-9.-]*["']\s*:\s*(?![\s"'`\d[{])/)],
+  "1.40": [ctx("soon"), ...testing("soonOf")],
 };

@@ -77,11 +77,12 @@ test("ctx members, forge calls, slots and shares are seen in the text", () => {
       `ctx.directory; ctx.runner; forge.prs;`,
       // Another pack's place (#477) is a key of slots; a path in a table, a ternary's branch or a MIME type isn't (below).
       `const actions = ctx.fillOwn("span.actions", span); slots: () => ({ "otel-sink/span.actions": spanActions }),`,
+      `if (following) ctx.soon(15_000); // "soon" in a sentence, or a.soon, isn't it`,
     ].join("\n"),
   });
   assert.deepEqual(
     apiUses(packOf("1.0"), dir).map((u) => `${u.api} ${u.name}`),
-    ["1.2 slot pr.file", "1.11 share list", "1.12 share agent", "1.20 forge().untriaged", "1.21 forge().pr", "1.31 ctx.viewer", "1.33 ctx.store", "1.38 a pack's own share in ctx.required", "1.39 ctx.fillOwn", "1.39 another pack's place in slots"],
+    ["1.2 slot pr.file", "1.11 share list", "1.12 share agent", "1.20 forge().untriaged", "1.21 forge().pr", "1.31 ctx.viewer", "1.33 ctx.store", "1.38 a pack's own share in ctx.required", "1.39 ctx.fillOwn", "1.39 another pack's place in slots", "1.40 ctx.soon"],
   );
   const not = folder({ "index.ts": `const signal = { "v1/traces": "traces" }; const t = xml ? "a/b" : c; const draw = { "text/html": page };` });
   assert.deepEqual(apiUses(packOf("1.0"), not), []);

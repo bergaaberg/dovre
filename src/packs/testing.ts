@@ -28,7 +28,18 @@ import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
 import { type AgentShare, type ListItem, type ListShare, type Pack, PACK_API, type PackContext, type PageOpts } from "./types.ts";
 
+const soons = new WeakMap<PackContext["soon"], (number | undefined)[]>();
+/**
+ * What a `testContext` was asked through `ctx.soon`, in order (each call's `ms`, undefined when
+ * left out): `assert.deepEqual(soonOf(ctx), [undefined])` says "asked to be called again, once".
+ * Nothing calls `refresh` again in a test: call it yourself, with `{ soon: true }`.
+ */
+export const soonOf = (ctx: PackContext): (number | undefined)[] => soons.get(ctx.soon) ?? [];
+
 export function testContext(over: Partial<PackContext> = {}): PackContext {
+  const asked: (number | undefined)[] = [];
+  const soon = (ms?: number) => void asked.push(ms);
+  soons.set(soon, asked);
   // As core does it: a code folder comes with its checkouts (the git repos directly under it).
   const dir = over.codeDir;
   return {
@@ -48,6 +59,7 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     gathered: async () => undefined,
     fill: () => [],
     fillOwn: () => [],
+    soon,
     page: async () => new Response(),
     dockPage: () => new Response(),
     log: () => {},
