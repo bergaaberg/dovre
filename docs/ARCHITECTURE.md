@@ -15,7 +15,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.35")
+   src/packs/types.ts     its types (PACK_API = "1.36")
    src/packs/registry.ts  core's side of every hook
 ```
 
@@ -99,7 +99,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 
 **`PackContext`** gives a pack:
 - `env`, `bindings`, `hosted`, `db`. `env` is meant to hold the pack's own keys: its manifest's `settings`,
-  `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). For now every key still comes back,
+  the keys a `namesKeys` setting names, `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). For now every key still comes back,
   and a read of a set key that isn't the pack's is logged once and named on its card on the Packs page
   ("Also reads"); filtering follows (#475). Dovre's own packs get the plain settings.
 - `run(binary, args, opts)`, `onPath(binary)`, `dir()` (local): run a program its manifest names (`requiredBinaries`, or `binaries` for ones it can do without), in a checkout or in its own folder. Never an agent CLI. The folder is where the program starts, not a fence around it
@@ -319,6 +319,7 @@ Also:
 | 1.33 | `ctx.store.kv`: a pack's own small state in Dovre's database (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`), JSON by key under the pack's id, capped a value and a pack; in memory in `testContext`. Types `PackStore`, `PackKv` (#476) |
 | 1.34 | `manifest.ai.mcp` (why, one `server`, `reads`, `writes`: tool → write kind) and `ctx.mcp` (`can`, `call`, `write`): exact calls to one MCP server through Claude Code's sign-in to it, each tool's own result handed back matched by tool and arguments; off until I tick it on Settings → Packs, under the day's dollars, logged by cost only; results in memory only, local only. Types `PackMcp`, `PackMcpAsk`, `PackMcpCall`, `PackMcpCan`, `PackMcpResult`, `PackMcpSetup` (#488) |
 | 1.35 | `Pack.migrations`: a pack's own tables as an append-only list of SQL, one statement each, that core runs once each in order before `init` and remembers in `_migrations` as `pack:<id>:<n>`; one that fails keeps the pack off, saying why. `assertTables(pack)` in `dovre/pack-testing.ts` fails on a table or index not named after the pack. `packApp` returns `ready` (#476) |
+| 1.36 | `PackSetting.namesKeys`: a setting whose value names other settings the pack reads (entries between commas or spaces, a name up to its first `@`, `=` or `:`). Those keys are the pack's own in `ctx.env`, and its card on the Packs page lists them ("Reads by name"). Not with `secret` (#475). |
 
 ## Open questions
 

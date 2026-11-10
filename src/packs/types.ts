@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.35";
+export const PACK_API = "1.36";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -43,6 +43,12 @@ export type PackSetting = {
   help?: string;
   /** The values it takes (API 1.15), shown as a picker; unset is the pack's own default. Not with `secret`. */
   choices?: { value: string; label: string }[];
+  /**
+   * API 1.36 (#475): its value names other settings this pack reads (`API_TOKEN@api.example.com, LOCAL_KEY`).
+   * The entries are split on commas and spaces; a name is an entry up to its first `@`, `=` or `:`.
+   * Those keys count as the pack's own in `ctx.env`, and the Packs page lists them. Not with `secret`.
+   */
+  namesKeys?: boolean;
 };
 
 export type PackManifest = {
@@ -449,7 +455,8 @@ export type Slots = { [K in SlotName]?: (arg: SlotMap[K]["arg"]) => SlotMap[K]["
 export type PackContext = {
   /**
    * The instance's settings (strings): this pack reads its own keys (its manifest's `settings`, `PACK_<ID>`,
-   * and `TZ_NAME`, `PORT`, `CODE_DIR`). Other keys still come back for now, noted on the Packs page; they won't (#475).
+   * the keys a `namesKeys` setting names,
+   * and `TZ_NAME`, `PORT`, `CODE_DIR`, `U_DB`). Other keys still come back for now, noted on the Packs page; they won't (#475).
    */
   env: Record<string, string | undefined>;
   /** The Worker's bindings when hosted (D1, R2, service bindings, send_email…); empty locally. */

@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Pack, PACK_API } from "../src/pack.ts";
 import { packApp } from "../src/pack-testing.ts";
-import { envReads, EVERY_KEY, ownKeys, packEnv, switchKey } from "../src/packs/env.ts";
+import { envReads, EVERY_KEY, namedKeys, namesIn, ownKeys, packEnv, switchKey } from "../src/packs/env.ts";
 
 const manifest = (id: string, keys: string[] = []) => ({ api: PACK_API, id, name: id, description: "", domain: "personal" as const, settings: keys.map((key) => ({ key, label: key })) });
 
 test("its own keys: its settings, its switch, and the shared few", () => {
   assert.equal(switchKey("http-otel"), "PACK_HTTP_OTEL");
   const own = ownKeys(manifest("http-otel", ["HTTP_HEALTH_URLS", "not a key"]));
-  assert.deepEqual([...own].sort(), ["CODE_DIR", "HTTP_HEALTH_URLS", "PACK_HTTP_OTEL", "PORT", "TZ_NAME"]);
+  assert.deepEqual([...own].sort(), ["CODE_DIR", "HTTP_HEALTH_URLS", "PACK_HTTP_OTEL", "PORT", "TZ_NAME", "U_DB"]);
 });
 
 test("every key still comes back; a set key that isn't its own is noted, an unset one isn't", () => {
@@ -68,4 +68,33 @@ test("the Packs page says what a pack read beyond its settings, by name; the val
   assert.match(page, /Also reads[\s\S]{0,80}GHE_TOKEN, &lt;img src=x onerror=alert\(1\)&gt;/);
   assert.ok(!page.includes("<img src=x"), "a hostile key name is escaped");
   assert.ok(!page.includes("ghp_secret"));
+});
+
+test("a namesKeys setting (API 1.36): the keys its value names are the pack's own, as the value is now", () => {
+  assert.deepEqual(namesIn("API_TOKEN@api.example.com, LOCAL_KEY@localhost:3000 API_TOKEN@other.example  plain a=b 9bad <x>@h"), ["API_TOKEN", "LOCAL_KEY", "plain", "a"]);
+  assert.deepEqual(namesIn(undefined), []);
+  const m = { ...manifest("http"), settings: [{ key: "HTTP_SECRETS", label: "Secrets", namesKeys: true }, { key: "HTTP_ENVS", label: "Envs" }, { key: "HTTP_HIDDEN", label: "Hidden", secret: true, namesKeys: true }] };
+  const all: Record<string, string | undefined> = { HTTP_SECRETS: "API_TOKEN@api.example.com", HTTP_ENVS: "GHE_TOKEN", HTTP_HIDDEN: "MODEL_KEY", API_TOKEN: "t", OTHER_TOKEN: "o", GHE_TOKEN: "g", MODEL_KEY: "k" };
+  assert.deepEqual(namedKeys(m, all), ["API_TOKEN"], "only the flagged setting's names, and never a secret one's");
+  const seen: string[] = [];
+  const env = packEnv(m, all, (k) => seen.push(k));
+  assert.equal(env.API_TOKEN, "t");
+  assert.deepEqual(seen, []);
+  void env.OTHER_TOKEN;
+  void env.GHE_TOKEN;
+  void env.MODEL_KEY;
+  assert.deepEqual(seen, ["OTHER_TOKEN", "GHE_TOKEN", "MODEL_KEY"]);
+  all.HTTP_SECRETS = "OTHER_TOKEN@x.example";
+  void env.API_TOKEN;
+  assert.deepEqual(seen, ["OTHER_TOKEN", "GHE_TOKEN", "MODEL_KEY", "API_TOKEN"], "no longer named: no longer its own");
+});
+
+test("the Packs page lists the keys a pack reads by name, escaped", async () => {
+  const pack: Pack = { manifest: { ...manifest("caller"), settings: [{ key: "CALLER_SECRETS", label: "Secrets", namesKeys: true }] }, routes: (app, ctx) => app.get("/caller", (c) => c.text(String(ctx.env.API_TOKEN))) };
+  const { get } = packApp([pack], { env: { CALLER_SECRETS: "API_TOKEN@api.example.com, <b>@h", API_TOKEN: "tok_secret" } });
+  assert.equal(await (await get("/caller")).text(), "tok_secret");
+  const page = await (await get("/packs")).text();
+  assert.match(page, /Reads by name[\s\S]{0,80}API_TOKEN/);
+  assert.ok(!page.includes("Also reads"), "a named key isn't beyond its settings");
+  assert.ok(!page.includes("tok_secret"));
 });

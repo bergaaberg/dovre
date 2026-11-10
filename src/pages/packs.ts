@@ -13,6 +13,7 @@ import type { Pack, PackAgentWhere, PackAiAsk, PackManifest, PackSetting } from 
 import { type Child, Confirm, Empty, Item, KeyValues, List, Notice, PageHeader, Panel, Pill, Post } from "../ui/kit.ts";
 import { Ago, safeUrl } from "./parts.ts";
 import { apiText, parseApi } from "../packs/api.ts";
+import { namedKeys } from "../packs/env.ts";
 
 /** A pack's own version, as dovre-packs releases it (x.y.z). */
 const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
@@ -183,6 +184,8 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   if (m?.requiredBindings?.length) pairs.push(["Bindings", m.requiredBindings.join(", ")]);
   if (m?.requiredBinaries?.length) pairs.push(["Needs on PATH", m.requiredBinaries.join(", ")]);
   if (m?.binaries?.length) pairs.push(["May run", m.binaries.join(", ")]);
+  const named = m ? namedKeys(m, v.env) : [];
+  if (named.length) pairs.push(["Reads by name", named.join(", ")]);
   const also = v.alsoReads?.(id) ?? [];
   if (also.length) pairs.push(["Also reads", also.join(", ")]);
   const requires = requiresOf(m);
