@@ -6,13 +6,15 @@
 import type { Need } from "../home/needs.ts";
 import { safeUrl } from "../pages/parts.ts";
 import type { Html } from "../ui/kit.ts";
+import type { NavItem } from "../html.ts";
 import { boxed, guardHtml } from "./guard.ts";
 import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
+import { appsOf, defaultBinoOf } from "./core/assistant/bino/context.ts";
 import { apiGap } from "./api.ts";
 import { migratePack, migrationsGap } from "./migrations.ts";
-import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackContext, type PackManifest, type PackNote, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
+import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackContext, type PackManifest, type PackNote, type PackShares, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
 
 /**
  * A pack that doesn't run here, and why; its manifest when it had a readable one (the Packs page
@@ -741,6 +743,150 @@ export async function initAll(active: Active, ctxOf: (c: Pack) => PackContext, l
     active.off.push({ id: c.manifest.id, name: c.manifest.name, why, manifest: c.manifest });
     settleRequires(active);
   }
+}
+
+/** A hook that answers a list from memory: each pack's items in turn; a throw is logged and leaves none, and so does an answer that isn't a list. */
+function listsFrom<T>(on: Pack[], hook: string, call: (c: Pack) => (() => T[]) | undefined, log: (id: string, line: string) => void): { pack: Pack; item: T }[] {
+  return on.flatMap((c) => {
+    const run = call(c);
+    const got = run ? safely(run, [], (e) => log(c.manifest.id, `${hook}: ${(e as Error)?.message ?? e}`)) : [];
+    return Array.isArray(got) ? got.map((item) => ({ pack: c, item })) : [];
+  });
+}
+
+/** The packs' menu entries (`nav`). */
+export function navFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): NavItem[] {
+  return listsFrom(on, "nav", (c) => c.nav && (() => c.nav!(ctxOf(c))), log).map((x) => x.item);
+}
+
+/** The packs' events for Today's feed (`feed`), each with its pack: packFeedOf (src/home/feed.ts) checks them. */
+export function feedFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): { pack: PackManifest; item: unknown }[] {
+  return listsFrom<unknown>(on, "feed", (c) => c.feed && (() => c.feed!(ctxOf(c))), log).map((x) => ({ pack: x.pack.manifest, item: x.item }));
+}
+
+/** The packs' pages for search (`pages`). */
+export function pagesFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void) {
+  return listsFrom(on, "pages", (c) => c.pages && (() => c.pages!(ctxOf(c))), log).map((x) => x.item);
+}
+
+/** A row of search's, as the packs' finds become one (src/search/search.ts Row). */
+export type FindRow = { title: string; sub?: string; href: string; icon: string; also: string[]; out: boolean };
+
+/**
+ * The packs' rows for search (`finds`): under "In your apps" named after the pack, or in one of
+ * search's own groups by `kind`. 500 a pack; an href that isn't a path here or http(s) is dropped.
+ */
+export function findsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): { apps: FindRow[]; agents: FindRow[]; code: FindRow[]; actions: FindRow[] } {
+  const out = { apps: [] as FindRow[], agents: [] as FindRow[], code: [] as FindRow[], actions: [] as FindRow[] };
+  for (const c of on) {
+    if (!c.finds) continue;
+    const got = safely(() => c.finds!(ctxOf(c)), [], (e) => log(c.manifest.id, `finds: ${(e as Error)?.message ?? e}`));
+    if (!Array.isArray(got)) continue;
+    for (const f of got.slice(0, 500)) {
+      if (!f || typeof f.title !== "string" || typeof f.href !== "string" || safeUrl(f.href) === "#") continue;
+      const kind = f.kind === "agents" || f.kind === "code" || f.kind === "actions" ? f.kind : undefined;
+      const sub = kind ? f.sub : [c.manifest.name, f.sub].filter(Boolean).join(" · ");
+      out[kind ?? "apps"].push({ title: f.title.slice(0, 200), sub: typeof sub === "string" ? sub.slice(0, 200) : undefined, href: safeUrl(f.href), icon: (kind && typeof f.icon === "string" && [...f.icon].slice(0, 2).join("")) || "◇", also: (Array.isArray(f.also) ? f.also : []).slice(0, 10).map((a) => String(a).slice(0, 100)), out: /^https?:/.test(f.href) });
+    }
+  }
+  return out;
+}
+
+/** The packs' kinds of reference (`refs`: a ticket key…), for links in My list and deploys. */
+export function refsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void) {
+  return listsFrom(on, "refs", (c) => c.refs && (() => c.refs!(ctxOf(c))), log).map((x) => x.item);
+}
+
+/**
+ * What each pack says Bino may know (`bino`). A pack that says nothing gets what it already shows
+ * on Today (defaultBinoOf), unless it's private. Packs that speak for themselves come first.
+ * `own`: Dovre's own packs, said apart from my apps.
+ */
+export function binoFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, own: (id: string) => boolean | undefined = () => undefined) {
+  const tried = <T,>(c: Pack, hook: string, f: () => T, none: T): T => safely(f, none, (e) => log(c.manifest.id, `${hook}: ${(e as Error)?.message ?? e}`));
+  const said: { name: string; own?: boolean; text: unknown }[] = [];
+  const told: typeof said = [];
+  for (const c of on) {
+    const ctx = ctxOf(c);
+    if (c.bino) said.push({ name: c.manifest.name, own: own(c.manifest.id), text: tried(c, "bino", () => c.bino!(ctx), "") });
+    else if (!c.manifest.private) {
+      const pulse = c.pulse;
+      const text = defaultBinoOf({
+        glance: c.glance ? tried(c, "glance", () => c.glance!(ctx), []) : [],
+        needs: c.needs ? tried(c, "needs", () => c.needs!(ctx), []) : [],
+        pulse: pulse ? tried(c, "pulse", () => pulse.call(c, ctx), undefined) : undefined,
+        feed: c.feed ? tried(c, "feed", () => c.feed!(ctx), []) : [],
+      });
+      told.push({ name: c.manifest.name, own: own(c.manifest.id), text });
+    }
+  }
+  return appsOf([...said, ...told]);
+}
+
+/**
+ * The packs as Bino's pages know them: each one's paths, and what it says a page of its is
+ * (`about`), asked when Bino is opened from that page; a throw is logged and says nothing.
+ */
+export function aboutFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, own: (id: string) => boolean | undefined = () => undefined) {
+  return on.map((c) => ({
+    id: c.manifest.id,
+    name: c.manifest.name,
+    paths: c.manifest.paths,
+    own: own(c.manifest.id),
+    private: c.manifest.private === true,
+    about: c.about
+      ? async (path: string) => {
+          try {
+            return await c.about!(ctxOf(c), path);
+          } catch (e) {
+            log(c.manifest.id, `about: ${(e as Error)?.message ?? e}`);
+            return undefined;
+          }
+        }
+      : undefined,
+    needs: c.needs ? () => safely(() => c.needs!(ctxOf(c)), [], (e) => log(c.manifest.id, `needs: ${(e as Error)?.message ?? e}`)) : undefined,
+  }));
+}
+
+/** A pack's `frames` entry as a CSP source: an `https://` origin, or `http://localhost:<port>` / `http://127.0.0.1:<port>` (no path, user or wildcard); else undefined. */
+export function frameOrigin(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || raw.length > 300) return undefined;
+  try {
+    const u = new URL(raw);
+    if (u.username || u.password || !/^[a-z0-9.-]+(:\d+)?$/i.test(u.host)) return undefined;
+    // http only for this machine on a port of its own (a build served apart from Dovre, #166).
+    if (u.protocol === "http:" ? !/^(localhost|127\.0\.0\.1)$/.test(u.hostname) || !u.port : u.protocol !== "https:") return undefined;
+    return u.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The origins the pack whose page this is may frame there (`frames`): checked (frameOrigin), 20 at most. */
+export function framesFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, path: string, log: (id: string, line: string) => void): string[] {
+  const m = /^\/([a-z][a-z0-9-]*)(\/|$)/.exec(path);
+  const p = m && on.find((x) => x.manifest.id === m[1] && !!x.frames);
+  if (!p) return [];
+  const got = safely<unknown>(() => p.frames!(ctxOf(p)), [], (e) => log(p.manifest.id, `frames: ${(e as Error)?.message ?? e}`));
+  return Array.isArray(got) ? [...new Set(got.map(frameOrigin).filter((o): o is string => !!o))].slice(0, 20) : [];
+}
+
+/** What a pack shares under a name (`shares`), by its own name only: a pack's own share (#478) is any string, so never what an object inherits. */
+export function shareOf(c: Pack, ctxOf: (c: Pack) => PackContext, name: string, log: (id: string, line: string) => void): unknown {
+  if (!c.shares) return undefined;
+  return safely<unknown>(() => {
+    const all: Record<string, unknown> = c.shares!(ctxOf(c));
+    return Object.hasOwn(all, name) ? all[name] : undefined;
+  }, undefined, (e) => log(c.manifest.id, `shares: ${(e as Error)?.message ?? e}`));
+}
+
+/** What the first of these packs sharing it shares under a name: core reads packs' contracts by name, never their ids. */
+export function sharedFrom<K extends keyof PackShares>(on: Pack[], ctxOf: (c: Pack) => PackContext, name: K, log: (id: string, line: string) => void): PackShares[K] | undefined {
+  for (const c of on) {
+    const one = shareOf(c, ctxOf, name, log);
+    if (one) return one as PackShares[K];
+  }
+  return undefined;
 }
 
 /**
