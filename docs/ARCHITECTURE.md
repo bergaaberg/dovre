@@ -47,8 +47,7 @@ A pack session (`src/run.ts`, #353) is a fourth entry: one pack from dovre-packs
 with `session: { pack }`. Only the pack's paths, `/login`, `/assets/*` and `/events` answer
 (`sessionPath`); the frame holds the pack's own menu entries and no Bino, docks or questions. The
 launch token is made for the session and the database is in memory. Started on a checkout,
-the code folder is its parent and `ctx.checkouts()` / `ctx.checkout()` hold only that one; a pack
-on an API before 1.7 lists the folder itself, and the session warns that it may see the rest. Its
+the code folder is its parent and `ctx.checkouts()` / `ctx.checkout()` hold only that one. Its
 settings (#369) come from `--set`, the environment, then the core folder's `.dev.vars` (read only);
 `GET /settings/packs/<id>` and `POST /packs/<id>/settings` also answer in a session, without a
 `varsFile`, so what's saved there stays in `packs.env` and dies with the process.
@@ -267,16 +266,18 @@ Also:
 - Styles: give every rule a class of the pack's own (`.<id>-…`); restyle a kit component only
   inside it (`.mypack .item`). Tables go in `.table-wrap`; wide content scrolls inside the pack.
 - Tests live in `packs/<id>/test/`, with a hostile-input case per page. `testContext()`
-  (`dovre/pack-testing.ts`) gives safe defaults; `assertScoped(pack)` fails on a selector that
+  (`dovre/pack-testing.ts`) gives safe defaults (pass `{ id }` to log as that pack, not `test.<kind>`); `assertScoped(pack)` fails on a selector that
   would be left out, `assertFragment(name, html)` on markup core would refuse.
 - Layout: `index.ts` (manifest and hooks), `data.ts` (reads the app), `view.ts` (draws).
   `pnpm packs new <id> --into <instance>` scaffolds it.
 - **One door (#473):** a pack imports core as `dovre/pack.ts` (the contract's types, the kit,
   `safeUrl` and friends, the act helpers, `markdown`), and `dovre/pack-testing.ts` in its tests.
-  That file is the contract; anything else under `dovre/…` may move without notice, and stops
-  being importable at 2.0 (#484). A packs repo's `test/imports.test.ts` calls
-  `assertDoors(packsDir, allow)`: the reach-ins it still has, counted per module, in a list that
-  only shrinks (`src/packs/imports.ts`). `pnpm packs new` and `pnpm instance new` write that test.
+  That file is the contract. Since 2.0 (#484) core's `package.json` exports the doors and what an
+  instance's worker wires up (`dovre/worker.ts`, `dovre/demo/worker.ts`, …), and anything else
+  under `dovre/…` may move without notice. A packs repo's `test/imports.test.ts` calls
+  `assertDoors(packsDir)` (`src/packs/imports.ts`), which fails on any other import; an instance
+  still moving may pass the reach-ins it has left, counted per module, in a list that only
+  shrinks. `pnpm packs new` and `pnpm instance new` write that test.
 - A pack from dovre-packs is a copy with a `.pack.json` (source, the commit and release tag it
   came from, the pack's own version, the `PACK_API` it needs, file hashes). Each pack is released
   on its own: a semver `version` in its manifest, `packs/<id>/CHANGELOG.md`, and a tag
@@ -346,7 +347,7 @@ Also:
 
   | API | Added |
   | --- | --- |
-  | 2.0 | Everything 1.x added (docs/PACK-API-1.md), with the old ways gone (#484). A pack moving from 1.x: `ctx.db` only with `migrations` or the manifest line `db: "raw"`; `ctx.bindings` holds only `requiredBindings` and the new `bindings` (read when there); `ctx.checkouts()` and `ctx.checkout()` are always there (none hosted) and `forge().owns` too; `ctx.can(what)` is the one answer for what's local only or needs my OK; `span.actions` is otel-sink's own place, not core's slot; the door no longer names the agents pack's `auto` share types; and core's `package.json` exports the doors, not every file. |
+  | 2.0 | Everything 1.x added (docs/PACK-API-1.md), with the old ways gone (#484). A pack moving from 1.x: `ctx.db` only with `migrations` or the manifest line `db: "raw"`; `ctx.bindings` holds only `requiredBindings` and the new `bindings` (read when there); `ctx.checkouts()` and `ctx.checkout()` are always there (none hosted) and `forge().owns` too; `ctx.can(what)` is the one answer for what's local only or needs my OK; `span.actions` is otel-sink's own place, not core's slot; the door no longer names the agents pack's `auto` share types; and core's `package.json` exports the doors and an instance's wiring, not every file. |
 
 ## Open questions
 
