@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.40";
+export const PACK_API = "1.41";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -468,7 +468,8 @@ export type PackContext = {
   /**
    * The instance's settings (strings): this pack reads its own keys (its manifest's `settings`, `PACK_<ID>`,
    * the keys a `namesKeys` setting names,
-   * and `TZ_NAME`, `PORT`, `CODE_DIR`, `U_DB`). Other keys still come back for now, noted on the Packs page; they won't (#475).
+   * and `TZ_NAME`, `PORT`, `CODE_DIR`, `U_DB`). From API 1.41 nothing else: another key reads as unset, and asking
+   * for one that is set is noted on the pack's card on the Packs page (#475). Read-only.
    */
   env: Record<string, string | undefined>;
   /** The Worker's bindings when hosted (D1, R2, service bindings, send_email…); empty locally. */

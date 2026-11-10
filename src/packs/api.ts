@@ -116,4 +116,5 @@ export const API_ADDED: Record<string, ApiUse[]> = {
   "1.38": [text("a pack's own share in ctx.required", /\brequired\(\s*[^,()]+,\s*["'](?!(?:agent|list|auto)["'])[\w.-]+["']\s*\)/)],
   "1.39": [has("manifest.hosts", (p) => p.manifest.hosts?.length), ctx("fillOwn"), text("another pack's place in slots", /(?<!\?\s*)["'](?!(?:application|text|image|audio|video|font|multipart|message|model)\/)[a-z][a-z0-9-]*\/[a-z][a-z0-9.-]*["']\s*:\s*(?![\s"'`\d[{])/)],
   "1.40": [ctx("soon"), ...testing("soonOf")],
+  "1.41": [],
 };

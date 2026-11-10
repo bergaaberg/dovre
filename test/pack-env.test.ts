@@ -1,9 +1,9 @@
-/** A pack's env (#475), the audit step: every key still comes back, and a read of one that isn't the pack's is noted once. */
+/** A pack's env (#475, API 1.41): its own keys only; one that isn't the pack's reads as unset, and asking for a set one is noted once. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Pack, PACK_API } from "../src/pack.ts";
 import { packApp } from "../src/pack-testing.ts";
-import { envReads, EVERY_KEY, namedKeys, namesIn, ownKeys, packEnv, switchKey } from "../src/packs/env.ts";
+import { envReads, namedKeys, namesIn, ownKeys, packEnv, switchKey } from "../src/packs/env.ts";
 
 const manifest = (id: string, keys: string[] = []) => ({ api: PACK_API, id, name: id, description: "", domain: "personal" as const, settings: keys.map((key) => ({ key, label: key })) });
 
@@ -13,7 +13,7 @@ test("its own keys: its settings, its switch, and the shared few", () => {
   assert.deepEqual([...own].sort(), ["CODE_DIR", "HTTP_HEALTH_URLS", "PACK_HTTP_OTEL", "PORT", "TZ_NAME", "U_DB"]);
 });
 
-test("every key still comes back; a set key that isn't its own is noted, an unset one isn't", () => {
+test("only its own keys come back; asking for a set key that isn't its own is noted, an unset one isn't", () => {
   const all: Record<string, string | undefined> = { SHOP_URL: "https://shop.example", GHE_TOKEN: "ghp_secret", TZ_NAME: "Europe/Oslo", PACK_SHOP: "on" };
   const seen: string[] = [];
   const env = packEnv(manifest("shop", ["SHOP_URL"]), all, (k) => seen.push(k));
@@ -22,8 +22,11 @@ test("every key still comes back; a set key that isn't its own is noted, an unse
   assert.equal(env.PACK_SHOP, "on");
   assert.equal(env.NOT_SET, undefined);
   assert.deepEqual(seen, [], "its own and unset keys: nothing noted");
-  assert.equal(env.GHE_TOKEN, "ghp_secret", "the audit step filters nothing yet");
+  assert.equal(env.GHE_TOKEN, undefined, "another's key reads as unset");
+  assert.equal("GHE_TOKEN" in env, false);
+  assert.equal("SHOP_URL" in env, true);
   assert.deepEqual(seen, ["GHE_TOKEN"]);
+  assert.equal(env.toString, undefined, "nothing from the prototype either");
   assert.ok(!seen.join().includes("ghp_secret"), "a name, never a value");
 });
 
@@ -34,12 +37,24 @@ test("a view, not a copy: a key saved later is read", () => {
   assert.equal(env.SHOP_URL, "https://later.example");
 });
 
-test("listing them all is noted as that, once, not key by key", () => {
+test("listing them all lists its own that are set, and notes nothing", () => {
   const seen: string[] = [];
-  const env = packEnv(manifest("shop"), { A_TOKEN: "a", B_TOKEN: "b" }, (k) => seen.push(k));
-  assert.deepEqual({ ...env }, { A_TOKEN: "a", B_TOKEN: "b" });
-  assert.deepEqual(Object.keys(env), ["A_TOKEN", "B_TOKEN"]);
-  assert.deepEqual(seen, [EVERY_KEY]);
+  const env = packEnv(manifest("shop", ["SHOP_URL", "SHOP_KEY"]), { A_TOKEN: "a", SHOP_URL: "u", B_TOKEN: "b", TZ_NAME: "Europe/Oslo" }, (k) => seen.push(k));
+  assert.deepEqual({ ...env }, { SHOP_URL: "u", TZ_NAME: "Europe/Oslo" });
+  assert.deepEqual(Object.keys(env), ["SHOP_URL", "TZ_NAME"]);
+  assert.deepEqual(Object.entries(env), [["SHOP_URL", "u"], ["TZ_NAME", "Europe/Oslo"]]);
+  assert.ok(!JSON.stringify(env).includes("TOKEN"));
+  assert.deepEqual(seen, []);
+});
+
+test("read-only: a pack can't set or remove a setting, its own or another's", () => {
+  const all: Record<string, string | undefined> = { SHOP_URL: "u", GHE_TOKEN: "g" };
+  const env = packEnv(manifest("shop", ["SHOP_URL"]), all, () => {});
+  assert.throws(() => { env.GHE_TOKEN = "mine"; }, TypeError);
+  assert.throws(() => { env.SHOP_URL = "other"; }, TypeError);
+  assert.throws(() => { delete env.GHE_TOKEN; }, TypeError);
+  assert.throws(() => Object.defineProperty(env, "NEW_KEY", { value: "x" }), TypeError);
+  assert.deepEqual(all, { SHOP_URL: "u", GHE_TOKEN: "g" });
 });
 
 test("the notes: once a key, by pack", () => {
@@ -51,7 +66,7 @@ test("the notes: once a key, by pack", () => {
   assert.deepEqual(r.of("none"), []);
 });
 
-test("the Packs page says what a pack read beyond its settings, by name; the value is nowhere", async () => {
+test("the Packs page says what a pack asked for beyond its settings, by name; the pack didn't get it and the value is nowhere", async () => {
   const shop: Pack = {
     manifest: manifest("shop", ["SHOP_URL"]),
     routes: (app, ctx) => app.get("/shop", (c) => c.text(`${ctx.env.SHOP_URL} ${ctx.env.GHE_TOKEN ? "has" : "lacks"} ${ctx.env["<img src=x onerror=alert(1)>"] ?? ""}`)),
@@ -59,13 +74,13 @@ test("the Packs page says what a pack read beyond its settings, by name; the val
   const quiet: Pack = { manifest: manifest("quiet", ["QUIET_URL"]), routes: (app, ctx) => app.get("/quiet", (c) => c.text(String(ctx.env.QUIET_URL))) };
   const { get } = packApp([shop, quiet], { env: { SHOP_URL: "https://shop.example", QUIET_URL: "https://quiet.example", GHE_TOKEN: "ghp_secret", "<img src=x onerror=alert(1)>": "x" } });
   const before = await (await get("/packs")).text();
-  assert.ok(!before.includes("Also reads"), "nothing read yet");
-  assert.equal(await (await get("/shop")).text(), "https://shop.example has x");
+  assert.ok(!before.includes("Asked for, not given"), "nothing asked for yet");
+  assert.equal(await (await get("/shop")).text(), "https://shop.example lacks ", "GHE_TOKEN (the done-when of #475) and the odd key: unset for it");
   await get("/shop");
   await get("/quiet");
   const page = await (await get("/packs")).text();
-  assert.equal(page.split("Also reads").length - 1, 1, "shop's card only, once");
-  assert.match(page, /Also reads[\s\S]{0,80}GHE_TOKEN, &lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.equal(page.split("Asked for, not given").length - 1, 1, "shop's card only, once");
+  assert.match(page, /Asked for, not given[\s\S]{0,80}GHE_TOKEN, &lt;img src=x onerror=alert\(1\)&gt;/);
   assert.ok(!page.includes("<img src=x"), "a hostile key name is escaped");
   assert.ok(!page.includes("ghp_secret"));
 });
@@ -80,12 +95,14 @@ test("a namesKeys setting (API 1.36): the keys its value names are the pack's ow
   const env = packEnv(m, all, (k) => seen.push(k));
   assert.equal(env.API_TOKEN, "t");
   assert.deepEqual(seen, []);
-  void env.OTHER_TOKEN;
-  void env.GHE_TOKEN;
-  void env.MODEL_KEY;
+  assert.equal(env.OTHER_TOKEN, undefined);
+  assert.equal(env.GHE_TOKEN, undefined, "named by a setting that isn't flagged");
+  assert.equal(env.MODEL_KEY, undefined, "named by a secret setting");
   assert.deepEqual(seen, ["OTHER_TOKEN", "GHE_TOKEN", "MODEL_KEY"]);
+  assert.deepEqual(Object.keys(env).sort(), ["API_TOKEN", "HTTP_ENVS", "HTTP_HIDDEN", "HTTP_SECRETS"]);
   all.HTTP_SECRETS = "OTHER_TOKEN@x.example";
-  void env.API_TOKEN;
+  assert.equal(env.OTHER_TOKEN, "o", "named now: its own now");
+  assert.equal(env.API_TOKEN, undefined);
   assert.deepEqual(seen, ["OTHER_TOKEN", "GHE_TOKEN", "MODEL_KEY", "API_TOKEN"], "no longer named: no longer its own");
 });
 
@@ -95,6 +112,6 @@ test("the Packs page lists the keys a pack reads by name, escaped", async () => 
   assert.equal(await (await get("/caller")).text(), "tok_secret");
   const page = await (await get("/packs")).text();
   assert.match(page, /Reads by name[\s\S]{0,80}API_TOKEN/);
-  assert.ok(!page.includes("Also reads"), "a named key isn't beyond its settings");
+  assert.ok(!page.includes("Asked for, not given"), "a named key isn't beyond its settings");
   assert.ok(!page.includes("tok_secret"));
 });

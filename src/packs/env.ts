@@ -1,11 +1,12 @@
 /**
  * A pack's view of the instance's settings (#475). A pack's env is meant to be its own: the keys in
  * its manifest's `settings`, the keys a `namesKeys` setting names, its `PACK_<ID>` switch, and a few
- * shared, harmless ones. This is the
- * audit step: every key is still returned, and a read of a set key the pack didn't declare is noted
- * (once a key) for its card on the Packs page. Filtering comes after the notes have run for a while.
+ * shared, harmless ones. From API 1.41 that's all it holds: any other key reads as unset, and a
+ * read of one that is set is noted (once a key) for the pack's card on the Packs page, so a pack
+ * that lacks a setting in its manifest can be told. Until 1.41 every key came back, with the note.
  *
- * A view, not a copy: a key saved on Settings shows up without a restart.
+ * A view, not a copy: a key saved on Settings shows up without a restart. Read-only: the settings
+ * are every pack's, so a pack can't set or remove one through it.
  */
 import type { PackManifest } from "./types.ts";
 
@@ -13,9 +14,6 @@ type Vars = Record<string, string | undefined>;
 
 /** Settings any pack may read: none is a secret. `CODE_DIR` is `ctx.codeDir` too; `U_DB` is where the database file is. */
 export const SHARED_ENV: readonly string[] = ["TZ_NAME", "PORT", "CODE_DIR", "U_DB"];
-
-/** Noted in place of a key when a pack lists them all (a spread, `Object.keys`). */
-export const EVERY_KEY = "every key";
 
 const KEY = /^[A-Z][A-Z0-9_]{0,63}$/;
 
@@ -62,22 +60,24 @@ export function envReads(): EnvReads {
 }
 
 /**
- * The instance's settings as this pack reads them: all of them for now, with `seen(key)` called for
- * each read of a key that is set and isn't the pack's. Only names are noted, never a value.
+ * The instance's settings as this pack reads them: its own keys only (API 1.41). Any other key reads
+ * as unset, and `seen(key)` is called when one that is set was asked for. Only names are noted, never
+ * a value. A spread or `Object.keys` lists its own keys that are set.
  */
 export function packEnv(m: PackManifest, all: Vars, seen: (key: string) => void): Vars {
   const own = ownKeys(m);
-  // A spread lists the keys and then reads each: "every key" says it, and naming them all after it says nothing more.
-  let listed = false;
+  const mine = (target: Vars, key: string | symbol): key is string => typeof key === "string" && Object.hasOwn(target, key) && (own.has(key) || namedKeys(m, target).includes(key));
   return new Proxy(all, {
-    get(target, key, receiver) {
-      if (!listed && typeof key === "string" && target[key] !== undefined && !own.has(key) && !namedKeys(m, target).includes(key)) seen(key);
-      return Reflect.get(target, key, receiver);
+    get(target, key) {
+      if (mine(target, key)) return target[key];
+      if (typeof key === "string" && Object.hasOwn(target, key) && target[key] !== undefined) seen(key);
+      return undefined;
     },
-    ownKeys(target) {
-      if (!listed) seen(EVERY_KEY);
-      listed = true;
-      return Reflect.ownKeys(target);
-    },
+    has: (target, key) => mine(target, key),
+    ownKeys: (target) => Object.keys(target).filter((k) => mine(target, k)),
+    getOwnPropertyDescriptor: (target, key) => (mine(target, key) ? { value: target[key], writable: false, enumerable: true, configurable: true } : undefined),
+    set: () => false,
+    defineProperty: () => false,
+    deleteProperty: () => false,
   });
 }
