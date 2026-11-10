@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.32";
+export const PACK_API = "1.33";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -437,6 +437,12 @@ export type PackContext = {
   /** Dovre's own database. */
   db: D1;
   /**
+   * API 1.33 (#476): this pack's own small state, kept in Dovre's database under its id: it
+   * outlives a restart and, hosted, is the same in every isolate. For what doesn't warrant a table
+   * (the last good answer, a job by its id).
+   */
+  store: PackStore;
+  /**
    * API 1.25: a write this pack made, into the actions log, after the fact (`ok: false` with `error`
    * when it failed). `kind` is one word ("send"): core logs it as `<id>.<kind>`, the name its
    * `writes` go by, and adds who pressed when hosted. A log that can't be kept never fails the write.
@@ -747,6 +753,23 @@ export type Pulse = { working: number; asking: number; trouble: { level: "storm"
 export type ScheduledEvent = { cron: string; scheduledTime: number };
 /** A Worker's waitUntil, for work that finishes after the handler returns. */
 export type Defer = (p: Promise<unknown>) => void;
+
+/** What a pack keeps for itself (`ctx.store`). */
+export type PackStore = { kv: PackKv };
+/**
+ * A pack's values by key (`ctx.store.kv`): JSON, 256 000 characters a value, 1000 keys and
+ * 4 000 000 characters a pack. A key is letters, digits and `_ . : / -`, 200 at most. A bad key, a
+ * value that isn't JSON, and one over a cap throw: nothing is cut to fit.
+ */
+export type PackKv = {
+  /** What's kept under the key; undefined when nothing is, or its time ran out. */
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  /** Keeps a value, in place of the last; with `ttlMs`, only that long. */
+  set(key: string, value: unknown, o?: { ttlMs?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
+  /** Its keys that start with `prefix` (all of them without one), in order. */
+  list(prefix?: string): Promise<string[]>;
+};
 
 /** What `ctx.logged` takes: the write's `kind` (one word), what it was done to (300 characters kept), and a line about it (200). */
 export type PackLogged = { kind: string; target: string; detail?: string; ok: boolean; error?: string };

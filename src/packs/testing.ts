@@ -20,6 +20,7 @@ import { noMemory } from "./core/assistant/bino/memory.ts";
 import { routeOf } from "./core/assistant/bino/route.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { loggedFor } from "./logged.ts";
+import { kvInMemory } from "./store.ts";
 import { activePacks, lookupsFrom } from "./registry.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
 import { STYLE } from "../ui/style.ts";
@@ -34,6 +35,8 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
     bindings: {},
     hosted: false,
     db: undefined as unknown as D1,
+    // In memory, with core's checks; with a `db` of yours, pass `store: { kv: … }` only to watch it.
+    store: { kv: kvInMemory() },
     // Checks the kind as core does, keeps nothing: pass your own to see what was logged.
     logged: loggedFor("test", undefined, () => {}),
     // No one, as locally: `{ ...ctx, viewer: () => "ann@example.dev" }` for a person's request.
