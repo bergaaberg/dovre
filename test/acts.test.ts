@@ -7,9 +7,9 @@ import type { Found } from "../src/packs/acts.ts";
 
 type Row = { kind: string; target: string; detail: string | null; ok: number; error: string | null };
 
-function world() {
+function world(id = "trk") {
   const { DB, raw } = openDb();
-  const ctx = testContext({ db: DB, env: { KEY: "k" } });
+  const ctx = testContext({ db: DB, env: { KEY: "k" } }, { id });
   const log = () => raw.prepare("SELECT kind, target, detail, ok, error FROM actions ORDER BY id").all().map((r) => ({ ...r })) as Row[];
   return { ctx, log };
 }
@@ -49,7 +49,7 @@ test("commentAct: re-checks, writes, and logs the target but never the text", as
 });
 
 test("writeAct: not set up stops before anything; a throw is logged and not done", async () => {
-  const { ctx, log } = world();
+  const { ctx, log } = world("p");
   const act = writeAct<string>({
     pack: "p", kind: "poke", title: "A poke", when: "w", fields: [{ name: "who", about: "who" }], button: "Poke",
     ready, read: (f) => (f.who ? { target: f.who, value: f.who } : "Give someone."),

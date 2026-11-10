@@ -15,12 +15,12 @@ const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
 /** dovre/pack.ts at PACK_API 1.34, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
-  ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
+  ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
   IngestInput IngestReply IngestSpec Investigate Item KeyValues Lane Link List ListItem ListShare ListState LookupField LookupKind Notice OnboardStep
-  PACK_API Pack PackAgent PackAgentAsk PackAgentCan PackAgentRun PackAgentStart PackAgentWhere PackAi PackAiAsk PackCompleteAsk PackContext PackDomain
+  PACK_API Pack PackAgent PackAgentAsk PackAgentCan PackAgentRun PackAgentStart PackAgentWhere PackAi PackAiAsk PackCan PackCanWhat PackCompleteAsk PackContext PackDomain
   PackFile PackForge PackKv PackLogged PackManifest PackMcp PackMcpAsk PackMcpCall PackMcpCan PackMcpResult PackMcpSetup PackNeed PackNote PackRan PackRunOpts PackSetting PackSetup PackShares PackStat PackStore PackTool PackWrite PacksModule PageHeader PageOpts Panel
-  Pick Pill Post PrSlotArg Pulse PulseFeed Read Ref RefRule RingDecl Role ScheduledEvent SetupStep SlotMap SlotName Slots SpanSlotArg Spark Stat
+  Pick Pill Post PrSlotArg Pulse PulseFeed Read Ref RefRule RingDecl Role ScheduledEvent SetupStep SlotMap SlotName Slots Spark Stat
   StatUnit Stats Tab Tabs TodayCard Tone ToolCall ToolResult WasmFile Wrote assignAct commentAct createAct failed fieldInputs html icon
   investigateHref isExternal markdown newTab refused safeUrl statusAct trunc writeAct
   App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
@@ -128,10 +128,11 @@ test("the testing door's stand-ins: a page in core's shell, My list in memory, a
   mkdirSync(join(dir, "shop", ".git"), { recursive: true });
   mkdirSync(join(dir, "notes"));
   const ctx = t.testContext({ codeDir: dir });
-  assert.deepEqual(ctx.checkouts!(), ["shop"]);
-  assert.equal(ctx.checkout!("shop"), join(dir, "shop"));
-  assert.equal(ctx.checkout!("notes"), null);
-  assert.equal(t.testContext().checkouts, undefined);
+  assert.deepEqual(ctx.checkouts(), ["shop"]);
+  assert.equal(ctx.checkout("shop"), join(dir, "shop"));
+  assert.equal(ctx.checkout("notes"), null);
+  assert.deepEqual(t.testContext().checkouts(), [], "no code folder: none");
+  assert.deepEqual(t.testContext().can("ask"), { ok: true });
   assert.equal(t.testContext().viewer(), undefined, "no one, as locally");
 
   const look = (kind: string) => ({ kind, when: "When asked.", fields: [], run: () => "x" });

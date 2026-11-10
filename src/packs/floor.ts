@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { API_ADDED, apiCompare, apiText, parseApi } from "./api.ts";
+import { API_ADDED, type ApiUse, apiCompare, apiText, parseApi } from "./api.ts";
 import { PACK_DOOR, PACK_TEST_DOOR } from "./imports.ts";
 import type { Pack } from "./types.ts";
 
@@ -36,12 +36,12 @@ function imported(source: string, mod: string): string[] {
 }
 
 /** What a pack uses of each minor's additions, oldest first: the pack as loaded, and the files under `dir` (its folder, tests too). */
-export function apiUses(pack: Pack, dir: string): { name: string; api: string }[] {
+export function apiUses(pack: Pack, dir: string, added: Record<string, ApiUse[]> = API_ADDED): { name: string; api: string }[] {
   const files = sources(dir);
   const all = files.join("\n");
   const doors = new Set(files.flatMap((f) => imported(f, PACK_DOOR)));
   const tests = new Set(files.flatMap((f) => imported(f, PACK_TEST_DOOR)));
-  return Object.entries(API_ADDED)
+  return Object.entries(added)
     .sort(([a], [b]) => apiCompare(a, b))
     .flatMap(([api, uses]) =>
       uses
@@ -57,16 +57,16 @@ export function apiUses(pack: Pack, dir: string): { name: string; api: string }[
 }
 
 /** What a pack uses that's newer than its manifest's `api`, as lines ("uses ctx.agent (1.23), declares 1.6"); empty when the number holds. */
-export function apiOver(pack: Pack, dir: string): string[] {
+export function apiOver(pack: Pack, dir: string, added: Record<string, ApiUse[]> = API_ADDED): string[] {
   const declared = parseApi(pack.manifest.api);
   if (!declared) return [`its api ${JSON.stringify(pack.manifest.api) ?? "?"} isn't a version`];
-  return apiUses(pack, dir)
+  return apiUses(pack, dir, added)
     .filter((u) => apiCompare(u.api, apiText(declared)) > 0)
     .map((u) => `uses ${u.name} (${u.api}), declares ${apiText(declared)}`);
 }
 
 /** Fails when a pack uses something newer than its manifest's `api`, naming each name and its minor. `dir` is the pack's folder. */
-export function assertApi(pack: Pack, dir: string) {
+export function assertApi(pack: Pack, dir: string, added: Record<string, ApiUse[]> = API_ADDED) {
   assert.ok(existsSync(dir), `${pack.manifest.id}: no folder at ${dir}`);
-  assert.deepEqual(apiOver(pack, dir), [], `${pack.manifest.id}: raise its manifest's api to the newest minor it uses`);
+  assert.deepEqual(apiOver(pack, dir, added), [], `${pack.manifest.id}: raise its manifest's api to the newest minor it uses`);
 }

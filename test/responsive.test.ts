@@ -128,7 +128,7 @@ test("cached GHE answers: known ones come at once and load again in the backgrou
 });
 
 test("the Gathering page has the same menu as the real one (packs' items too), so nothing jumps when it fills in", async () => {
-  const pack = { manifest: { api: 1, id: "notes", name: "Notes", description: "", domain: "personal" as const }, nav: () => [{ href: "/notes", title: "Notes", icon: "box" as const, group: "Apps" }] };
+  const pack = { manifest: { api: 2, id: "notes", name: "Notes", description: "", domain: "personal" as const }, nav: () => [{ href: "/notes", title: "Notes", icon: "box" as const, group: "Apps" }] };
   const app = appWithAgents({ ...ENV, DB: openDb().DB, GITHUB_USER: "me" }, { gatherer: neverGathered(), ghe: fakeGhe({}).ghe, packs: { on: [pack], off: [], env: {} } });
   const out = await (await app.request("http://localhost/", { headers: { cookie: "u_tk=test-token" } })).text();
   assert.match(out, /data-pending/);

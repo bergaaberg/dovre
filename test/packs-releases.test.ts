@@ -40,7 +40,7 @@ test("availableFor: only packs behind their newest release, with what changed si
   const changelog = "# foo\n\n## Unreleased\n\n## 1.2.0\n\n- Draws the <b>chart</b>\n\n## 1.1.0\n\n- Faster\n\n## 1.0.0\n\n- First\n";
   const { get, asked } = fakeGithub(["foo@1.0.0", "foo@1.2.0", "bar@2.0.0", "baz@1.0.0"], {
     "foo@1.2.0:packs/foo/CHANGELOG.md": changelog,
-    "foo@1.2.0:packs/foo/index.ts": `export const fooPack = { id: "foo", api: "1.0", version: "1.2.0" };`,
+    "foo@1.2.0:packs/foo/index.ts": `export const fooPack = { id: "foo", api: "2.0", version: "1.2.0" };`,
     "bar@2.0.0:packs/bar/index.ts": `export const barPack = { id: "bar", api: "99.0" };`,
   });
   const out = await availableFor(get, [
@@ -143,7 +143,7 @@ test("with no checkout, the CLI clones dovre-packs into its cache with every tag
 });
 
 test("listedOf reads a manifest's literals as text, the ones after its own id (#88)", () => {
-  const index = `const forge = { id: "gitlab", name: "Forge name" };\nexport const p = { manifest: { api: "1.6", version: "1.2.0", id: "gitlab", name: "GitLab", description: 'It\\'s a "forge"', domain: "work", execution: "local-only" } };`;
+  const index = `const forge = { id: "gitlab", name: "Forge name" };\nexport const p = { manifest: { api: "2.0", version: "1.2.0", id: "gitlab", name: "GitLab", description: 'It\\'s a "forge"', domain: "work", execution: "local-only" } };`;
   const l = listedOf("gitlab", index, { tag: "gitlab@1.2.0", version: "1.2.0" });
   assert.equal(l.name, "Forge name", "the first object naming its id wins");
   const own = listedOf("x", `export const p = { manifest: { api: "99.1", id: "x", description: "Draws the <b>chart</b>", execution: "nowhere" } };`);

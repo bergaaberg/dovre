@@ -16,11 +16,6 @@ import { shortDay } from "./ui/charts.ts";
 
 /** The contract: `Pack`, `PackContext`, `PACK_API` and every type they name. */
 export * from "./packs/types.ts";
-/**
- * @deprecated The agents pack's own share since 1.38 (#478), read with `ctx.required("agents", "auto")`
- * and narrowed by the reader. These names leave the door at 2.0 (#484).
- */
-export type { AutoLimits, AutoPr, AutoRunResult, AutoShare } from "./packs/core/agents/share.ts";
 export { type AutoFixAsk, type AutoFixLanded, FIX_TURNS } from "./actions/autofix.types.ts";
 /** The kit: every page and card is built from these, and `html` escapes what goes in. */
 export * from "./ui/kit.ts";

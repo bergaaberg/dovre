@@ -24,7 +24,7 @@ export function apiGap(need: unknown, have: string = PACK_API): string | null {
   const n = parseApi(need);
   const h = parseApi(have)!;
   if (!n) return `its api ${JSON.stringify(need) ?? "?"} isn't a version like ${have}`;
-  if (n.major !== h.major) return `written for pack contract ${n.major}, this Dovre speaks ${h.major}`;
+  if (n.major !== h.major) return `written for pack contract ${n.major}, this Dovre speaks ${h.major}: ${n.major < h.major ? "update the pack" : "update Dovre first"}`;
   if (n.minor > h.minor) return `needs core API ${apiText(n)}, this is ${apiText(h)}`;
   return null;
 }
@@ -66,7 +66,7 @@ const testing = (names: string): ApiUse[] => names.split(/\s+/).filter(Boolean).
  * `files` and a setup step's `refresh` (1.17), a pack's own share read by a name that isn't a
  * literal in the call (1.38), `refresh`'s `soon` and `agent` (1.40), and what a pack only reads off a type.
  */
-export const API_ADDED: Record<string, ApiUse[]> = {
+export const API_1: Record<string, ApiUse[]> = {
   "1.1": [has("Pack.files", (p) => p.files && Object.keys(p.files).length)],
   "1.2": [slot("pr.file")],
   "1.3": [has("a file with wasm: true", (p) => Object.values(p.files ?? {}).some((f) => f.wasm))],
@@ -118,3 +118,10 @@ export const API_ADDED: Record<string, ApiUse[]> = {
   "1.40": [ctx("soon"), ...testing("soonOf")],
   "1.41": [],
 };
+
+/**
+ * What each minor of this major added, in the same shape; `API_1` above is 1.x's, kept as the
+ * record 2.0 started from (docs/PACK-API-1.md) and as what the floor's tests read. A 2.0 pack may
+ * use all of it, so 2.x starts empty: the first minor adds `"2.1": [...]`.
+ */
+export const API_ADDED: Record<string, ApiUse[]> = {};

@@ -46,6 +46,30 @@ export function namedKeys(m: PackManifest, all: Vars): string[] {
 /** What packs read beyond their own keys, kept in memory: a pack's id → the keys, in the order first read. */
 export type EnvReads = { note(id: string, key: string): boolean; of(id: string): string[] };
 
+/**
+ * The Worker's bindings as this pack gets them (#484): the ones its manifest names
+ * (`requiredBindings`, `bindings`) and no other. Another reads as missing, and `seen(name)` is
+ * called when one that is there was asked for. Read-only, like `packEnv`.
+ */
+export function packBindings(m: PackManifest, all: Record<string, unknown>, seen: (name: string) => void): Record<string, unknown> {
+  const names = (v: unknown) => (Array.isArray(v) ? v.filter((n): n is string => typeof n === "string") : []);
+  const own = new Set([...names(m.requiredBindings), ...names(m.bindings)]);
+  const mine = (target: Record<string, unknown>, key: string | symbol): key is string => typeof key === "string" && own.has(key) && Object.hasOwn(target, key);
+  return new Proxy(all, {
+    get(target, key) {
+      if (mine(target, key)) return target[key];
+      if (typeof key === "string" && Object.hasOwn(target, key) && target[key] !== undefined) seen(key);
+      return undefined;
+    },
+    has: (target, key) => mine(target, key),
+    ownKeys: (target) => Object.keys(target).filter((k) => mine(target, k)),
+    getOwnPropertyDescriptor: (target, key) => (mine(target, key) ? { value: target[key], writable: false, enumerable: true, configurable: true } : undefined),
+    set: () => false,
+    defineProperty: () => false,
+    deleteProperty: () => false,
+  });
+}
+
 export function envReads(): EnvReads {
   const by = new Map<string, Set<string>>();
   return {

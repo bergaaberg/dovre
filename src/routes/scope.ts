@@ -76,6 +76,8 @@ export type AppScope = {
   packIds(): string[];
   /** Settings packs read that aren't their own (#475). */
   envSeen: EnvReads;
+  /** Bindings packs asked for that their manifests don't name (#484). */
+  bindingsSeen: EnvReads;
   packCards(): Promise<{ cards: TodayCard[]; failed: Off[] }>;
   packRings: ReturnType<typeof ringsOf>;
   packStats(): ReturnType<typeof statsFrom>;

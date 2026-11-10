@@ -22,6 +22,7 @@ import { routeOf } from "./core/assistant/bino/route.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { loggedFor } from "./logged.ts";
 import { kvInMemory } from "./store.ts";
+import { CORE_PACKS } from "./own.ts";
 import { activePacks, initAll, lookupsFrom } from "./registry.ts";
 import { foreignTables, migrationsGap, tablePrefix } from "./migrations.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
@@ -36,22 +37,25 @@ const soons = new WeakMap<PackContext["soon"], (number | undefined)[]>();
  */
 export const soonOf = (ctx: PackContext): (number | undefined)[] => soons.get(ctx.soon) ?? [];
 
-export function testContext(over: Partial<PackContext> = {}): PackContext {
+export function testContext(over: Partial<PackContext> = {}, as: { /** The pack's id, for what `logged` writes when you pass a `db` (`<id>.<kind>`). */ id?: string } = {}): PackContext {
   const asked: (number | undefined)[] = [];
   const soon = (ms?: number) => void asked.push(ms);
   soons.set(soon, asked);
   // As core does it: a code folder comes with its checkouts (the git repos directly under it).
   const dir = over.codeDir;
   return {
-    ...(dir ? { checkouts: () => checkoutsIn(dir), checkout: (name: unknown) => checkoutIn(dir, name) } : {}),
+    checkouts: () => (dir ? checkoutsIn(dir) : []),
+    checkout: (name: unknown) => (dir ? checkoutIn(dir, name) : null),
+    // Everything works in a test unless you say otherwise: `can: (what) => ({ ok: false, why: "…" })`.
+    can: () => ({ ok: true }),
     env: {},
     bindings: {},
     hosted: false,
     db: undefined as unknown as D1,
     // In memory, with core's checks; with a `db` of yours, pass `store: { kv: … }` only to watch it.
     store: { kv: kvInMemory() },
-    // Checks the kind as core does, keeps nothing: pass your own to see what was logged.
-    logged: loggedFor("test", undefined, () => {}),
+    // Checks the kind as core does; kept in the actions table of a `db` you pass, as `<id>.<kind>`, else nowhere.
+    logged: loggedFor(as.id ?? "test", over.db, () => {}),
     // No one, as locally: `{ ...ctx, viewer: () => "ann@example.dev" }` for a person's request.
     viewer: () => undefined,
     publish: () => {},
@@ -245,7 +249,7 @@ export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instanc
   const gatherer = { get: async () => s, stale: () => {}, gathering: () => false, peek: () => s };
   const ghe: Ghe = { host: "acme.ghe.com", rest: () => Promise.reject(new Error("no GitHub in tests")), graphql: () => Promise.reject(new Error("no GitHub in tests")) };
   const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: o.codeDir ?? "x", CLAUDE_DIR: "x", DB: db.DB, ...(o.dataDir ? { U_DB: join(o.dataDir, "dovre.sqlite") } : {}) } as Env;
-  const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {} }, session: o.session, mcpTurns: o.mcpTurns, ai: o.ai, agents: o.agents, mcp: o.mcp });
+  const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {}, core: [...CORE_PACKS] }, session: o.session, mcpTurns: o.mcpTurns, ai: o.ai, agents: o.agents, mcp: o.mcp });
   // The packs' own tables (Pack.migrations) are made before the first request through get or post.
   const mounted = packsOf(app)!;
   const ready = initAll(mounted, mounted.ctxOf, () => {}, { init: false });

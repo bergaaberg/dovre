@@ -47,7 +47,7 @@ test("flagsOf takes the pack's own keys, and never a secret on the command line"
 
 const tool = (name: string) =>
   ({
-    manifest: { api: "1.6", id: "tool", name, description: "x", domain: "general", execution: "local-only" },
+    manifest: { api: "2.0", id: "tool", name, description: "x", domain: "general", execution: "local-only" },
     nav: () => [{ href: "/tool", title: "Tool" }],
     routes(app, ctx) {
       app.get("/tool", (c) => ctx.page(c, { title: name, body: html`<p>the tool</p>` }));

@@ -101,7 +101,7 @@ function addSetup() {
   const into = join(root, "instance");
   mkdirSync(join(repo, "packs", "bar"), { recursive: true });
   mkdirSync(join(repo, "packs", "big"), { recursive: true });
-  writeFileSync(join(repo, "packs", "bar", "index.ts"), 'export const barPack = { manifest: { api: "1.0", version: "1.0.0", id: "bar", name: "Bar", description: "Bars \\"quoted\\".", domain: "work", execution: "any" } };\n');
+  writeFileSync(join(repo, "packs", "bar", "index.ts"), 'export const barPack = { manifest: { api: "2.0", version: "1.0.0", id: "bar", name: "Bar", description: "Bars \\"quoted\\".", domain: "work", execution: "any" } };\n');
   writeFileSync(join(repo, "packs", "bar", "view.ts"), "// view\n");
   writeFileSync(join(repo, "packs", "big", "index.ts"), 'export const bigPack = { manifest: { api: "99.0", id: "big", name: "Big" } };\n');
   git(repo, "init", "-q", "-b", "main");
@@ -109,7 +109,7 @@ function addSetup() {
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "bar");
   git(repo, "tag", "bar@1.0.0");
-  writeFileSync(join(repo, "packs", "bar", "index.ts"), 'export const barPack = { manifest: { api: "1.0", version: "1.1.0-wip", id: "bar", name: "Bar next" } };\n');
+  writeFileSync(join(repo, "packs", "bar", "index.ts"), 'export const barPack = { manifest: { api: "2.0", version: "1.1.0-wip", id: "bar", name: "Bar next" } };\n');
   git(repo, "commit", "-qam", "wip");
   mkdirSync(into);
   writeFileSync(join(into, "packs.ts"), "export default [];\n");
