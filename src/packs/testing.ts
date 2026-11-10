@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { Context } from "hono";
 import { createApp } from "../app.ts";
+import type { McpRun } from "../ai/mcpcalls.ts";
 import type { AgentHost, AiRoute } from "./ai.ts";
 import { type D1, openDb } from "../db.ts";
 import type { AppEnv, Env } from "../env.ts";
@@ -69,6 +70,15 @@ export function testContext(over: Partial<PackContext> = {}): PackContext {
       start: async () => ({ error: "AI: not in tests" }),
       result: async () => undefined,
       land: async () => ({ error: "AI: not in tests" }),
+    },
+    mcp: {
+      can: () => ({ ok: false, why: "not in tests" }),
+      call: async () => {
+        throw new Error("MCP: not in tests");
+      },
+      write: async () => {
+        throw new Error("MCP: not in tests");
+      },
     },
     ...over,
   };
@@ -202,13 +212,13 @@ export function testSnapshot(o: Partial<Snapshot> = {}): Snapshot {
  * app's own origin unless `headers` say otherwise) answer as the app would. GitHub answers nothing;
  * Bino is off.
  */
-export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instance's settings the packs read. */ env?: Record<string, string>; forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "pr" | "dir" | "propose">>; hosted?: boolean; /** Local: the code folder packs see as `ctx.codeDir`. */ codeDir?: string; /** Local: the folder the packs' own folders (`ctx.dir()`) are made in; without it, `data/` where the tests run. */ dataDir?: string; /** A pack session (#353): no cockpit, and only `checkout` under codeDir. */ session?: { pack: string; checkout?: string }; /** A token's turn for /mcp (a session's own, #371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** A made-up model for `ctx.complete` (#466); a pack still needs my OK on its Settings page. */ ai?: AiRoute; /** A made-up runner for `ctx.agent` (#467); the same OK needed. */ agents?: AgentHost } = {}) {
+export function packApp(packs: Pack[], o: { snapshot?: Snapshot; /** The instance's settings the packs read. */ env?: Record<string, string>; forge?: Pick<Forge, "id" | "name" | "can"> & Partial<Pick<Forge, "host" | "work" | "merged" | "repos" | "file" | "pr" | "dir" | "propose">>; hosted?: boolean; /** Local: the code folder packs see as `ctx.codeDir`. */ codeDir?: string; /** Local: the folder the packs' own folders (`ctx.dir()`) are made in; without it, `data/` where the tests run. */ dataDir?: string; /** A pack session (#353): no cockpit, and only `checkout` under codeDir. */ session?: { pack: string; checkout?: string }; /** A token's turn for /mcp (a session's own, #371). */ mcpTurns?: (token: string) => { id: string; repo: string; cwd: string } | undefined; /** A made-up model for `ctx.complete` (#466); a pack still needs my OK on its Settings page. */ ai?: AiRoute; /** A made-up runner for `ctx.agent` (#467); the same OK needed. */ agents?: AgentHost; /** A made-up Claude Code for `ctx.mcp` (#488); the same OK needed. */ mcp?: McpRun } = {}) {
   const db = openDb();
   const s = o.snapshot ?? testSnapshot();
   const gatherer = { get: async () => s, stale: () => {}, gathering: () => false, peek: () => s };
   const ghe: Ghe = { host: "acme.ghe.com", rest: () => Promise.reject(new Error("no GitHub in tests")), graphql: () => Promise.reject(new Error("no GitHub in tests")) };
   const env = { GHE_HOST: "acme.ghe.com", GHE_ORG: "ACME", LAUNCH_TOKEN: "test-token", CODE_DIR: o.codeDir ?? "x", CLAUDE_DIR: "x", DB: db.DB, ...(o.dataDir ? { U_DB: join(o.dataDir, "dovre.sqlite") } : {}) } as Env;
-  const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {} }, session: o.session, mcpTurns: o.mcpTurns, ai: o.ai, agents: o.agents });
+  const app = createApp(env, { gatherer, ghe, forge: o.forge, bino: { route: routeOf({ via: "off" }), memory: noMemory("off in tests") }, packs: { ...activePacks(packs, { env: o.env ?? {}, hosted: !!o.hosted, which: () => "/bin/x" }), env: o.env ?? {} }, session: o.session, mcpTurns: o.mcpTurns, ai: o.ai, agents: o.agents, mcp: o.mcp });
   const get = (path: string, headers: Record<string, string> = {}) => app.request(`http://localhost${path}`, { headers: { cookie: "u_tk=test-token", ...headers } });
   const post = (path: string, body: Record<string, string> | string, headers: Record<string, string> = {}) =>
     app.request(`http://localhost${path}`, {

@@ -13,13 +13,13 @@ import { assertDoors, reachIns } from "../src/pack-testing.ts";
 const src = resolve(import.meta.dirname, "..", "src");
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
-/** dovre/pack.ts at PACK_API 1.33, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
+/** dovre/pack.ts at PACK_API 1.34, types and values. A name added: bump PACK_API's minor, add it here and a row in docs/ARCHITECTURE.md. */
 const PACK = words(`
   ActDone ActField ActKind AgentShare Ago AiSummary AutoFixAsk AutoFixLanded AutoLimits AutoPr AutoRunResult AutoShare Bit BulkBar Card CheckRows
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
   IngestInput IngestReply IngestSpec Investigate Item KeyValues Lane Link List ListItem ListShare ListState LookupField LookupKind Notice OnboardStep
   PACK_API Pack PackAgent PackAgentAsk PackAgentCan PackAgentRun PackAgentStart PackAgentWhere PackAi PackAiAsk PackCompleteAsk PackContext PackDomain
-  PackFile PackForge PackKv PackLogged PackManifest PackNeed PackNote PackRan PackRunOpts PackSetting PackSetup PackShares PackStat PackStore PackTool PackWrite PacksModule PageHeader PageOpts Panel
+  PackFile PackForge PackKv PackLogged PackManifest PackMcp PackMcpAsk PackMcpCall PackMcpCan PackMcpResult PackMcpSetup PackNeed PackNote PackRan PackRunOpts PackSetting PackSetup PackShares PackStat PackStore PackTool PackWrite PacksModule PageHeader PageOpts Panel
   Pick Pill Post PrSlotArg Pulse PulseFeed Read Ref RefRule RingDecl Role ScheduledEvent SetupStep SlotMap SlotName Slots SpanSlotArg Spark Stat
   StatUnit Stats Tab Tabs TodayCard Tone ToolCall ToolResult WasmFile Wrote assignAct commentAct createAct failed fieldInputs html icon
   investigateHref isExternal markdown newTab refused safeUrl statusAct trunc writeAct

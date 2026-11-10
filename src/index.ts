@@ -39,6 +39,7 @@ import { githubForge } from "./forge/github.ts";
 import { forgeCan } from "./forge/types.ts";
 import { checkoutOf, checkouts } from "./checkouts.ts";
 import { agyCli, claudeCli, codexCli, copilotComplete } from "./ai/llm.ts";
+import { claudeMcp } from "./ai/mcpcalls.ts";
 import { copilotCli } from "./ai/copilotcli.ts";
 import { createRunner, HARNESSES, repoDir, type Run } from "./agents/runner.ts";
 import { gitTurnDiff } from "./agents/turndiff.ts";
@@ -447,6 +448,8 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
   // What packs ask once I allow them (#466); through Claude Code, small is Haiku and large Sonnet.
   ...(packModel ? { ai: { complete: packModel, via: AI_ROUTE_NAMES[sumVia], ...(sumVia === "claude" ? { models: { small: "haiku", large: "sonnet" } } : {}) } } : {}),
+  // Packs' MCP calls (#488) go through Claude Code's own sign-ins, whatever model the rest asks.
+  ...(claude ? { mcp: claudeMcp({ bin: claude.bin, pre: claude.pre }) } : {}),
   runner,
   mcpTurns: (t) => terminals?.byMcpToken(t),
   // Settings → Pack tools for agents: omp and agy read MCP servers only from their own config (#172).
