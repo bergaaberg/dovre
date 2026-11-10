@@ -119,6 +119,7 @@ test("the testing door's stand-ins: a page in core's shell, My list in memory, a
   await assert.rejects(t.testForge(brings).viewer(), /TOKEN isn't set/);
 
   t.assertStyled("ok", `<p class="t2 mine-\${x} mine">`, ".mine { color: red }");
+  t.assertStyled("a quoted choice", `<p class="t2 \${lost === worst ? "bad" : "t2"}">`);
   assert.throws(() => t.assertStyled("bad", `<p class="nobody-styles-this">`), /nobody-styles-this|no stylesheet/);
 
   const dir = mkdtempSync(join(tmpdir(), "dovre-code-"));

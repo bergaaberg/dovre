@@ -121,7 +121,8 @@ export function assertStyled(name: string, source: string, css = "") {
   const styled = classesOf(STYLE + css);
   const missing = new Set<string>();
   for (const m of source.matchAll(/class="([^"]*)"/g))
-    for (const cls of m[1]!.replace(/\$\{[^}]*\}/g, " ").split(/\s+/).filter(Boolean)) if (/^[a-z][a-z0-9-]*$/.test(cls) && !cls.endsWith("-") && !styled.has(cls)) missing.add(cls);
+    // `class="${on ? "a" : "b"}"` ends at the quote inside the `${`: what's left of that expression is code, not class names.
+    for (const cls of m[1]!.replace(/\$\{[^}]*\}/g, " ").replace(/\$\{.*$/s, " ").split(/\s+/).filter(Boolean)) if (/^[a-z][a-z0-9-]*$/.test(cls) && !cls.endsWith("-") && !styled.has(cls)) missing.add(cls);
   assert.deepEqual([...missing], [], `${name}: classes no stylesheet styles`);
 }
 
