@@ -63,7 +63,8 @@ const testing = (names: string): ApiUse[] => names.split(/\s+/).filter(Boolean).
  * data (test/docs.test.ts holds the two together). `assertApi` (src/packs/floor.ts) reads a pack
  * against it and fails on a name newer than its manifest's `api`. Text matching is crude on purpose:
  * it catches the forgotten bump. Not seen: `forge().file` at a commit (1.2), a `propose` with
- * `files` and a setup step's `refresh` (1.17), and what a pack only reads off a type.
+ * `files` and a setup step's `refresh` (1.17), a pack's own share read by a name that isn't a
+ * literal in the call (1.38), and what a pack only reads off a type.
  */
 export const API_ADDED: Record<string, ApiUse[]> = {
   "1.1": [has("Pack.files", (p) => p.files && Object.keys(p.files).length)],
@@ -112,4 +113,5 @@ export const API_ADDED: Record<string, ApiUse[]> = {
   "1.35": [has("Pack.migrations", (p) => p.migrations?.length), ...testing("assertTables")],
   "1.36": [has("a setting's namesKeys", (p) => p.manifest.settings?.some((s) => s.namesKeys))],
   "1.37": testing("assertApi apiOver"),
+  "1.38": [text("a pack's own share in ctx.required", /\brequired\(\s*[^,()]+,\s*["'](?!(?:agent|list|auto)["'])[\w.-]+["']\s*\)/)],
 };

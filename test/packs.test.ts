@@ -18,7 +18,7 @@ import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
 import { withAssistant } from "../src/packs/core/assistant/test/withAssistant.ts";
-import { packApp, testContext } from "../src/packs/testing.ts";
+import { packApp, testAgentLinks, testContext } from "../src/packs/testing.ts";
 import { apiCompare, apiGap, parseApi } from "../src/packs/api.ts";
 import { type Pack, PACK_API, type PackManifest } from "../src/packs/types.ts";
 import type { D1 } from "../src/db.ts";
@@ -150,19 +150,28 @@ test("requires (#326): switched off on the Packs page, what requires it is off t
 });
 
 test("requires (#326): a pack reads what a pack it requires shares, only that one, only while it's on, and a share that throws is nothing", async () => {
-  const auto = { prs: async () => [], run: async () => undefined, limits: async () => ({ on: true, runUsd: 5, dayUsd: 20, minutes: 60 }), fix: async () => ({ wait: "" }), land: async () => ({ wait: "" }) };
-  const agents = pack({ id: "helper", name: "Helper" }, { shares: () => ({ auto }) });
+  // `tally` is the helper's own share (#478): core has never heard of the name and passes it along unread.
+  type Tally = { count(): number };
+  const tally: Tally = { count: () => 3 };
+  const tallyOf = (got: unknown): Tally | undefined => (got && typeof (got as Tally).count === "function" ? (got as Tally) : undefined);
+  const agents = pack({ id: "helper", name: "Helper" }, { shares: () => ({ tally, agent: testAgentLinks }) });
   const broken = pack({ id: "broken" }, { shares: () => { throw new Error("no"); } });
   const review = pack({ id: "review", requires: ["helper", "broken"] });
   const nosy = pack({ id: "nosy" });
   const { app, post } = signedIn(snapshot(), {}, { packs: [review, nosy, agents, broken] });
   const { ctxOf } = packsOf(app)!;
-  assert.equal(ctxOf(review).required("helper", "auto"), auto);
-  assert.equal(ctxOf(review).required("broken", "auto"), undefined);
-  assert.equal(ctxOf(nosy).required("helper", "auto"), undefined, "not in its requires");
-  assert.equal(ctxOf(review).required("nowhere", "auto"), undefined);
+  const got: unknown = ctxOf(review).required("helper", "tally");
+  assert.equal(got, tally);
+  assert.equal(tallyOf(got)?.count(), 3, "the reader narrows it");
+  assert.equal(tallyOf(ctxOf(review).required("helper", "agent")), undefined, "another share isn't that shape");
+  assert.equal(ctxOf(review).required("helper", "agent"), testAgentLinks, "core's names keep their types beside it");
+  assert.equal(ctxOf(review).required("helper", "nothing"), undefined, "a name it doesn't share");
+  assert.equal(ctxOf(review).required("helper", "constructor"), undefined, "nor what every object has");
+  assert.equal(ctxOf(review).required("broken", "tally"), undefined);
+  assert.equal(ctxOf(nosy).required("helper", "tally"), undefined, "not in its requires");
+  assert.equal(ctxOf(review).required("nowhere", "tally"), undefined);
   await post("/packs/helper/switch", { on: "" });
-  assert.equal(ctxOf(review).required("helper", "auto"), undefined, "switched off on the Packs page");
+  assert.equal(ctxOf(review).required("helper", "tally"), undefined, "switched off on the Packs page");
 });
 
 test("packs in the app: routes under their own path, nav, styles, search, Today; hostile text inert", async () => {
@@ -657,6 +666,8 @@ test("Dovre's own packs (src/packs/core/) are reached only through the registry:
   // Bino's engine sits in the assistant pack's folder (WP-M4) but is still wired by core (the dock,
   // the hub, Settings) until it goes through the Pack API: that one folder, and nothing else in it.
   const bino = join(core, "assistant", "bino") + sep;
+  // The door still names the agents pack's `auto` share types (types only), until they leave at 2.0 (#484).
+  const door = (rel: string, to: string) => rel === "pack.ts" && to === join(core, "agents", "share.ts");
   const bad: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -665,7 +676,7 @@ test("Dovre's own packs (src/packs/core/) are reached only through the registry:
         if (rel !== join("packs", "core")) walk(join(dir, e.name));
       } else if (e.name.endsWith(".ts") && !entry.has(rel)) {
         const text = readFileSync(join(dir, e.name), "utf8");
-        for (const m of text.matchAll(/(?:from|import)\s*\(?\s*"(\.[^"]+)"/g)) if (resolve(dir, m[1]!).startsWith(core) && !resolve(dir, m[1]!).startsWith(bino)) bad.push(`${rel}: ${m[1]}`);
+        for (const m of text.matchAll(/(?:from|import)\s*\(?\s*"(\.[^"]+)"/g)) if (resolve(dir, m[1]!).startsWith(core) && !resolve(dir, m[1]!).startsWith(bino) && !door(rel, resolve(dir, m[1]!))) bad.push(`${rel}: ${m[1]}`);
       }
     }
   };

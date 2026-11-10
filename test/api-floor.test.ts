@@ -73,12 +73,13 @@ test("ctx members, forge calls, slots and shares are seen in the text", () => {
       `const forge = ctx.forge()!; await forge.pr("a/b", 1);`,
       `slots: () => ({ "pr.file": () => "" }),`,
       `const list = ctx.required("todo", "list");`,
+      `const tally = ctx.required("counter", "tally"); ctx.required("agents", "agent"); ctx.required("agents", "auto");`,
       `ctx.directory; ctx.runner; forge.prs;`,
     ].join("\n"),
   });
   assert.deepEqual(
     apiUses(packOf("1.0"), dir).map((u) => `${u.api} ${u.name}`),
-    ["1.2 slot pr.file", "1.11 share list", "1.20 forge().untriaged", "1.21 forge().pr", "1.31 ctx.viewer", "1.33 ctx.store"],
+    ["1.2 slot pr.file", "1.11 share list", "1.12 share agent", "1.20 forge().untriaged", "1.21 forge().pr", "1.31 ctx.viewer", "1.33 ctx.store", "1.38 a pack's own share in ctx.required"],
   );
 });
 

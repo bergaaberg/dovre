@@ -19,7 +19,7 @@ import type { D1 } from "../db.ts";
 import { loadPolicy } from "../notify.ts";
 import { quietAt } from "../quiet.ts";
 import { ownedRepo } from "../sources/files.ts";
-import { type AutoFixAsk, type AutoFixLanded, FIX_TURNS } from "../packs/types.ts";
+import { type AutoFixAsk, type AutoFixLanded, FIX_TURNS } from "./autofix.types.ts";
 import { findCheckout } from "./auto.ts";
 import { logAction } from "./deploys.ts";
 

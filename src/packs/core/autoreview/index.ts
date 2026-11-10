@@ -2,7 +2,8 @@
  * Auto review, a core pack (#326): the review half of auto runs. Each auto run's draft PR gets
  * review rounds: a reviewer's level from 1 to 5, fix sessions on the PR's branch from its comments,
  * and a merge at 5, within hard limits. It requires the agents pack, and reads its auto runs only
- * through what that pack shares (`ctx.required("agents", "auto")`), never by importing it.
+ * through what that pack shares (its `auto` share, read with `autoOf`), importing only the
+ * share's type and reader (../agents/share.ts).
  * It keeps the PRs (store.ts), reviews each new head commit (round.ts, reviewer.ts), starts fix
  * sessions from the comments (fix.ts, fixer.ts) and shows the levels on the PR's page (view.ts).
  * Level 5 merges where the repo's `.dovre/auto.json` allows it (merge.ts, config.ts). A PR handed
@@ -12,6 +13,7 @@ import type { Complete } from "../../../ai/llm.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { writeClicksStore } from "../../../writes.ts";
 import { type Pack, type PackContext, PACK_API } from "../../types.ts";
+import { autoOf } from "../agents/share.ts";
 import { fixPass } from "./fix.ts";
 import { mergePass } from "./merge.ts";
 import { reviewPass } from "./round.ts";
@@ -36,7 +38,7 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
   };
   /** Keeps what's new from the agents pack's share, then (`review`) reviews what's due; tells the page once if anything changed. */
   const pass = async (ctx: PackContext, review: boolean) => {
-    const auto = ctx.required("agents", "auto");
+    const auto = autoOf(ctx);
     if (!auto) return;
     const store = prsStore(ctx.db);
     let changed = false;

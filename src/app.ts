@@ -544,9 +544,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
           file: (name) => filePaths.get(c.manifest.id)?.get(name),
           // Only from a pack it requires or uses, while that one is on and shown (#326).
-          required: (id, name) => {
+          required: (id: string, name: string) => {
             const from = (requiresOf(c.manifest).includes(id) || usesOf(c.manifest).includes(id)) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;
-            return from?.shares ? safely(() => from.shares!(ctxOf(from))[name], undefined, (e) => packLog(id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
+            // By its own name only: a pack's own share (#478) is any string, so never what an object inherits.
+            const own = (all: Record<string, unknown>) => (Object.hasOwn(all, name) ? all[name] : undefined);
+            return from?.shares ? safely(() => own(from.shares!(ctxOf(from))) as never, undefined, (e) => packLog(id)(`shares: ${(e as Error)?.message ?? e}`)) : undefined;
           },
           refs: () => packRefs(),
           startPicture: (svg) => {

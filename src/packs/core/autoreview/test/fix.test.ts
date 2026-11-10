@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
-import type { AutoFixAsk, AutoFixLanded, AutoRunResult, AutoShare } from "../../../types.ts";
+import type { AutoFixAsk, AutoFixLanded, AutoRunResult, AutoShare } from "../../agents/share.ts";
 import { fixPass, type FixDeps } from "../fix.ts";
 import { fixPrompt, repliesOf, taggedOf } from "../fixer.ts";
 import { prsStore } from "../store.ts";
