@@ -447,7 +447,10 @@ export type SlotName = keyof SlotMap;
 export type Slots = { [K in SlotName]?: (arg: SlotMap[K]["arg"]) => SlotMap[K]["out"] };
 
 export type PackContext = {
-  /** The instance's settings (strings): this pack reads its own keys. */
+  /**
+   * The instance's settings (strings): this pack reads its own keys (its manifest's `settings`, `PACK_<ID>`,
+   * and `TZ_NAME`, `PORT`, `CODE_DIR`). Other keys still come back for now, noted on the Packs page; they won't (#475).
+   */
   env: Record<string, string | undefined>;
   /** The Worker's bindings when hosted (D1, R2, service bindings, send_email…); empty locally. */
   bindings: Record<string, unknown>;

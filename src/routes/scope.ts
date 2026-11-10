@@ -11,6 +11,7 @@ import type { keyPrefsStore } from "../keys.ts";
 import type { LayoutStore } from "../layout.ts";
 import type { OnboardingStore } from "../onboarding.ts";
 import type { PackAiStore } from "../packs/ai.ts";
+import type { EnvReads } from "../packs/env.ts";
 import type { Off, refresher, Refreshes, ringsOf, statsFrom } from "../packs/registry.ts";
 import type { createReleases, GetJson } from "../packs/releases.ts";
 import type { onboardOf } from "../packs/suggest.ts";
@@ -73,6 +74,8 @@ export type AppScope = {
   hidden(id: string): boolean;
   /** Every pack id this instance lists, on or off, Dovre's own too. */
   packIds(): string[];
+  /** Settings packs read that aren't their own (#475). */
+  envSeen: EnvReads;
   packCards(): Promise<{ cards: TodayCard[]; failed: Off[] }>;
   packRings: ReturnType<typeof ringsOf>;
   packStats(): ReturnType<typeof statsFrom>;
