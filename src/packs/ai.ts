@@ -11,12 +11,17 @@
  * edits. A turn sees over /mcp only its own pack's tools and those I granted by name; anything that
  * asks for approval is refused, since nobody is there to answer. One turn at a time per pack, its
  * dollars held against the day's cap until it ends.
+ *
+ * Beside the levels, a tick of its own: MCP calls (#488, src/packs/mcpcalls.ts), under the same
+ * day's dollars.
  */
 import type { Complete } from "../ai/llm.ts";
 import type { McpScope, Run } from "../agents/runner.ts";
 import type { SandboxState } from "../agents/sandbox.ts";
+import type { McpRun } from "../ai/mcpcalls.ts";
 import type { D1 } from "../db.ts";
 import { ownedRepo } from "../sources/files.ts";
+import { mcpAskOf, packMcpFor } from "./mcpcalls.ts";
 import type { PackAgent, PackAgentAsk, PackAgentCan, PackAgentRun, PackAgentStart, PackAgentWhere, PackAi, PackAiAsk, PackCompleteAsk } from "./types.ts";
 
 export type AiLevel = "off" | "text" | "agent";
@@ -31,9 +36,11 @@ export type AiGrant = {
   tools: string[];
   runUsd: number;
   turns: number;
+  /** MCP calls (#488): exact calls to the one server its manifest names, under the day's dollars. */
+  mcp: boolean;
 };
 
-export const NO_GRANT: AiGrant = { level: "off", size: "small", dayUsd: 1, where: [], repos: [], tools: [], runUsd: 1, turns: 30 };
+export const NO_GRANT: AiGrant = { level: "off", size: "small", dayUsd: 1, where: [], repos: [], tools: [], runUsd: 1, turns: 30, mcp: false };
 /** The most a day's cap may be, per pack. */
 export const MAX_DAY_USD = 50;
 /** The most one agent turn may spend, and its turns at most. */
@@ -58,12 +65,13 @@ const oneLine = (v: unknown) => (typeof v === "string" && v.trim() ? v.replace(/
 
 /** What a manifest asks for, read safely: a `why` of one line for each, or nothing. */
 export function aiAskOf(m: { ai?: unknown } | undefined): PackAiAsk | undefined {
-  const ai = m?.ai as { text?: { why?: unknown }; agent?: Record<string, unknown> } | undefined;
+  const ai = m?.ai as { text?: { why?: unknown }; agent?: Record<string, unknown>; mcp?: unknown } | undefined;
   if (!ai || typeof ai !== "object") return undefined;
   const textWhy = ai.text && typeof ai.text === "object" ? oneLine(ai.text.why) : undefined;
   const agent = agentAskOf(ai.agent);
-  if (!textWhy && !agent) return undefined;
-  return { ...(textWhy ? { text: { why: textWhy } } : {}), ...(agent ? { agent } : {}) };
+  const mcp = mcpAskOf(ai.mcp);
+  if (!textWhy && !agent && !mcp) return undefined;
+  return { ...(textWhy ? { text: { why: textWhy } } : {}), ...(agent ? { agent } : {}), ...(mcp ? { mcp } : {}) };
 }
 
 function agentAskOf(a: Record<string, unknown> | undefined): PackAgentAsk | undefined {
@@ -99,18 +107,19 @@ export function grantOf(form: Record<string, unknown>, ask?: PackAiAsk): AiGrant
   const runUsd = money(form.runUsd, MAX_RUN_USD, NO_GRANT.runUsd, 0.01);
   const t = Number(form.turns);
   const turns = Number.isInteger(t) && t >= 1 ? Math.min(MAX_TURNS, t) : NO_GRANT.turns;
-  return { level, size, dayUsd, where, repos, tools, runUsd, turns };
+  const mcp = !!ask?.mcp && (form.mcp === "on" || form.mcp === true);
+  return { level, size, dayUsd, where, repos, tools, runUsd, turns, mcp };
 }
 
 /** A grant as kept, read back without trusting it. */
-type Row = { pack: string; level: string; size: string; day_usd: number; places: string | null; repos: string | null; tools: string | null; run_usd: number | null; turns: number | null };
+type Row = { pack: string; level: string; size: string; day_usd: number; places: string | null; repos: string | null; tools: string | null; run_usd: number | null; turns: number | null; mcp: number | null };
 function rowGrant(r: Row): AiGrant {
   const level: AiLevel = r.level === "agent" || r.level === "text" ? r.level : "off";
   const where = WHERE.filter((w) => (r.places ?? "").split(",").includes(w));
   const tools = (r.tools ?? "").split(",").filter((t) => TOOL.test(t));
   const repos = r.repos === "*" ? "mine" : reposOf(r.repos ?? "");
   const t = Number(r.turns);
-  return { level, size: r.size === "any" ? "any" : "small", dayUsd: money(r.day_usd, MAX_DAY_USD, NO_GRANT.dayUsd), where, repos, tools, runUsd: money(r.run_usd, MAX_RUN_USD, NO_GRANT.runUsd, 0.01), turns: Number.isInteger(t) && t >= 1 ? Math.min(MAX_TURNS, t) : NO_GRANT.turns };
+  return { level, size: r.size === "any" ? "any" : "small", dayUsd: money(r.day_usd, MAX_DAY_USD, NO_GRANT.dayUsd), where, repos, tools, runUsd: money(r.run_usd, MAX_RUN_USD, NO_GRANT.runUsd, 0.01), turns: Number.isInteger(t) && t >= 1 ? Math.min(MAX_TURNS, t) : NO_GRANT.turns, mcp: r.mcp === 1 };
 }
 
 /** Where today starts, on this machine's clock. */
@@ -129,7 +138,7 @@ export function packAiStore(db: D1, now: () => number = Date.now) {
   let loading: Promise<void> | undefined;
   const load = () =>
     (loading ??= (async () => {
-      const { results } = await db.prepare("SELECT pack, level, size, day_usd, places, repos, tools, run_usd, turns FROM pack_ai").all<Row>();
+      const { results } = await db.prepare("SELECT pack, level, size, day_usd, places, repos, tools, run_usd, turns, mcp FROM pack_ai").all<Row>();
       for (const r of results) grants.set(r.pack, rowGrant(r));
     })().catch((e) => {
       loading = undefined;
@@ -143,8 +152,8 @@ export function packAiStore(db: D1, now: () => number = Date.now) {
     async set(pack: string, g: AiGrant): Promise<void> {
       await load();
       await db
-        .prepare("INSERT OR REPLACE INTO pack_ai (pack, level, size, day_usd, places, repos, tools, run_usd, turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(pack, g.level, g.size, g.dayUsd, g.where.join(","), g.repos === "mine" ? "*" : g.repos.join(","), g.tools.join(","), g.runUsd, g.turns)
+        .prepare("INSERT OR REPLACE INTO pack_ai (pack, level, size, day_usd, places, repos, tools, run_usd, turns, mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(pack, g.level, g.size, g.dayUsd, g.where.join(","), g.repos === "mine" ? "*" : g.repos.join(","), g.tools.join(","), g.runUsd, g.turns, g.mcp ? 1 : 0)
         .run();
       grants.set(pack, g);
     },
@@ -153,8 +162,9 @@ export function packAiStore(db: D1, now: () => number = Date.now) {
       const r = await db.prepare("SELECT COALESCE(SUM(cost), 0) AS usd FROM pack_ai_calls WHERE pack = ? AND at >= ?").bind(pack, dayStart(now())).first<{ usd: number }>();
       return Number(r?.usd ?? 0);
     },
-    async record(pack: string, cost: number, ok: boolean): Promise<void> {
-      await db.prepare("INSERT INTO pack_ai_calls (pack, at, cost, ok) VALUES (?, ?, ?, ?)").bind(pack, new Date(now()).toISOString(), cost, ok ? 1 : 0).run();
+    /** One call as it ended: a text call, or an MCP job (`mcp`). */
+    async record(pack: string, cost: number, ok: boolean, kind: "text" | "mcp" = "text"): Promise<void> {
+      await db.prepare("INSERT INTO pack_ai_calls (pack, at, cost, ok, kind) VALUES (?, ?, ?, ?, ?)").bind(pack, new Date(now()).toISOString(), cost, ok ? 1 : 0, kind).run();
     },
     /** A turn started: its run's dollars held until it ends. */
     async started(pack: string, run: string, held: number, place: PackAgentWhere, repo: string): Promise<void> {
@@ -197,7 +207,7 @@ const saidOf = (run: Pick<Run, "events">): string => {
 };
 
 /** A pack's `ai()`, `complete()` and `agent`: what it may do, and the doors to the model. */
-export function packAiFor(o: { id: string; ask: PackAiAsk | undefined; store: PackAiStore | undefined; route: AiRoute | undefined; hosted: boolean; log: (line: string) => void; agents?: AgentHost; audit?: (detail: string, ok: boolean) => void }) {
+export function packAiFor(o: { id: string; ask: PackAiAsk | undefined; store: PackAiStore | undefined; route: AiRoute | undefined; hosted: boolean; log: (line: string) => void; agents?: AgentHost; /** What MCP calls run through (#488): Claude Code on this machine. */ mcp?: McpRun; audit?: (detail: string, ok: boolean) => void }) {
   const why = (): string | undefined => {
     if (o.hosted) return "not hosted yet";
     if (!o.ask?.text) return "it didn't ask for AI in its manifest";
@@ -233,7 +243,7 @@ export function packAiFor(o: { id: string; ask: PackAiAsk | undefined; store: Pa
       throw e;
     }
   };
-  return { ai, complete, agent: packAgentFor(o) };
+  return { ai, complete, agent: packAgentFor(o), mcp: packMcpFor({ id: o.id, ask: o.ask?.mcp, store: o.store, run: o.hosted ? undefined : o.mcp, hosted: o.hosted, log: o.log }) };
 }
 
 /** What the manifest asks and I granted, both: never more than either. */

@@ -280,9 +280,16 @@ const PLACES: Record<PackAgentWhere, { label: string; hint: string }> = {
 const sel = (on: boolean) => (on ? " selected" : "");
 const tick = (on: boolean) => (on ? " checked" : "");
 
-export function aiPanel(id: string, o: { ask: PackAiAsk; grant: AiGrant; spent: number; route?: string; hosted: boolean; /** Agents can run here. */ agents: boolean }) {
+export function aiPanel(id: string, o: { ask: PackAiAsk; grant: AiGrant; spent: number; route?: string; hosted: boolean; /** Agents can run here. */ agents: boolean; /** Claude Code is here, for MCP calls. */ mcp: boolean }) {
   const g = o.grant;
   const a = o.ask.agent;
+  const m = o.ask.mcp;
+  const mcpWrites = Object.keys(m?.writes ?? {});
+  const mcpState = !m || o.hosted ? "" : g.mcp ? `MCP calls: allowed${o.mcp ? "" : ", but Claude Code isn't on this machine"}.` : "MCP calls: not allowed.";
+  const mcpField = m
+    ? html`<div class="field"><span class="label">MCP calls</span><label class="check"><input type="checkbox" name="mcp" value="on"${tick(g.mcp)}> To <code>${m.server.name}</code></label><span class="hint">Through Claude Code's sign-in to ${m.server.url}: only the tools named above, with exactly the arguments the pack gives. Each job counts against the day's dollars.</span></div>`
+    : "";
+  const mcpWhy = m ? html`<p class="notes">MCP calls to <code>${m.server.name}</code>${m.reads?.length ? html`, reading with ${m.reads.join(", ")}` : ""}${mcpWrites.length ? html`, writing with ${mcpWrites.join(", ")}` : ""}. Why: ${m.why}</p>` : "";
   const state = o.hosted
     ? "Not hosted yet: packs ask a model only on a machine."
     : g.level === "off"
@@ -303,15 +310,16 @@ export function aiPanel(id: string, o: { ask: PackAiAsk; grant: AiGrant; spent: 
   return Panel({
     title: "AI",
     id: "ai",
-    meta: g.level === "off" ? "off" : `$${o.spent.toFixed(2)} of $${g.dayUsd.toFixed(2)} today`,
-    children: html`${why}<p class="t2">${state}</p>${o.hosted
+    meta: g.level === "off" && !g.mcp ? "off" : `$${o.spent.toFixed(2)} of $${g.dayUsd.toFixed(2)} today`,
+    children: html`${why}${mcpWhy}<p class="t2">${o.ask.text || a || !mcpState ? state : ""} ${mcpState}</p>${o.hosted
       ? ""
       : html`<form method="post" action="/settings/packs/${encodeURIComponent(id)}/ai">
   <div class="fields aligned">
-    <label class="field"><span class="label">May ask</span><select name="level"><option value="off"${sel(g.level === "off")}>Nothing</option>${o.ask.text ? html`<option value="text"${sel(g.level === "text")}>Text</option>` : ""}${a ? html`<option value="agent"${sel(g.level === "agent")}>${o.ask.text ? "Text and agent turns" : "Agent turns"}</option>` : ""}</select></label>
-    <label class="field"><span class="label">Model</span><select name="size"><option value="small"${sel(g.size === "small")}>The small one only</option><option value="any"${sel(g.size === "any")}>Any it asks for</option></select><span class="hint">Small is Haiku through Claude Code; other routes use their own model. Agent turns are Claude Code: Haiku, or Sonnet for large.</span></label>
+    ${o.ask.text || a ? html`<label class="field"><span class="label">May ask</span><select name="level"><option value="off"${sel(g.level === "off")}>Nothing</option>${o.ask.text ? html`<option value="text"${sel(g.level === "text")}>Text</option>` : ""}${a ? html`<option value="agent"${sel(g.level === "agent")}>${o.ask.text ? "Text and agent turns" : "Agent turns"}</option>` : ""}</select></label>
+    <label class="field"><span class="label">Model</span><select name="size"><option value="small"${sel(g.size === "small")}>The small one only</option><option value="any"${sel(g.size === "any")}>Any it asks for</option></select><span class="hint">Small is Haiku through Claude Code; other routes use their own model. Agent turns are Claude Code: Haiku, or Sonnet for large.</span></label>` : ""}
     <label class="field"><span class="label">Dollars a day</span><input type="number" name="dayUsd" min="0" max="${MAX_DAY_USD}" step="0.01" value="${g.dayUsd}"><span class="hint">Once they're spent, it can't ask again until tomorrow. Copilot routes cost $0 here.</span></label>
     ${agentFields}
+    ${mcpField}
   </div>
   <div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save</button></div>
 </form>`}`,

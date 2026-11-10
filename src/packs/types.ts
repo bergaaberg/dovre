@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "1.33";
+export const PACK_API = "1.34";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -68,7 +68,8 @@ export type PackManifest = {
   /**
    * What it wants to ask the model, and why (API 1.22, #466): `text` is a prompt in, text out (no
    * tools, no files). Nothing is allowed until I allow it on Settings → Packs → the pack; then
-   * `ctx.complete` answers, within the size and the day's dollars I set there.
+   * `ctx.complete` answers, within the size and the day's dollars I set there. `mcp` (API 1.34,
+   * #488): exact calls to one MCP server through Claude Code's sign-in to it, as `ctx.mcp`.
    */
   ai?: PackAiAsk;
   /**
@@ -297,7 +298,42 @@ export type PrSlotArg = { repo: string; number: number; branch: string; title: s
  * a fresh clone in a container), other packs' /mcp `tools` it would like by name (its own it gets),
  * and `lands`: the write kind (one of its `writes`) it opens a draft PR from a sandbox run under.
  */
-export type PackAiAsk = { text?: { why: string }; agent?: PackAgentAsk };
+export type PackAiAsk = { text?: { why: string }; agent?: PackAgentAsk; mcp?: PackMcpAsk };
+/**
+ * MCP calls a manifest asks for (API 1.34, #488): the one `server` (a plain name and its https
+ * url, as Claude Code is signed in to it), the tools that only read (`reads`), and each tool that
+ * changes something mapped to one of the pack's `writes` kinds (`writes`: tool → kind). Tools by
+ * their bare names on the server. A tool it doesn't list can't be called.
+ */
+export type PackMcpAsk = { why: string; server: { name: string; url: string }; reads?: string[]; writes?: Record<string, string> };
+/** Whether it may make MCP calls now, and with which tools; or not, and why. */
+export type PackMcpCan = { ok: true; reads: string[]; writes: string[] } | { ok: false; why: string };
+/** One call: a tool by its bare name, and exactly the arguments it's to get. */
+export type PackMcpCall = { tool: string; input: Record<string, unknown> };
+/**
+ * A call's result: the tool's own text, as it answered; or why there's none (not made, made with
+ * other arguments, or the tool failed). A result over about 45,000 characters doesn't come whole
+ * (Claude Code hands on a preview): check that `text` parses as what's expected.
+ */
+export type PackMcpResult = { ok: true; text: string } | { ok: false; why: string };
+/** On the error `call` and `write` throw when Claude Code isn't installed, or isn't signed in to the server: its `setup`. */
+export type PackMcpSetup = "no-claude" | "sign-in";
+export type PackMcp = {
+  can(): PackMcpCan;
+  /**
+   * Makes these calls (1 to 20, `reads` only) in one job and hands back each one's result, in the
+   * order asked, matched by tool and arguments. Throws when it isn't allowed, when today's dollars
+   * are spent, and when the job itself fails (the error has `setup` when that's why).
+   */
+  call(calls: PackMcpCall[], opts?: { signal?: AbortSignal }): Promise<{ results: PackMcpResult[]; cost: number }>;
+  /**
+   * One call to a write tool, under the write `kind` its manifest maps it to. Call it only from the
+   * POST of its own Confirm for that kind, after re-checking, and log it with `ctx.logged`.
+   * `times`: how often the tool was called; over 1, or a result that isn't ok with `times` above 0,
+   * means something may have been written: say so instead of trying again.
+   */
+  write(kind: string, call: PackMcpCall, opts?: { signal?: AbortSignal }): Promise<{ result: PackMcpResult; cost: number; times: number }>;
+};
 export type PackAgentWhere = "read" | "sandbox";
 export type PackAgentAsk = { why: string; where: PackAgentWhere[]; tools?: string[]; lands?: string };
 /** What it may ask now: `text` with the size and day's cap I allowed, or not, and why. */
@@ -523,6 +559,11 @@ export type PackContext = {
   complete(p: PackCompleteAsk): Promise<{ text: string; cost: number }>;
   /** Its agent turns (API 1.23, #467): what it may start, starting one, how it went, and landing its commits. */
   agent: PackAgent;
+  /**
+   * Its MCP calls (API 1.34, #488): exact calls to the server its manifest names (`ai.mcp`), each
+   * tool's own result handed back. Off until I allow it; local only; logged by cost, never by content.
+   */
+  mcp: PackMcp;
 };
 
 // ── What packs share with the packs that require them (#326) ──

@@ -36,8 +36,8 @@ import { writeKinds } from "../writes.ts";
 import type { Context } from "hono";
 import type { AppScope } from "./scope.ts";
 
-export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
-  const { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, keyPrefs, openUrl, held, hidden, packIds, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
+export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
+  const { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
   let saved = false;
   /** Set when a save restarts Dovre: when this server started, so the page knows when the next one is up. */
@@ -391,9 +391,9 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
       return c.html(sessionSettings(frame, { name: k.name, notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body }));
     }
     // What it may ask the model (#466), when it asked for any.
-    const asks = on ? aiAskOf(on.manifest) : undefined;
+    const asks = on ? aiAsk(on) : undefined;
     if (asks) await aiStore?.load().catch(() => {});
-    const ai = asks && aiStore ? aiPanel(id, { ask: asks, grant: aiStore.grant(id), spent: await aiStore.spent(id).catch(() => 0), route: deps.ai?.via, hosted, agents: !!deps.runner || !!deps.agents }) : "";
+    const ai = asks && aiStore ? aiPanel(id, { ask: asks, grant: aiStore.grant(id), spent: await aiStore.spent(id).catch(() => 0), route: deps.ai?.via, hosted, agents: !!deps.runner || !!deps.agents, mcp: !!deps.mcp }) : "";
     const body = html`${offEntry ? Notice({ tone: "warn", children: html`Off: ${offEntry.why}` }) : ""}${own ? Panel({ title: "Its own settings", id: `pack-${id}`, children: own }) : ""}${ai}${settings.length ? manifestPanel(id, settings, packs.env, hosted, false, packs.keys?.state) : ""}${where}`;
     return c.html(settingsArea(frame, "packs", { areas: settingsAreas(), rows: await rowsNow(frame), notes: takeNotes(`/settings/packs/${encodeURIComponent(id)}`), body, title: k.name, crumbs: [{ href: "/settings/packs", label: "Packs" }] }));
   };
@@ -465,13 +465,13 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
   app.post("/settings/packs/:id/ai", strictOrigin, async (c) => {
     const id = c.req.param("id");
     const on = shown().find((p) => p.manifest.id === id);
-    const asks = on ? aiAskOf(on.manifest) : undefined;
+    const asks = on ? aiAsk(on) : undefined;
     if (hosted || deps.session || !aiStore || !on || !asks) return c.notFound();
     await aiStore.load();
     const g = grantOf(await c.req.parseBody(), asks);
     await aiStore.set(id, g);
     const agent = g.level === "agent" ? `; agent: ${g.where.join(" and ") || "nowhere"}, in ${g.repos === "mine" ? "all my repos" : g.repos.join(" ") || "no repos"}, $${g.runUsd} a run, ${g.turns} turns${g.tools.length ? `, tools ${g.tools.join(" ")}` : ""}` : "";
-    await logAction(env.DB, { kind: "packs.ai", target: id, detail: (g.level === "off" ? "AI: nothing" : `AI: text, ${g.size}, $${g.dayUsd} a day${agent}`).slice(0, 300), ok: true }).catch(() => {});
+    await logAction(env.DB, { kind: "packs.ai", target: id, detail: `${g.level === "off" ? (g.mcp ? `AI: $${g.dayUsd} a day` : "AI: nothing") : `AI: text, ${g.size}, $${g.dayUsd} a day${agent}`}${g.mcp ? "; MCP calls" : ""}`.slice(0, 300), ok: true }).catch(() => {});
     return c.redirect(`/settings/packs/${encodeURIComponent(id)}#ai`, 303);
   });
   app.get("/settings/:area", async (c) => {

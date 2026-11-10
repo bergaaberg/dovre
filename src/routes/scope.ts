@@ -14,7 +14,7 @@ import type { PackAiStore } from "../packs/ai.ts";
 import type { Off, refresher, Refreshes, ringsOf, statsFrom } from "../packs/registry.ts";
 import type { createReleases, GetJson } from "../packs/releases.ts";
 import type { onboardOf } from "../packs/suggest.ts";
-import type { Pack, PackContext, TodayCard } from "../packs/types.ts";
+import type { Pack, PackAiAsk, PackContext, TodayCard } from "../packs/types.ts";
 import type { Asks } from "../relay/asks.ts";
 import type { Ghe } from "../sources/ghe.ts";
 import type { Speed } from "../speed.ts";
@@ -60,6 +60,8 @@ export type AppScope = {
   refreshes: Refreshes;
   /** What each pack may ask the model (#466); none without a database. */
   aiStore: PackAiStore | undefined;
+  /** What a pack asks of the model, less what it can't have (a write kind that isn't its own). */
+  aiAsk: (c: Pack) => PackAiAsk | undefined;
   /** Which writes ask twice (Settings → Writes). */
   clicks: ReturnType<typeof writeClicksStore>;
   /** Keyboard shortcuts (Settings → Keys). */
