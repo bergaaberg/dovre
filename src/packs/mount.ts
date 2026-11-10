@@ -153,8 +153,8 @@ export function mountPacks(app: App, o: MountOpts) {
       contexts.set(
         c.manifest.id,
         (ctx = {
-          // Dovre's own packs are wired by closure (#480); the rest read through a view that notes what isn't theirs (#475).
-          env: packs.core?.includes(c.manifest.id) ? packs.env : packEnv(c.manifest, packs.env, (key) => envSeen.note(c.manifest.id, key) && packLog(c.manifest.id)(`reads ${key}, which isn't one of its settings`)),
+          // Dovre's own packs are wired by closure (#480); the rest read their own keys through a view that notes what else they asked for (#475).
+          env: packs.core?.includes(c.manifest.id) ? packs.env : packEnv(c.manifest, packs.env, (key) => envSeen.note(c.manifest.id, key) && packLog(c.manifest.id)(`asked for ${key}, which isn't one of its settings: not given`)),
           bindings: packs.bindings ?? {},
           hosted,
           ...(hosted ? {} : { codeDir: env.CODE_DIR, checkouts: () => (env.CODE_DIR ? checkoutsIn(env.CODE_DIR, deps.session?.checkout) : []), checkout: (name: unknown) => (env.CODE_DIR ? checkoutIn(env.CODE_DIR, name, deps.session?.checkout) : null) }),

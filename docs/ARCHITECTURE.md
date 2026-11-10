@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "1.40")
+   src/packs/types.ts     its types (PACK_API = "1.41")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -133,9 +133,9 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 
 **`PackContext`** gives a pack:
 - `env`, `bindings`, `hosted`, `db`. `env` is meant to hold the pack's own keys: its manifest's `settings`,
-  the keys a `namesKeys` setting names, `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). For now every key still comes back,
-  and a read of a set key that isn't the pack's is logged once and named on its card on the Packs page
-  ("Also reads"); filtering follows (#475). Dovre's own packs get the plain settings.
+  the keys a `namesKeys` setting names, `PACK_<ID>`, and the shared few (`SHARED_ENV` in `src/packs/env.ts`). Nothing else (API 1.41): another key reads as unset,
+  and asking for one that is set is logged once and named on the pack's card on the Packs page
+  ("Asked for, not given"). The view is read-only (#475). Dovre's own packs get the plain settings.
 - `store.kv`: its own small state in Dovre's database, JSON by key under its id (`get`, `set` with `ttlMs`, `delete`, `list(prefix)`). Tables of its own are `migrations`
 - `codeDir`, `checkouts()`, `checkout(name)` (local): the code folder and the git repos directly under it; only the one in a pack session
 - `run(binary, args, opts)`, `onPath(binary)`, `dir()` (local): run a program its manifest names (`requiredBinaries`, or `binaries` for ones it can do without), in a checkout or in its own folder. Never an agent CLI. The folder is where the program starts, not a fence around it
@@ -382,6 +382,7 @@ Also:
   | 1.38 | A share of a pack's own: `shares()` may answer names core doesn't know, and `ctx.required(id, name)` hands such a one back as `unknown` for the reader to narrow. `PackShares` is now only what core reads itself (`agent`, `list`); `auto` is the agents pack's own, and `AutoShare` and its types stay at the door, deprecated, until 2.0 (#478) |
   | 1.39 | A pack's own places (#477): `hosts` in the manifest names places on its pages (`{ name, about }`), its page asks with `ctx.fillOwn(name, arg)`, and a pack listing it in `uses` or `requires` answers from `slots` under `"<host id>/<name>"` with `Html` or `""`. `arg` is plain data, a copy for each pack and `unknown` to it; core checks the markup and isolates each answer as for `fill`. The Packs page lists what a pack hosts and fills |
   | 1.40 | Follow-up work without timers (#479): `ctx.soon(ms?)` asks for the pack's `refresh` again in about `ms` (10 s by default, 5 s at least; one pending per pack, never beside a run in flight, cut off after 30 minutes of asking on end), as `refresh(ctx, { soon: true })`; hosted it's best effort, due at the next request or cron. When an agent turn the pack started ends, its refresh is told once: `refresh(ctx, { agent })`, the turn as `ctx.agent.result` gives it. A test reads what was asked with `soonOf` |
+  | 1.41 | A pack's env is its own settings (#475): `ctx.env` holds the keys in its manifest's `settings`, the keys a `namesKeys` setting names, `PACK_<ID>` and the shared few, and nothing else. Another key reads as unset; asking for one that is set is named on the pack's card ("Asked for, not given"). The view is read-only. Nothing new to call |
 
 ## Open questions
 
