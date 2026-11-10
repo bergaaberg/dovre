@@ -30,7 +30,7 @@ const PACK = words(`
 
 /** dovre/pack-testing.ts. */
 const TESTING = words(`
-  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap assertDoors assertFragment assertInert assertScoped assertStyled assertTables createWorker ingestToken keptLookups openDb
+  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap apiOver assertApi assertDoors assertFragment assertInert assertScoped assertStyled assertTables createWorker ingestToken keptLookups openDb
   packApp reachIns resetWhen setWhen testAgentLinks testAgentsPack testContext testDeploy testForge testList testPage testPr testSession testSnapshot
 `);
 
