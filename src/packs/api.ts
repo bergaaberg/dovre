@@ -124,4 +124,6 @@ export const API_1: Record<string, ApiUse[]> = {
  * record 2.0 started from (docs/PACK-API-1.md) and as what the floor's tests read. A 2.0 pack may
  * use all of it, so 2.x starts empty: the first minor adds `"2.1": [...]`.
  */
-export const API_ADDED: Record<string, ApiUse[]> = {};
+export const API_ADDED: Record<string, ApiUse[]> = {
+  "2.1": [has("Pack.server", (p) => p.server), ctx("call"), ...door("PackServer PackCalled"), ...testing("serverOf")],
+};

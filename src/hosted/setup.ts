@@ -19,7 +19,7 @@ const isDb = (v: unknown): v is D1 => !!v && typeof (v as D1).prepare === "funct
 type HostedLine = SetupLine & { needed?: boolean };
 
 /** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
-export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean } = {}): HostedLine[] {
+export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
   const access = !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
   const bridge = [set(b.BRIDGE_CLIENT_ID), set(b.BRIDGE_KEY)];
@@ -44,6 +44,8 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
       fix: "An Access service token with a Service Auth policy: its client id as the var BRIDGE_CLIENT_ID, and `wrangler secret put BRIDGE_KEY` (the same key as the Mac's .dev.vars). README: Run it hosted.",
     },
   ];
+  for (const sv of o.servers ?? [])
+    lines.push({ name: `Pack server: ${sv.name}`, on: !!(b as Record<string, unknown>)[sv.binding], what: "What the pack runs apart from the app, in a Worker of its own", fix: `\`node ../dovre/src/packs/servers.ts --out .servers --deploy\` (it prints the line), then a service binding ${sv.binding} in wrangler.jsonc's "services".` });
   for (const c of o.off ?? []) lines.push({ name: `Pack: ${c.name}`, on: false, what: c.why, fix: "Packs (under You) says what it needs." });
   return lines;
 }

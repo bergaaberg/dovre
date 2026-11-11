@@ -22,6 +22,7 @@ import { routeOf } from "./core/assistant/bino/route.ts";
 import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { loggedFor } from "./logged.ts";
 import { kvInMemory } from "./store.ts";
+import { localServer, serverWhy, type ServerCall } from "./server.ts";
 import { CORE_PACKS } from "./own.ts";
 import { activePacks, initAll, lookupsFrom } from "./registry.ts";
 import { foreignTables, migrationsGap, tablePrefix } from "./migrations.ts";
@@ -35,6 +36,16 @@ const soons = new WeakMap<PackContext["soon"], (number | undefined)[]>();
  * left out): `assert.deepEqual(soonOf(ctx), [undefined])` says "asked to be called again, once".
  * Nothing calls `refresh` again in a test: call it yourself, with `{ soon: true }`.
  */
+/**
+ * A pack's own server for its tests (API 2.1): `ctx.call` as core runs it locally, in a thread of
+ * its own, with the same checks. Call `stop()` after, or the test waits on nothing (the thread is unref'd).
+ */
+export function serverOf(pack: Pack): ServerCall & { stop(): Promise<void> } {
+  const why = pack.server ? serverWhy(pack) : "has no server";
+  if (why) throw new Error(`pack ${pack.manifest.id}: server ${why}`);
+  return localServer(pack);
+}
+
 export const soonOf = (ctx: PackContext): (number | undefined)[] => soons.get(ctx.soon) ?? [];
 
 export function testContext(over: Partial<PackContext> = {}, as: { /** The pack's id, for what `logged` writes when you pass a `db` (`<id>.<kind>`). */ id?: string } = {}): PackContext {
@@ -75,6 +86,8 @@ export function testContext(over: Partial<PackContext> = {}, as: { /** The pack'
     startPicture: () => {},
     wasm: () => undefined,
     file: () => undefined,
+    // No server here: `testContext({ call: serverOf(pack) })` runs the pack's own, in a thread.
+    call: async () => ({ ok: false, error: "no server in tests" }),
     required: () => undefined,
     refs: () => [],
     pageOn: () => true,
