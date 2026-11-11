@@ -28,15 +28,29 @@ function fakeDb(rows: ("stuck" | string | null)[]) {
 test("sharedRead: callers share a read, wait on their own timer, and a stale one is started again", async () => {
   let t = 0;
   let runs = 0;
-  const r = sharedRead(() => (runs++ === 0 ? new Promise(() => {}) : Promise.resolve()), { ms: 20, now: () => t });
+  const r = sharedRead(() => (runs++ === 0 ? new Promise(() => {}) : Promise.resolve()), { ms: 20, joinMs: 20, now: () => t });
   await r.read();
   assert.equal(r.done, false, "the stuck read didn't finish; the caller stopped waiting");
-  await r.read();
-  assert.equal(runs, 1, "a recent one in flight is shared");
   t = 20;
   await r.read();
   assert.equal(runs, 2, "an old one is dropped and started again");
   assert.equal(r.done, true);
+});
+
+test("sharedRead: a caller shares a read that ends soon, and starts its own past JOIN_MS (#294: one begun in a request that's gone never ends)", async () => {
+  let runs = 0;
+  const slow = sharedRead(() => (runs++, new Promise<void>((res) => setTimeout(res, 5))), { ms: 1000, joinMs: 50 });
+  await Promise.all([slow.read(), slow.read(), slow.read()]);
+  assert.equal(runs, 1, "one read, shared");
+
+  let stuckRuns = 0;
+  const stuck = sharedRead(() => (stuckRuns++ === 0 ? new Promise(() => {}) : Promise.resolve()), { ms: 5000, joinMs: 20 });
+  void stuck.read();
+  const t0 = performance.now();
+  await stuck.read();
+  assert.ok(performance.now() - t0 < 1000, "waited JOIN_MS on the stuck read, not READ_MS");
+  assert.equal(stuckRuns, 2, "and read again itself");
+  assert.equal(stuck.done, true);
 });
 
 test("layout: a save goes through while the read before it never settles, and that read can't undo it", async () => {
@@ -53,7 +67,8 @@ test("layout: a save goes through while the read before it never settles, and th
 });
 
 test("onboarding: a stuck first read leaves it not loaded (Today doesn't send me up the climb); the next wait reads it", async () => {
-  const { db } = fakeDb(["stuck", JSON.stringify({ answers: {}, done: true })]);
+  // Stuck twice: the store's own first read, and the one the first page starts after joining it a moment.
+  const { db } = fakeDb(["stuck", "stuck", JSON.stringify({ answers: {}, done: true })]);
   const o = onboardingStore(db, { readMs: 20 });
   await o.ready;
   assert.equal(o.loaded?.(), false);
