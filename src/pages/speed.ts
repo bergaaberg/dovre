@@ -5,7 +5,7 @@
  */
 import { html } from "hono/html";
 import { count, duration } from "../format.ts";
-import { byRoute, EDGES, quantile, type SpeedRow, type SpeedView } from "../speed.ts";
+import { byRoute, COLD_MS, EDGES, quantile, type SpeedRow, type SpeedView } from "../speed.ts";
 import { Empty, type Html, Item, List, Panel, Pill, Stat, Stats, type Tone } from "../ui/kit.ts";
 
 const HOUR = 3600_000;
@@ -31,8 +31,11 @@ const sum = (rows: (SpeedRow | undefined)[]) => {
   return { n, ms, b };
 };
 
+/** Where some of a route's server time went (src/speed.ts): how many loads, and their average. */
+const part = (label: string, r: SpeedRow | undefined) => (r?.n ? html` · ${label} ${count(r.n)}×, ${duration(r.ms / r.n)} on average` : "");
+
 function routesPanel(title: string, id: string, v: SpeedView, since: number): Html {
-  const routes = [...byRoute(v.rows, since)].filter(([, s]) => s.page || s.server).map(([route, s]) => ({ route, page: s.page, server: s.server }));
+  const routes = [...byRoute(v.rows, since)].filter(([, s]) => s.page || s.server).map(([route, s]) => ({ route, page: s.page, server: s.server, cold: s.cold, wait: s.wait, start: s.start }));
   // Slowest first: the browser's p95, else the server's.
   const key = (r: (typeof routes)[number]) => {
     const p = r.page ?? r.server;
@@ -51,9 +54,10 @@ function routesPanel(title: string, id: string, v: SpeedView, since: number): Ht
             const p = r.page ?? r.server!;
             const p95 = quantile(p.b, 0.95);
             const server = r.server ? html` · server ${under(quantile(r.server.b, 0.5), true)}, ${duration(r.server.ms / r.server.n)} on average` : "";
+            const where = html`${part("cold", r.cold)}${part("waited on sync", r.wait)}${part("waited on start", r.start)}`;
             return Item({
               title: html`<code>${r.route}</code>`,
-              line: html`${count(p.n)} ${r.page ? "" : "server-only "}load${p.n === 1 ? "" : "s"} · half ${under(quantile(p.b, 0.5), true)}${server}`,
+              line: html`${count(p.n)} ${r.page ? "" : "server-only "}load${p.n === 1 ? "" : "s"} · half ${under(quantile(p.b, 0.5), true)}${server}${where}`,
               trail: Pill({ tone: toneOf(p95, true), children: html`95% ${under(p95, true)}` }),
             });
           }),
@@ -97,7 +101,7 @@ export function speedPanels(v: SpeedView): Html {
     const at = quantile(s.b, q);
     return Stat({ label, value: under(at, s.n > 0), tone: toneOf(at, s.n > 0), foot: s.n ? html`${count(s.n)} loads · ${duration(s.ms / s.n)} on average` : html`none counted yet` });
   };
-  return html`<p class="t2">How long pages take, from the click until the page has loaded (Access and the network included), and how much of that is the server's own time. Hosted, the server's time is mostly waiting on the database, the hub and APIs. Times are counted in steps, so they read "under 500 ms".</p>${Panel({
+  return html`<p class="t2">How long pages take, from the click until the page has loaded (Access and the network included), and how much of that is the server's own time. Hosted, the server's time is mostly waiting on the database, the hub and APIs. Times are counted in steps, so they read "under 500 ms". Beside a route: "cold" is its server time in a server's first ${duration(COLD_MS)} (after a deploy, every one starts again), "waited on sync" what it waited for GitHub's data, and "waited on start" what it waited for the server to start, before its own time began.</p>${Panel({
     title: "The last 24 hours",
     id: "speed",
     children: Stats(html`${stat("Half the pages", page, 0.5)}${stat("95% of pages", page, 0.95)}${stat("Server, 95%", server, 0.95)}`),

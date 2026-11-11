@@ -6,6 +6,11 @@
  * request (JSON, scripts, POSTs, streams opening), the server's time, so a page script asking in a
  * loop shows up by count. Counts are kept in D1
  * (`page_speed`), so every hosted isolate's add up; no URLs: a route is the pattern it matched.
+ *
+ * Where a slow page's time went, beside it: `cold` is a page's server time while its
+ * app is under COLD_MS old (a deploy starts every isolate again); `wait`, what it waited on GitHub's
+ * snapshot, when it waited; `start`, hosted, what it waited on the Worker's start before the app
+ * saw it (not in `server`).
  */
 import type { MiddlewareHandler } from "hono";
 import { routePath } from "hono/route";
@@ -20,7 +25,12 @@ const FLUSH_MS = 30_000;
 /** The buckets' upper edges (ms); the last bucket is everything slower. */
 export const EDGES = [100, 250, 500, 1000, 2000, 4000] as const;
 
-export type Side = "server" | "page" | "call";
+export type Side = "server" | "page" | "call" | "cold" | "wait" | "start";
+/** An isolate this young serves `cold` pages. */
+export const COLD_MS = 2 * 60_000;
+
+/** Hosted: what a request waited on the Worker's start (src/worker.ts), for its page's `start`. */
+export const startWaited = new WeakMap<Request, number>();
 export type SpeedRow = { hour: number; side: Side; route: string; n: number; /** Their total, ms. */ ms: number; /** Loads per bucket, EDGES.length + 1 of them. */ b: number[] };
 export type SpeedView = { rows: SpeedRow[]; now: number };
 
@@ -138,10 +148,13 @@ export const WAITED = "speedWaited" as const;
 
 /**
  * Counts each page's server time (a GET answered with HTML), and says it in `Server-Timing`: `app`
- * (the whole), `gather` (what it waited on the snapshot), and the route, which the page sends back
- * with its own time (POST /perf). Every other request is counted as a `call`.
+ * (the whole), `gather` (what it waited on the snapshot), `start` (hosted, what it waited on the
+ * Worker's start), and the route, which the page sends back with its own time (POST /perf). Every
+ * other request is counted as a `call`. A page's `cold`, `wait` and `start` are counted beside it.
  */
 export function speedLog(speed: Speed): MiddlewareHandler<AppEnv> {
+  // When the app was made (hosted, inside the isolate's first request: a Worker's clock reads 0 outside one).
+  const born = Date.now();
   return async (c, next) => {
     const t0 = performance.now();
     await next();
@@ -155,8 +168,12 @@ export function speedLog(speed: Speed): MiddlewareHandler<AppEnv> {
     speed.record(page ? "server" : "call", route, took);
     if (!page) return;
     const waited = Number(c.get(WAITED)) || 0;
+    if (waited >= 1) speed.record("wait", route, waited);
+    if (Date.now() - born < COLD_MS) speed.record("cold", route, took);
+    const started = startWaited.get(c.req.raw) ?? 0;
+    if (started >= 1) speed.record("start", route, started);
     try {
-      c.res.headers.append("Server-Timing", [`app;dur=${Math.round(took)}`, ...(waited ? [`gather;dur=${Math.round(waited)}`] : []), `route;desc=${JSON.stringify(route)}`].join(", "));
+      c.res.headers.append("Server-Timing", [`app;dur=${Math.round(took)}`, ...(waited ? [`gather;dur=${Math.round(waited)}`] : []), ...(started >= 1 ? [`start;dur=${Math.round(started)}`] : []), `route;desc=${JSON.stringify(route)}`].join(", "));
     } catch {}
   };
 }
