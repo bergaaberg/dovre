@@ -5,7 +5,7 @@
  * - WP-M6: Pre-built packs installation (`addPack`, `wirePackIntoFile`, `listAvailablePacks`) from `dovre-packs`.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -267,4 +267,17 @@ test("WP-M6: listAvailablePacks and addPack copy pre-built packs from dovre-pack
 
   // Idempotent wiring check
   assert.equal(wirePackIntoFile(packsTs, "./packs/cf-health/index.ts", "cfHealthPack"), packsTs);
+});
+
+test("#5: core has no work data or Teams code: no src/data or src/teams, no /data or /teams route, no db-cli", () => {
+  const src = resolve(import.meta.dirname, "../src");
+  assert.ok(!existsSync(join(src, "data")), "src/data belongs in the work instance");
+  assert.ok(!existsSync(join(src, "teams")), "src/teams belongs in the work instance");
+  const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => f.endsWith(".ts") && !/(^|[\\/])test[\\/]/.test(f));
+  for (const f of files) {
+    const text = readFileSync(join(src, f), "utf8");
+    assert.doesNotMatch(text, /db-cli/, `${f} names db-cli`);
+    assert.doesNotMatch(text, /["'`]\/(data|teams)(\/|["'`])/, `${f} has a /data or /teams route`);
+    assert.doesNotMatch(text, /from ["'][^"']*\/(data|teams)\/[^"']*["']/, `${f} imports a data or teams module`);
+  }
 });
