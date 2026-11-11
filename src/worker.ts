@@ -21,6 +21,7 @@ import { createGatherer, type Gatherer, type Snapshot, type SnapshotStore, shown
 import { d1SnapshotStore } from "./hosted/snapshot.ts";
 import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
 import { d1Reads } from "./sources/files.ts";
+import { startWaited } from "./speed.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
 import { type Forge, forgeCan } from "./forge/types.ts";
@@ -434,7 +435,11 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
 
       // Everything else: the app checks Cloudflare Access on each request (src/access.ts). A start
       // that's slow (or stuck in a cancelled request) is waited on a moment, then the page draws without it.
-      await capped(h.ready, READY_MS);
+      if (!h.started) {
+        const t0 = performance.now();
+        await capped(h.ready, READY_MS);
+        startWaited.set(request, performance.now() - t0);
+      }
       // A write (POST) by a verified person goes to GitHub with their own token, when the instance's
       // provider tells people apart. The app still checks Access itself; this only names the actor.
       const who = opts.githubToken && request.method === "POST" && h.verify ? await h.verify(request).catch(() => undefined) : undefined;

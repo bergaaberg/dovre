@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../src/db.ts";
-import { byRoute, createSpeed, quantile, routeOk } from "../src/speed.ts";
+import { byRoute, createSpeed, quantile, routeOk, startWaited } from "../src/speed.ts";
 import { speedPanels } from "../src/pages/speed.ts";
 import { H, assertInert, signedIn, snapshot } from "./helpers.ts";
 
@@ -101,4 +101,25 @@ test("speed: every request that isn't a page load counts as a call, busiest firs
   assert.ok(calls.indexOf("/avatar/now") < calls.indexOf("/q"), "the most first");
   assert.match(calls, /480 requests · 20 an hour/);
   assert.doesNotMatch(out.slice(0, out.indexOf('id="speed-calls"')), /avatar/, "a call isn't a page");
+});
+
+test("speed: a page counts where its time went: cold while the server is new, what it waited on sync, and on start", async () => {
+  const { get, app } = signedIn(snapshot());
+  await get("/prs");
+  const req = new Request("http://localhost/prs", { headers: { cookie: "u_tk=test-token" } });
+  startWaited.set(req, 2400);
+  const res = await app.request(req);
+  assert.match(res.headers.get("server-timing") ?? "", /start;dur=2400/);
+  const page = await (await get("/settings/speed")).text();
+  assert.match(page, /cold 2×, [^·]+ on average/, "this server is new: both loads are cold");
+  assert.match(page, /waited on start 1×, 2\.4 s on average/, "only the load that waited on start");
+  assertInert("settings/speed parts", page);
+});
+
+test("speed: a route's cold, sync and start parts are shown beside it, and nothing when there are none", () => {
+  const row = (side: "server" | "cold" | "wait" | "start", n: number, ms: number) => ({ hour: 10 * HOUR, side, route: "/skribb/helse", n, ms, b: [0, 0, 0, 0, 0, 0, n] });
+  const out = String(speedPanels({ rows: [row("server", 3, 15000), row("cold", 2, 12000), row("wait", 1, 1200), row("start", 2, 5000)], now: 10 * HOUR + 60_000 }));
+  assert.match(out, /cold 2×, 6 s on average · waited on sync 1×, 1\.2 s on average · waited on start 2×, 2\.5 s on average/);
+  const plain = String(speedPanels({ rows: [row("server", 3, 300)], now: 10 * HOUR + 60_000 }));
+  assert.doesNotMatch(plain, /cold \d|waited on sync \d|waited on start \d/);
 });
