@@ -11,7 +11,7 @@ import { layoutFromForm, layoutOf, placeStats } from "../src/layout.ts";
 import { statsFrom } from "../src/packs/registry.ts";
 import { PACK_API, type Pack, type PackContext, type PackStat, type StatUnit } from "../src/packs/types.ts";
 import { packApp } from "../src/packs/testing.ts";
-import { daysOf, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/packs/core/history/history.ts";
+import { daysOf, gatherHistory, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/packs/core/history/history.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
 import { createHistory as createStats, d1HistoryKept, type HistoryView } from "../src/packs/core/history/store.ts";
 import { historyStats } from "../src/packs/core/history/view.ts";
@@ -309,6 +309,45 @@ test("days: the last 14 by day, the org counted per day only when asked, the til
   assert.deepEqual(told, { weeks: 5, days: 28 });
   statsFrom([statPack((_c, o) => ((told = o), []))], () => ({}) as PackContext, 12, () => {});
   assert.deepEqual(told, { weeks: 12 });
+});
+
+test("gatherHistory: each owner's repos by repositoryOwner, a user or an org, read together (#294)", async () => {
+  const queries: string[] = [];
+  const repo = (name: string) => ({ nameWithOwner: name, isArchived: false, releases: { nodes: [{ createdAt: new Date(NOW - 86400e3).toISOString(), tagName: "v1", isPrerelease: false, isDraft: false }] }, defaultBranchRef: null });
+  const ghe = {
+    ...fakeGhe({}).ghe,
+    async graphql<T>(q: string): Promise<T> {
+      queries.push(q);
+      if (q.includes("repositoryOwner")) return { o0: { repositories: { nodes: [repo("me/app")] } }, o1: { repositories: { nodes: [repo("ACME/site")] } } } as T;
+      if (q.includes("s: search")) return { s: { pageInfo: { hasNextPage: false }, nodes: [] } } as T;
+      return {} as T;
+    },
+  };
+  const h = await gatherHistory(ghe, "me, ACME", "me", NOW);
+  const owners = queries.find((q) => q.includes("repositoryOwner")) ?? "";
+  assert.match(owners, /o0: repositoryOwner\(login: "me"\)/);
+  assert.match(owners, /o1: repositoryOwner\(login: "ACME"\)/);
+  assert.doesNotMatch(queries.join("\n"), /organization\(/);
+  assert.deepEqual(h.releases.map((r) => r.repo).sort(), ["ACME/site", "me/app"]);
+});
+
+test("a gather that fails is logged, and the background waits half an hour before the next; Gather again goes at once", async () => {
+  let now = NOW;
+  let calls = 0;
+  const lines: string[] = [];
+  const s = createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: () => "me", now: () => now, log: (l) => lines.push(l), gather: async () => (calls++, Promise.reject(new Error("Could not resolve to an Organization"))) });
+  await s.refresh();
+  assert.equal(calls, 1);
+  assert.deepEqual(lines, ["history: the gather failed: Could not resolve to an Organization"]);
+  assert.equal(s.view().historyError, "Could not resolve to an Organization");
+  now += 5 * 60e3;
+  await s.refresh();
+  assert.equal(calls, 1, "the next cron doesn't try again");
+  await s.refresh(true);
+  assert.equal(calls, 2, "Gather again does");
+  now += 31 * 60e3;
+  await s.refresh();
+  assert.equal(calls, 3, "and half an hour on, the background does");
 });
 
 test("main red: a repo with more commits than one page counts only in the weeks that page reaches", () => {

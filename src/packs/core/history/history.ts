@@ -3,12 +3,12 @@
  * - people: my PRs touched in the window (created, ready, first review by someone else, merged),
  *   the reviews I gave, my open PRs and the ones asking me (with their age), and the org's merged
  *   PRs per week (a count per week, by search).
- * - repos: the org's most recently pushed repos, their releases, and their main branch's commits
+ * - repos: each owner's most recently pushed repos (a user or an org), their releases, and their main branch's commits
  *   with each commit's checks.
  * Then pure functions turn it into weeks. Only GitHub metadata (numbers, titles, times), as the
  * snapshot already holds.
  */
-import { ownerQuery } from "../../../owners.ts";
+import { ownerQuery, ownersOf } from "../../../owners.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { currentTz, osloDay } from "../../../when.ts";
 
@@ -143,22 +143,25 @@ export async function gatherHistory(ghe: Ghe, org: string, login: string, now: n
   // By day only when Stats shows days: a search each.
   const dayCounts = days.map((d, i) => `d${i}: search(type: ISSUE, first: 1, query: ${q(`${ownerQuery(org)} is:pr is:merged merged:${d.key}`)}) { issueCount }`).join("\n");
   const pr = `... on PullRequest { number title url createdAt mergedAt closedAt state isDraft repository { nameWithOwner } }`;
+  // Four queries, none waiting on another: at once, so a gather fits in the cron's wait (25 s).
   // Mine and the ones I reviewed can pass a hundred in a few weeks: page through them.
-  const mine = await searchAll(ghe, `${ownerQuery(org)} is:pr author:${login} updated:>=${since}`, `... on PullRequest { number title url createdAt mergedAt closedAt state isDraft repository { nameWithOwner }
+  const mineP = searchAll(ghe, `${ownerQuery(org)} is:pr author:${login} updated:>=${since}`, `... on PullRequest { number title url createdAt mergedAt closedAt state isDraft repository { nameWithOwner }
     reviews(first: 20) { nodes { submittedAt author { login } } }
     timelineItems(first: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } } }`);
-  const reviewed = await searchAll(ghe, `${ownerQuery(org)} is:pr reviewed-by:${login} -author:${login} updated:>=${since}`, `... on PullRequest { reviews(first: 20, author: ${q(login)}) { nodes { submittedAt } } }`);
-  const people = await ghe.graphql<Node>(`{
+  const reviewedP = searchAll(ghe, `${ownerQuery(org)} is:pr reviewed-by:${login} -author:${login} updated:>=${since}`, `... on PullRequest { reviews(first: 20, author: ${q(login)}) { nodes { submittedAt } } }`);
+  const peopleP = ghe.graphql<Node>(`{
   open: search(type: ISSUE, first: 50, query: ${q(`${ownerQuery(org)} is:pr is:open author:${login}`)}) { nodes { ${pr} } }
   asked: search(type: ISSUE, first: 50, query: ${q(`${ownerQuery(org)} is:pr is:open review-requested:${login}`)}) { nodes { ${pr} } }
   ${counts}
   ${dayCounts}
 }`);
-  const repos = await ghe.graphql<Node>(`{
-  organization(login: ${q(org)}) { repositories(first: 30, orderBy: { field: PUSHED_AT, direction: DESC }) { nodes { nameWithOwner isArchived
+  // repositoryOwner, not organization: an owner may be a user. One alias per owner.
+  const reposP = ghe.graphql<Node>(`{
+${ownersOf(org).map((owner, i) => `  o${i}: repositoryOwner(login: ${q(owner)}) { repositories(first: 30, orderBy: { field: PUSHED_AT, direction: DESC }) { nodes { nameWithOwner isArchived
     releases(first: 50, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { createdAt tagName isPrerelease isDraft } }
-    defaultBranchRef { target { ... on Commit { history(first: 100, since: ${q(new Date(weeks[0]!.start).toISOString())}) { pageInfo { hasNextPage } nodes { committedDate statusCheckRollup { state } } } } } } } } }
+    defaultBranchRef { target { ... on Commit { history(first: 100, since: ${q(new Date(weeks[0]!.start).toISOString())}) { pageInfo { hasNextPage } nodes { committedDate statusCheckRollup { state } } } } } } } } }`).join("\n")}
 }`);
+  const [mine, reviewed, people, repos] = await Promise.all([mineP, reviewedP, peopleP, reposP]);
   return historyOf({ ...people, mine: { nodes: mine }, reviewed: { nodes: reviewed } }, repos, { login, weeks, days, now });
 }
 
@@ -190,7 +193,8 @@ export function historyOf(people: Node, repos: Node, o: { login: string; weeks: 
   const openOf = (x: any, isMine: boolean): OpenPr[] => nodes(x).filter((p) => typeof p.number === "number" && str(p.createdAt)).map((p) => ({ repo: String(p.repository?.nameWithOwner ?? ""), number: p.number, title: String(p.title ?? ""), url: String(p.url ?? ""), createdAt: p.createdAt, draft: !!p.isDraft, mine: isMine }));
   const orgMerged = o.weeks.flatMap((w, i) => (typeof people[`w${i}`]?.issueCount === "number" ? [{ week: w.key, n: people[`w${i}`].issueCount as number }] : []));
   const orgMergedDays = (o.days ?? []).flatMap((d, i) => (typeof people[`d${i}`]?.issueCount === "number" ? [{ day: d.key, n: people[`d${i}`].issueCount as number }] : []));
-  const list = nodes(repos.organization?.repositories).filter((r) => !r.isArchived);
+  // Each owner's repos, under its alias (o0, o1, …).
+  const list = Object.values(repos ?? {}).flatMap((owner: any) => nodes(owner?.repositories)).filter((r) => !r.isArchived);
   const releases: Release[] = list.flatMap((r) => nodes(r.releases).filter((x) => !x.isDraft && !x.isPrerelease && str(x.createdAt)).map((x) => ({ repo: String(r.nameWithOwner), at: x.createdAt, tag: String(x.tagName ?? "") })));
   const commitsFrom: Record<string, string> = {};
   for (const r of list) {

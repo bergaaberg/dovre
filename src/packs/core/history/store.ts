@@ -27,6 +27,8 @@ export type HistoryKept = { load(): Promise<unknown>; save(h: History): Promise<
 const EVERY = 6 * 3600e3;
 /** A gather this old is taken as lost (hosted, a request that ended took its fetches along), and may start again. */
 const LOST = 5 * 60e3;
+/** After a gather failed, the background waits this long to try again (#294: one failing every cron spent ~150 GitHub calls an hour). Gather again goes at once. */
+const AFTER_FAIL = 30 * 60e3;
 
 const historyOk = (v: unknown): v is History => !!v && typeof (v as History).at === "number" && Array.isArray((v as History).mine);
 
@@ -36,6 +38,7 @@ export function createHistory(o: { ghe: Ghe; org: () => string; login: () => str
   const log = o.log ?? ((l: string) => console.error(l));
   let history: History | undefined;
   let historyError: string | undefined;
+  let failedAt = 0;
   /** When the gather in flight started, and its end. */
   let gathering: { since: number; done: Promise<void> } | undefined;
   if (o.file) {
@@ -74,6 +77,7 @@ export function createHistory(o: { ghe: Ghe; org: () => string; login: () => str
     // GitHub's quota nearly gone (#253): only a gather I asked for.
     if (!login || (!force && o.ghe.calls?.low())) return Promise.resolve();
     if (gathering && now() - gathering.since < LOST) return gathering.done;
+    if (!force && historyError && now() - failedAt < AFTER_FAIL) return Promise.resolve();
     if (!force && history && history.login === login && (history.weeks ?? WEEKS) >= want && (history.days ?? 0) >= wantDays && now() - history.at <= EVERY) return Promise.resolve();
     const mine: { since: number; done: Promise<void> } = { since: now(), done: Promise.resolve() };
     gathering = mine;
@@ -86,6 +90,8 @@ export function createHistory(o: { ghe: Ghe; org: () => string; login: () => str
         },
         (e) => {
           historyError = String((e as Error)?.message ?? e).slice(0, 300);
+          failedAt = now();
+          log(`history: the gather failed: ${historyError}`);
         },
       )
       .finally(() => {

@@ -147,6 +147,8 @@ function createHostedGhe(bindings: WorkerBindings, provider?: GithubTokenProvide
  * again, and no request waits on one longer.
  */
 const STUCK_MS = 25_000;
+/** How long the cron waits on the packs' refreshes: nobody waits on it, and History's gather can take ~20 s (#294). */
+const CRON_REFRESH_MS = 60_000;
 /** The longest a request waits on the app's start (packs' init, Bino's memory, the kept snapshot). */
 const READY_MS = 3_000;
 /** The keys a store holds (#428), read at the start: one slower than this stays unread (Read again reads it). */
@@ -401,7 +403,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
         ),
     );
     // And the snapshot, so a page opened later has something to draw at once.
-    await Promise.all([capped(h.refresh.due()), capped(h.gatherer.get().then(() => h.kept.drain()))]);
+    await Promise.all([capped(h.refresh.due(), CRON_REFRESH_MS), capped(h.gatherer.get().then(() => h.kept.drain()))]);
     // What the cron's calls counted (#253).
     await capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
     if (h.hub) ctx.waitUntil(capped(h.hub.drain()));
