@@ -31,6 +31,7 @@ import { envReads, packBindings, packEnv } from "./env.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./guard.ts";
 import { loggedFor } from "./logged.ts";
 import { packDirOf, programsFor } from "./programs.ts";
+import { boundServer, localServer, serverBinding, serverWhy, type ServerCall } from "./server.ts";
 import { aboutFrom, actsFrom, binoFrom, feedFrom, fillOf, fillOwnOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
 import { createReleases, type GetJson } from "./releases.ts";
 import { kvFor, kvInMemory } from "./store.ts";
@@ -117,6 +118,19 @@ export function mountPacks(app: App, o: MountOpts) {
   /** Dovre's own packs (src/packs/core/). */
   const own = (id: string) => packs.core?.includes(id);
   const contexts = new Map<string, PackContext>();
+  // Packs' servers (Pack.server, #304): locally a thread each, started on the first call; hosted, over its binding.
+  const servers = new Map<string, ServerCall>();
+  const serverOf = (c: Pack): ServerCall => {
+    const id = c.manifest.id;
+    let call = servers.get(id);
+    if (!call) {
+      const why = c.server ? serverWhy(c) : "has no server";
+      if (why && c.server) packLog(id)(`server ${why}; not run`);
+      call = why ? async () => ({ ok: false, error: `${c.manifest.name} ${why}` }) : hosted ? boundServer(c, packs.bindings?.[serverBinding(id)]) : localServer(c, packLog(id));
+      servers.set(id, call);
+    }
+    return call;
+  };
   const envSeen = envReads();
   const bindingsSeen = envReads();
   /** Each pack's questions in the bar, by id (`asking`). */
@@ -207,6 +221,7 @@ export function mountPacks(app: App, o: MountOpts) {
           },
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
           file: (name) => filePaths.get(c.manifest.id)?.get(name),
+          call: (fn, input) => serverOf(c)(fn, input),
           // Only from a pack it requires or uses, while that one is on and shown (#326).
           required: (id: string, name: string) => {
             const from = (requiresOf(c.manifest).includes(id) || usesOf(c.manifest).includes(id)) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;

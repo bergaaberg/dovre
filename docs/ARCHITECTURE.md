@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "2.0")
+   src/packs/types.ts     its types (PACK_API = "2.1")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -119,6 +119,20 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
   `.js` or `.css`) goes the same way as a `WasmFile`, at `/assets/files/<id>.<name>.<sha>.<ext>`.
   The pack's own script loads them. The CSP widens only for a script marked `wasm` (it carries
   WebAssembly inside, like Graphviz's build), which counts as shipping WebAssembly.
+- **`server`** (API 2.1, #304, `src/packs/server.ts`): code the pack runs on the server, apart
+  from the app, for WebAssembly a Worker can't compile at run time (a Worker takes modules only at
+  build time) and for work long enough to stall pages (`within` can't stop a synchronous call).
+  It's one bundled ES module (a `WasmFile`, sha-checked) exporting `call(fn, input, wasm)`, the
+  names of the `wasm` modules it gets compiled, its `calls`, and `ms` (10 s by default, 30 s at
+  most). `ctx.call(fn, input)` takes and answers plain JSON, 4 MB at most each way, and never
+  throws. Locally it runs in a worker thread of its own with no environment, one call at a time;
+  a call over its time ends the thread, and the next call starts a fresh one. Hosted,
+  `node ../dovre/src/packs/servers.ts --out .servers --name <instance> [--deploy]` writes a Worker
+  per pack (`<name>-pack-<id>`: no routes, no URL, no bindings, `limits.cpu_ms` its `ms`) with
+  the modules imported at build time, and prints the service binding to add to the app's
+  wrangler.jsonc (`SERVER_<ID>`, entrypoint `PackServer`). Deploy the servers before the app.
+  Setup names a pack whose binding is missing. Rust goes in through wasm-bindgen's JS glue,
+  bundled into the script, with `initSync({ module })`.
 - **Markdown.** Core's Markdown marks a closed fence's language (`pre.code[data-lang]`) and its
   math (`code[data-tex]`, a `$$` block as a `math` fence), so a pack's script may draw them in
   place (mermaid in Bino's answers). Without one, the source shows.
@@ -164,13 +178,14 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `startPicture(svg)`, `pulse()`
 - `wasm(name)`: where one of its `wasm` modules is served
 - `file(name)`: where one of its `files` is served
+- `call(fn, input)`: one of its `server.calls`, run apart from the app (see A pack's server)
 
 **Hooks**, by where they land:
 
 | Where | Hooks | Timing |
 |---|---|---|
 | Declared | `manifest` (id, name, `api`, `settings`, `requires`, `uses`, `ai`…), `writes` (its write kinds), `shares` (what packs requiring it read) | at load; `shares` from memory |
-| Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `nav`, manifest `paths` | on request |
+| Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `server`, `nav`, manifest `paths` | on request; `server` when called |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
 | Stats | `stats` (chart, headline number or bar list); Stats exists only while a pack draws there | from memory |
 | Search | `pages`, `finds` | from memory |
@@ -348,6 +363,7 @@ Also:
   | API | Added |
   | --- | --- |
   | 2.0 | Everything 1.x added (docs/PACK-API-1.md), with the old ways gone (#484). A pack moving from 1.x: `ctx.db` only with `migrations` or the manifest line `db: "raw"`; `ctx.bindings` holds only `requiredBindings` and the new `bindings` (read when there); `ctx.checkouts()` and `ctx.checkout()` are always there (none hosted) and `forge().owns` too; `ctx.can(what)` is the one answer for what's local only or needs my OK; `span.actions` is otel-sink's own place, not core's slot; the door no longer names the agents pack's `auto` share types; and core's `package.json` exports the doors and an instance's wiring, not every file. |
+  | 2.1 | `Pack.server` and `ctx.call` (#304): code a pack runs apart from the app, locally in a thread of its own, hosted in a Worker of its own over a service binding (`src/packs/servers.ts` writes and deploys it). Types `PackServer` and `PackCalled`; in tests, `serverOf` runs a pack's own. |
 
 ## Open questions
 

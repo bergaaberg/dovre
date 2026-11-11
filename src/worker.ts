@@ -13,6 +13,7 @@ import { sameSecret } from "./access.ts";
 import { viewingAs } from "./viewer.ts";
 import { packsOf, createApp } from "./app.ts";
 import { CORE_PACKS } from "./packs/own.ts";
+import { serverBinding } from "./packs/server.ts";
 import { activePacks, beforePages, initAll, type refresher } from "./packs/registry.ts";
 import type { Pack, Defer, ScheduledEvent } from "./packs/types.ts";
 import type { D1 } from "./db.ts";
@@ -348,7 +349,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, keys, bindings, core: [...CORE_PACKS] },
-      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken }),
+      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken, servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
       sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });
     const mounted = packsOf(app)!;

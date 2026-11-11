@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "2.0";
+export const PACK_API = "2.1";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -589,6 +589,13 @@ export type PackContext = {
   /** Where one of its `files` is served (a hashed path, cached for good), or undefined for a name it didn't ship. */
   file(name: string): string | undefined;
   /**
+   * API 2.1 (#304): one of its `server.calls`, run apart from the app (src/packs/server.ts):
+   * locally in a thread of its own, hosted in a Worker of its own over the binding `SERVER_<ID>`.
+   * Plain JSON in and out, 4 MB at most each way. Never throws: a call over its time, one its
+   * script throws in, or a server that isn't there answers `{ ok: false, error }`.
+   */
+  call(fn: string, input: unknown): Promise<PackCalled>;
+  /**
    * What a pack it requires shares (`shares`), by name (#326): undefined unless `id` is in its
    * manifest's `requires`, that pack is on and shown, and it shares one by that name now.
    */
@@ -860,6 +867,32 @@ export type WasmFile = {
  */
 export type PackFile = WasmFile & { wasm?: boolean };
 
+/** What `ctx.call` answers. */
+export type PackCalled = { ok: true; value: unknown } | { ok: false; error: string };
+
+/**
+ * Code a pack runs on the server, apart from the app (API 2.1, #304): for WebAssembly a Worker
+ * can't compile at run time (formatters, parsers, Rust), and for work long enough to stall pages.
+ * Called through `ctx.call(fn, input)`. Locally a worker thread with no environment runs it;
+ * hosted, a Worker of its own that `node ../dovre/src/packs/servers.ts` writes and deploys, with
+ * no bindings. Either way it reaches nothing of Dovre's: what it needs comes in the input.
+ */
+export type PackServer = {
+  /**
+   * One ES module with no imports (bundle it), as a file like a WasmFile: it exports
+   * `call(fn, input, wasm)`, where `wasm` holds the modules below compiled
+   * (`WebAssembly.Module`, for wasm-bindgen's `initSync({ module })` or `new WebAssembly.Instance`).
+   * What it returns goes back as JSON; what it throws, as the error.
+   */
+  script: WasmFile;
+  /** Names from its `wasm` that the script gets. */
+  wasm?: string[];
+  /** The functions `ctx.call` may name: camelCase. */
+  calls: string[];
+  /** How long one call may take, in ms: 10 s by default, 30 s at most. Hosted it's also the Worker's CPU limit. */
+  ms?: number;
+};
+
 export type Pack = {
   manifest: PackManifest;
   /**
@@ -937,6 +970,8 @@ export type Pack = {
    * (plus `'wasm-unsafe-eval'` for a file marked `wasm`).
    */
   files?: Record<string, PackFile>;
+  /** API 2.1: code it runs on the server, apart from the app, through `ctx.call` (#304). */
+  server?: PackServer;
   nav?(ctx: PackContext): NavItem[];
   /** Its setup page's steps (API 1.16), for the ids `manifest.onboard` declares: without this, it has no setup page. */
   setup?: PackSetup;
