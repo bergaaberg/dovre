@@ -847,11 +847,13 @@ export type PackWrite = {
 };
 
 /**
- * A pack's WebAssembly kept out of the Worker bundle (Pack.wasm), for large modules (25 MB at most).
+ * A pack's WebAssembly kept out of the Worker bundle (Pack.wasm), for large modules (128 MB at most).
  * Locally, core calls `load` on the first request and serves the bytes if their SHA-256 starts with
  * `sha256`. Hosted, `node ../dovre/src/packs/assets.ts` (the wrangler `build` step) calls it under
  * Node, checks it the same way, and writes the module into the Worker's static assets; the Worker
- * never calls it. A pack's build script writes `sha256` beside the file.
+ * never calls it. One over 25 MB goes to R2 instead (`assets.ts --r2 <bucket>`, read from
+ * `PACK_FILES`). A pack's build script writes `sha256` beside the file; `load` may fetch a pinned
+ * release, since the hash is checked.
  */
 export type WasmFile = {
   /** The first 16 hex digits of the module's SHA-256. */

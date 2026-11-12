@@ -6,8 +6,12 @@ import type { WasmFile } from "./types.ts";
 
 /** Bytes in the bundle: small modules only. */
 export const WASM_INLINE_MAX = 8 * 1024 * 1024;
-/** A file beside the pack: Workers static assets take 25 MiB a file. */
-const WASM_FILE_MAX = 25 * 1024 * 1024;
+/** Workers static assets take 25 MiB a file: a pack file, or a module this size or less, goes there. */
+export const ASSET_MAX = 25 * 1024 * 1024;
+/** A module bigger than ASSET_MAX goes to R2 hosted (`PACK_FILES`, src/packs/assets.ts --r2), up to this. */
+export const WASM_FILE_MAX = 128 * 1024 * 1024;
+/** The R2 binding hosted modules over 25 MiB are read from. */
+export const PACK_FILES = "PACK_FILES";
 
 export const wasmNameOk = (name: string) => /^[a-z][a-z0-9-]{0,31}$/.test(name);
 export const isWasm = (b: Uint8Array) => b.length >= 8 && b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d;
@@ -27,11 +31,11 @@ export async function sha16(b: Uint8Array): Promise<string> {
 /** Why a file module's bytes can't be served ("" when they can). */
 export async function fileWhy(bytes: unknown, sha: string): Promise<string> {
   if (!(bytes instanceof Uint8Array) || !isWasm(bytes)) return "isn't WebAssembly";
-  return sizeShaWhy(bytes, sha);
+  return sizeShaWhy(bytes, sha, WASM_FILE_MAX);
 }
 
-async function sizeShaWhy(bytes: Uint8Array, sha: string): Promise<string> {
-  if (bytes.length > WASM_FILE_MAX) return "is over 25 MB";
+async function sizeShaWhy(bytes: Uint8Array, sha: string, max = ASSET_MAX): Promise<string> {
+  if (bytes.length > max) return `is over ${max / 1024 / 1024} MB`;
   const got = await sha16(bytes);
   return got === sha ? "" : `has SHA-256 ${got}, not the ${sha} it declares (rebuild the pack)`;
 }
