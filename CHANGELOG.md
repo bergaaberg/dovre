@@ -16,6 +16,7 @@ Added:
 
 Changed:
 
+- **Agents setup** writes `.dovre/sandbox.json` the way Biome and Prettier print it, a short list on one line at the repo's own line width, so the PR passes the repo's format check (#301).
 - **Moved** and **AI summaries** left core for dovre-packs (`movement`, `summaries`). An instance that wants them adds them (`pnpm packs add movement`, `pnpm packs add summaries`). Summaries already written carry over (#465, #466).
 
 - **Packs** can open a PR that changes one file in the owners' repos: `ctx.forge().propose({ kind, repo, path, text, expect, title, body })`. It makes a branch, one commit and the PR, locally and hosted. `kind` must be one of the pack's `writes`, and the try is logged as `<pack>.<kind>`. First it reads the file again, and writes nothing if the file no longer says `expect`. Repos outside `REPO_OWNERS`, paths that aren't plain, and text over 512 kB are refused before GitHub is asked (#203).

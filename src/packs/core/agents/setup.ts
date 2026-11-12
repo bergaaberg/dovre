@@ -72,7 +72,54 @@ export const LANGS: Lang[] = [
 ];
 const PATHS = [CONFIG, ...LANGS.map((l) => l.marker)];
 
-export const configText = (l: Lang) => `${JSON.stringify({ allow: l.allow, setup: l.setup }, null, 2)}\n`;
+/**
+ * JSON as Biome and Prettier print it, so the PR passes a repo's format check: objects open, an
+ * array of plain values on one line when that line fits in `width` (its comma counted).
+ */
+export function jsonText(v: unknown, width = 80, indent = "", lead = 0, tail = 0): string {
+  const inner = `${indent}  `;
+  const items = (xs: [string, unknown][]) => xs.map(([head, x], i) => head + jsonText(x, width, inner, head.length, i < xs.length - 1 ? 1 : 0)).join(",\n");
+  if (Array.isArray(v)) {
+    if (!v.length) return "[]";
+    const flat = `[${v.map((x) => JSON.stringify(x)).join(", ")}]`;
+    if (v.every((x) => x === null || typeof x !== "object") && lead + flat.length + tail <= width) return flat;
+    return `[\n${items(v.map((x) => [inner, x]))}\n${indent}]`;
+  }
+  if (v && typeof v === "object") {
+    const entries = Object.entries(v).filter(([, x]) => x !== undefined);
+    if (!entries.length) return "{}";
+    return `{\n${items(entries.map(([k, x]) => [`${inner}${JSON.stringify(k)}: `, x]))}\n${indent}}`;
+  }
+  return JSON.stringify(v);
+}
+
+/** Where a repo says how wide its JSON may be: Biome's config, then Prettier's (JSON only). */
+const WIDTH_FILES = ["biome.json", "biome.jsonc", ".prettierrc", ".prettierrc.json"];
+
+/** A formatter config's line width for JSON, or undefined when it doesn't say (or isn't JSON). */
+export function widthOf(text: string): number | undefined {
+  let c: any;
+  try {
+    // JSONC: comments and trailing commas out (a "//" inside a string, like a $schema URL, stays).
+    c = JSON.parse(text.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m, str) => str ?? "").replace(/,(\s*[}\]])/g, "$1"));
+  } catch {
+    return undefined;
+  }
+  const w = c?.json?.formatter?.lineWidth ?? c?.formatter?.lineWidth ?? c?.printWidth;
+  return Number.isInteger(w) && w >= 40 && w <= 320 ? w : undefined;
+}
+
+/** The repo's JSON width, from the first formatter config it has; 80 (both tools' default) without one. */
+export async function repoWidth(file: ((path: string) => Promise<string | undefined>) | undefined): Promise<number> {
+  if (!file) return 80;
+  for (const path of WIDTH_FILES) {
+    const text = await file(path).catch(() => undefined);
+    if (text !== undefined) return widthOf(text) ?? 80;
+  }
+  return 80;
+}
+
+export const configText = (l: Lang, width = 80) => `${jsonText({ allow: l.allow, setup: l.setup }, width)}\n`;
 
 /** The owners' repos without a sandbox yet, by language; those that have one, apart. */
 export function byLang(repos: { repo: string; files: Record<string, string> }[]): { langs: Map<string, string[]>; have: string[] } {
@@ -212,6 +259,8 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
     const propose = ctx.forge()?.propose;
     for (const { repo, lang } of list) {
       if (performance.now() > until) break;
+      const forge = ctx.forge();
+      const width = propose ? await repoWidth(forge?.file && ((path) => forge.file!(repo, path))) : 80;
       const r = propose
         ? await propose({
             kind: SANDBOX_KIND,
@@ -219,7 +268,7 @@ export function agentsSetup(): { setup: PackSetup; routes: (app: Hono<AppEnv>, c
             title: `Add a Dovre sandbox (${lang.label})`,
             body: `Agents started from Dovre run in a container with only this repo. These two files say what it may reach and install:\n\n- \`${CONFIG}\`: the hosts it allows (${lang.allow.join(", ")}) and the setup line (\`${lang.setup}\`).\n- \`${TOOLCHAIN}\`: its toolchain, built on \`dovre-sandbox\`.\n\nEdit them here if this repo needs more.`,
             files: [
-              { path: CONFIG, text: configText(lang), expect: null },
+              { path: CONFIG, text: configText(lang, width), expect: null },
               { path: TOOLCHAIN, text: lang.containerfile, expect: null },
             ],
           }).catch((e: unknown) => ({ ok: false as const, error: String((e as Error)?.message ?? e) }))

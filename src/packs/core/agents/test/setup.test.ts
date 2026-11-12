@@ -5,7 +5,7 @@ import { setupOf } from "../../../../agents/sandbox.ts";
 import { allowOf } from "../../../../agents/egress.ts";
 import type { Proposal } from "../../../../actions/propose.ts";
 import { type Pack, PACK_API } from "../../../types.ts";
-import { agentsSetup, BUDGET_MS, byLang, configText, LANGS, SANDBOX_KIND, STALE_MS } from "../setup.ts";
+import { agentsSetup, BUDGET_MS, byLang, configText, jsonText, LANGS, repoWidth, widthOf, SANDBOX_KIND, STALE_MS } from "../setup.ts";
 import { signedIn, snapshot } from "../../../../../test/helpers.ts";
 
 const REPOS: { repo: string; files: Record<string, string> }[] = [
@@ -31,6 +31,39 @@ test("each language's sandbox.json reads back as the sandbox reads it", () => {
     assert.equal(setupOf(configText(l)), l.setup, l.id);
     assert.match(l.containerfile, /^# .*\nFROM dovre-sandbox\n/, l.id);
   }
+});
+
+test("sandbox.json is written as Biome and Prettier print it, so a repo's format check passes", () => {
+  assert.equal(configText(LANGS.find((l) => l.id === "npm")!), '{\n  "allow": ["registry.npmjs.org"],\n  "setup": "npm install"\n}\n');
+  for (const l of LANGS) assert.deepEqual(JSON.parse(configText(l)), { allow: l.allow, setup: l.setup }, l.id);
+  // Too long for one line, or not plain values: one per line.
+  const long = Array.from({ length: 6 }, (_, i) => `registry-${i}.example.com`);
+  assert.equal(jsonText({ allow: long }), `{\n  "allow": [\n${long.map((h) => `    "${h}"`).join(",\n")}\n  ]\n}`);
+  assert.equal(jsonText({ a: [{ b: 1 }], e: [], o: {} }), '{\n  "a": [\n    {\n      "b": 1\n    }\n  ],\n  "e": [],\n  "o": {}\n}');
+});
+
+test("an array that fits the repo's width goes on one line, its comma counted", () => {
+  const hosts = { allow: ["crates.io", "index.crates.io", "static.crates.io", "static.rust-lang.org"], setup: "cargo fetch" };
+  assert.match(jsonText(hosts, 100), /"allow": \["crates.io", .*\],\n/);
+  assert.match(jsonText(hosts, 80), /"allow": \[\n {4}"crates.io",/);
+  // 90 columns with its comma: one too few at 89.
+  const line = `  "allow": ${JSON.stringify(hosts.allow).replaceAll(",", ", ")},`;
+  assert.match(jsonText(hosts, line.length), /"allow": \["/);
+  assert.match(jsonText(hosts, line.length - 1), /"allow": \[\n/);
+});
+
+test("the width is the repo's Biome or Prettier config's, 80 without one", async () => {
+  assert.equal(widthOf('{\n  // a comment\n  "$schema": "https://biomejs.dev/x.json",\n  "formatter": { "lineWidth": 100, },\n}'), 100);
+  assert.equal(widthOf('{ "formatter": { "lineWidth": 100 }, "json": { "formatter": { "lineWidth": 120 } } }'), 120);
+  assert.equal(widthOf('{ "printWidth": 90 }'), 90);
+  assert.equal(widthOf("printWidth: 90"), undefined);
+  assert.equal(widthOf('{ "printWidth": 9000 }'), undefined);
+  const files = (have: Record<string, string>) => async (p: string) => have[p];
+  assert.equal(await repoWidth(files({ "biome.jsonc": '{ "formatter": { "lineWidth": 100 } }', ".prettierrc": '{ "printWidth": 120 }' })), 100);
+  assert.equal(await repoWidth(files({ ".prettierrc.json": '{ "printWidth": 120 }' })), 120);
+  assert.equal(await repoWidth(files({})), 80);
+  assert.equal(await repoWidth(async () => { throw new Error("404"); }), 80);
+  assert.equal(await repoWidth(undefined), 80);
 });
 
 function agentsLike() {
