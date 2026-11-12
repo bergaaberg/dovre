@@ -4,14 +4,14 @@
  */
 import { trackerPack } from "../src/packs/core/issues/test/withTracker.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
-import { buildAssets } from "../src/packs/assets.ts";
+import { buildAssets, uploadBig } from "../src/packs/assets.ts";
 import { sha16 } from "../src/packs/wasm.ts";
 import { activePacks, binoOf, fillOwnOf, fillsOf, hostsOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, SOON_CHAIN_MS, SOON_MIN_MS, SOON_MS, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
@@ -279,6 +279,35 @@ test("a pack's WebAssembly file: locally loaded on first use and checked; hosted
   assert.equal(loads, 1, "hosted never calls load");
 });
 
+test("hosted, a module the static assets don't have (over 25 MiB) is read from R2 (PACK_FILES) at the same key; a pack file never is", async () => {
+  const MOD = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 7]);
+  const JS = new TextEncoder().encode("export {};");
+  const [sha, jsSha] = [await sha16(MOD), await sha16(JS)];
+  let at = "";
+  const p = pack({ id: "duck", execution: "any" }, { wasm: { db: { sha256: sha, load: () => MOD } }, files: { "lib.js": { sha256: jsSha, load: () => JS } }, routes: (app, ctx) => app.get("/duck", (c) => c.text(`${ctx.wasm("db")}|${ctx.file("lib.js")}`)) });
+  const keys: string[] = [];
+  const db = openDb();
+  const app = (bindings: Record<string, unknown>) =>
+    createApp({ GHE_HOST: "github.com", GITHUB_USER: "me", IS_HOSTED: "1", ALLOWED_EMAILS: "me@example.com", PUBLIC_ORIGIN: "https://dovre.example", DB: db.DB } as never, {
+      gatherer: fixedGatherer(snapshot()),
+      ghe: fakeGhe({}).ghe,
+      access: async () => ({ email: "me@example.com" }),
+      packs: { ...activePacks([p], { env: {}, bindings: {}, hosted: true }), env: {}, bindings },
+    });
+  const bucket = { get: async (k: string) => (keys.push(k), k === `wasm/duck.db.${sha}.wasm` ? { body: new Response(MOD).body! } : null) };
+  const none = { fetch: async () => new Response("", { status: 404 }) };
+  const h = app({ ASSETS: none, PACK_FILES: bucket });
+  [at] = (await (await h.request("https://dovre.example/duck")).text()).split("|");
+  const got = await h.request(`https://dovre.example${at}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get("Content-Type"), "application/wasm");
+  assert.deepEqual(new Uint8Array(await got.arrayBuffer()), MOD);
+  assert.deepEqual(keys, [`wasm/duck.db.${sha}.wasm`]);
+  assert.equal((await h.request(`https://dovre.example/assets/files/duck.lib.${jsSha}.js`)).status, 404, "a pack file is the static assets' only");
+  assert.deepEqual(keys, [`wasm/duck.db.${sha}.wasm`], "R2 wasn't asked for it");
+  assert.equal((await app({ ASSETS: none }).request(`https://dovre.example${at}`)).status, 404, "no bucket bound: not found");
+});
+
 test("the hosted assets build: Dovre's own files plus each pack's WebAssembly files, checked; one that fails stops it, naming it", async () => {
   const MOD = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 9]);
   const sha = await sha16(MOD);
@@ -296,6 +325,29 @@ test("the hosted assets build: Dovre's own files plus each pack's WebAssembly fi
   assert.deepEqual(new Uint8Array(readFileSync(join(out, "wasm", `big.tree.${sha}.wasm`))), MOD);
   const stale = pack({ id: "old" }, { wasm: { tree: { sha256: "0123456789abcdef", load: () => MOD } } });
   await assert.rejects(buildAssets({ packs: [good, stale], out, core }), /pack old: wasm tree has SHA-256 [0-9a-f]{16}, not the 0123456789abcdef it declares \(rebuild the pack\)/);
+});
+
+test("a module over 25 MiB: checked by the build but left out of the static assets; --r2 sends it once, by key", async () => {
+  const BIG = new Uint8Array(25 * 1024 * 1024 + 1);
+  BIG.set([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
+  const SMALL = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
+  const [big, small] = [await sha16(BIG), await sha16(SMALL)];
+  const root = mkdtempSync(join(tmpdir(), "assets-r2-"));
+  const core = join(root, "core");
+  mkdirSync(core);
+  const p = pack({ id: "duck" }, { wasm: { db: { sha256: big, load: async () => BIG }, small: { sha256: small, load: () => SMALL } } });
+  assert.deepEqual(await buildAssets({ packs: [p], out: join(root, "out"), core }), [`wasm/duck.small.${small}.wasm`]);
+  const puts: string[] = [];
+  const put = (bucket: string, key: string, file: string) => void puts.push(`${bucket}/${key} ${statSync(file).size}`);
+  const sent = join(root, ".assets-r2");
+  assert.deepEqual(await uploadBig({ packs: [p], bucket: "dovre-pack-files", sent, put }), [`wasm/duck.db.${big}.wasm`]);
+  assert.deepEqual(puts, [`dovre-pack-files/wasm/duck.db.${big}.wasm ${BIG.length}`]);
+  assert.deepEqual(await uploadBig({ packs: [p], bucket: "dovre-pack-files", sent, put }), [], "sent already");
+  assert.equal(puts.length, 1);
+  await assert.rejects(uploadBig({ packs: [p], bucket: "x; rm -rf /", sent, put }), /isn't an R2 bucket name/);
+  const stale = pack({ id: "old" }, { wasm: { db: { sha256: "0123456789abcdef", load: () => BIG } } });
+  await assert.rejects(uploadBig({ packs: [stale], bucket: "dovre-pack-files", sent, put }), /pack old: wasm db has SHA-256 [0-9a-f]{16}, not the 0123456789abcdef it declares/);
+  assert.equal(puts.length, 1, "nothing sent for a module that fails");
 });
 
 test("a Pack.files script marked wasm (WebAssembly inside it) turns on wasm-unsafe-eval; a stylesheet marked so doesn't", async () => {

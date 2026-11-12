@@ -37,7 +37,7 @@ import { createReleases, type GetJson } from "./releases.ts";
 import { kvFor, kvInMemory } from "./store.ts";
 import { onboardOf } from "./suggest.ts";
 import type { ListShare, Pack, PackAiAsk, PackContext, PackShares, Pulse, TodayCard, WasmFile } from "./types.ts";
-import { fileWhy, isWasm, isWasmFile, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./wasm.ts";
+import { fileWhy, isWasm, isWasmFile, PACK_FILES, packFileAt, packFileNameOk, packFileType, packFileWhy, shaOk, WASM_INLINE_MAX, wasmFileAt, wasmNameOk } from "./wasm.ts";
 
 /** Hosted: a pack's refresh running longer than this is given up (as the worker gives up a gather). */
 const REFRESH_STUCK_MS = 25_000;
@@ -455,14 +455,17 @@ export function mountPacks(app: App, o: MountOpts) {
         return c.body(PACK_CSS.body);
       });
     const assets = deps.packs?.bindings?.ASSETS as { fetch(req: Request): Promise<Response> } | undefined;
+    const bucket = deps.packs?.bindings?.[PACK_FILES] as { get(key: string): Promise<{ body: ReadableStream } | null> } | undefined;
     for (const [path, mod] of served) {
       // A file's bytes, once: locally from its load (checked), hosted from the static assets.
       let read: Promise<Uint8Array | ReadableStream | null> | undefined;
       const bytes = (url: string): Promise<Uint8Array | ReadableStream | null> => {
         if ("bytes" in mod) return Promise.resolve(mod.bytes);
         if (env.IS_HOSTED === "1") {
-          if (!assets) return Promise.resolve(null);
-          return assets.fetch(new Request(new URL(path.slice("/assets".length), url))).then((r) => (r.ok ? r.body : null));
+          // A module over 25 MiB isn't in the static assets: it's in R2 (`PACK_FILES`, src/packs/assets.ts --r2), at the same key.
+          const r2 = () => ("file" in mod && mod.type === "application/wasm" && bucket ? bucket.get(path.slice("/assets/".length)).then((o) => o?.body ?? null) : Promise.resolve(null));
+          if (!assets) return r2();
+          return assets.fetch(new Request(new URL(path.slice("/assets".length), url))).then((r) => (r.ok ? r.body : r2()));
         }
         return (read ??= (async () => {
           try {

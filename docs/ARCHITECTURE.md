@@ -110,11 +110,14 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - **`wasm`**: each module (lowercase name, real WebAssembly) is served at a hashed path. While any
   pack ships WebAssembly, pages' CSP allows `'wasm-unsafe-eval'`. A module is either bytes (8 MB
   at most, carried in the Worker bundle: keep them small) or a `WasmFile` (`{ sha256, load }`,
-  25 MB at most) kept out of the bundle. Locally core calls `load` on the first request and
+  128 MB at most) kept out of the bundle. Locally core calls `load` on the first request and
   serves the bytes only if their SHA-256 matches. Hosted, the wrangler `build` step
   (`src/packs/assets.ts`) loads and checks each one under Node and writes it into the Worker's
   static assets, and the Worker serves it from `ASSETS` without calling `load`. A stale `sha256`
-  fails the build, naming the pack.
+  fails the build, naming the pack. A module over 25 MB (the static assets' limit) goes to R2
+  instead: `node ../dovre/src/packs/assets.ts --r2 <bucket>` before `wrangler deploy` sends each
+  one not yet sent (`.assets-r2` keeps their keys), and the Worker reads it from the `PACK_FILES`
+  binding at the same key.
 - **`files`**: a browser library too big for the bundle (`mermaid.js`, `katex.css`; lowercase,
   `.js` or `.css`) goes the same way as a `WasmFile`, at `/assets/files/<id>.<name>.<sha>.<ext>`.
   The pack's own script loads them. The CSP widens only for a script marked `wasm` (it carries
