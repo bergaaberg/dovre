@@ -15,11 +15,23 @@ export type CfApi = (method: "GET" | "POST" | "PUT", path: string, body?: unknow
 export class CfError extends Error {
   status: number;
   codes: number[];
-  constructor(status: number, errors: { code?: number; message?: string }[], path: string) {
-    super(`Cloudflare API ${status} on ${path}: ${errors.map((e) => `${e.code ?? "?"} ${e.message ?? ""}`.trim()).join("; ") || "no detail"}`);
+  constructor(status: number, errors: { code?: number; message?: string; error?: string }[], path: string) {
+    const detail = errors.map((e) => `${e.code ?? "?"} ${e.message ?? e.error ?? ""}`.trim()).join("; ") || "no detail";
+    const need = status === 403 ? scopeFor(path) : undefined;
+    super(`Cloudflare API ${status} on ${path}: ${detail}${need ? `. The API token needs "${need}": edit it in the dashboard (My Profile → API Tokens), and run this again` : ""}`);
     this.status = status;
     this.codes = errors.map((e) => e.code ?? 0);
   }
+}
+
+/** The token permission a path needs (TOKEN_SCOPES), to name it when Cloudflare says 403. */
+export function scopeFor(path: string): string | undefined {
+  if (/\/access\/service_tokens/.test(path)) return "Access: Service Tokens — Edit";
+  if (/\/access\/(apps|policies)/.test(path)) return "Access: Apps and Policies — Edit";
+  if (/\/access\/(organizations|identity_providers|groups)/.test(path)) return "Access: Organizations, Identity Providers, and Groups — Edit";
+  if (/\/workers\/subdomain/.test(path)) return "Workers Scripts — Edit";
+  if (/^\/accounts(\?|$)/.test(path)) return "Account Settings — Read";
+  return undefined;
 }
 
 /** The API with a token. Lists come back whole (every page). */
@@ -30,7 +42,7 @@ export function cfApi(token: string, fetchFn: typeof fetch = fetch): CfApi {
       headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const j = (await res.json().catch(() => ({}))) as { success?: boolean; result?: unknown; errors?: { code?: number; message?: string }[]; result_info?: { total_pages?: number } };
+    const j = (await res.json().catch(() => ({}))) as { success?: boolean; result?: unknown; errors?: { code?: number; message?: string; error?: string }[]; result_info?: { total_pages?: number } };
     if (!res.ok || j.success === false) throw new CfError(res.status, j.errors ?? [], path);
     return j;
   };

@@ -155,6 +155,14 @@ test("access: a token whose secret isn't here is rotated, never a second one; no
   assert.equal(st3.org, undefined);
 });
 
+test("access: a 403 names the token permission the call needs", () => {
+  const e = new CfError(403, [{ code: 1010, error: "auth.forbidden" }], "/accounts/a1/access/service_tokens");
+  assert.match(e.message, /1010 auth\.forbidden/);
+  assert.match(e.message, /"Access: Service Tokens — Edit"/);
+  assert.match(new CfError(403, [], "/accounts/a1/access/apps/x").message, /Apps and Policies/);
+  assert.doesNotMatch(new CfError(400, [], "/accounts/a1/access/service_tokens").message, /needs/);
+});
+
 test("access: helpers", () => {
   assert.ok(appCovers({ id: "a", destinations: [{ type: "public", uri: "x.dev" }] }, "X.dev"));
   assert.ok(!appCovers({ id: "a", domain: "x.dev/admin" }, "x.dev"));
