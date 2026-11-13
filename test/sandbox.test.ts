@@ -200,7 +200,8 @@ test("Apple container engine: a fresh clone at the base with origin gone; the to
   const env = join(box.dir, "env");
   assert.equal(readFileSync(env, "utf8"), boxEnv("192.168.128.1", 40001, key));
   assert.ok(!readFileSync(env, "utf8").includes("oat01-test"), "the token never goes in the box");
-  assert.equal(statSync(env).mode & 0o777, 0o600);
+  // Windows keeps no POSIX modes.
+  if (process.platform !== "win32") assert.equal(statSync(env).mode & 0o777, 0o600);
   const args = engine.command(box, ["claude"]).args;
   assert.ok(!args.join(" ").includes("oat01"));
   assert.equal(args[args.indexOf("--network") + 1], "dovre-sandbox");
@@ -286,12 +287,13 @@ function checkout() {
 /** The bundle container, played here: the script run on the clone, /out the run's out folder. */
 const playContainer = async (bin: string, args: string[]) => {
   if (args[0] !== "run") return { ok: true, out: "" };
-  const vols = args.flatMap((a, i) => (args[i - 1] === "-v" ? [a.split(":")] : []));
+  // At the last colon: a Windows path has one of its own (C:\\…).
+  const vols = args.flatMap((a, i) => (args[i - 1] === "-v" ? [[a.slice(0, a.lastIndexOf(":")), a.slice(a.lastIndexOf(":") + 1)]] : []));
   const work = vols.find((v) => v[1] === "/work")![0]!;
   const out = vols.find((v) => v[1] === "/out")![0]!;
   const base = args.find((a) => a.startsWith("DOVRE_BASE="))!.slice("DOVRE_BASE=".length);
   try {
-    execFileSync("sh", ["-c", BUNDLE_SCRIPT.replaceAll("/out", out)], { cwd: work, env: { ...process.env, DOVRE_BASE: base, GIT_AUTHOR_NAME: "a", GIT_AUTHOR_EMAIL: "a@a", GIT_COMMITTER_NAME: "a", GIT_COMMITTER_EMAIL: "a@a" } });
+    execFileSync("sh", ["-c", BUNDLE_SCRIPT.replaceAll("/out", out.replaceAll("\\", "/"))], { cwd: work, env: { ...process.env, DOVRE_BASE: base, GIT_AUTHOR_NAME: "a", GIT_AUTHOR_EMAIL: "a@a", GIT_COMMITTER_NAME: "a", GIT_COMMITTER_EMAIL: "a@a" } });
     return { ok: true, out: "" };
   } catch (e) {
     return { ok: false, out: "", err: String((e as Error).message) };

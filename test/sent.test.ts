@@ -5,13 +5,15 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { test } from "node:test";
 import { jwtHeaders } from "../src/bridge/creds.ts";
 import { fileLedger, prune, readSent, sentFiles } from "../src/bridge/sentfile.ts";
 import { CATALOG, DAY_MS, fieldsOf, type Ledger, lineOf, parseLines, recorded, recordOf, type SentCall, tally } from "../src/sent.ts";
 
 const root = join(import.meta.dirname, "..");
+/** A file's path from the repo's root, with `/` on every OS. */
+const relOf = (file: string) => relative(root, file).split(sep).join("/");
 const sources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? sources(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : []));
 const arrayLedger = () => {
@@ -119,7 +121,7 @@ test("guard: in the bridge, every fetch and socket goes through the record (src/
   const raw = sources(join(root, "src", "bridge")).flatMap((file) =>
     code(file)
       .filter(({ l }) => /(^|[^.\w])fetch\(|new WebSocket\(/.test(l) && !/\brecorded(Dial)?\(/.test(l))
-      .map(({ n, l }) => `${file.slice(root.length + 1)}:${n}: ${l.trim()}`),
+      .map(({ n, l }) => `${relOf(file)}:${n}: ${l.trim()}`),
   );
   assert.deepEqual(raw, [], "a call home that isn't recorded");
 });
@@ -127,7 +129,7 @@ test("guard: in the bridge, every fetch and socket goes through the record (src/
 test("guard: Dovre's own hosts appear in code only where they're links, the catalog, or a header that names Dovre", () => {
   const allowed = new Set(["src/sent.ts", "src/demo/worker.ts", "src/packs/core/assistant/bino/gateway.ts"]);
   const hits = sources(join(root, "src")).flatMap((file) => {
-    const rel = file.slice(root.length + 1);
+    const rel = relOf(file);
     if (allowed.has(rel)) return [];
     return code(file)
       .filter(({ l }) => /dovre\.dev\b/.test(l))

@@ -90,10 +90,10 @@ export function addPack(o: { id: string; into: string; from?: string; to?: strin
     const dest = join(destRoot, rel);
     mkdirSync(dirname(dest), { recursive: true });
     writeFileSync(dest, body, { flag: "wx" });
-    wrote.push(join(subDir, o.id, rel));
+    wrote.push(`${subDir}/${o.id}/${rel}`);
   }
   writeMeta(destRoot, meta);
-  wrote.push(join(subDir, o.id, META));
+  wrote.push(`${subDir}/${o.id}/${META}`);
 
   const indexText = readFileSync(join(destRoot, "index.ts"), "utf8");
   const exportName = detectExportName(indexText, o.id);

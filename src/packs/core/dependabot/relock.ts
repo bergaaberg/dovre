@@ -56,9 +56,9 @@ export const LOCKFILES: Record<string, Relocker> = {
   "packages.lock.json": step("dotnet", ["restore", "--force-evaluate"]),
 };
 
-/** Whether a remote URL points at owner/name (https or ssh, any host, with or without .git). */
+/** Whether a remote URL points at owner/name (https or ssh, any host, with or without .git; a local path on Windows too). */
 export function remoteIs(url: string, repo: string): boolean {
-  const path = url.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
+  const path = url.trim().replace(/\\/g, "/").replace(/\.git$/i, "").replace(/\/+$/, "");
   return path.toLowerCase().endsWith(`/${repo.toLowerCase()}`) || path.toLowerCase().endsWith(`:${repo.toLowerCase()}`);
 }
 

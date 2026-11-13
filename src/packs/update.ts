@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { owns } from "../owners.ts";
 import { apiCompare, apiGap, apiText, parseApi } from "./api.ts";
 import { HOME_SOURCE, literalApi, literalVersion, newer, notesOf, semver } from "./releases.ts";
@@ -75,7 +75,8 @@ export function filesOf(dir: string): string[] {
       if (f === "node_modules" || f === ".git") continue;
       const p = join(d, f);
       if (statSync(p).isDirectory()) walk(p);
-      else if (!(d === dir && f === META)) out.push(relative(dir, p));
+      // With `/` on every OS: these are keys in .pack.json and paths in git.
+      else if (!(d === dir && f === META)) out.push(relative(dir, p).split(sep).join("/"));
     }
   };
   walk(dir);
