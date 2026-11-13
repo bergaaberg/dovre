@@ -29,10 +29,10 @@ On Cloudflare Workers, D1 and Durable Objects, behind Cloudflare Access. Your la
 ```sh
 pnpm instance new ../my-dovre                    # --domain dovre.example.com for your own; else workers.dev
 pnpm instance provision ../my-dovre --plan       # what it'll reuse, create or fix; changes nothing
-pnpm instance provision ../my-dovre --deploy     # D1, Access, the bridge's token, secrets, deploy, the bridge
+pnpm instance provision ../my-dovre --deploy     # D1, secrets, deploy, the bridge; prints the link that makes your passkey
 ```
 
-Provision works on a new Cloudflare account (it makes the Zero Trust team, a one-time-PIN login and a workers.dev subdomain) and on one already set up (your team, logins, zones and other apps are reused or left alone). Run it again any time: it fixes what's missing and never makes a second of anything. Access needs an API token (`DOVRE_CF_API_TOKEN`) besides `wrangler login`; provision prints a link that makes one. Each step, and the same by hand: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md).
+It needs only `wrangler login`, works on a brand-new Cloudflare account, and needs no domain. Dovre signs you in itself, with a passkey. If you'd rather have Cloudflare Access in front (Zero Trust, an API token), add `--access`: your team, logins and apps are reused or left alone. Run provision again any time: it fixes what's missing and never makes a second of anything. Each step, and the same by hand: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md).
 
 On dovre.dev, pair a machine with the `dovre` launcher instead: `dovre bridge login <handle>`, then `dovre bridge install` to start it at login (`status`, `uninstall`, `logout` too).
 

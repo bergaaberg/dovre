@@ -7,9 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { cfApi, TOKEN_SCOPES, tokenLink } from "./cfaccess.ts";
-import { spawnSync } from "node:child_process";
-import { claimSql } from "./hosted/login/login.ts";
-import { provisionInstance, readWranglerInfo } from "./instance-provision.ts";
+import { provisionInstance } from "./instance-provision.ts";
 
 const TEMPLATE = join(import.meta.dirname, "..", "templates", "instance");
 const NAME = /^[a-z][a-z0-9-]{0,40}$/;
@@ -59,11 +57,14 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : undefined);
   const hasFlag = (k: string) => args.includes(k);
-  const bare = new Set(["--deploy", "--plan", "--no-bridge"]);
+  const bare = new Set(["--deploy", "--plan", "--no-bridge", "--access", "--login-link"]);
   const rest = args.filter((a, i) => !a.startsWith("--") && (!args[i - 1]?.startsWith("--") || bare.has(args[i - 1])));
   if (rest[0] === "provision" && rest[1]) {
     try {
-      const token = process.env.DOVRE_CF_API_TOKEN?.trim() || process.env.CLOUDFLARE_API_TOKEN?.trim() || (await askToken());
+      // Behind Cloudflare Access only when asked (--access, or a DOVRE_CF_API_TOKEN for it); else the
+      // built-in passkey login, which needs nothing but `wrangler login`.
+      const access = hasFlag("--access") || !!process.env.DOVRE_CF_API_TOKEN?.trim();
+      const token = access ? process.env.DOVRE_CF_API_TOKEN?.trim() || process.env.CLOUDFLARE_API_TOKEN?.trim() || (await askToken()) : undefined;
       await provisionInstance({
         dir: resolve(rest[1]),
         coreVarsFile: flag("--vars") && resolve(flag("--vars")!),
@@ -77,7 +78,8 @@ if (import.meta.main) {
         plan: hasFlag("--plan"),
         deploy: hasFlag("--deploy"),
         bridge: !hasFlag("--no-bridge"),
-        api: cfApi(token),
+        api: token ? cfApi(token) : undefined,
+        loginLink: hasFlag("--login-link"),
       });
       process.exit(0);
     } catch (e) {
@@ -85,26 +87,8 @@ if (import.meta.main) {
       process.exit(1);
     }
   }
-  if (rest[0] === "login-link" && rest[1]) {
-    try {
-      const dir = resolve(rest[1]);
-      const raw = readFileSync(join(dir, "wrangler.jsonc"), "utf8");
-      const info = readWranglerInfo(raw);
-      const host = raw.match(/"WORKERS_DEV_HOST"\s*:\s*"([^"]+)"/)?.[1] ?? info.domain;
-      const email = flag("--email") ?? raw.match(/"ALLOWED_EMAILS"\s*:\s*"([^",]+)/)?.[1];
-      if (!email) throw new Error("No email: pass --email, or set ALLOWED_EMAILS in wrangler.jsonc");
-      const { code, sql } = await claimSql(email);
-      const r = spawnSync("npx", ["wrangler", "d1", "execute", info.dbName, "--remote", "--command", sql], { cwd: dir, encoding: "utf8" });
-      if (r.status !== 0) throw new Error(`wrangler d1 execute failed: ${r.stderr || r.stdout}`);
-      console.log(`A link that makes a passkey for ${email}, once, within a day:\n\n  https://${host}/_auth/claim#${code}\n`);
-      process.exit(0);
-    } catch (e) {
-      console.error(String((e as Error).message ?? e));
-      process.exit(1);
-    }
-  }
   if (rest[0] !== "new" || !rest[1]) {
-    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--team <name>] [--subdomain <name>] [--vars <file>] [--no-bridge]\n  pnpm instance login-link <folder> [--email <email>]   (AUTH_MODE=passkey: a link that makes a passkey)");
+    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--subdomain <name>] [--vars <file>] [--no-bridge] [--login-link]\n      [--access [--team <name>]]   (behind Cloudflare Access instead of the built-in passkey login)");
     process.exit(2);
   }
   try {

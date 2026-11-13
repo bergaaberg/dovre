@@ -1,23 +1,48 @@
 # Dovre on Cloudflare, step by step
 
 `pnpm instance provision <folder> --deploy` goes from an instance folder (`pnpm instance new`) to a
-working Dovre behind Cloudflare Access, with your laptop's bridge connected. This page says what
-each step does, so you can see what it'll touch, or do it by hand in the dashboard.
+working Dovre on Cloudflare, with your laptop's bridge connected. This page says what each step
+does, so you can see what it'll touch, or do it by hand.
+
+## Two ways in
+
+- **The built-in login (the default).** Dovre signs you in itself, with a passkey. Setting it up
+  needs only `wrangler login`: no API token, no Zero Trust, no domain (it's served at
+  `<worker>.<your subdomain>.workers.dev`). Provision prints a link that makes your passkey; it
+  works once, within a day. Another device, or every one lost: `provision --login-link`.
+- **Cloudflare Access (`--access`).** Cloudflare checks who you are before a request reaches the
+  Worker. It needs an API token besides `wrangler login`, because wrangler's login can't manage
+  Access. Pick it if you already use Zero Trust, or want Cloudflare's edge in front.
+
+With the built-in login every request reaches the Worker, which then checks the session: passkeys
+are made only through a claim link, sessions are random tokens kept as hashes in D1, and every
+sign-in POST is same-origin and rate-limited. The bridge proves `BRIDGE_KEY` on each dial.
+
+```text
+$ pnpm instance provision ../home --plan
+  create  workers.dev subdomain  home.workers.dev
+  create  D1 database            home-db
+  create  Login                  built-in passkeys (AUTH_MODE=passkey); no Cloudflare Access
+  create  Bridge key             BRIDGE_KEY, here and on the Worker
+  create  GitHub token           GITHUB_TOKEN from `gh auth token`
+  create  Passkey link           for you@example.com, once, within a day
+```
+
+Every step finds its thing by a fixed name and then **reuses**, **creates** or **fixes** it. So
+running it again changes nothing, and after a failure it carries on from what's missing. It never
+deletes anything. `--plan` prints the steps and changes nothing.
+
+# With Cloudflare Access (`--access`)
 
 It works the same on a new Cloudflare account and on one you already use:
 
 - **Nothing yet:** it makes the Zero Trust team, a one-time-PIN login and a workers.dev subdomain.
-  You don't need a domain.
 - **Already set up:** your team, login methods, zones, other Access apps and service tokens are
   reused or left as they are. An Access app you already made for the host is adopted: its policies
   stay, and Dovre's join them.
 
-Every step finds its thing by a fixed name and then **reuses**, **creates** or **fixes** it. So
-running it again changes nothing, and after a failure it carries on from what's missing. It never
-deletes anything. `--plan` prints the steps and changes nothing:
-
 ```text
-$ pnpm instance provision ../home --plan
+$ pnpm instance provision ../home --access --plan
   create  workers.dev subdomain        home.workers.dev
   create  D1 database                  home-db
   create  Zero Trust team              home.cloudflareaccess.com
@@ -30,12 +55,12 @@ $ pnpm instance provision ../home --plan
   create  GitHub token                 GITHUB_TOKEN from `gh auth token`
 ```
 
-## Signing in
+## Signing in (Access)
 
 Two sign-ins, because `wrangler login` can't manage Access:
 
 1. **`wrangler login`** (D1, secrets, deploy). Provision opens it if you aren't signed in.
-2. **An API token for Access**, in `DOVRE_CF_API_TOKEN` (or `CLOUDFLARE_API_TOKEN`), or pasted when
+2. **An API token for Access**, in `DOVRE_CF_API_TOKEN` (setting it means `--access`), or pasted when
    asked. It isn't saved anywhere. Provision prints a dashboard link that fills in the scopes:
 
    | Permission | Why |
@@ -48,7 +73,7 @@ Two sign-ins, because `wrangler login` can't manage Access:
 
    With several accounts, pass `--account <id>` (from `wrangler whoami`).
 
-## The steps
+## The steps (Access)
 
 | Step | Found by | When it's missing | By hand |
 |---|---|---|---|
