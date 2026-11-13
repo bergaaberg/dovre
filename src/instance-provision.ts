@@ -1,16 +1,19 @@
 /**
  * `pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] …`: from
- * an instance folder to a working, Access-protected Dovre on Cloudflare with the bridge connected
- * (#98). Works on an account that already has Cloudflare set up (its team, login methods, zones and
- * other apps are reused or left alone) and on a new one (it makes the team, a one-time-PIN login
- * and a workers.dev subdomain).
+ * an instance folder to a working, protected Dovre on Cloudflare with the bridge connected (#98).
+ * By default it's protected by the built-in passkey login (#522): only `wrangler login` is needed,
+ * and it prints a one-time link that makes the first passkey. With `--access` (or
+ * DOVRE_CF_API_TOKEN) it goes behind Cloudflare Access instead, on an account that already has
+ * Cloudflare set up (its team, login methods, zones and other apps are reused or left alone) or on
+ * a new one (it makes the team, a one-time-PIN login and a workers.dev subdomain).
  *
  * Every step finds its thing by a stable key and then reuses, creates or fixes it, so running it
  * again changes nothing, and after a failure it carries on from what's missing. `--plan` only looks
  * and prints the steps. Nothing is deleted.
  *
- * Two logins: `wrangler login` (D1, secrets, deploy) and an API token for Access, which wrangler's
- * login can't reach (`TOKEN_SCOPES`). The token is read from the environment, never saved.
+ * `wrangler login` covers D1, secrets, deploy and the workers.dev subdomain. Only `--access` needs
+ * an API token as well, since wrangler's login can't reach Access (`TOKEN_SCOPES`). The token is
+ * read from the environment, never saved.
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
