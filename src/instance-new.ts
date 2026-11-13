@@ -5,6 +5,8 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { createInterface } from "node:readline/promises";
+import { cfApi, TOKEN_SCOPES, tokenLink } from "./cfaccess.ts";
 import { provisionInstance } from "./instance-provision.ts";
 
 const TEMPLATE = join(import.meta.dirname, "..", "templates", "instance");
@@ -39,22 +41,41 @@ export function writeInstance(into: string, files: Record<string, string>): stri
   return Object.keys(files);
 }
 
+/** The Access token, pasted (never saved), after the link that makes one with the scopes filled in. */
+async function askToken(): Promise<string> {
+  const how = `Provision needs a Cloudflare API token for Access (wrangler's login can't reach it), with:\n${TOKEN_SCOPES.map((s) => `  - ${s}`).join("\n")}\nMake one here (most scopes are filled in; add "Access: Service Tokens — Edit" if it's missing):\n  ${tokenLink()}\nThen set DOVRE_CF_API_TOKEN, or paste it below. It isn't saved.`;
+  if (!process.stdin.isTTY) throw new Error(how);
+  console.log(how);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const t = (await rl.question("Token: ")).trim();
+  rl.close();
+  if (!t) throw new Error("no token");
+  return t;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : undefined);
   const hasFlag = (k: string) => args.includes(k);
-  const rest = args.filter((a, i) => !a.startsWith("--") && (!args[i - 1]?.startsWith("--") || args[i - 1] === "--deploy"));
+  const bare = new Set(["--deploy", "--plan", "--no-bridge"]);
+  const rest = args.filter((a, i) => !a.startsWith("--") && (!args[i - 1]?.startsWith("--") || bare.has(args[i - 1])));
   if (rest[0] === "provision" && rest[1]) {
     try {
-      provisionInstance({
+      const token = process.env.DOVRE_CF_API_TOKEN?.trim() || process.env.CLOUDFLARE_API_TOKEN?.trim() || (await askToken());
+      await provisionInstance({
         dir: resolve(rest[1]),
+        coreVarsFile: flag("--vars") && resolve(flag("--vars")!),
         domain: flag("--domain"),
         repoOwners: flag("--owners"),
         githubUser: flag("--github-user"),
         allowedEmails: flag("--email"),
-        cfAccessTeam: flag("--access-team"),
-        cfAccessAud: flag("--access-aud"),
+        account: flag("--account"),
+        team: flag("--team"),
+        subdomain: flag("--subdomain"),
+        plan: hasFlag("--plan"),
         deploy: hasFlag("--deploy"),
+        bridge: !hasFlag("--no-bridge"),
+        api: cfApi(token),
       });
       process.exit(0);
     } catch (e) {
@@ -63,13 +84,13 @@ if (import.meta.main) {
     }
   }
   if (rest[0] !== "new" || !rest[1]) {
-    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--domain <host>] [--owners <list>] [--email <email>] [--deploy]");
+    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--team <name>] [--subdomain <name>] [--vars <file>] [--no-bridge]");
     process.exit(2);
   }
   try {
     const into = resolve(rest[1]);
     for (const p of writeInstance(into, instanceFiles({ name: flag("--name") ?? basename(into), domain: flag("--domain") }))) console.log(`wrote ${join(into, p)}`);
-    console.log(`\nNext: run \`pnpm instance provision ${into} --deploy\` (or see ${join(into, "README.md")}).`);
+    console.log(`\nNext: run \`pnpm instance provision ${into} --plan\` to see what it'll do, then without --plan and with --deploy (or see ${join(into, "README.md")}).`);
   } catch (e) {
     console.error(String((e as Error).message ?? e));
     process.exit(1);

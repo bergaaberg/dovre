@@ -5,20 +5,20 @@ checkout beside it (`../dovre`); this repo never goes into core, and core never 
 
 ## From here to a deployed Dovre
 
-In `../dovre`, `pnpm instance provision <this folder> --deploy` does steps 2 and 5 for you (and makes `BRIDGE_KEY`). By hand:
+In `../dovre`:
 
-1. `pnpm install` (core is linked from `../dovre`).
-2. `pnpm wrangler d1 create {{db}}`, and put the id it prints in `wrangler.jsonc`.
-3. In Cloudflare Zero Trust, make a self-hosted Access application for {{domain}} with a policy
-   for you. Put the team name in `CF_ACCESS_TEAM`, the application's AUD tag in `CF_ACCESS_AUD`,
-   and your email in `ALLOWED_EMAILS` (wrangler.jsonc, vars).
-4. Set `REPO_OWNERS` and `GITHUB_USER`, then `pnpm wrangler secret put GITHUB_TOKEN`
-   (fine-grained, read-only on those repos).
-5. `pnpm deploy:worker`: it applies core's migrations to D1, then deploys.
+```sh
+pnpm instance provision <this folder> --plan     # what it'll do; changes nothing
+pnpm instance provision <this folder> --deploy
+```
 
-Open {{domain}}. Until D1, its tables and Access are there, the Worker shows a page listing what's
-missing (names only). Once in, Settings → Setup lists the rest: live pages (HUB), Bino's model
-(`CF_AIG_TOKEN`), the Mac's agents (`BRIDGE_CLIENT_ID`, `BRIDGE_KEY`).
+It makes or reuses D1 and its tables, the Cloudflare Access team, app and policies, the bridge's
+service token and `BRIDGE_KEY`, sets `GITHUB_TOKEN` from `gh auth token` (unless the Worker has
+one), deploys, and starts the bridge on a Mac. With no `--domain` it's served at
+`{{name}}.<your subdomain>.workers.dev`. Run it again any time: it fixes what's missing and makes
+nothing twice. Each step, and the same by hand: `../dovre/docs/CLOUDFLARE.md`.
+
+Once in, Settings → Setup lists the rest, such as Bino's model (`CF_AIG_TOKEN`).
 
 ## Packs
 

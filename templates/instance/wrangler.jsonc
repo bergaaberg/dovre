@@ -23,9 +23,11 @@
     // Cloudflare Access: the team name and the application's AUD tag, then who may come in.
     "CF_ACCESS_TEAM": "",
     "CF_ACCESS_AUD": "",
-    "ALLOWED_EMAILS": ""
+    "ALLOWED_EMAILS": "",
+    // The bridge's Access service token (its client id; the secret stays on the laptop).
+    "BRIDGE_CLIENT_ID": ""
   },
-  // Secrets (wrangler secret put): GITHUB_TOKEN; CF_AIG_TOKEN for Bino; BRIDGE_KEY for the Mac's agents.
+  // Secrets (wrangler secret put): GITHUB_TOKEN; CF_AIG_TOKEN for Bino; BRIDGE_KEY for the laptop's agents.
   "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "DovreHub" }] },
   "migrations": [{ "tag": "hub-v1", "new_sqlite_classes": ["DovreHub"] }],
   "d1_databases": [

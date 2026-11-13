@@ -27,10 +27,12 @@ pnpm dev        # http://127.0.0.1:4848
 On Cloudflare Workers, D1 and Durable Objects, behind Cloudflare Access. Your laptop dials out to it (`pnpm bridge`) to run agents, with no open ports:
 
 ```sh
-pnpm instance new ../my-dovre --domain dovre.example.com
-pnpm instance provision ../my-dovre --deploy
-pnpm bridge
+pnpm instance new ../my-dovre                    # --domain dovre.example.com for your own; else workers.dev
+pnpm instance provision ../my-dovre --plan       # what it'll reuse, create or fix; changes nothing
+pnpm instance provision ../my-dovre --deploy     # D1, Access, the bridge's token, secrets, deploy, the bridge
 ```
+
+Provision works on a new Cloudflare account (it makes the Zero Trust team, a one-time-PIN login and a workers.dev subdomain) and on one already set up (your team, logins, zones and other apps are reused or left alone). Run it again any time: it fixes what's missing and never makes a second of anything. Access needs an API token (`DOVRE_CF_API_TOKEN`) besides `wrangler login`; provision prints a link that makes one. Each step, and the same by hand: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md).
 
 On dovre.dev, pair a machine with the `dovre` launcher instead: `dovre bridge login <handle>`, then `dovre bridge install` to start it at login (`status`, `uninstall`, `logout` too).
 
