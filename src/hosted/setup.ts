@@ -9,7 +9,7 @@ import type { D1 } from "../db.ts";
 import type { SetupLine } from "../pages/settings.ts";
 
 /** The bindings this reads: the same names as the Worker's (src/worker.ts). */
-type SetupBindings = { DB?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
+type SetupBindings = { DB?: unknown; AUTH_MODE?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
 
 const set = (v: unknown) => typeof v === "string" && v.trim() !== "";
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -21,14 +21,14 @@ type HostedLine = SetupLine & { needed?: boolean };
 /** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
 export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
-  const access = !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
+  const access = str(b.AUTH_MODE)?.trim().toLowerCase() === "passkey" || !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
   const bridge = [set(b.BRIDGE_CLIENT_ID), set(b.BRIDGE_KEY)];
   // The same choice hostedBinoRoute makes (src/hosted/hub.ts): BINO_VIA=api-key goes straight to the provider.
   const direct = String(str(b.ASSISTANT_VIA) ?? str(b.BINO_VIA) ?? "").trim().toLowerCase() === "api-key";
   const lines: HostedLine[] = [
     { name: "Database (D1)", on: isDb(b.DB), needed: true, what: "Dovre's own tables: settings, My list, the snapshot", fix: "Create one (`wrangler d1 create <name>`) and bind it as DB in wrangler.jsonc, with migrations_dir pointing at core's migrations/." },
     { name: "Its tables", on: isDb(b.DB) && o.tables !== false, needed: true, what: "D1's migrations applied", fix: "`wrangler d1 migrations apply <name> --remote` (the template's deploy script does it first)." },
-    { name: "Who gets in", on: access, needed: true, what: "Every request carries a signed token from Cloudflare Access or your own issuer, and is checked against it", fix: "Make a self-hosted Access application for the domain, then set the vars CF_ACCESS_TEAM (the team name) and CF_ACCESS_AUD (its AUD tag). Or, for another issuer: AUTH_ISSUER (https), AUTH_AUD, and AUTH_JWKS_URL if its keys aren't at /.well-known/jwks.json." },
+    { name: "Who gets in", on: access, needed: true, what: "Every request carries a signed token from Cloudflare Access or your own issuer, or a session from the built-in passkey login, and is checked against it", fix: "Set the var AUTH_MODE to passkey for the built-in login (provision prints the link that makes your passkey). Or make a self-hosted Access application for the domain, then set the vars CF_ACCESS_TEAM (the team name) and CF_ACCESS_AUD (its AUD tag). Or, for another issuer: AUTH_ISSUER (https), AUTH_AUD, and AUTH_JWKS_URL if its keys aren't at /.well-known/jwks.json." },
     { name: "Allowed emails", on: set(b.ALLOWED_EMAILS), what: "Only these people, even if the Access policy lets more through", fix: "Set the var ALLOWED_EMAILS (comma-separated)." },
     { name: "Live pages and Bino (HUB)", on: !!b.HUB, what: "Pages update by themselves; Bino answers", fix: "Bind the Durable Object: durable_objects HUB → DovreHub, a new_sqlite_classes migration, and `export { DovreHub } from \"dovre/hosted/hub.ts\"` in worker.ts." },
     { name: "Icons and fonts (ASSETS)", on: !!b.ASSETS, what: "The app icon, Nordwand Mono and packs' WebAssembly files", fix: "build: { command: \"node ../dovre/src/packs/assets.ts --out .assets\" } and assets: { directory: \".assets\", binding: \"ASSETS\", run_worker_first: true } in wrangler.jsonc." },

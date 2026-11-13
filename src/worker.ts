@@ -47,6 +47,7 @@ import { createQueue } from "./agents/queue.ts";
 import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER } from "./hosted/hub.ts";
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 import { serveLookups } from "./hosted/lookups.ts";
+import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
 
 interface WorkerBindings {
   DB: D1;
@@ -77,6 +78,8 @@ interface WorkerBindings {
   ALLOWED_EMAILS?: string;
   /** An instance served at workers.dev with Access on that host (#98): the host. */
   WORKERS_DEV_HOST?: string;
+  /** "passkey": the built-in login (#522, src/hosted/login/) instead of Cloudflare Access. */
+  AUTH_MODE?: string;
   IS_HOSTED?: string;
   /** The Durable Object (src/hosted/hub.ts, exported by the instance as DovreHub): pages' live updates and Bino. */
   HUB?: HubNamespace;
@@ -261,7 +264,7 @@ export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">
 /** The vars and secrets among the bindings: what a pack's settings read. */
 const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Object.fromEntries(Object.entries(b).filter(([, v]) => typeof v === "string")) as Record<string, string>;
 
-type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier };
+type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login };
 
 export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.1";
@@ -323,7 +326,9 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       CLAUDE_BIN: undefined,
     };
     const access = accessConfigOf(bindings);
-    const verify = access ? createAccessVerifier(access) : undefined;
+    // The built-in login when it's on (AUTH_MODE=passkey), else Cloudflare Access or another issuer.
+    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(",") }) : undefined;
+    const verify = builtIn?.verify ?? (access ? createAccessVerifier(access) : undefined);
     // The hub, when the instance binds it: live pages, and Bino answering in the object.
     const hub = bindings.HUB ? hubClient(bindings.HUB) : undefined;
     const memory = memoryLater(loadMemory(bindings.DB));
@@ -362,7 +367,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       sync.seed(shownOf(s));
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
-    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, refresh: mounted.refresh };
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;
@@ -431,6 +436,16 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       if (page && url.pathname === "/healthz") return Response.json({ ok: false, setUp: false, version: `${version}-cf` }, { status: 503, headers: { "cache-control": "no-store" } });
       if (page) return new Response(page, { status: 503, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       const h = build(bindings);
+      // The built-in login: its own pages, and anyone without a session is sent to them (pages) or
+      // turned away (anything else). With Access, Cloudflare did this before the Worker.
+      if (h.login) {
+        const own = await h.login.handle(request);
+        if (own) return own;
+        if (url.pathname !== "/bridge" && !(await h.login.verify(request))?.email) {
+          const page = request.method === "GET" && (request.headers.get("accept") ?? "").includes("text/html");
+          return page ? new Response(null, { status: 302, headers: { location: "/_auth/login", "cache-control": "no-store" } }) : new Response("Not found", { status: 404 });
+        }
+      }
       // The Mac's bridge: only its own service token, then the socket goes to the hub.
       if (url.pathname === "/bridge") return bridgeIn(request, bindings, h);
       // A page's live socket: a person, from this app's own pages (a socket's answer can't pass the app's headers).
