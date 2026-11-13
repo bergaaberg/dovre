@@ -313,7 +313,11 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
 
   printSteps(steps, log);
   log(`\n✓ https://${host}${o.deploy ? "" : ` (not deployed yet: \`pnpm --dir ${o.dir} deploy:worker\`)`}`);
-  if (bridgeOurs && !startBridge) log("  The bridge: `pnpm bridge` in core streams this machine's agents to it.");
+  if (bridgeOurs && !startBridge) {
+    // `pnpm bridge` reads core's .dev.vars (or the environment), so a --vars file of its own needs its settings passed.
+    if (o.coreVarsFile) log(`  The bridge: its settings are in ${varsFile}; run \`pnpm bridge\` in core with its BRIDGE_* lines in the environment.`);
+    else log("  The bridge: `pnpm bridge` in core streams this machine's agents to it.");
+  }
   if (link) log(`\n  Make your passkey (works once, within a day; don't share it):\n\n  ${link}\n`);
   return { steps, host, dbId, team: access.team, aud: access.aud, link };
 }
