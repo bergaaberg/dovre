@@ -18,6 +18,7 @@ test("remoteIs matches https and ssh remotes of the repo only", () => {
   assert.equal(remoteIs("git@github.com:ACME/web.git", "ACME/web"), true);
   assert.equal(remoteIs("https://github.com/ACME/web-old.git", "ACME/web"), false);
   assert.equal(remoteIs("https://github.com/evil/ACME/webx", "ACME/web"), false);
+  assert.equal(remoteIs("C:\\Users\\me\\remote\\ACME\\web.git", "ACME/web"), true, "a local origin on Windows");
 });
 
 test("addLeftOut: lockfile-only conflicts made again, other conflicts left out, pushed to the combined branch, checkout untouched", async () => {

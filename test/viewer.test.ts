@@ -114,7 +114,8 @@ test("compare (#105): a patch git agrees with, JSON laid out alike, limits", () 
       assert.ok(r.ok);
       writeFileSync(join(dir, "x"), before.join("\n") + (before.length ? "\n" : ""));
       writeFileSync(join(dir, "p"), `--- a/x\n+++ b/x\n${r.patch}\n`);
-      execFileSync("git", ["apply", "p"], { cwd: dir });
+      // As written: Git for Windows (core.autocrlf) would turn its lines CRLF.
+      execFileSync("git", ["-c", "core.autocrlf=false", "apply", "p"], { cwd: dir });
       assert.equal(readFileSync(join(dir, "x"), "utf8"), after.join("\n") + (after.length ? "\n" : ""));
     }
   } finally {

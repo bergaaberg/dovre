@@ -461,7 +461,8 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
       try {
         try {
           if (pin) git(["update-ref", pin, sha], repo);
-          git(["clone", "-q", "--no-local", "--no-checkout", repo, work], dir);
+          // As committed: a host whose git turns line ends CRLF (Git for Windows) mustn't hand the box CRLF files.
+          git(["clone", "-q", "--no-local", "--no-checkout", "--config", "core.autocrlf=false", repo, work], dir);
         } finally {
           if (pin) {
             try {
@@ -489,7 +490,7 @@ export function appleContainer(o: { root: string; /** Free bytes on the disk hol
           if (!from) throw repoError(`${s} (a sibling in ${SANDBOX_CONFIG}) has no checkout here`);
           const name = s.split("/")[1]!;
           const to = join(dir, "siblings", name);
-          git(["clone", "-q", "--no-local", "--no-checkout", from, to], dir);
+          git(["clone", "-q", "--no-local", "--no-checkout", "--config", "core.autocrlf=false", from, to], dir);
           try {
             git(["fetch", "-q", "--no-tags", "origin", "refs/remotes/origin/HEAD"], to);
             git(["checkout", "-q", "--detach", "FETCH_HEAD"], to);
