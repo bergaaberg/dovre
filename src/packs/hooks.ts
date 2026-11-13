@@ -74,6 +74,8 @@ export const HOOKS: Hook[] = [
   { name: "files", where: "Own pages", call: "special" },
   // Called only through the pack's own ctx.call, in a thread or Worker of its own (src/packs/server.ts).
   { name: "server", where: "Own pages", call: "special" },
+  // A flag, read on each of its pages' responses (COEP; src/app.ts).
+  { name: "isolated", where: "Own pages", call: "special" },
   { name: "stats", where: "Stats", call: "memory", from: (on, ctxOf, log) => statsFrom(on, ctxOf, 4, log) },
   { name: "lookups", where: "Bino", call: { ms: LOOKUP_MS }, from: (on, ctxOf, log) => lookupsFrom(on, ctxOf, log) },
   { name: "frames", where: "Framing", call: "memory", from: (on, ctxOf, log) => on.flatMap((c) => framesFrom(on, ctxOf, `/${c.manifest.id}`, log)) },

@@ -1155,6 +1155,36 @@ test("dock: a pack's button beside Bino's on every page but its own, cut to size
   assert.match((await get("/agents/dock")).headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/, "nor a pack's without a dock");
 });
 
+test("isolated (API 2.2): an isolated pack's own pages get COEP beside the COOP every page has; docks and pack files get it too, other pages don't", async () => {
+  const JS = new TextEncoder().encode("postMessage(1);");
+  const jsSha = await sha16(JS);
+  const iso = pack(
+    { id: "iso", execution: "any", api: "2.2" },
+    {
+      isolated: true,
+      files: { "work.js": { sha256: jsSha, load: () => JS } },
+      routes: (app, ctx) => {
+        app.get("/iso", (c) => ctx.page(c, { title: "Iso", body: "threads" }));
+        app.get("/iso/sub", (c) => c.text(ctx.file("work.js") ?? "none"));
+      },
+    },
+  );
+  const plain = pack({ id: "plain" }, { routes: (app, ctx) => app.get("/plain", (c) => ctx.page(c, { title: "Plain", body: "p" })) });
+  const { get } = signedIn(snapshot(), {}, { packs: [iso, plain] });
+  const coep = (r: Response) => r.headers.get("cross-origin-embedder-policy");
+  const page = await get("/iso");
+  assert.equal(coep(page), "require-corp");
+  assert.equal(page.headers.get("cross-origin-opener-policy"), "same-origin");
+  const sub = await get("/iso/sub");
+  assert.equal(coep(sub), "require-corp", "every page under it");
+  const file = await get(await sub.text());
+  assert.equal(file.status, 200);
+  assert.equal(coep(file), "require-corp", "a worker started from a pack file is isolated too");
+  assert.equal(file.headers.get("cross-origin-resource-policy"), "same-origin");
+  assert.equal(coep(await get("/bino/dock")), "require-corp", "a dock opened on an isolated page may be framed by it");
+  for (const path of ["/plain", "/prs", "/isolated", "/iso-x"]) assert.equal(coep(await get(path)), null, path);
+});
+
 test("dock keys: a pack's dock may ask for a capital letter; the page's own keys, a second dock's ask and anything else are ignored", async () => {
   const ask = (id: string, key: unknown) => pack({ id }, { dock: () => ({ label: id, key: key as string }) });
   const docks = docksFrom([ask("one", "T"), ask("two", "T"), ask("three", "B")], (c) => testContext({ log: () => {} }), () => {});

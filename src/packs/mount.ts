@@ -323,6 +323,11 @@ export function mountPacks(app: App, o: MountOpts) {
   const packApps = () => aboutFrom(packs.on, ctxOf, log, own);
   /** The origins a pack's own page may frame (`frames`), for that page's policy. */
   const packFrames = (path: string) => framesFrom(packs.on, ctxOf, path, log);
+  /** Whether a path is the own page of a pack that's `isolated` (API 2.2): its response gets COEP. */
+  const packIsolated = (path: string) => {
+    const m = /^\/([a-z][a-z0-9-]*)(\/|$)/.exec(path);
+    return !!m && packs.on.some((x) => x.manifest.id === m[1] && x.isolated === true);
+  };
   // Core pages' named places (types.ts SlotMap): what each shown pack puts there.
   const fill = fillOf(shown, ctxOf, log);
   // A pack's own named places (its manifest's `hosts`, #477): what the shown packs that use it put there.
@@ -484,6 +489,8 @@ export function mountPacks(app: App, o: MountOpts) {
         if (!b) return c.notFound();
         c.header("Content-Type", mod.type);
         c.header("Cache-Control", "private, max-age=31536000, immutable");
+        // A worker started from it on an isolated page needs it too (CORP comes with every response).
+        c.header("Cross-Origin-Embedder-Policy", "require-corp");
         return c.body(b as Uint8Array<ArrayBuffer>);
       });
     }
@@ -596,7 +603,7 @@ export function mountPacks(app: App, o: MountOpts) {
   return {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm,
     styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts,
-    packNav, packFeed, packBino, packApps, packFrames, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
+    packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
     refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen,
