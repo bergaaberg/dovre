@@ -37,7 +37,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 ref="${1:-origin/main}"
 node=$(command -v node) || { echo "dovre bridge: node isn't on PATH" >&2; exit 1; }
 pnpm=$(command -v pnpm) || { echo "dovre bridge: pnpm isn't on PATH" >&2; exit 1; }
-[ -f "$repo/.dev.vars" ] || { echo "dovre bridge: $repo/.dev.vars is missing (BRIDGE_URL, BRIDGE_KEY, BRIDGE_CLIENT_ID, BRIDGE_CLIENT_SECRET)" >&2; exit 1; }
+[ -f "$repo/.dev.vars" ] || { echo "dovre bridge: $repo/.dev.vars is missing (BRIDGE_URL, BRIDGE_KEY; behind Access also BRIDGE_CLIENT_ID, BRIDGE_CLIENT_SECRET)" >&2; exit 1; }
 
 case "$ref" in origin/*) git -C "$repo" fetch -q origin ;; esac
 sha=$(git -C "$repo" rev-parse --verify -q "$ref^{commit}") || { echo "dovre bridge: no commit $ref" >&2; exit 1; }

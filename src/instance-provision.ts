@@ -1,22 +1,26 @@
 /**
  * `pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] …`: from
- * an instance folder to a working, Access-protected Dovre on Cloudflare with the bridge connected
- * (#98). Works on an account that already has Cloudflare set up (its team, login methods, zones and
- * other apps are reused or left alone) and on a new one (it makes the team, a one-time-PIN login
- * and a workers.dev subdomain).
+ * an instance folder to a working, protected Dovre on Cloudflare with the bridge connected (#98).
+ * By default it's protected by the built-in passkey login (#522): only `wrangler login` is needed,
+ * and it prints a one-time link that makes the first passkey. With `--access` (or
+ * DOVRE_CF_API_TOKEN) it goes behind Cloudflare Access instead, on an account that already has
+ * Cloudflare set up (its team, login methods, zones and other apps are reused or left alone) or on
+ * a new one (it makes the team, a one-time-PIN login and a workers.dev subdomain).
  *
  * Every step finds its thing by a stable key and then reuses, creates or fixes it, so running it
  * again changes nothing, and after a failure it carries on from what's missing. `--plan` only looks
  * and prints the steps. Nothing is deleted.
  *
- * Two logins: `wrangler login` (D1, secrets, deploy) and an API token for Access, which wrangler's
- * login can't reach (`TOKEN_SCOPES`). The token is read from the environment, never saved.
+ * `wrangler login` covers D1, secrets, deploy and the workers.dev subdomain. Only `--access` needs
+ * an API token as well, since wrangler's login can't reach Access (`TOKEN_SCOPES`). The token is
+ * read from the environment, never saved.
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type CfApi, reconcileAccess, type Step, workersSubdomain } from "./cfaccess.ts";
+import { type CfApi, cfApi, reconcileAccess, type Step, workersSubdomain } from "./cfaccess.ts";
+import { claimSql } from "./hosted/login/login.ts";
 import { upsertDevVar } from "./setup.ts";
 
 const UUID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
@@ -55,6 +59,8 @@ type WranglerPatch = {
   bridgeClientId?: string;
   /** The workers.dev host Access covers, which the Worker then serves (no other workers.dev host). */
   workersDevHost?: string;
+  /** "passkey" for the built-in login; "" to turn it off (Access). */
+  authMode?: string;
 };
 
 /** Patches `database_id`, the route or workers.dev, and `vars` in `wrangler.jsonc`, keeping comments. */
@@ -74,6 +80,7 @@ export function patchWranglerConfig(jsoncText: string, patch: WranglerPatch): st
     ["CF_ACCESS_AUD", patch.cfAccessAud],
     ["BRIDGE_CLIENT_ID", patch.bridgeClientId],
     ["WORKERS_DEV_HOST", patch.workersDevHost],
+    ["AUTH_MODE", patch.authMode],
   ];
   for (const [k, v] of vars) {
     if (v === undefined) continue;
@@ -130,13 +137,21 @@ export type ProvisionOpts = {
   deploy?: boolean;
   /** Start the bridge as a launchd agent after deploying (macOS, core's own .dev.vars). Default on. */
   bridge?: boolean;
-  api: CfApi;
+  /**
+   * An API token's API for Cloudflare Access (`--access`): the instance goes behind Access. Without
+   * one, the built-in passkey login (#522): nothing but `wrangler login` is needed.
+   */
+  api?: CfApi;
+  /** The API with wrangler's own login (the workers.dev subdomain); tests give a made-up one. */
+  wranglerApi?: CfApi;
+  /** Mint a passkey link even when the instance has passkeys (another device, or every one lost). */
+  loginLink?: boolean;
   run?: CmdRunner;
   log?: (line: string) => void;
   platform?: NodeJS.Platform;
 };
 
-export type ProvisionResult = { steps: Step[]; host: string; dbId?: string; team?: string; aud?: string };
+export type ProvisionResult = { steps: Step[]; host: string; dbId?: string; team?: string; aud?: string; /** The passkey link this run minted. */ link?: string };
 
 const wr = (run: CmdRunner, dir: string, ...args: string[]) => run("npx", ["wrangler", ...args], { cwd: dir });
 
@@ -168,9 +183,11 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
   const info = readWranglerInfo(raw);
   const wantDomain = o.domain ?? info.domain;
   const workersDev = !wantDomain || wantDomain.endsWith(".example") || wantDomain.endsWith(".workers.dev");
+  const passkey = !o.api;
   let host = wantDomain;
   if (workersDev) {
-    const s = await workersSubdomain(o.api, account, o.subdomain ?? info.worker, apply);
+    const api = o.api ?? o.wranglerApi ?? wranglerApiOf(run, o.dir);
+    const s = await workersSubdomain(api, account, o.subdomain ?? info.worker, apply);
     steps.push(s.step);
     host = `${info.worker}.${s.sub}.workers.dev`;
   }
@@ -199,9 +216,10 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
   const bridgeOurs = !local.BRIDGE_URL || local.BRIDGE_URL === bridgeUrl;
   if (!bridgeOurs) log(`! ${varsFile} has a bridge for ${local.BRIDGE_URL}: left as it is, and no bridge set up for ${host}. Pass --vars <file> for one of its own.`);
 
-  // 5. Access: the team, a login, the token, the policies, the app.
-  const access = await reconcileAccess({
-    api: o.api,
+  // 5. Who gets in: the built-in passkey login, or Access (the team, a login, the token, the policies, the app).
+  if (passkey) step("Login", readVar(raw, "AUTH_MODE") === "passkey" ? "reuse" : "create", "built-in passkeys (AUTH_MODE=passkey); no Cloudflare Access");
+  const access = passkey ? { steps: [] as Step[], team: undefined, aud: undefined, bridge: undefined } : await reconcileAccess({
+    api: o.api!,
     account,
     host,
     worker: info.worker,
@@ -228,6 +246,12 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
   const ghToken = secrets.has("GITHUB_TOKEN") ? undefined : run("gh", ["auth", "token"], { cwd: o.dir }).stdout.trim() || undefined;
   step("GitHub token", secrets.has("GITHUB_TOKEN") ? "reuse" : ghToken ? "create" : "fix", secrets.has("GITHUB_TOKEN") ? "GITHUB_TOKEN" : ghToken ? "GITHUB_TOKEN from `gh auth token`" : "none: `gh auth login`, or `wrangler secret put GITHUB_TOKEN`");
 
+  // The passkey link: when the instance has no passkey yet (or --login-link). Counted in D1, whose
+  // table may not be there yet before the first migrations: then there's none.
+  const passkeys = () => Number(/"n"\s*:\s*(\d+)/.exec(wr(run, o.dir, "d1", "execute", info.dbName, "--remote", "--json", "--command", "SELECT COUNT(*) AS n FROM login_passkeys").stdout)?.[1] ?? 0);
+  const mintLink = passkey && (o.loginLink || (dbId ? passkeys() === 0 : true));
+  if (passkey) step("Passkey link", mintLink ? "create" : "reuse", mintLink ? `for ${emails[0]}, once, within a day` : "a passkey is there (--login-link for another)");
+
   const startBridge = bridgeOurs && o.deploy && o.bridge !== false && (o.platform ?? process.platform) === "darwin" && resolve(varsFile) === join(CORE, ".dev.vars");
   if (o.deploy) step("Deploy", "create", `wrangler deploy → https://${host}`);
   if (startBridge) step("Bridge", "create", "scripts/install-bridge.sh (launchd, at login)");
@@ -249,7 +273,8 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     cfAccessTeam: access.team,
     cfAccessAud: access.aud,
     bridgeClientId: access.bridge?.clientId,
-    workersDevHost: workersDev ? host : undefined,
+    workersDevHost: workersDev && !passkey ? host : undefined,
+    authMode: passkey ? "passkey" : readVar(raw, "AUTH_MODE") ? "" : undefined,
   });
   writeFileSync(wranglerPath, raw);
 
@@ -274,6 +299,13 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     const dep = wr(run, o.dir, "deploy");
     if (dep.status !== 0) throw new Error(`Deploy failed: ${dep.stderr || dep.stdout}`);
   }
+  let link: string | undefined;
+  if (mintLink) {
+    const { code, sql } = await claimSql(emails[0]!);
+    const r = wr(run, o.dir, "d1", "execute", info.dbName, "--remote", "--command", sql);
+    if (r.status !== 0) throw new Error(`Couldn't store the passkey link: ${r.stderr || r.stdout}`);
+    link = `https://${host}/_auth/claim#${code}`;
+  }
   if (startBridge) {
     const b = run("sh", [join(CORE, "scripts", "install-bridge.sh")], { cwd: CORE });
     if (b.status !== 0) log(`! The bridge didn't start: ${(b.stderr || b.stdout).trim()}`);
@@ -281,8 +313,20 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
 
   printSteps(steps, log);
   log(`\n✓ https://${host}${o.deploy ? "" : ` (not deployed yet: \`pnpm --dir ${o.dir} deploy:worker\`)`}`);
-  if (bridgeOurs && !startBridge) log("  The bridge: `pnpm bridge` in core streams this machine's agents to it.");
-  return { steps, host, dbId, team: access.team, aud: access.aud };
+  if (bridgeOurs && !startBridge) {
+    // `pnpm bridge` reads core's .dev.vars (or the environment), so a --vars file of its own needs its settings passed.
+    if (o.coreVarsFile) log(`  The bridge: its settings are in ${varsFile}; run \`pnpm bridge\` in core with its BRIDGE_* lines in the environment.`);
+    else log("  The bridge: `pnpm bridge` in core streams this machine's agents to it.");
+  }
+  if (link) log(`\n  Make your passkey (works once, within a day; don't share it):\n\n  ${link}\n`);
+  return { steps, host, dbId, team: access.team, aud: access.aud, link };
+}
+
+/** The Cloudflare API with wrangler's own login (`wrangler auth token`): its Workers scope covers the subdomain. */
+function wranglerApiOf(run: CmdRunner, dir: string): CfApi {
+  const t = wr(run, dir, "auth", "token").stdout.match(/[A-Za-z0-9._-]{30,}/g)?.at(-1);
+  if (!t) throw new Error("Couldn't read wrangler's login (`wrangler auth token`): run `npx wrangler login`.");
+  return cfApi(t);
 }
 
 function readVar(jsonc: string, k: string): string {

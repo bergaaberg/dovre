@@ -62,6 +62,25 @@ export async function machineKey(key: string, machine: string): Promise<string> 
   return sign(await hmacKey(key), `${PROTOCOL}|machine|${machine}`);
 }
 
+/**
+ * Without Cloudflare Access (the built-in login, #522) nothing stands before /bridge, so the dial
+ * itself carries a proof: `<ms>.<nonce>.<HMAC under BRIDGE_KEY>`, within HELLO_SKEW_MS. The Worker
+ * checks it before the hub sees the socket; the hello inside is still the second lock.
+ */
+export const DIAL_HEADER = "x-dovre-bridge";
+const dialText = (at: number, n: string) => `${PROTOCOL}|dial|${at}|${n}`;
+export async function dialProof(key: string, now = Date.now()): Promise<string> {
+  const n = nonce();
+  return `${now}.${n}.${await sign(await hmacKey(key), dialText(now, n))}`;
+}
+export async function dialProofOk(key: string | undefined, v: string | null, now = Date.now()): Promise<boolean> {
+  const m = keyOk(key) && v ? /^(\d{13})\.([0-9a-f]{32})\.([0-9a-f]{64})$/.exec(v) : null;
+  if (!m) return false;
+  const at = Number(m[1]);
+  if (Math.abs(now - at) > HELLO_SKEW_MS) return false;
+  return check(await hmacKey(key!), dialText(at, m[2]!), m[3]);
+}
+
 const helloText = (hub: string, mac: string, at: number) => `${PROTOCOL}|hello|${hub}|${mac}|${at}`;
 const sessionText = (hub: string, mac: string) => `${PROTOCOL}|session|${hub}|${mac}`;
 

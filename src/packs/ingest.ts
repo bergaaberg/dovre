@@ -108,7 +108,8 @@ const plain = (status: number, text: string, extra: Record<string, string> = {})
 
 /**
  * Mounts POST /<id>/ingest/* for each pack with `ingest`, before the sign-in check. Local: on this
- * machine's own address only. Hosted: Access must let the path through (a bypass policy); the token
+ * machine's own address only. Hosted: Access must let the path through (a bypass policy), and the
+ * built-in login lets it past the session check (src/worker.ts); the token
  * is the only check here. A pack that's hidden, or not shown, answers 404.
  */
 export function mountIngest(app: Hono<any>, opts: { packs: Pack[]; shown: () => Pack[]; ctxOf: (p: Pack) => PackContext; db: () => D1 | undefined; hosted: boolean; isLocal: (req: Request) => boolean; log: (id: string, line: string) => void; limit?: (key: string, perMinute: number) => boolean }) {

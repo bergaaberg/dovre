@@ -12,10 +12,10 @@ pnpm instance provision <this folder> --plan     # what it'll do; changes nothin
 pnpm instance provision <this folder> --deploy
 ```
 
-It makes or reuses D1 and its tables, the Cloudflare Access team, app and policies, the bridge's
-service token and `BRIDGE_KEY`, sets `GITHUB_TOKEN` from `gh auth token` (unless the Worker has
-one), deploys, and starts the bridge on a Mac. With no `--domain` it's served at
-`{{name}}.<your subdomain>.workers.dev`. Run it again any time: it fixes what's missing and makes
+It makes or reuses D1 and its tables and `BRIDGE_KEY`, sets `GITHUB_TOKEN` from `gh auth token`
+(unless the Worker has one), deploys, starts the bridge on a Mac, and prints the link that makes
+your passkey (the built-in login; `--access` puts Cloudflare Access in front instead). With no
+`--domain` it's served at `{{name}}.<your subdomain>.workers.dev`. Run it again any time: it fixes what's missing and makes
 nothing twice. Each step, and the same by hand: `../dovre/docs/CLOUDFLARE.md`.
 
 Once in, Settings → Setup lists the rest, such as Bino's model (`CF_AIG_TOKEN`).

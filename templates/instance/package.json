@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/*.test.ts\" \"packs/*/test/*.test.ts\"",
-    "dev": "wrangler dev --local --port 8799",
+    "dev": "wrangler dev --local --port 8799 --local-upstream localhost:8799",
     "deploy:worker": "wrangler d1 migrations apply {{db}} --remote && wrangler deploy"
   },
   "dependencies": {

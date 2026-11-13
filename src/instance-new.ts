@@ -57,11 +57,14 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : undefined);
   const hasFlag = (k: string) => args.includes(k);
-  const bare = new Set(["--deploy", "--plan", "--no-bridge"]);
+  const bare = new Set(["--deploy", "--plan", "--no-bridge", "--access", "--login-link"]);
   const rest = args.filter((a, i) => !a.startsWith("--") && (!args[i - 1]?.startsWith("--") || bare.has(args[i - 1])));
   if (rest[0] === "provision" && rest[1]) {
     try {
-      const token = process.env.DOVRE_CF_API_TOKEN?.trim() || process.env.CLOUDFLARE_API_TOKEN?.trim() || (await askToken());
+      // Behind Cloudflare Access only when asked (--access, or a DOVRE_CF_API_TOKEN for it); else the
+      // built-in passkey login, which needs nothing but `wrangler login`.
+      const access = hasFlag("--access") || !!process.env.DOVRE_CF_API_TOKEN?.trim();
+      const token = access ? process.env.DOVRE_CF_API_TOKEN?.trim() || process.env.CLOUDFLARE_API_TOKEN?.trim() || (await askToken()) : undefined;
       await provisionInstance({
         dir: resolve(rest[1]),
         coreVarsFile: flag("--vars") && resolve(flag("--vars")!),
@@ -75,7 +78,8 @@ if (import.meta.main) {
         plan: hasFlag("--plan"),
         deploy: hasFlag("--deploy"),
         bridge: !hasFlag("--no-bridge"),
-        api: cfApi(token),
+        api: token ? cfApi(token) : undefined,
+        loginLink: hasFlag("--login-link"),
       });
       process.exit(0);
     } catch (e) {
@@ -84,7 +88,7 @@ if (import.meta.main) {
     }
   }
   if (rest[0] !== "new" || !rest[1]) {
-    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--team <name>] [--subdomain <name>] [--vars <file>] [--no-bridge]");
+    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--subdomain <name>] [--vars <file>] [--no-bridge] [--login-link]\n      [--access [--team <name>]]   (behind Cloudflare Access instead of the built-in passkey login)");
     process.exit(2);
   }
   try {

@@ -248,3 +248,51 @@ test("provision: wrangler.jsonc helpers", () => {
   JSON.parse(patched.replace(/^\s*\/\/.*$/gm, ""));
   assert.equal(extractD1Uuid("id: 5077DE88-85f6-4678-96f5-00e2d0cb3850"), "5077de88-85f6-4678-96f5-00e2d0cb3850");
 });
+
+test("provision, built-in login (no token): only wrangler's login; AUTH_MODE=passkey, a passkey link once, no Access touched", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-prov-"));
+  writeInstance(dir, instanceFiles({ name: "home" }));
+  const vars = join(dir, "bridge.vars");
+  const st = blank();
+  const wf = fakeCf(st);
+  let passkeys = 0;
+  const sql: string[] = [];
+  const run = (ran: string[], secrets: string[] = []) => {
+    const base = fakeRun(ran, { secrets });
+    return (cmd: string, args: string[], opts?: { cwd?: string; input?: string }) => {
+      const line = `${cmd} ${args.join(" ")}`;
+      if (line.includes("d1 execute") && line.includes("COUNT(*)")) return { status: 0, stdout: JSON.stringify([{ results: [{ n: passkeys }] }]), stderr: "" };
+      if (line.includes("d1 execute")) {
+        sql.push(args.at(-1)!);
+        ran.push(line);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      void opts;
+      return base(cmd, args);
+    };
+  };
+  const ran: string[] = [];
+  const r = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, deploy: true, run: run(ran), log: () => {}, platform: "linux" });
+  assert.equal(r.host, "home.home.workers.dev");
+  assert.match(r.link ?? "", /^https:\/\/home\.home\.workers\.dev\/_auth\/claim#[A-Za-z0-9_-]{43}$/);
+  assert.equal(sql.length, 1);
+  assert.ok(!sql[0]!.includes(r.link!.split("#")[1]!), "only the hash goes to D1");
+  assert.deepEqual(wf.writes, ["PUT /workers/subdomain"], "the subdomain only: no Access");
+  const cfg = readFileSync(join(dir, "wrangler.jsonc"), "utf8");
+  assert.match(cfg, /"AUTH_MODE": "passkey"/);
+  assert.match(cfg, /"CF_ACCESS_TEAM": ""/);
+  assert.doesNotMatch(cfg, /WORKERS_DEV_HOST/);
+  assert.match(cfg, /"ALLOWED_EMAILS": "me@x\.dev"/);
+  const v = readFileSync(vars, "utf8");
+  assert.match(v, /BRIDGE_URL=wss:\/\/home\.home\.workers\.dev\/bridge/);
+  assert.doesNotMatch(v, /BRIDGE_CLIENT/);
+
+  passkeys = 1;
+  const again = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, run: run([], ["BRIDGE_KEY", "GITHUB_TOKEN"]), log: () => {} });
+  assert.equal(again.link, undefined);
+  assert.equal(sql.length, 1);
+  assert.ok(again.steps.every((s) => s.action === "reuse"), JSON.stringify(again.steps));
+  const more = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, loginLink: true, run: run([], ["BRIDGE_KEY", "GITHUB_TOKEN"]), log: () => {} });
+  assert.ok(more.link);
+  assert.equal(sql.length, 2);
+});

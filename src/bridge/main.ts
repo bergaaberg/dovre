@@ -36,7 +36,7 @@ import { findTool, harnessesOn, withToolDirs } from "../tools.ts";
 import { jwtHeaders, loadCreds, saveCreds, Unpaired } from "./creds.ts";
 import { fileLedger, SENT_FILE } from "./sentfile.ts";
 import { type Bridge, startBridge } from "./mac.ts";
-import { keyOk } from "./wire.ts";
+import { DIAL_HEADER, dialProof, keyOk } from "./wire.ts";
 
 /** Unpaired or revoked: the launcher doesn't start it again. */
 const EXIT_UNPAIRED = 3;
@@ -89,14 +89,17 @@ if (credsFile) {
   const k = v.BRIDGE_KEY?.trim();
   const id = v.BRIDGE_CLIENT_ID?.trim();
   const secret = v.BRIDGE_CLIENT_SECRET?.trim();
-  const missing = [!u?.startsWith("wss://") && "BRIDGE_URL (wss://…/bridge)", !keyOk(k) && "BRIDGE_KEY (32 characters or more)", !id && "BRIDGE_CLIENT_ID", !secret && "BRIDGE_CLIENT_SECRET"].filter(Boolean);
+  // The Access service token, when the instance is behind Access; without it (the built-in login, #522)
+  // each dial carries a proof made with BRIDGE_KEY instead.
+  const missing = [!u?.startsWith("wss://") && "BRIDGE_URL (wss://…/bridge)", !keyOk(k) && "BRIDGE_KEY (32 characters or more)", !!id !== !!secret && (id ? "BRIDGE_CLIENT_SECRET" : "BRIDGE_CLIENT_ID")].filter(Boolean);
   if (missing.length) {
     console.error(`dovre bridge: pair this machine with \`dovre bridge login <handle>\`, or set ${missing.join(", ")} in .dev.vars or the environment.`);
     process.exit(2);
   }
   url = u!;
   key = k!;
-  headers = { "CF-Access-Client-Id": id!, "CF-Access-Client-Secret": secret! };
+  const access: Record<string, string> = id && secret ? { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret } : {};
+  headers = async () => ({ ...access, [DIAL_HEADER]: await dialProof(key) });
 }
 
 const hostExe = process.env.DOVRE_HOST_EXE?.trim() || fileURLToPath(new URL(`../../bin/dovre${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
