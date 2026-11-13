@@ -7,7 +7,8 @@ import { test } from "node:test";
 import { openDb } from "../src/db.ts";
 import { claimSql, createLogin, hashOf, mintClaim, SESSION_COOKIE } from "../src/hosted/login/login.ts";
 import { b64url, cborDecode, derToRaw, ES256, RS256, verifyAssertion, verifyRegistration } from "../src/hosted/login/webauthn.ts";
-import { createWorker } from "../src/worker.ts";
+import { DIAL_HEADER, dialProof, dialProofOk } from "../src/bridge/wire.ts";
+import { bridgeIn, createWorker } from "../src/worker.ts";
 
 const ORIGIN = "https://home.me.workers.dev";
 const RP = "home.me.workers.dev";
@@ -258,4 +259,27 @@ test("worker, AUTH_MODE=passkey: no Access needed; a page without a session goes
     globalThis.fetch = realFetch;
     w.reset();
   }
+});
+
+test("bridge without Access: the dial proves BRIDGE_KEY before the hub sees it; stale, forged or missing proofs are turned away", async () => {
+  const key = "k".repeat(40);
+  const handed: Request[] = [];
+  const h = { hub: { bridge: async (q: Request) => (handed.push(q), new Response("to the hub")) }, verify: async () => undefined, login: {} as never } as unknown as Parameters<typeof bridgeIn>[2];
+  const dial = (proof?: string, extra: Record<string, string> = {}) =>
+    bridgeIn(new Request(`${ORIGIN}/bridge`, { headers: { upgrade: "websocket", "x-dovre-machine": "0123456789abcdef", "x-dovre-owner": "evil@x.dev", ...(proof ? { [DIAL_HEADER]: proof } : {}), ...extra } }), { BRIDGE_KEY: key }, h);
+  const now = Date.now();
+  const refused: [string, string | undefined][] = [
+    ["none", undefined],
+    ["another key", await dialProof("z".repeat(40), now)],
+    ["three minutes old", await dialProof(key, now - 3 * 60_000)],
+    ["garbage", "1.2.3"],
+    ["tampered", (await dialProof(key, now)).replace(/.$/, (c) => (c === "0" ? "1" : "0"))],
+  ];
+  for (const [why, proof] of refused) assert.equal((await dial(proof)).status, 404, why);
+  assert.equal(handed.length, 0);
+  assert.equal(await (await dial(await dialProof(key))).text(), "to the hub");
+  assert.equal(handed[0]!.headers.get("x-dovre-machine"), "mac", "the machine is ours to say");
+  assert.equal(handed[0]!.headers.get("x-dovre-owner"), null);
+  assert.equal((await bridgeIn(new Request(`${ORIGIN}/bridge`, { headers: { upgrade: "websocket", [DIAL_HEADER]: await dialProof(key) } }), { BRIDGE_KEY: "short" }, h)).status, 404, "no real key");
+  assert.equal(await dialProofOk(undefined, await dialProof(key)), false);
 });

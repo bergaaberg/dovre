@@ -21,8 +21,10 @@ type HostedLine = SetupLine & { needed?: boolean };
 /** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
 export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
-  const access = str(b.AUTH_MODE)?.trim().toLowerCase() === "passkey" || !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
-  const bridge = [set(b.BRIDGE_CLIENT_ID), set(b.BRIDGE_KEY)];
+  const access = (str(b.AUTH_MODE)?.trim().toLowerCase() === "passkey") || !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
+  // With the built-in login the dial proves BRIDGE_KEY itself (#522): no service token.
+  const builtIn = str(b.AUTH_MODE)?.trim().toLowerCase() === "passkey";
+  const bridge = [builtIn || set(b.BRIDGE_CLIENT_ID), set(b.BRIDGE_KEY)];
   // The same choice hostedBinoRoute makes (src/hosted/hub.ts): BINO_VIA=api-key goes straight to the provider.
   const direct = String(str(b.ASSISTANT_VIA) ?? str(b.BINO_VIA) ?? "").trim().toLowerCase() === "api-key";
   const lines: HostedLine[] = [

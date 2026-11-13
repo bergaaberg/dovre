@@ -8,7 +8,7 @@ import { hostedKeys } from "./hostedkeys.ts";
 import { type Actor, actingAs, currentActor } from "./actor.ts";
 import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
-import { keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
+import { DIAL_HEADER, dialProofOk, keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
 import { viewingAs } from "./viewer.ts";
 import { packsOf, createApp } from "./app.ts";
@@ -229,10 +229,18 @@ function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Fo
  * - the Access service token whose client id is BRIDGE_CLIENT_ID: the one machine `mac`.
  * A person's token isn't one. Anything else, or no BRIDGE_KEY, is a 404.
  */
-export async function bridgeIn(request: Request, bindings: Pick<WorkerBindings, "BRIDGE_CLIENT_ID" | "BRIDGE_KEY">, h: Pick<Hosted, "hub" | "verify">): Promise<Response> {
+export async function bridgeIn(request: Request, bindings: Pick<WorkerBindings, "BRIDGE_CLIENT_ID" | "BRIDGE_KEY">, h: Pick<Hosted, "hub" | "verify" | "login">): Promise<Response> {
   const nope = new Response("Not found", { status: 404 });
   if (!keyOk(bindings.BRIDGE_KEY) || !h.hub || !h.verify) return nope;
   if (request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return nope;
+  // The built-in login (#522): no Access before us, so the dial proves BRIDGE_KEY itself.
+  if (h.login) {
+    if (!(await dialProofOk(bindings.BRIDGE_KEY, request.headers.get(DIAL_HEADER)))) return nope;
+    const headers = new Headers(request.headers);
+    headers.set(MACHINE_HEADER, LEGACY_MACHINE);
+    headers.delete(OWNER_HEADER);
+    return h.hub.bridge(new Request(request, { headers }));
+  }
   const who = await h.verify(request);
   const id = bindings.BRIDGE_CLIENT_ID?.trim();
   const machine = who?.machine ? who.service : who?.service && id && who.service === id ? LEGACY_MACHINE : undefined;
