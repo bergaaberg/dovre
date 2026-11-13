@@ -53,6 +53,8 @@ type WranglerPatch = {
   cfAccessTeam?: string;
   cfAccessAud?: string;
   bridgeClientId?: string;
+  /** The workers.dev host Access covers, which the Worker then serves (no other workers.dev host). */
+  workersDevHost?: string;
 };
 
 /** Patches `database_id`, the route or workers.dev, and `vars` in `wrangler.jsonc`, keeping comments. */
@@ -71,13 +73,14 @@ export function patchWranglerConfig(jsoncText: string, patch: WranglerPatch): st
     ["CF_ACCESS_TEAM", patch.cfAccessTeam],
     ["CF_ACCESS_AUD", patch.cfAccessAud],
     ["BRIDGE_CLIENT_ID", patch.bridgeClientId],
+    ["WORKERS_DEV_HOST", patch.workersDevHost],
   ];
   for (const [k, v] of vars) {
     if (v === undefined) continue;
     const re = new RegExp(`("${k}"\\s*:\\s*)"[^"]*"`);
     if (re.test(out)) out = out.replace(re, `$1${JSON.stringify(v)}`);
     // Not in the file yet (an instance made before it was in the template): after ALLOWED_EMAILS.
-    else out = out.replace(/^([ \t]*)("ALLOWED_EMAILS"\s*:\s*"[^"]*")(,?)/m, (_m, ind: string, line: string) => `${ind}${line},\n${ind}"${k}": ${JSON.stringify(v)}`);
+    else out = out.replace(/^([ \t]*)("ALLOWED_EMAILS"\s*:\s*"[^"]*")(,?)/m, (_m, ind: string, line: string, comma: string) => `${ind}${line},\n${ind}"${k}": ${JSON.stringify(v)}${comma}`);
   }
   return out;
 }
@@ -246,6 +249,7 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     cfAccessTeam: access.team,
     cfAccessAud: access.aud,
     bridgeClientId: access.bridge?.clientId,
+    workersDevHost: workersDev ? host : undefined,
   });
   writeFileSync(wranglerPath, raw);
 

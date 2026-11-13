@@ -60,7 +60,7 @@ Two sign-ins, because `wrangler login` can't manage Access:
 | People policy | named `dovre <worker>: people` | Allow, emails from `--email` (default: your Cloudflare email) | Access → Policies |
 | Bridge policy | named `dovre <worker>: bridge` | Service Auth, that token | Access → Policies |
 | Access app | the one whose domain is the host | Self-hosted, both policies | Access → Applications |
-| `wrangler.jsonc` | — | `database_id`, `CF_ACCESS_TEAM`, `CF_ACCESS_AUD`, `ALLOWED_EMAILS`, `BRIDGE_CLIENT_ID`, `REPO_OWNERS`, `GITHUB_USER`; workers.dev on, or the route on your domain | edit it |
+| `wrangler.jsonc` | — | `database_id`, `CF_ACCESS_TEAM`, `CF_ACCESS_AUD`, `ALLOWED_EMAILS`, `BRIDGE_CLIENT_ID`, `REPO_OWNERS`, `GITHUB_USER`; workers.dev on with `WORKERS_DEV_HOST` (the one workers.dev host the Worker serves), or the route on your domain | edit it |
 | Bridge on this laptop | core's `.dev.vars` | `BRIDGE_URL`, `BRIDGE_KEY`, `BRIDGE_CLIENT_ID`, `BRIDGE_CLIENT_SECRET` | edit it |
 | Worker secrets | `wrangler secret list` | `BRIDGE_KEY`; `GITHUB_TOKEN` from `gh auth token`, only if the Worker has none | `wrangler secret put` |
 | Tables, deploy | — | `wrangler d1 migrations apply --remote`, then `wrangler deploy` (with `--deploy`) | the same |

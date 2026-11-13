@@ -87,7 +87,13 @@ test("hosted mode: only a token Access signed, for this team and app, unexpired"
   tampered[1] = b64url(JSON.stringify({ ...good, email: "attacker@evil.dev" }));
   assert.equal(await verify(req(tampered.join("."))), undefined, "payload changed after signing");
 
-  assert.equal(await verify(req(await k.sign(good), "dovre.me.workers.dev")), undefined, "workers.dev is never served");
+  assert.equal(await verify(req(await k.sign(good), "dovre.me.workers.dev")), undefined, "workers.dev isn't served unless named");
+
+  // #98: an instance without a domain, Access on its workers.dev host: that host and no other.
+  const wd = createAccessVerifier({ ...accessConfigOf({ CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD, WORKERS_DEV_HOST: "Dovre.me.workers.dev" })!, fetchFn, now });
+  assert.deepEqual(await wd(req(await k.sign(good), "dovre.me.workers.dev")), { email: "me@example.dev" });
+  assert.equal(await wd(req(await k.sign(good), "other.me.workers.dev")), undefined, "another workers.dev host");
+  assert.equal(accessConfigOf({ CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD, WORKERS_DEV_HOST: "evil.example" })?.workersDevHost, undefined, "only a workers.dev host");
 });
 
 test("hosted mode: the email list, and keys fetched once then again when Access rotates them", async () => {

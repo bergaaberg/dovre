@@ -75,6 +75,8 @@ interface WorkerBindings {
   AUTH_AUD?: string;
   AUTH_JWKS_URL?: string;
   ALLOWED_EMAILS?: string;
+  /** An instance served at workers.dev with Access on that host (#98): the host. */
+  WORKERS_DEV_HOST?: string;
   IS_HOSTED?: string;
   /** The Durable Object (src/hosted/hub.ts, exported by the instance as DovreHub): pages' live updates and Bino. */
   HUB?: HubNamespace;

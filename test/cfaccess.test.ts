@@ -194,6 +194,7 @@ test("provision, nothing yet: workers.dev, Access, bridge vars, secrets; the sec
   assert.equal(info.dbId, "5077de88-85f6-4678-96f5-00e2d0cb3850");
   assert.equal(info.domain, "");
   assert.match(cfg, /"workers_dev": true/);
+  assert.match(cfg, /"WORKERS_DEV_HOST": "home\.home\.workers\.dev"/);
   assert.match(cfg, /"CF_ACCESS_TEAM": "home\.cloudflareaccess\.com"/);
   assert.match(cfg, /"CF_ACCESS_AUD": "aud-new"/);
   assert.match(cfg, /"ALLOWED_EMAILS": "me@x\.dev"/);
@@ -238,7 +239,10 @@ test("provision: a .dev.vars whose bridge dials another instance is left alone, 
 test("provision: wrangler.jsonc helpers", () => {
   const cfg = instanceFiles({ name: "x", domain: "a.dev" })["wrangler.jsonc"];
   assert.match(patchWranglerConfig(cfg, { domain: "b.dev" }), /"pattern": "b\.dev"/);
-  const old = cfg.replace(/,?\s*"BRIDGE_CLIENT_ID"[^\n]*/, "");
+  // An instance made before BRIDGE_CLIENT_ID was in the template.
+  const old = cfg.replace(/"ALLOWED_EMAILS": "",\n[^\n]*\n\s*"BRIDGE_CLIENT_ID": ""/, '"ALLOWED_EMAILS": ""');
+  assert.ok(!old.includes("BRIDGE_CLIENT_ID"));
+  JSON.parse(old.replace(/^\s*\/\/.*$/gm, ""));
   const patched = patchWranglerConfig(old, { bridgeClientId: "c.access" });
   assert.match(patched, /"BRIDGE_CLIENT_ID": "c\.access"/);
   JSON.parse(patched.replace(/^\s*\/\/.*$/gm, ""));
