@@ -186,6 +186,8 @@ export async function verifyRegistration(r: { clientDataJSON: unknown; attestati
   const ad = parseAuthData(att.get("authData") as Uint8Array);
   if (!same(ad.rpIdHash, await sha256(new TextEncoder().encode(e.rpId)))) throw new Error("registration: wrong rpId");
   if (!ad.up) throw new Error("registration: user not present");
+  // The passkey is the only factor, so the device must have checked who's holding it (PIN, face, finger).
+  if (!ad.uv) throw new Error("registration: user not verified");
   if (!ad.credId || !ad.coseKey) throw new Error("registration: no credential");
   const { jwk, alg } = coseToJwk(ad.coseKey);
   await importKey(jwk, alg); // throws on a key WebCrypto won't take
@@ -206,6 +208,7 @@ export async function verifyAssertion(
   const parsed = parseAuthData(ad);
   if (!same(parsed.rpIdHash, await sha256(new TextEncoder().encode(e.rpId)))) throw new Error("assertion: wrong rpId");
   if (!parsed.up) throw new Error("assertion: user not present");
+  if (!parsed.uv) throw new Error("assertion: user not verified");
   const signed = new Uint8Array(ad.length + 32);
   signed.set(ad);
   signed.set(await sha256(cd), ad.length);

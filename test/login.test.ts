@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../src/db.ts";
-import { claimSql, createLogin, hashOf, mintClaim, SESSION_COOKIE } from "../src/hosted/login/login.ts";
+import { addressOf, claimSql, createLogin, hashOf, mintClaim, SESSION_COOKIE } from "../src/hosted/login/login.ts";
 import { b64url, cborDecode, derToRaw, ES256, RS256, verifyAssertion, verifyRegistration } from "../src/hosted/login/webauthn.ts";
 import { DIAL_HEADER, dialProof, dialProofOk } from "../src/bridge/wire.ts";
 import { bridgeIn, createWorker } from "../src/worker.ts";
@@ -93,6 +93,7 @@ test("webauthn: an ES256 and an RS256 passkey made and used; each broken check r
     ["a get, not a create", async () => verifyRegistration(await a.create(E.challenge, { type: "webauthn.get" }), E)],
     ["another site's key", async () => verifyRegistration(await (await authenticator({ rp: "evil.example" })).create(E.challenge), E)],
     ["nobody present", async () => verifyRegistration(await (await authenticator({ flags: 0x04 })).create(E.challenge), E)],
+    ["not verified", async () => verifyRegistration(await (await authenticator({ flags: 0x01 })).create(E.challenge), E)],
     ["garbage", async () => verifyRegistration({ clientDataJSON: b64url(new TextEncoder().encode("{}")), attestationObject: "AAAA" }, E)],
     ["not base64url", async () => verifyRegistration({ clientDataJSON: "<script>", attestationObject: 7 }, E)],
   ];
@@ -282,4 +283,60 @@ test("bridge without Access: the dial proves BRIDGE_KEY before the hub sees it; 
   assert.equal(handed[0]!.headers.get("x-dovre-owner"), null);
   assert.equal((await bridgeIn(new Request(`${ORIGIN}/bridge`, { headers: { upgrade: "websocket", [DIAL_HEADER]: await dialProof(key) } }), { BRIDGE_KEY: "short" }, h)).status, 404, "no real key");
   assert.equal(await dialProofOk(undefined, await dialProof(key)), false);
+});
+
+test("login: user verification is required, a link isn't spent on a passkey already here, and one count signs in once", async () => {
+  const { DB } = openDb();
+  const t = Date.parse("2026-11-13T12:00:00Z");
+  const login = createLogin({ db: DB, now: () => t });
+  const o = (await (await client(login).send("/_auth/options", { kind: "login" })).json()) as { publicKey: { userVerification: string } };
+  assert.equal(o.publicKey.userVerification, "required");
+
+  // A key with no PIN (present, not verified) can't sign in, even once it's here.
+  const a = await authenticator();
+  assert.equal((await claim(client(login), a, await mintClaim(DB, "me@x.dev", t))).status, 200);
+  const noPin = await authenticator({ flags: 0x01 });
+  assert.equal((await claim(client(login), noPin, await mintClaim(DB, "me@x.dev", t))).status, 403);
+  const flags = { flags: 0x05 };
+  const lapsed = await authenticator(flags);
+  assert.equal((await claim(client(login), lapsed, await mintClaim(DB, "me@x.dev", t))).status, 200);
+  flags.flags = 0x01; // the same key, now signing without its PIN (validly signed)
+  assert.equal((await signIn(client(login), lapsed)).status, 403);
+  flags.flags = 0x05;
+  assert.equal((await signIn(client(login), lapsed)).status, 200);
+
+  // The same passkey again: 409, and the link still works for a new one.
+  const code = await mintClaim(DB, "me@x.dev", t);
+  assert.equal((await claim(client(login), a, code)).status, 409);
+  assert.equal((await claim(client(login), await authenticator(), code)).status, 200, "the link wasn't spent");
+
+  // A counting key: two uses with the same count, sent together: one signs in.
+  const k = await authenticator();
+  assert.equal((await claim(client(login), k, await mintClaim(DB, "me@x.dev", t))).status, 200);
+  const [c1, c2] = [client(login), client(login)];
+  const [o1, o2] = await Promise.all([c1, c2].map(async (c) => ((await (await c.send("/_auth/options", { kind: "login" })).json()) as { publicKey: { challenge: string } }).publicKey.challenge));
+  const r1 = await k.get(o1!, { count: 7 });
+  const r2 = await k.get(o2!, { count: 7 });
+  const st = await Promise.all([c1.send("/_auth/finish", { id: k.id, response: r1 }), c2.send("/_auth/finish", { id: k.id, response: r2 })]);
+  assert.deepEqual(st.map((r) => r.status).sort(), [200, 403]);
+});
+
+test("login: expired challenges and sessions are swept; an IPv6 /64 counts as one address", async () => {
+  const { DB } = openDb();
+  let t = Date.parse("2026-11-13T12:00:00Z");
+  const login = createLogin({ db: DB, now: () => t });
+  for (let i = 0; i < 5; i++) await client(login).send("/_auth/options", { kind: "login" });
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM login_challenges").first<{ n: number }>())?.n, 5);
+  await DB.prepare("INSERT INTO login_sessions (hash, email, passkey, expires_at) VALUES ('h', 'me@x.dev', 'p', ?)").bind(t + 1000).run();
+  t += 10 * 60_000;
+  await client(login).send("/_auth/options", { kind: "login" });
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM login_challenges").first<{ n: number }>())?.n, 1, "only the new one");
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM login_sessions").first<{ n: number }>())?.n, 0);
+
+  const at = (ip: string) => addressOf(new Request(ORIGIN, { headers: { "cf-connecting-ip": ip } }));
+  assert.equal(at("2001:db8:0:1::5"), at("2001:0db8:0000:0001:ffff:1:2:3"));
+  assert.notEqual(at("2001:db8:0:1::5"), at("2001:db8:0:2::5"));
+  assert.equal(at("::1"), "0:0:0:0::/64");
+  assert.equal(at("203.0.113.9"), "203.0.113.9");
+  assert.equal(addressOf(new Request(ORIGIN)), "?");
 });

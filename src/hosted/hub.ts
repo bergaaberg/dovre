@@ -59,6 +59,9 @@ export type HubState = {
 };
 
 /** What a socket keeps across hibernation: its machine and challenge, and once the hello passed, its key and counters. */
+/** How long a machine's new socket may stay without a valid hello, and how many such may wait at once. */
+const HELLO_MS = 10_000;
+const SILENT_MAX = 4;
 type Attached = { challenge: string; machine?: string; owner?: string; key?: string; sent: number; got: number; since: number };
 
 /** A machine as pages see it: online or when it was last, its metadata, and who paired it (T4: theirs alone; none, everyone's). */
@@ -573,10 +576,30 @@ export class DovreHub {
 
   /** Takes a machine's end of a new socket (and who paired it, if its token said) and challenges it. */
   accept(ws: HubSocket, machine: string = LEGACY_MACHINE, owner?: string): void {
+    this.sweepSilent(machine);
     this.state.acceptWebSocket!(ws, [MAC, `${MAC}:${machine}`]);
     const challenge = nonce();
     ws.serializeAttachment({ challenge, machine, ...(owner ? { owner } : {}), sent: 0, got: 0, since: this.now() } satisfies Attached);
     ws.send(JSON.stringify({ t: "challenge", nonce: challenge }));
+  }
+
+  /**
+   * Sockets that never said a valid hello: closed after HELLO_MS, and never more than SILENT_MAX per
+   * machine (oldest first), so a replayed dial can't park idle sockets here. Swept as each new one comes.
+   */
+  private sweepSilent(machine: string): void {
+    const t = this.now();
+    const silent = (this.state.getWebSockets?.(`${MAC}:${machine}`) ?? [])
+      .map((ws) => ({ ws, a: ws.deserializeAttachment() as Attached | null }))
+      .filter((s) => s.a && !s.a.key)
+      .sort((x, y) => x.a!.since - y.a!.since);
+    silent.forEach((s, i) => {
+      if (t - s.a!.since > HELLO_MS || silent.length - i >= SILENT_MAX) {
+        try {
+          s.ws.close(4001, "no hello");
+        } catch {}
+      }
+    });
   }
 
   private chan(ws: HubSocket, a: Attached): Promise<Channel> {

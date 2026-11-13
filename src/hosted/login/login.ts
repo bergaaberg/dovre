@@ -32,6 +32,16 @@ export async function hashOf(s: string): Promise<string> {
   const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
   return [...d].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+/** The address tries are counted by: an IPv6 address by its /64, since one host can hold the whole /64. */
+export function addressOf(req: Request): string {
+  const ip = (req.headers.get("cf-connecting-ip") ?? "").trim().toLowerCase();
+  if (!ip.includes(":")) return ip || "?";
+  const [head = "", tail = ""] = ip.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = ip.includes("::") ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t] : h;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
 const emailOk = (e: string) => e.length <= 254 && /^[^\s@,]+@[^\s@,]+$/.test(e);
 
 /** A claim link's code and the SQL that stores its hash: provision runs it with `wrangler d1 execute`. */
@@ -97,14 +107,23 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
     return p;
   };
 
-  /** Over the limit for this address and kind: true. Each call counts as a try. */
+  /**
+   * Over the limit for this address and kind: true. Each call counts as a try, recorded before it's
+   * counted, so parallel tries can't all slip under the limit. Also sweeps what has expired, so
+   * nobody can grow the tables by asking for challenges.
+   */
   const limited = async (req: Request, kind: string): Promise<boolean> => {
-    const key = `${kind}:${req.headers.get("cf-connecting-ip") ?? "?"}`;
+    const key = `${kind}:${addressOf(req)}`;
     const t = now();
-    const n = await db.prepare("SELECT COUNT(*) AS n FROM login_tries WHERE key = ? AND at > ?").bind(key, t - TRY_WINDOW_MS).first<{ n: number }>();
-    if ((n?.n ?? 0) >= TRIES) return true;
-    await db.batch([db.prepare("INSERT INTO login_tries (key, at) VALUES (?, ?)").bind(key, t), db.prepare("DELETE FROM login_tries WHERE at < ?").bind(t - 6 * TRY_WINDOW_MS)]);
-    return false;
+    const [, , , , n] = await db.batch([
+      db.prepare("INSERT INTO login_tries (key, at) VALUES (?, ?)").bind(key, t),
+      db.prepare("DELETE FROM login_tries WHERE at < ?").bind(t - 6 * TRY_WINDOW_MS),
+      db.prepare("DELETE FROM login_challenges WHERE expires_at <= ?").bind(t),
+      db.prepare("DELETE FROM login_sessions WHERE expires_at <= ?").bind(t),
+      db.prepare("SELECT COUNT(*) AS n FROM login_tries WHERE key = ? AND at > ?").bind(key, t - TRY_WINDOW_MS),
+    ]);
+    const count = Number((n?.results?.[0] as { n?: number } | undefined)?.n ?? 0);
+    return count > TRIES;
   };
 
   /** A POST's JSON body, only from this origin. */
@@ -154,7 +173,7 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
     }
     await db.prepare("INSERT INTO login_challenges (id, challenge, kind, claim, expires_at) VALUES (?, ?, ?, ?, ?)").bind(id, challenge, kind, claim?.hash ?? null, now() + CHALLENGE_MS).run();
     const headers = { "set-cookie": setCookie(CHALLENGE_COOKIE, id, CHALLENGE_MS / 1000) };
-    if (kind === "login") return json({ ok: true, publicKey: { challenge, rpId: url.hostname, userVerification: "preferred", timeout: CHALLENGE_MS } }, 200, headers);
+    if (kind === "login") return json({ ok: true, publicKey: { challenge, rpId: url.hostname, userVerification: "required", timeout: CHALLENGE_MS } }, 200, headers);
     const mine = await db.prepare("SELECT id FROM login_passkeys WHERE email = ?").bind(claim!.email).all<{ id: string }>();
     return json(
       {
@@ -167,7 +186,7 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
             { type: "public-key", alg: ES256 },
             { type: "public-key", alg: RS256 },
           ],
-          authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+          authenticatorSelection: { residentKey: "required", userVerification: "required" },
           attestation: "none",
           excludeCredentials: mine.results.map((r) => ({ type: "public-key", id: r.id })),
           timeout: CHALLENGE_MS,
@@ -196,16 +215,19 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
         const pk = id ? await db.prepare("SELECT id, email, jwk, alg, sign_count FROM login_passkeys WHERE id = ?").bind(id).first<Passkey>() : null;
         if (!pk || !emailAllowed(pk.email)) return nope(403, "This passkey isn't one of this Dovre's.");
         const { signCount } = await verifyAssertion(resp as never, expect, { jwk: JSON.parse(pk.jwk) as JsonWebKey, alg: pk.alg, signCount: pk.sign_count });
-        await db.prepare("UPDATE login_passkeys SET sign_count = ?, used_at = ? WHERE id = ?").bind(signCount, now(), pk.id).run();
+        // Only from the count it was checked against: of two uses with one count, one wins.
+        const moved = await db.prepare("UPDATE login_passkeys SET sign_count = ?, used_at = ? WHERE id = ? AND sign_count = ? RETURNING id").bind(signCount, now(), pk.id, pk.sign_count).first();
+        if (!moved) return nope(403, "The passkey didn't check out.");
         return startSession(pk.email, pk.id);
       }
       if (ch.kind !== "claim" || !ch.claim) return nope();
       const made = await verifyRegistration(resp as never, expect);
+      // A passkey that's already here doesn't spend the link.
+      const taken = await db.prepare("SELECT id FROM login_passkeys WHERE id = ?").bind(made.id).first();
+      if (taken) return nope(409, "That passkey is already here.");
       // The claim is spent only by a passkey that checked out, and only once.
       const spent = await db.prepare("UPDATE login_claims SET used_at = ? WHERE hash = ? AND used_at IS NULL AND expires_at > ? RETURNING email").bind(now(), ch.claim, now()).first<{ email: string }>();
       if (!spent) return nope(403, "This link isn't valid any more.");
-      const taken = await db.prepare("SELECT id FROM login_passkeys WHERE id = ?").bind(made.id).first();
-      if (taken) return nope(409, "That passkey is already here.");
       const name = typeof b.name === "string" ? b.name.replace(/[^\p{L}\p{N} ._'()-]/gu, "").slice(0, 60) : "";
       await db.prepare("INSERT INTO login_passkeys (id, email, jwk, alg, sign_count, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(made.id, spent.email, JSON.stringify(made.jwk), made.alg, made.signCount, name, now()).run();
       return startSession(spent.email, made.id);

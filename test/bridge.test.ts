@@ -149,6 +149,27 @@ async function mac(hub: DovreHub, key = KEY, machine?: string, owner?: string) {
   return { ws, ch, got, say };
 }
 
+test("hub: sockets that never say hello are closed after 10 s, and at most four wait at once; the bridge itself is untouched", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never, BRIDGE_KEY: KEY });
+  let t = 1_000_000;
+  hub.now = () => t;
+  const m = await mac(hub);
+  const quiet = Array.from({ length: 6 }, () => {
+    const ws = new FakeSocket();
+    hub.accept(ws);
+    return ws;
+  });
+  assert.deepEqual(quiet.map((w) => !!w.closed), [true, true, false, false, false, false], "four wait; the oldest go first");
+  t += 11_000;
+  const next = new FakeSocket();
+  hub.accept(next);
+  assert.ok(quiet.every((w) => w.closed), "all past their 10 s");
+  assert.equal(next.closed, undefined);
+  assert.equal(m.ws.closed, undefined, "a socket that said hello stays");
+  assert.equal(one(hub).online, true);
+});
+
 const STATE = { at: 1, harnesses: ["claude"], runs: [{ id: "r1", status: "running" }], sessions: { live: [], recent: [{ sessionId: "s1", title: "Fix it" }] } };
 
 test("hub: no hello under the key, no socket; with one, the Mac is welcomed and online", async () => {

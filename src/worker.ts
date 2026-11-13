@@ -449,7 +449,9 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       if (h.login) {
         const own = await h.login.handle(request);
         if (own) return own;
-        if (url.pathname !== "/bridge" && !(await h.login.verify(request))?.email) {
+        // Through without a session: the bridge (its own proof) and a pack's ingest POSTs (their own token, src/packs/ingest.ts).
+        const ownCheck = url.pathname === "/bridge" || (request.method === "POST" && /^\/[a-z0-9-]+\/ingest\//.test(url.pathname));
+        if (!ownCheck && !(await h.login.verify(request))?.email) {
           const page = request.method === "GET" && (request.headers.get("accept") ?? "").includes("text/html");
           return page ? new Response(null, { status: 302, headers: { location: "/_auth/login", "cache-control": "no-store" } }) : new Response("Not found", { status: 404 });
         }

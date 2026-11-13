@@ -100,6 +100,19 @@ test("ingest: hosted, the route skips Access and needs the token", async () => {
   assert.equal(got.length, 0);
 });
 
+test("ingest: hosted with the built-in login, the route skips the session check and needs the token", async () => {
+  const { p } = sink();
+  const worker = createWorker({ packs: [{ ...p, manifest: { ...p.manifest, execution: "any" } }] });
+  const pending: Promise<unknown>[] = [];
+  const env = { DB: openDb().DB, IS_HOSTED: "1", AUTH_MODE: "passkey", ALLOWED_EMAILS: "me@x.dev" };
+  const ctx = { waitUntil: (x: Promise<unknown>) => void pending.push(x) };
+  const res = await worker.fetch(new Request("https://dovre.example.dev/sink/ingest/v1/traces", { method: "POST", body: "{}" }), env as never, ctx);
+  assert.equal(res.status, 401, "answered by the token check, not the login's 404");
+  const other = await worker.fetch(new Request("https://dovre.example.dev/settings/ingest/new", { method: "POST", body: "" }), env as never, ctx);
+  assert.equal(other.status, 404, "everything else still needs a session");
+  await Promise.all(pending);
+});
+
 test("ingest: the rate limiter's window resets each minute", () => {
   let t = 0;
   const ok = rateLimiter(() => t);
