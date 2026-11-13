@@ -126,4 +126,5 @@ export const API_1: Record<string, ApiUse[]> = {
  */
 export const API_ADDED: Record<string, ApiUse[]> = {
   "2.1": [has("Pack.server", (p) => p.server), ctx("call"), ...door("PackServer PackCalled"), ...testing("serverOf")],
+  "2.2": [has("Pack.isolated", (p) => p.isolated)],
 };

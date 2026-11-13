@@ -226,7 +226,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   // ── Packs (src/packs/mount.ts, PLAN D23): each pack's ctx and core's call of every hook, made here; their routes mount below, after every core route ──
   const {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts,
-    packNav, packFeed, packBino, packApps, packFrames, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
+    packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen, mountCallbacks, mountAssets, mountRoutes,
   } = mountPacks(app, { env, deps, hosted, ghe, forge, asks, layout, onboarding, publicOrigin, page: (o) => page(o), thinking: () => !!engine?.list().some((x) => x.thinking), settle: (id) => settleSettings(id), pending: (err) => err instanceof Pending, bugHref });
@@ -258,9 +258,11 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return h(c, next);
   };
   // The docks' pages (Bino's, a pack's) are framed by the app's own pages (src/html.ts), and only by them.
+  // COEP too: an isolated pack's page (`isolated`) may open a dock, and frames only pages that send it.
   const dockHeaders = secureHeaders({
     referrerPolicy: "same-origin",
     xFrameOptions: "SAMEORIGIN",
+    crossOriginEmbedderPolicy: true,
     contentSecurityPolicy: {
       defaultSrc: ["'self'"],
       scriptSrc,
@@ -278,6 +280,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return !!m && (m[1] === "bino" || packs.on.some((x) => x.manifest.id === m[1] && !!x.dock));
   };
   app.use((c, next) => (dockPath(c.req.path) ? dockHeaders(c, next) : withPackFrames(c, next)));
+  // An isolated pack's own pages (API 2.2): COEP beside the COOP every page has, so they're
+  // cross-origin isolated and may use SharedArrayBuffer (WebAssembly threads).
+  app.use(async (c, next) => {
+    await next();
+    if (packIsolated(c.req.path)) c.res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+  });
 
   /** Exchanges the launch token for a cookie, on localhost only. */
   mountPwa(app, deps.info ?? { version: "dev", startedAt: Date.now() }, { files: env.IS_HOSTED !== "1", on: (href) => pageOn(href) });

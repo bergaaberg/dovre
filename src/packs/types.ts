@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "2.1";
+export const PACK_API = "2.2";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -974,6 +974,13 @@ export type Pack = {
   files?: Record<string, PackFile>;
   /** API 2.1: code it runs on the server, apart from the app, through `ctx.call` (#304). */
   server?: PackServer;
+  /**
+   * API 2.2 (#304): its own pages (/<id>, /<id>/…) are cross-origin isolated, so its script may use
+   * SharedArrayBuffer: WebAssembly threads. Core adds `Cross-Origin-Embedder-Policy: require-corp`
+   * to them (every page has COOP `same-origin`). They may then load only this app's files, and a
+   * site in its `frames` shows only if it sends COEP and CORP itself.
+   */
+  isolated?: boolean;
   nav?(ctx: PackContext): NavItem[];
   /** Its setup page's steps (API 1.16), for the ids `manifest.onboard` declares: without this, it has no setup page. */
   setup?: PackSetup;
