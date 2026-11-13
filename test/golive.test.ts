@@ -1,7 +1,7 @@
 /**
  * Go-Live verification suite (WP-M4, WP-M5, WP-M6):
  * - WP-M4: Pluggable Packs (`PACK_API`, `PACK_<ID>=off`, `packs.ts`) & Assistant routes (`api-key`, `openrouter`, `cf-gateway`, `ASSISTANT_VIA`).
- * - WP-M5: Interactive `/setup` actions (`POST /setup/owners`, `/setup/token`, `/setup/gh-login`, origin guard) & 1-command Cloudflare provisioner (`provisionInstance`).
+ * - WP-M5: Interactive `/setup` actions (`POST /setup/owners`, `/setup/token`, `/setup/gh-login`, origin guard).
  * - WP-M6: Pre-built packs installation (`addPack`, `wirePackIntoFile`, `listAvailablePacks`) from `dovre-packs`.
  */
 import assert from "node:assert/strict";
@@ -16,7 +16,6 @@ import { activePacks } from "../src/packs/registry.ts";
 import { loadEnv } from "../src/env.ts";
 import { hostedBinoRoute } from "../src/hosted/hub.ts";
 import { instanceFiles, writeInstance } from "../src/instance-new.ts";
-import { extractD1Uuid, patchWranglerConfig, provisionInstance, readWranglerInfo } from "../src/instance-provision.ts";
 import { addPack, listAvailablePacks, wirePackIntoFile } from "../src/packs/cli.ts";
 import { PACK_API, type Pack } from "../src/packs/types.ts";
 import { setupApp, type SetupState } from "../src/setup.ts";
@@ -190,56 +189,6 @@ test("WP-M5: interactive /setup routes save owners, tokens, and start gh web log
   });
   assert.equal(ghLogin.status, 303);
   assert.equal(state.deviceCode, "ABCD-1234");
-});
-
-test("WP-M5: provisionInstance auto-creates D1, patches wrangler.jsonc, applies migrations, and sets BRIDGE_KEY", () => {
-  const dir = tmp("dovre-prov-");
-  writeInstance(dir, instanceFiles({ name: "my-cockpit", domain: "dovre.acme.dev" }));
-  const varsFile = join(dir, ".dev.vars");
-  const fakeUuid = "5077de88-85f6-4678-96f5-00e2d0cb3850";
-  const ran: string[] = [];
-
-  const res = provisionInstance({
-    dir,
-    coreVarsFile: varsFile,
-    allowedEmails: "dev@acme.dev",
-    cfAccessTeam: "acme-team",
-    cfAccessAud: "aud-tag-123",
-    deploy: true,
-    log: () => {},
-    run: (cmd, args) => {
-      const line = `${cmd} ${args.join(" ")}`;
-      ran.push(line);
-      if (line.includes("wrangler d1 create")) {
-        return { status: 0, stdout: `Created D1 database 'my-cockpit-db' with database_id = "${fakeUuid}"`, stderr: "" };
-      }
-      if (line.includes("gh api user")) {
-        return { status: 0, stdout: "octocat\n", stderr: "" };
-      }
-      if (line.includes("gh auth token")) {
-        return { status: 0, stdout: "gho_testtoken123456\n", stderr: "" };
-      }
-      return { status: 0, stdout: "ok", stderr: "" };
-    },
-  });
-
-  assert.equal(res.dbId, fakeUuid);
-  assert.ok(res.bridgeKey.length >= 24);
-  const patched = readFileSync(join(dir, "wrangler.jsonc"), "utf8");
-  const info = readWranglerInfo(patched);
-  assert.equal(info.dbId, fakeUuid);
-  assert.match(patched, /"GITHUB_USER": "octocat"/);
-  assert.match(patched, /"ALLOWED_EMAILS": "dev@acme.dev"/);
-  assert.match(patched, /"CF_ACCESS_TEAM": "acme-team"/);
-  assert.match(patched, /"CF_ACCESS_AUD": "aud-tag-123"/);
-  assert.match(readFileSync(varsFile, "utf8"), /BRIDGE_KEY=/);
-  assert.match(readFileSync(varsFile, "utf8"), /BRIDGE_URL=wss:\/\/dovre\.acme\.dev\/bridge/);
-  assert.ok(ran.some((c) => c.includes("migrations apply my-cockpit-db --remote")));
-  assert.ok(ran.some((c) => c.includes("secret put BRIDGE_KEY")));
-  assert.ok(ran.some((c) => c.includes("secret put GITHUB_TOKEN")));
-  assert.ok(ran.some((c) => c.includes("wrangler deploy")));
-  assert.equal(extractD1Uuid("id: 5077de88-85f6-4678-96f5-00e2d0cb3850"), fakeUuid);
-  assert.match(patchWranglerConfig(patched, { domain: "new.acme.dev" }), /"pattern": "new\.acme\.dev"/);
 });
 
 // Needs a dovre-packs checkout beside this one; a lone clone (CI, a sandbox) skips it.

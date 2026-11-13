@@ -1,29 +1,28 @@
 /**
- * `pnpm instance provision <folder> [--domain <host>] [--owners <list>] [--email <email>] [--access-team <team>] [--access-aud <aud>] [--deploy]`
+ * `pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] …`: from
+ * an instance folder to a working, Access-protected Dovre on Cloudflare with the bridge connected
+ * (#98). Works on an account that already has Cloudflare set up (its team, login methods, zones and
+ * other apps are reused or left alone) and on a new one (it makes the team, a one-time-PIN login
+ * and a workers.dev subdomain).
  *
- * Plug-and-play Cloudflare Worker + D1 + Bridge provisioner (WP-M5) for users new to Cloudflare:
- * 1. Verifies `wrangler whoami` (or launches interactive browser `wrangler login`).
- * 2. Auto-creates the D1 database (`wrangler d1 create <db>`) if `database_id` is empty in `wrangler.jsonc`,
- *    extracts the UUID, and writes it directly into `wrangler.jsonc`.
- * 3. Applies D1 migrations (`wrangler d1 migrations apply <db> --remote`).
- * 4. Generates a cryptographic 32-byte `BRIDGE_KEY`, saves it to `.dev.vars` for `pnpm bridge`,
- *    and uploads `BRIDGE_KEY` + `GITHUB_TOKEN` (from `gh auth token` if signed in) to the Worker.
- * 5. Prints a 3-step Zero Trust Access checklist (and deploys when `--deploy` is passed).
+ * Every step finds its thing by a stable key and then reuses, creates or fixes it, so running it
+ * again changes nothing, and after a failure it carries on from what's missing. `--plan` only looks
+ * and prints the steps. Nothing is deleted.
+ *
+ * Two logins: `wrangler login` (D1, secrets, deploy) and an API token for Access, which wrangler's
+ * login can't reach (`TOKEN_SCOPES`). The token is read from the environment, never saved.
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { type CfApi, reconcileAccess, type Step, workersSubdomain } from "./cfaccess.ts";
 import { upsertDevVar } from "./setup.ts";
 
 const UUID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
+const CORE = resolve(import.meta.dirname, "..");
 
-type WranglerInfo = {
-  worker: string;
-  dbName: string;
-  dbId: string;
-  domain: string;
-};
+type WranglerInfo = { worker: string; dbName: string; dbId: string; domain: string };
 
 /** Reads the Worker name, D1 database_name / database_id, and route pattern from `wrangler.jsonc`. */
 export function readWranglerInfo(jsoncText: string): WranglerInfo {
@@ -35,12 +34,7 @@ export function readWranglerInfo(jsoncText: string): WranglerInfo {
   };
   const d1 = parsed.d1_databases?.[0];
   if (!parsed.name || !d1?.database_name) throw new Error("wrangler.jsonc is missing `name` or `d1_databases[0].database_name`");
-  return {
-    worker: parsed.name,
-    dbName: d1.database_name,
-    dbId: d1.database_id ?? "",
-    domain: parsed.routes?.[0]?.pattern ?? "",
-  };
+  return { worker: parsed.name, dbName: d1.database_name, dbId: d1.database_id ?? "", domain: parsed.routes?.[0]?.pattern ?? "" };
 }
 
 /** Extracts a D1 database UUID from `wrangler d1 create` or `wrangler d1 info` output. */
@@ -51,20 +45,25 @@ export function extractD1Uuid(output: string): string | undefined {
 type WranglerPatch = {
   databaseId?: string;
   domain?: string;
+  /** No domain of its own: served at workers.dev, the route dropped. */
+  workersDev?: boolean;
   repoOwners?: string;
   githubUser?: string;
   allowedEmails?: string;
   cfAccessTeam?: string;
   cfAccessAud?: string;
+  bridgeClientId?: string;
+  /** The workers.dev host Access covers, which the Worker then serves (no other workers.dev host). */
+  workersDevHost?: string;
 };
 
-/** Patches `database_id`, route `pattern`, and `vars` in `wrangler.jsonc` while preserving comments. */
+/** Patches `database_id`, the route or workers.dev, and `vars` in `wrangler.jsonc`, keeping comments. */
 export function patchWranglerConfig(jsoncText: string, patch: WranglerPatch): string {
   let out = jsoncText;
-  if (patch.databaseId !== undefined) {
-    out = out.replace(/("database_id"\s*:\s*)"[^"]*"/, `$1${JSON.stringify(patch.databaseId)}`);
-  }
-  if (patch.domain) {
+  if (patch.databaseId !== undefined) out = out.replace(/("database_id"\s*:\s*)"[^"]*"/, `$1${JSON.stringify(patch.databaseId)}`);
+  if (patch.workersDev) {
+    out = out.replace(/("workers_dev"\s*:\s*)false/, "$1true").replace(/^[ \t]*"routes"\s*:\s*\[[^\]]*\],?[ \t]*\r?\n/m, "");
+  } else if (patch.domain) {
     out = out.replace(/("pattern"\s*:\s*)"[^"]*"/, `$1${JSON.stringify(patch.domain)}`);
   }
   const vars: [string, string | undefined][] = [
@@ -73,135 +72,229 @@ export function patchWranglerConfig(jsoncText: string, patch: WranglerPatch): st
     ["ALLOWED_EMAILS", patch.allowedEmails],
     ["CF_ACCESS_TEAM", patch.cfAccessTeam],
     ["CF_ACCESS_AUD", patch.cfAccessAud],
+    ["BRIDGE_CLIENT_ID", patch.bridgeClientId],
+    ["WORKERS_DEV_HOST", patch.workersDevHost],
   ];
   for (const [k, v] of vars) {
     if (v === undefined) continue;
     const re = new RegExp(`("${k}"\\s*:\\s*)"[^"]*"`);
-    out = out.replace(re, `$1${JSON.stringify(v)}`);
+    if (re.test(out)) out = out.replace(re, `$1${JSON.stringify(v)}`);
+    // Not in the file yet (an instance made before it was in the template): after ALLOWED_EMAILS.
+    else out = out.replace(/^([ \t]*)("ALLOWED_EMAILS"\s*:\s*"[^"]*")(,?)/m, (_m, ind: string, line: string, comma: string) => `${ind}${line},\n${ind}"${k}": ${JSON.stringify(v)}${comma}`);
   }
   return out;
+}
+
+/** The KEY=value lines of a `.dev.vars` file. */
+export function readDevVars(file: string): Record<string, string> {
+  if (!existsSync(file)) return {};
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=(.*)$/);
+    if (m) out[m[1]] = m[2].trim();
+  }
+  return out;
+}
+
+/** `wrangler whoami`'s email and account ids. */
+export function parseWhoami(out: string): { email?: string; accounts: string[] } {
+  return {
+    email: out.match(/associated with the email (\S+@\S+?)\.?\s*$/m)?.[1],
+    accounts: [...new Set([...out.matchAll(/\b([0-9a-f]{32})\b/g)].map((m) => m[1]))],
+  };
 }
 
 type CmdRunner = (cmd: string, args: string[], opts?: { cwd?: string; input?: string }) => { status: number; stdout: string; stderr: string };
 
 const defaultRun: CmdRunner = (cmd, args, opts) => {
-  const r = spawnSync(cmd, args, { cwd: opts?.cwd, input: opts?.input, encoding: "utf8" });
+  const r = spawnSync(cmd, args, { cwd: opts?.cwd, input: opts?.input, encoding: "utf8", stdio: [opts?.input === undefined ? "inherit" : "pipe", "pipe", "pipe"] });
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 };
 
-type ProvisionOpts = {
+export type ProvisionOpts = {
   dir: string;
+  /** The `.dev.vars` the bridge reads: core's own unless said. */
   coreVarsFile?: string;
   domain?: string;
   repoOwners?: string;
   githubUser?: string;
+  /** Who may come in (comma-separated); `wrangler whoami`'s email when not given. */
   allowedEmails?: string;
-  cfAccessTeam?: string;
-  cfAccessAud?: string;
+  account?: string;
+  /** The Zero Trust team to make when the account has none; the instance's name when not given. */
+  team?: string;
+  /** The workers.dev subdomain to claim when the account has none. */
+  subdomain?: string;
+  /** Only look: print what each step would do and change nothing. */
+  plan?: boolean;
   deploy?: boolean;
+  /** Start the bridge as a launchd agent after deploying (macOS, core's own .dev.vars). Default on. */
+  bridge?: boolean;
+  api: CfApi;
   run?: CmdRunner;
   log?: (line: string) => void;
+  platform?: NodeJS.Platform;
 };
 
-export function provisionInstance(o: ProvisionOpts): { dbId: string; bridgeKey: string; steps: string[] } {
+export type ProvisionResult = { steps: Step[]; host: string; dbId?: string; team?: string; aud?: string };
+
+const wr = (run: CmdRunner, dir: string, ...args: string[]) => run("npx", ["wrangler", ...args], { cwd: dir });
+
+export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResult> {
   const run = o.run ?? defaultRun;
   const log = o.log ?? ((l: string) => console.log(l));
-  const steps: string[] = [];
+  const apply = !o.plan;
+  const steps: Step[] = [];
+  const step = (what: string, action: Step["action"], detail: string) => steps.push({ what, action, detail });
   const wranglerPath = join(o.dir, "wrangler.jsonc");
-  if (!existsSync(wranglerPath)) throw new Error(`No wrangler.jsonc found in ${o.dir}. Run \`pnpm instance new ${o.dir}\` first.`);
+  if (!existsSync(wranglerPath)) throw new Error(`No wrangler.jsonc in ${o.dir}. Run \`pnpm instance new ${o.dir}\` first.`);
 
-  // 1. Check Cloudflare login
-  const who = run("npx", ["wrangler", "whoami"], { cwd: o.dir });
-  if (who.status !== 0 || /not authenticated|run `wrangler login`/i.test(who.stdout + who.stderr)) {
-    log("→ Not signed in to Cloudflare yet. Opening browser for `wrangler login`…");
-    const login = run("npx", ["wrangler", "login"], { cwd: o.dir });
-    if (login.status !== 0) throw new Error(`Cloudflare login failed: ${login.stderr || login.stdout}`);
-    steps.push("wrangler login");
-  } else {
-    steps.push("wrangler whoami");
+  // 1. Signed in, and to which account.
+  let who = wr(run, o.dir, "whoami");
+  if (who.status !== 0 || /not authenticated|wrangler login/i.test(who.stdout + who.stderr)) {
+    if (!apply) throw new Error("Not signed in to Cloudflare: run `npx wrangler login` (or provision without --plan, which opens it).");
+    log("→ Not signed in to Cloudflare yet: opening the browser for `wrangler login`…");
+    if (wr(run, o.dir, "login").status !== 0) throw new Error("Cloudflare login failed");
+    who = wr(run, o.dir, "whoami");
   }
+  const me = parseWhoami(who.stdout + "\n" + who.stderr);
+  const account = o.account ?? (me.accounts.length === 1 ? me.accounts[0] : undefined);
+  if (!account) throw new Error(`Several Cloudflare accounts (${me.accounts.join(", ")}): pass --account <id>.`);
+  const emails = (o.allowedEmails ?? me.email ?? "").split(",").map((e) => e.trim()).filter(Boolean);
+  if (!emails.length) throw new Error("No email to let in: pass --email you@example.com");
 
-  // 2. Read & auto-create D1 if needed
+  // 2. Where it lives: its own domain, or workers.dev for an account without one.
   let raw = readFileSync(wranglerPath, "utf8");
   const info = readWranglerInfo(raw);
-  let dbId = info.dbId;
-  if (!UUID_RE.test(dbId)) {
-    log(`→ Creating Cloudflare D1 database "${info.dbName}"…`);
-    const created = run("npx", ["wrangler", "d1", "create", info.dbName], { cwd: o.dir });
-    const foundId = extractD1Uuid(created.stdout + "\n" + created.stderr);
-    if (foundId) {
-      dbId = foundId;
-      steps.push(`d1 create ${info.dbName}`);
-    } else {
-      // Fallback: if D1 already exists on the account, look it up via `wrangler d1 info`
-      const existing = run("npx", ["wrangler", "d1", "info", info.dbName], { cwd: o.dir });
-      const infoId = extractD1Uuid(existing.stdout + "\n" + existing.stderr);
-      if (!infoId) throw new Error(`Could not create or find D1 database "${info.dbName}": ${created.stderr || created.stdout}`);
-      dbId = infoId;
-      steps.push(`d1 info ${info.dbName}`);
+  const wantDomain = o.domain ?? info.domain;
+  const workersDev = !wantDomain || wantDomain.endsWith(".example") || wantDomain.endsWith(".workers.dev");
+  let host = wantDomain;
+  if (workersDev) {
+    const s = await workersSubdomain(o.api, account, o.subdomain ?? info.worker, apply);
+    steps.push(s.step);
+    host = `${info.worker}.${s.sub}.workers.dev`;
+  }
+
+  // 3. D1: the id in wrangler.jsonc, else one by that name, else a new one.
+  let dbId = UUID_RE.test(info.dbId) ? info.dbId : undefined;
+  if (dbId) step("D1 database", "reuse", `${info.dbName} (${dbId})`);
+  else {
+    dbId = extractD1Uuid(wr(run, o.dir, "d1", "info", info.dbName).stdout);
+    if (dbId) step("D1 database", "reuse", `${info.dbName} (${dbId}), id written to wrangler.jsonc`);
+    else {
+      step("D1 database", "create", info.dbName);
+      if (apply) {
+        const c = wr(run, o.dir, "d1", "create", info.dbName);
+        dbId = extractD1Uuid(c.stdout + "\n" + c.stderr);
+        if (!dbId) throw new Error(`Couldn't create D1 database "${info.dbName}": ${c.stderr || c.stdout}`);
+      }
     }
   }
 
-  // 3. Auto-discover GitHub login if unset
+  // 4. The bridge's side on this machine. A .dev.vars whose bridge dials another instance is left
+  //    alone (its bridge is someone's running one); --vars names a file of this instance's own.
+  const varsFile = o.coreVarsFile ?? join(CORE, ".dev.vars");
+  const local = readDevVars(varsFile);
+  const bridgeUrl = `wss://${host}/bridge`;
+  const bridgeOurs = !local.BRIDGE_URL || local.BRIDGE_URL === bridgeUrl;
+  if (!bridgeOurs) log(`! ${varsFile} has a bridge for ${local.BRIDGE_URL}: left as it is, and no bridge set up for ${host}. Pass --vars <file> for one of its own.`);
+
+  // 5. Access: the team, a login, the token, the policies, the app.
+  const access = await reconcileAccess({
+    api: o.api,
+    account,
+    host,
+    worker: info.worker,
+    emails,
+    team: o.team ?? info.worker,
+    localClientId: bridgeOurs && local.BRIDGE_CLIENT_SECRET ? local.BRIDGE_CLIENT_ID : undefined,
+    bridge: bridgeOurs,
+    apply,
+  });
+  steps.push(...access.steps);
+
+  // 6. GitHub: who, and a token unless the Worker has one (a fine-grained one set by hand stays).
   let ghUser = o.githubUser;
-  let ghToken: string | undefined;
   if (!ghUser) {
     const u = run("gh", ["api", "user", "--jq", ".login"], { cwd: o.dir });
     if (u.status === 0 && u.stdout.trim()) ghUser = u.stdout.trim();
   }
-  const tk = run("gh", ["auth", "token"], { cwd: o.dir });
-  if (tk.status === 0 && tk.stdout.trim()) ghToken = tk.stdout.trim();
+  const listed = wr(run, o.dir, "secret", "list");
+  const secrets = new Set(listed.status === 0 ? [...listed.stdout.matchAll(/"name"\s*:\s*"([A-Z0-9_]+)"/g)].map((m) => m[1]) : []);
 
+  // 7. The bridge key: kept when this machine has it and the Worker too; else a new one for both.
+  const keepKey = bridgeOurs && (local.BRIDGE_KEY?.length ?? 0) >= 32 && secrets.has("BRIDGE_KEY");
+  if (bridgeOurs) step("Bridge key", keepKey ? "reuse" : secrets.has("BRIDGE_KEY") ? "fix" : "create", keepKey ? "BRIDGE_KEY" : "BRIDGE_KEY, here and on the Worker");
+  const ghToken = secrets.has("GITHUB_TOKEN") ? undefined : run("gh", ["auth", "token"], { cwd: o.dir }).stdout.trim() || undefined;
+  step("GitHub token", secrets.has("GITHUB_TOKEN") ? "reuse" : ghToken ? "create" : "fix", secrets.has("GITHUB_TOKEN") ? "GITHUB_TOKEN" : ghToken ? "GITHUB_TOKEN from `gh auth token`" : "none: `gh auth login`, or `wrangler secret put GITHUB_TOKEN`");
+
+  const startBridge = bridgeOurs && o.deploy && o.bridge !== false && (o.platform ?? process.platform) === "darwin" && resolve(varsFile) === join(CORE, ".dev.vars");
+  if (o.deploy) step("Deploy", "create", `wrangler deploy → https://${host}`);
+  if (startBridge) step("Bridge", "create", "scripts/install-bridge.sh (launchd, at login)");
+
+  if (!apply) {
+    printSteps(steps, log);
+    log(`\nNothing changed (--plan). Run it without --plan to do this.`);
+    return { steps, host, dbId, team: access.team, aud: access.aud };
+  }
+
+  // 8. Write it down: wrangler.jsonc, this machine's bridge, the Worker's secrets.
   raw = patchWranglerConfig(raw, {
     databaseId: dbId,
-    domain: o.domain,
-    repoOwners: o.repoOwners ?? ghUser,
+    domain: workersDev ? undefined : host,
+    workersDev,
+    repoOwners: o.repoOwners ?? (readVar(raw, "REPO_OWNERS") || ghUser),
     githubUser: ghUser,
-    allowedEmails: o.allowedEmails,
-    cfAccessTeam: o.cfAccessTeam,
-    cfAccessAud: o.cfAccessAud,
+    allowedEmails: emails.join(","),
+    cfAccessTeam: access.team,
+    cfAccessAud: access.aud,
+    bridgeClientId: access.bridge?.clientId,
+    workersDevHost: workersDev ? host : undefined,
   });
   writeFileSync(wranglerPath, raw);
-  log(`✓ Updated ${wranglerPath} (database_id=${dbId})`);
 
-  // 4. Apply D1 migrations
-  log(`→ Applying D1 migrations to ${info.dbName}…`);
-  const mig = run("npx", ["wrangler", "d1", "migrations", "apply", info.dbName, "--remote"], { cwd: o.dir });
-  if (mig.status !== 0) throw new Error(`D1 migrations failed: ${mig.stderr || mig.stdout}`);
-  steps.push(`d1 migrations apply ${info.dbName}`);
-
-  // 5. Generate BRIDGE_KEY and sync secrets
-  const varsFile = o.coreVarsFile ?? join(resolve(o.dir, "..", "dovre"), ".dev.vars");
-  const bridgeKey = randomBytes(24).toString("base64url");
-  const targetDomain = o.domain ?? info.domain;
-  try {
-    upsertDevVar(varsFile, "BRIDGE_KEY", bridgeKey);
-    if (targetDomain && !targetDomain.endsWith(".example")) {
-      upsertDevVar(varsFile, "BRIDGE_URL", `wss://${targetDomain}/bridge`);
+  if (bridgeOurs) {
+    const key = keepKey ? local.BRIDGE_KEY : randomBytes(24).toString("base64url");
+    upsertDevVar(varsFile, "BRIDGE_URL", bridgeUrl);
+    if (!keepKey) {
+      upsertDevVar(varsFile, "BRIDGE_KEY", key);
+      put(run, o.dir, "BRIDGE_KEY", key);
     }
-  } catch {}
-
-  log("→ Uploading BRIDGE_KEY secret to Cloudflare Worker…");
-  run("npx", ["wrangler", "secret", "put", "BRIDGE_KEY"], { cwd: o.dir, input: bridgeKey });
-  steps.push("secret put BRIDGE_KEY");
-
-  if (ghToken) {
-    log("→ Uploading GITHUB_TOKEN from `gh auth token` to Cloudflare Worker…");
-    run("npx", ["wrangler", "secret", "put", "GITHUB_TOKEN"], { cwd: o.dir, input: ghToken });
-    steps.push("secret put GITHUB_TOKEN");
+    if (access.bridge) upsertDevVar(varsFile, "BRIDGE_CLIENT_ID", access.bridge.clientId);
+    if (access.bridge?.secret) upsertDevVar(varsFile, "BRIDGE_CLIENT_SECRET", access.bridge.secret);
   }
+  if (ghToken) put(run, o.dir, "GITHUB_TOKEN", ghToken);
+
+  log(`→ Applying D1 migrations to ${info.dbName}…`);
+  const mig = wr(run, o.dir, "d1", "migrations", "apply", info.dbName, "--remote");
+  if (mig.status !== 0) throw new Error(`D1 migrations failed: ${mig.stderr || mig.stdout}`);
 
   if (o.deploy) {
-    log("→ Deploying Worker…");
-    const dep = run("npx", ["wrangler", "deploy"], { cwd: o.dir });
-    if (dep.status !== 0) throw new Error(`Worker deploy failed: ${dep.stderr || dep.stdout}`);
-    steps.push("wrangler deploy");
+    log("→ Deploying…");
+    const dep = wr(run, o.dir, "deploy");
+    if (dep.status !== 0) throw new Error(`Deploy failed: ${dep.stderr || dep.stdout}`);
+  }
+  if (startBridge) {
+    const b = run("sh", [join(CORE, "scripts", "install-bridge.sh")], { cwd: CORE });
+    if (b.status !== 0) log(`! The bridge didn't start: ${(b.stderr || b.stdout).trim()}`);
   }
 
-  log(`\n✓ Provisioned ${info.worker} (D1: ${info.dbName} / ${dbId})`);
-  log(`  Next — 3 quick steps in Cloudflare Zero Trust (one.dash.cloudflare.com → Access → Applications):`);
-  log(`  1. Add a Self-hosted application for "${targetDomain}" allowing your email.`);
-  log(`  2. Copy your team name into CF_ACCESS_TEAM and the Application Audience (AUD) Tag into CF_ACCESS_AUD in ${wranglerPath}.`);
-  log(`  3. Run \`pnpm --dir ${o.dir} deploy\` (and \`pnpm bridge\` here on your laptop to stream local agents).`);
-  return { dbId, bridgeKey, steps };
+  printSteps(steps, log);
+  log(`\n✓ https://${host}${o.deploy ? "" : ` (not deployed yet: \`pnpm --dir ${o.dir} deploy:worker\`)`}`);
+  if (bridgeOurs && !startBridge) log("  The bridge: `pnpm bridge` in core streams this machine's agents to it.");
+  return { steps, host, dbId, team: access.team, aud: access.aud };
+}
+
+function readVar(jsonc: string, k: string): string {
+  return jsonc.match(new RegExp(`"${k}"\\s*:\\s*"([^"]*)"`))?.[1] ?? "";
+}
+
+function put(run: CmdRunner, dir: string, name: string, value: string) {
+  const r = run("npx", ["wrangler", "secret", "put", name], { cwd: dir, input: value });
+  if (r.status !== 0) throw new Error(`wrangler secret put ${name} failed: ${r.stderr || r.stdout}`);
+}
+
+export function printSteps(steps: Step[], log: (l: string) => void) {
+  const w = Math.max(...steps.map((s) => s.what.length));
+  for (const s of steps) log(`  ${s.action.padEnd(6)}  ${s.what.padEnd(w)}  ${s.detail}`);
 }

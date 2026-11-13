@@ -120,13 +120,18 @@ type AccessConfig = {
   aud: string;
   /** Lowercased; unset or empty: whoever the Access policy lets through. */
   allowedEmails?: string[];
+  /**
+   * The one workers.dev host an Access app covers (WORKERS_DEV_HOST, #98: an instance with no domain
+   * of its own). Any other workers.dev host is refused: there, Access set on a custom domain isn't.
+   */
+  workersDevHost?: string;
   fetchFn?: typeof fetch;
   now?: () => number;
   /** Tests: how long a request waits on the keys' fetch (default FETCH_MS). */
   waitMs?: number;
 };
 
-type AccessEnv = { CF_ACCESS_TEAM?: string; CF_ACCESS_AUD?: string; AUTH_ISSUER?: string; AUTH_AUD?: string; AUTH_JWKS_URL?: string; ALLOWED_EMAILS?: string };
+type AccessEnv = { CF_ACCESS_TEAM?: string; CF_ACCESS_AUD?: string; AUTH_ISSUER?: string; AUTH_AUD?: string; AUTH_JWKS_URL?: string; ALLOWED_EMAILS?: string; WORKERS_DEV_HOST?: string };
 
 const httpsUrl = (v: string): boolean => {
   try {
@@ -143,17 +148,19 @@ const httpsUrl = (v: string): boolean => {
  */
 export function accessConfigOf(env: AccessEnv): AccessConfig | undefined {
   const allowedEmails = (env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const wd = env.WORKERS_DEV_HOST?.trim().toLowerCase();
+  const workersDevHost = wd && /^[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/.test(wd) ? wd : undefined;
   const issuer = env.AUTH_ISSUER?.trim();
   if (issuer) {
     const aud = env.AUTH_AUD?.trim();
     const jwksUrl = env.AUTH_JWKS_URL?.trim() || `${issuer.replace(/\/+$/, "")}/.well-known/jwks.json`;
     if (!aud || !httpsUrl(issuer) || !httpsUrl(jwksUrl)) return undefined;
-    return { issuer, jwksUrl, aud, allowedEmails };
+    return { issuer, jwksUrl, aud, allowedEmails, ...(workersDevHost && { workersDevHost }) };
   }
   const team = env.CF_ACCESS_TEAM?.trim();
   const aud = env.CF_ACCESS_AUD?.trim();
   if (!team || !aud) return undefined;
-  return { team, aud, allowedEmails };
+  return { team, aud, allowedEmails, ...(workersDevHost && { workersDevHost }) };
 }
 
 /** Where the keys are and the `iss` a token must carry. */
@@ -242,9 +249,10 @@ export function createAccessVerifier(cfg: AccessConfig): AccessVerifier {
   };
 
   return async (request) => {
-    // workers_dev is off in wrangler.toml; refuse it here too, in case it's turned on.
+    // workers.dev skips an Access app on a custom domain: refused, but for the one host an app covers.
     try {
-      if (new URL(request.url).hostname.endsWith(".workers.dev")) return undefined;
+      const host = new URL(request.url).hostname.toLowerCase();
+      if (host.endsWith(".workers.dev") && host !== cfg.workersDevHost) return undefined;
     } catch {
       return undefined;
     }
