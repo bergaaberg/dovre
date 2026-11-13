@@ -152,7 +152,7 @@ ul.hbars .num { text-align: right; font-variant-numeric: tabular-nums; white-spa
 const DARK = String.raw`    /* night in the mountains: blue-black sky, moonlit snow */
     --bg: #0a1117; --sky: #0e1922; --surface: #111c25; --surface-2: #15222c; --hover: #1a2833;
     --ink: #e6ecf0; --ink-2: #b2bec7; --ink-3: #8c9aa5;
-    --line: #1f2e39; --line-2: #2c3d4a;
+    --line: #1f2e39; --line-2: #2c3d4a; --control: #667581;
     --accent: #84b9df; --accent-ink: #07131c; --accent-soft: #15293a; --accent-line: #2a4a63;
     --hint: #f4cc3f; --hint-ink: #1a1300; --hint-line: #8a6d00;
     --ok: #8cc37a; --ok-soft: #15261a;
@@ -183,7 +183,7 @@ const THEMES: Record<string, { scheme: "light" | "dark"; surface: string; tokens
     surface: "#ffffff",
     tokens: String.raw`--bg: #f2f4f7; --sky: #e6ebf0; --surface: #ffffff; --surface-2: #f6f8fa; --hover: #eceff3;
     --ink: #16202a; --ink-2: #3b4753; --ink-3: #56626e;
-    --line: #e1e6eb; --line-2: #c9d1d9;
+    --line: #e1e6eb; --line-2: #c9d1d9; --control: #7a848f;
     --accent: #1d5c88; --accent-ink: #ffffff; --accent-soft: #e3edf5; --accent-line: #b9cfe0;
     --ok: #2f6b29; --ok-soft: #e4efe0; --warn: #8a5200; --warn-soft: #f8eedb; --bad: #ab1d39; --bad-soft: #f8e2e6;
     --ridge-farthest: #e4e9ee; --ridge-far: #ccd5dd; --ridge-near: #94a3b0; --ridge-deep: #758593; --ridge-edge: #5a6976;
@@ -197,7 +197,7 @@ const THEMES: Record<string, { scheme: "light" | "dark"; surface: string; tokens
     tokens: String.raw`${DARK}
     --bg: #000000; --sky: #05080b; --surface: #0b0f13; --surface-2: #10161b; --hover: #161d23;
     --ink: #eef2f5; --ink-2: #b8c2ca; --ink-3: #8e9aa4;
-    --line: #1b2229; --line-2: #29323a;
+    --line: #1b2229; --line-2: #29323a; --control: #626c75;
     --accent-soft: #10202d; --accent-line: #24425a;
     --ok-soft: #122015; --warn-soft: #241c10; --bad-soft: #2a1318;
     --ridge-farthest: #070b0f; --ridge-far: #0d151c; --ridge-near: #1a2833; --ridge-deep: #0e1820; --ridge-edge: #4a6578;
@@ -210,7 +210,7 @@ const THEMES: Record<string, { scheme: "light" | "dark"; surface: string; tokens
     tokens: String.raw`${DARK}
     --bg: #15100c; --sky: #1b140f; --surface: #1f1712; --surface-2: #251c16; --hover: #2c221b;
     --ink: #f2e9e0; --ink-2: #cdbdae; --ink-3: #a89786;
-    --line: #33271f; --line-2: #45362b;
+    --line: #33271f; --line-2: #45362b; --control: #7e6e60;
     --accent: #8fc0e2; --accent-ink: #0b141b; --accent-soft: color-mix(in srgb, #8fc0e2 16%, #1f1712); --accent-line: color-mix(in srgb, #8fc0e2 34%, #1f1712);
     --ok: #93c781; --ok-soft: #1c2617; --warn: #e8bb62; --warn-soft: #2e2213; --bad: #f4899a; --bad-soft: #33181c;
     --ridge-farthest: #1d1611; --ridge-far: #2a1f17; --ridge-near: #3f2f23; --ridge-deep: #261c15; --ridge-edge: #8a6e57;
@@ -262,6 +262,9 @@ export const STYLE = String.raw`
   --bg: #f8f4ee; --sky: #efe7db; --surface: #fffdfa; --surface-2: #f8f3ed; --hover: #f1ebe2;
   --ink: #2a1d14; --ink-2: #54453a; --ink-3: #65564a;
   --line: #e9e1d5; --line-2: #d6cabb;
+  /* a control's own edge (inputs, selects, checkboxes, radio cards): 3:1 on every surface, WCAG 1.4.11.
+     --line-2 stays for dividers and for buttons, which their label identifies. */
+  --control: #8d7f72;
   --accent: #1d5c88; --accent-ink: #ffffff; --accent-soft: #e3edf5; --accent-line: #b9cfe0;
   /* the f / F hint letters: an overlay, not a status, so a colour of their own (Vimium's yellow) */
   --hint: #ffd84a; --hint-ink: #1f1700; --hint-line: #b8930c;
@@ -514,7 +517,7 @@ main.page { padding: 26px 0 0; min-width: 0; }
 .fe-l strong { color: var(--ink); font-weight: 600; }
 .fe-l a { color: var(--ink); }
 .fe-m { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--ink-3); }
-.fe.mine { opacity: .72; }
+.fe.mine .fe-l, .fe.mine .fe-l strong, .fe.mine .fe-l a { color: var(--ink-3); }
 .fe.fresh { animation: fe-in .7s ease-out; }
 /* Motion (WP-S5, app.js motion()): what a live swap brings in, takes away, counts up and settles. Short, and never in the way of reading. */
 .fresh:not(.fe) { animation: enter .34s cubic-bezier(.2, .7, .3, 1) both; }
@@ -615,7 +618,7 @@ form.look { display: grid; gap: 16px; }
 .choices > legend { font: 600 11px/1.2 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); padding: 0; margin-bottom: 8px; }
 .choice-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 8px; }
 .choices.seg .choice-row { display: inline-grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; max-width: 100%; }
-.choice { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; min-width: 0; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--control); border-radius: 10px; background: var(--surface); cursor: pointer; min-width: 0; }
 .choice:hover { background: var(--hover); }
 .choice:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -826,7 +829,7 @@ label.check { display: inline-flex; gap: .4rem; align-items: center; margin: .15
 .layout-row { display: grid; grid-template-columns: minmax(0, 1fr) 7.5rem 4.5rem; gap: .6rem; align-items: center; }
 .layout-row > span { overflow-wrap: anywhere; min-width: 0; }
 input[type=text], input[type=search], input[type=email], input[type=number], input:not([type]), select, textarea {
-  font: var(--fs-m)/1.4 var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-s); padding: 9px 12px; max-width: 100%; }
+  font: var(--fs-m)/1.4 var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--control); border-radius: var(--r-s); padding: 9px 12px; max-width: 100%; }
 textarea { width: 100%; resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--ink-3); }
 /* A dropdown, where one is the right control: its own chevron (two gradients, no image), room for it,
@@ -835,7 +838,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); }
 select { appearance: none; -webkit-appearance: none; cursor: pointer; min-height: 40px; padding-right: 34px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
   background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
   background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
-select:hover:not(:disabled) { border-color: var(--accent-line); background-color: var(--hover); }
+select:hover:not(:disabled) { border-color: var(--accent); background-color: var(--hover); }
 select:disabled { cursor: not-allowed; opacity: .6; }
 @supports (appearance: base-select) {
   select, ::picker(select) { appearance: base-select; }
@@ -974,7 +977,7 @@ ul.calls > li.call-sub code { color: var(--accent); }
 .todos-card > .who { color: var(--ink-3); font-size: var(--fs-xs); margin: 0 0 4px; }
 ul.todos { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--fs-s); color: var(--ink-2); }
 ul.todos > li { position: relative; padding-left: 20px; overflow-wrap: anywhere; }
-ul.todos > li::before { content: ""; position: absolute; left: 2px; top: 0.35em; width: 10px; height: 10px; border: 1.5px solid var(--line-2); border-radius: 3px; box-sizing: border-box; }
+ul.todos > li::before { content: ""; position: absolute; left: 2px; top: 0.35em; width: 10px; height: 10px; border: 1.5px solid var(--control); border-radius: 3px; box-sizing: border-box; }
 ul.todos > li.plan-done { color: var(--ink-3); text-decoration: line-through; }
 ul.todos > li.plan-done::before { background: var(--ink-3); border-color: var(--ink-3); }
 ul.todos > li.plan-pending { color: var(--ink-2); }
@@ -985,7 +988,7 @@ details.thinking > summary { color: var(--ink-3); cursor: pointer; font-size: va
 .thinking-text { margin: 4px 0 0; padding-left: 14px; border-left: 1px solid var(--line-2); color: var(--ink-3); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 78ch; }
 /* The reply box: one field that grows, a send button; mode and model folded into a line */
 form.chatbox { margin: 14px 0 0; display: grid; gap: 6px; }
-.chatbox-in { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); }
+.chatbox-in { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--control); border-radius: 14px; background: var(--surface); }
 .chatbox-in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 form.chatbox textarea { flex: 1; min-width: 0; border: 0; background: none; box-shadow: none; outline: none; resize: none; padding: 7px 0; margin: 0; max-height: 50vh; font: var(--fs-m)/1.5 var(--mono); color: var(--ink); field-sizing: content; min-height: 2.3em; }
 form.chatbox button.send { flex: none; width: 36px; height: 36px; padding: 0; border-radius: 10px; display: grid; place-items: center; }
@@ -1062,7 +1065,7 @@ button.link:hover { color: var(--ink); }
 .todo-item.done > .todo-main > .todo-title > span { color: var(--ink-3); text-decoration: line-through; }
 .todo-item.waiting > .todo-main > .todo-title > span { color: var(--ink-2); }
 .todo-tick-f { margin: 0; }
-.todo-tick { width: 18px; height: 18px; min-height: 0; margin-top: 2px; padding: 0; border: 1.5px solid var(--line-2); border-radius: 5px; background: var(--surface); cursor: pointer; }
+.todo-tick { width: 18px; height: 18px; min-height: 0; margin-top: 2px; padding: 0; border: 1.5px solid var(--control); border-radius: 5px; background: var(--surface); cursor: pointer; }
 .todo-tick:hover, .todo-tick:focus-visible { border-color: var(--accent); }
 .todo-tick.on { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--surface); }
 .todo-count { font: 600 var(--fs-xs)/1 var(--sans); color: var(--ink-3); }
@@ -1223,7 +1226,7 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 .bino-scroll .bino-msgs { margin-top: 0; }
 .bino-thread > .bino-compose { flex: none; margin: 0 0 14px; }
 .bino-main > .bino-compose { margin: 12px 0 0; }
-.bino-compose { margin: 18px 0 0; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: var(--shadow); }
+.bino-compose { margin: 18px 0 0; background: var(--surface); border: 1px solid var(--control); border-radius: var(--r); box-shadow: var(--shadow); }
 .bino-compose:focus-within { border-color: var(--accent); }
 .bino-compose textarea { display: block; border: 0; background: transparent; padding: 16px 18px 6px; font-size: var(--fs-m); line-height: 1.55; min-height: 4.8em; max-height: 50vh; resize: none; field-sizing: content; }
 .bino-compose textarea:focus { outline: 0; }
