@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "2.5")
+   src/packs/types.ts     its types (PACK_API = "2.6")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -197,7 +197,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 - `required(id, name)`: what a pack it `requires` or `uses` shares, while that pack is on
 - `refs()`: every shown pack's kinds of reference, for linking what I write
 - `setupDone()`: whether every step of its setup is done
-- `forge()`: read-only, and undefined before the first gather. Who I am there (`id`, `name`, `host`, `login`, `owners`) and `owns(repo)`; the forge's `work`, `merged` and `untriaged`; `repos()`, `file()`, `dir()` and `pr()` to read the owners' repos, and `everyRepo(paths)` for every repo's files at once (one call per owner, kept for every isolate up to the age the pack takes); `propose()` to open a PR changing up to five files (one of the pack's `writes` kinds, re-checked against `expect`, logged)
+- `forge()`: read-only, and undefined before the first gather. Who I am there (`id`, `name`, `host`, `login`, `owners`) and `owns(repo)`; the forge's `work`, `merged` and `untriaged`; `shipped(since)` for what shipped in the owners' repos since a day (merged PRs, releases, tags with no release); `repos()`, `file()`, `dir()` and `pr()` to read the owners' repos, and `everyRepo(paths)` for every repo's files at once (one call per owner, kept for every isolate up to the age the pack takes); `propose()` to open a PR changing up to five files (one of the pack's `writes` kinds, re-checked against `expect`, logged)
 - `ai()`, `complete()`: what it may ask the model, and a prompt in, text out. Off until I allow it on Settings → Packs, capped per day, logged by cost only
 - `agent` (`can`, `start`, `result`, `land`): an agent turn in a repo I allowed, in plan mode in its checkout or in the sandbox
 - `mcp` (`can`, `call`, `write`): exact calls to the one MCP server its manifest names, results in memory only (local)
@@ -398,6 +398,7 @@ Also:
   | 2.3 | `manifest.replaces`: packs it takes the place of, held off while it's on; `ctx.required` on one of them reads this pack's share. |
   | 2.4 | `Pack.themes`: themes as palette tokens (`PackTheme`, `THEME_TOKENS`), checked for contrast and written into the stylesheet by core, picked on Settings → Look; in tests, `assertThemes`. |
   | 2.5 | A setting's `default` (what `ctx.env[key]` reads while it's unset, shown on Settings, and what "changed" is measured against) and `kind: "number"` with `min` and `max` (a number field; a value that isn't a whole number within them isn't saved, and reads as unset). |
+  | 2.6 | `forge().shipped(since)`: what shipped in the owners' repos since a day (`YYYY-MM-DD`, 92 days back at most), as a `ForgeShipped`: the PRs merged (repo, number, title, url, mergedAt, author; the 3000 newest at most, `more` when there were more), the releases published (drafts left out) and the tags with no release, each newest first and kept a few minutes. Optional like the other reads: a forge that doesn't say has none. |
 
 ## Open questions
 

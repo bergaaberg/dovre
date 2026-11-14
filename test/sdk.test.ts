@@ -23,7 +23,7 @@ const PACK = words(`
   Pick Pill Post PrSlotArg Pulse PulseFeed Read Ref RefRule RingDecl Role ScheduledEvent SetupStep SlotMap SlotName Slots Spark Stat
   StatUnit Stats Tab Tabs TodayCard Tone ToolCall ToolResult WasmFile Wrote assignAct commentAct createAct failed fieldInputs html icon
   investigateHref isExternal markdown newTab THEME_TOKENS refused safeUrl statusAct trunc writeAct
-  App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
+  App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeShipped ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
   Reading Snapshot byPerson deploySummaryKey hashOf hourAt inFiles later needsOf prSummaryKey strictOrigin throttle format
   ColumnChart D1Value FunnelDiagram HBars Heatmap IconName Page SankeyChart StackedBar chart within owners
 `);
