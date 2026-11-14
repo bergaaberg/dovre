@@ -25,6 +25,7 @@ import { runOff } from "./spawn.ts";
 import { createGatherer, SNAPSHOT_SHAPE, type Snapshot, snapshotStore } from "./gather.ts";
 import { keptFile } from "./kept.ts";
 import { logAction } from "./actions/deploys.ts";
+import { createPruner } from "./prune.ts";
 import { createAsks } from "./relay/asks.ts";
 import { createQueue } from "./agents/queue.ts";
 import { createSpend } from "./packs/core/agents/spend.ts";
@@ -422,6 +423,10 @@ const corePacks = [
 
 // GitHub's call counts (#253) into the database, when a minute has had any.
 if (ghe.calls) setInterval(() => void ghe.calls!.flush(db.DB), 60_000).unref();
+// Old log rows go once a day (#541, src/prune.ts): asked at start and every hour after.
+const pruner = createPruner();
+void pruner.due(db.DB);
+setInterval(() => void pruner.due(db.DB), 3_600_000).unref();
 
 
 

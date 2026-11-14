@@ -23,6 +23,7 @@ import { d1SnapshotStore, personKey } from "./hosted/snapshot.ts";
 import { type Found, type People, perPerson } from "./hosted/people.ts";
 import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
 import { d1Reads, type SharedReads } from "./sources/files.ts";
+import { createPruner } from "./prune.ts";
 import { startWaited } from "./speed.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
@@ -469,6 +470,9 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     return packsOf(h.app)!.lookups;
   });
 
+  /** The logs' keep-for (src/prune.ts): the cron asks each tick, and it prunes once a day. */
+  const pruner = createPruner();
+
   /**
    * Cron: every pack's scheduled hook, then any refresh that's due and the snapshot. The hooks run
    * as the instance's owner (the first of ALLOWED_EMAILS): background work for them sees what their
@@ -505,6 +509,8 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     await Promise.all([capped(h.refresh.due(), CRON_REFRESH_MS), capped(h.instance.get().then(() => h.kept.drain()))]);
     // What the cron's calls counted (#253).
     await capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
+    // Old log rows go once a day (#541).
+    await capped(pruner.due(bindings.DB));
     if (h.hub) ctx.waitUntil(capped(h.hub.drain()));
   };
 
