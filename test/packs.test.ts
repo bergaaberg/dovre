@@ -149,6 +149,32 @@ test("requires (#326): switched off on the Packs page, what requires it is off t
   assert.equal((await get("/review")).status, 200);
 });
 
+test("replaces (API 2.3): the pack it takes the place of is held, packs reading it read the taker, the taker still reads it, and switching the taker off brings it back", async () => {
+  const mine = { items: async () => [], get: async () => undefined, add: async () => undefined, href: (id: number) => `/old#${id}` };
+  const theirs = { ...mine, href: (id: number) => `/tasks#${id}` };
+  const old = pack({ id: "old", name: "Old list" }, { shares: () => ({ list: mine }), routes: (r) => { r.get("/old", (c) => c.text("old")); } });
+  const reader = pack({ id: "reader", uses: ["old"] });
+  const needy = pack({ id: "needy", requires: ["old"] });
+  const tasks = pack({ id: "tasks", name: "Tasks", replaces: ["old", "tasks", "nowhere"], uses: ["old"] }, { shares: () => ({ list: theirs }) });
+  assert.deepEqual([...heldOff([old, reader, needy, tasks], [])], [["old", "tasks"]], "what requires it stays on, and a pack can't replace itself or one that isn't here");
+  assert.deepEqual([...heldOff([old, reader, needy, tasks], ["tasks"])], [["tasks", "tasks"]], "switched off, it takes nothing's place");
+  const loop = pack({ id: "loop", replaces: ["tasks"] });
+  assert.deepEqual([...heldOff([old, tasks, loop], [])], [["tasks", "loop"]], "replaced itself, it gives back what it took");
+  const back = pack({ id: "back", replaces: ["front"] });
+  const front = pack({ id: "front", replaces: ["back"] });
+  assert.deepEqual([...heldOff([front, back], [])], [["back", "front"]], "of two replacing each other, the first stays");
+  const { app, get, post } = signedIn(snapshot(), {}, { packs: [old, reader, needy, tasks] });
+  const { ctxOf } = packsOf(app)!;
+  assert.equal(ctxOf(reader).required("old", "list"), theirs);
+  assert.equal(ctxOf(needy).required("old", "list"), theirs);
+  assert.equal(ctxOf(tasks).required("old", "list"), mine, "the taker reads the one it replaces, to bring its items over");
+  assert.equal((await get("/old")).status, 404);
+  assert.match(await (await get("/packs")).text(), /Tasks takes its place; switch that off to have this back/);
+  await post("/packs/tasks/switch", { on: "" });
+  assert.equal(ctxOf(reader).required("old", "list"), mine);
+  assert.equal((await get("/old")).status, 200);
+});
+
 test("requires (#326): a pack reads what a pack it requires shares, only that one, only while it's on, and a share that throws is nothing", async () => {
   // `tally` is the helper's own share (#478): core has never heard of the name and passes it along unread.
   type Tally = { count(): number };

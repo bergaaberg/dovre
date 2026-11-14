@@ -75,6 +75,9 @@ export function activePacks(packs: Pack[], opts: ActiveOpts): Active {
 /** The packs a manifest requires: valid ids, each once, itself left out. */
 export const requiresOf = (m: PackManifest | undefined): string[] =>
   Array.isArray(m?.requires) ? [...new Set(m.requires.filter((r): r is string => typeof r === "string" && ID.test(r) && r !== m.id))] : [];
+/** The packs it takes the place of (`replaces`, API 2.3). */
+export const replacesOf = (m: PackManifest | undefined): string[] =>
+  Array.isArray(m?.replaces) ? [...new Set(m.replaces.filter((r): r is string => typeof r === "string" && ID.test(r) && r !== m.id))] : [];
 /** The packs it reads while they're on (`uses`, API 1.11): it stays on without them. */
 export const usesOf = (m: PackManifest | undefined): string[] =>
   Array.isArray(m?.uses) ? [...new Set(m.uses.filter((r): r is string => typeof r === "string" && ID.test(r) && r !== m.id))] : [];
@@ -126,14 +129,35 @@ export function settleRequires(active: Active): Pack[] {
  */
 export function heldOff(on: Pack[], switchedOff: string[]): Map<string, string> {
   const held = new Map<string, string>();
+  // Taken over by a pack that replaces it (`replaces`, API 2.3): held, but what requires it isn't.
+  const replaced = new Set<string>();
+  const settle = () => {
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const c of on) {
+        const id = c.manifest.id;
+        if (held.has(id)) continue;
+        const by = switchedOff.includes(id) ? id : requiresOf(c.manifest).find((r) => held.has(r) && !replaced.has(r));
+        if (by) {
+          held.set(id, by === id ? id : held.get(by)!);
+          changed = true;
+        }
+      }
+    }
+  };
+  settle();
+  // In order, so of two packs replacing each other the first one stays; one that's replaced itself
+  // gives back what it took.
   for (const c of on) {
-    const id = c.manifest.id;
-    if (switchedOff.includes(id)) held.set(id, id);
-    else {
-      const by = requiresOf(c.manifest).find((r) => held.has(r));
-      if (by) held.set(id, held.get(by)!);
+    if (held.has(c.manifest.id)) continue;
+    for (const r of replacesOf(c.manifest)) {
+      if (held.has(r) || !on.some((p) => p.manifest.id === r)) continue;
+      held.set(r, c.manifest.id);
+      replaced.add(r);
+      for (const [id, by] of held) if (by === r && replaced.has(id)) (held.delete(id), replaced.delete(id));
     }
   }
+  settle();
   return held;
 }
 

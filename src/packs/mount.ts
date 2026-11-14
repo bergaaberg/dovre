@@ -32,7 +32,7 @@ import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./guard.ts";
 import { loggedFor } from "./logged.ts";
 import { packDirOf, programsFor } from "./programs.ts";
 import { boundServer, localServer, serverBinding, serverWhy, type ServerCall } from "./server.ts";
-import { aboutFrom, actsFrom, binoFrom, feedFrom, fillOf, fillOwnOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
+import { aboutFrom, actsFrom, binoFrom, feedFrom, fillOf, fillOwnOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, replacesOf, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
 import { createReleases, type GetJson } from "./releases.ts";
 import { kvFor, kvInMemory } from "./store.ts";
 import { onboardOf } from "./suggest.ts";
@@ -222,9 +222,14 @@ export function mountPacks(app: App, o: MountOpts) {
           wasm: (name) => wasmPaths.get(c.manifest.id)?.get(name),
           file: (name) => filePaths.get(c.manifest.id)?.get(name),
           call: (fn, input) => serverOf(c)(fn, input),
-          // Only from a pack it requires or uses, while that one is on and shown (#326).
+          // Only from a pack it requires or uses, while that one is on and shown (#326), or from
+          // the pack that took its place (`replaces`, API 2.3), which itself still reads it.
           required: (id: string, name: string) => {
-            const from = (requiresOf(c.manifest).includes(id) || usesOf(c.manifest).includes(id)) && !hidden(id) ? packs.on.find((p) => p.manifest.id === id) : undefined;
+            if (!requiresOf(c.manifest).includes(id) && !usesOf(c.manifest).includes(id)) return undefined;
+            const by = held().get(id);
+            const taker = by && by !== id && replacesOf(packs.on.find((p) => p.manifest.id === by)?.manifest).includes(id) ? by : undefined;
+            const at = taker === c.manifest.id ? id : (taker ?? (by ? undefined : id));
+            const from = at ? packs.on.find((p) => p.manifest.id === at) : undefined;
             return from ? (shareOf(from, ctxOf, name, log) as never) : undefined;
           },
           refs: () => packRefs(),
