@@ -203,8 +203,8 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     return new Response("[]");
   }) as typeof fetch;
   try {
-    const told: boolean[] = [];
-    const find = personFinder({ DB, GITHUB_USER: "op", REPO_OWNERS: "acme" } as never, provider as never, { version: "v1", instanceLogin: "op", linked: () => [], told: (_at, changed) => void told.push(changed) });
+    const told: [string, boolean][] = [];
+    const find = personFinder({ DB, GITHUB_USER: "op", REPO_OWNERS: "acme" } as never, provider as never, { version: "v1", instanceLogin: "op", linked: () => [], told: (who, _at, changed) => void told.push([who, changed]) });
     await assert.rejects(find("three@x.dev"), /token of your own/, "nobody else's token stands in");
     assert.ok(asked.every((a) => a.own === true), "every question names the person and asks for their own");
 
@@ -222,6 +222,7 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     await four.drain();
     assert.ok(calls.every((c) => c.token === "ghu_two" || c.token === "ghu_four"));
     assert.ok(told.length >= 2, "open pages hear of a person's gather");
+    assert.deepEqual([...new Set(told.map(([who]) => who))].sort(), ["four@x.dev", "two@x.dev"], "each named for the person it was gathered as (#539)");
 
     // Kept apart in D1: each person's snapshot in their own row, each one's reads under their own keys.
     assert.equal((await d1SnapshotStore(DB, "v1", { key: personKey("two@x.dev") }).load())?.login, "two");

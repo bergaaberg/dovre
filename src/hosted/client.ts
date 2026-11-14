@@ -9,24 +9,30 @@ import type { Route } from "../packs/core/assistant/bino/route.ts";
 import type { Hub } from "../live.ts";
 import type { Call } from "../bridge/wire.ts";
 import type { CheckJob } from "../reviews/check.ts";
-import type { BinoOp, MacAnswer, MacView, ReceivedDay } from "./hub.ts";
+import { type BinoOp, type MacAnswer, type MacView, OWN_HEADER, type PagesView, type ReceivedDay, VIEWER_HEADER, type Viewer } from "./hub.ts";
 
 type Stub = { fetch(input: Request | string, init?: RequestInit): Promise<Response> };
 /** A Durable Object namespace binding, as much of it as this uses. */
 export type HubNamespace = { idFromName(name: string): unknown; get(id: unknown): Stub };
 
 export type HubClient = Hub & {
-  /** A page's event stream: the object's. */
-  events(): Promise<Response>;
+  /** A page's event stream: the object's, for this person. */
+  events(v?: Viewer): Promise<Response>;
   bino(op: BinoOp): Promise<unknown>;
   /** The agent's check of my review, run in the object; `topic` is published when it's done. Rejects when it didn't start. */
   reviewCheck(job: CheckJob, topic: string): Promise<void>;
-  /** A gather finished at `at`: pages hear when (their "Synced"), and "snapshot" if it changed anything. */
-  gathered(at: number, changed: boolean): void;
+  /**
+   * A gather finished at `at`: pages hear when (their "Synced"), and "snapshot" if it changed
+   * anything. `who`: it was that person's own (#538), so only their pages hear; without, the
+   * instance's, which the pages drawn from a person's own don't hear (#539).
+   */
+  gathered(at: number, changed: boolean, who?: string): void;
   /** Publishes still on their way (worker.ts waits for them after answering). */
   drain(): Promise<void>;
-  /** A page's live socket (H5): its upgrade, handed to the object as it came. */
-  live(req: Request): Promise<Response>;
+  /** A page's live socket (H5): its upgrade, handed to the object as it came, named for this person. */
+  live(req: Request, v?: Viewer): Promise<Response>;
+  /** How many pages listen, and for how many people (Settings → About). */
+  pages(): Promise<PagesView>;
   /** A machine's bridge (WP-N10): its socket's upgrade, handed to the object as the worker named it. */
   bridge(req: Request): Promise<Response>;
   /** The machines: each online or last seen, and its metadata. */
@@ -41,6 +47,19 @@ export type HubClient = Hub & {
 
 const BASE = "https://hub.internal";
 
+/** The headers that name a listener's person to the object: set here alone, whatever the request carried. */
+function named(from: Headers | undefined, v: Viewer | undefined): Headers {
+  const h = new Headers(from);
+  h.delete(VIEWER_HEADER);
+  h.delete(OWN_HEADER);
+  const who = v?.who?.trim().toLowerCase();
+  if (who) {
+    h.set(VIEWER_HEADER, who);
+    if (v?.own) h.set(OWN_HEADER, "1");
+  }
+  return h;
+}
+
 export function hubClient(ns: HubNamespace): HubClient {
   const stub = () => ns.get(ns.idFromName("hub"));
   const pending = new Set<Promise<unknown>>();
@@ -52,16 +71,17 @@ export function hubClient(ns: HubNamespace): HubClient {
     publish(topics) {
       if (topics.length) keep(stub().fetch(`${BASE}/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topics }) }));
     },
-    gathered(at, changed) {
-      keep(stub().fetch(`${BASE}/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topics: changed ? ["snapshot"] : [], synced: at }) }));
+    gathered(at, changed, who) {
+      const to = who?.trim() ? { for: who.trim().toLowerCase() } : { shared: true };
+      keep(stub().fetch(`${BASE}/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topics: changed ? ["snapshot"] : [], synced: at, ...to }) }));
     },
     // Pages subscribe to the object, never to an isolate.
     subscribe: () => () => {},
     size: () => 0,
     notifiers: () => 0,
     // A response from another object has immutable headers: re-wrapped, so the app's middleware can add its own.
-    events: async () => {
-      const r = await stub().fetch(`${BASE}/events`);
+    events: async (v) => {
+      const r = await stub().fetch(`${BASE}/events`, { headers: named(undefined, v) });
       return new Response(r.body, { status: r.status, headers: new Headers(r.headers) });
     },
     async bino(op) {
@@ -79,7 +99,12 @@ export function hubClient(ns: HubNamespace): HubClient {
     },
     // A socket's upgrade answer can't be re-wrapped: it goes back as the object gave it.
     bridge: (req) => stub().fetch(new Request(`${BASE}/bridge`, req)),
-    live: (req) => stub().fetch(new Request(`${BASE}/live`, req)),
+    live: (req, v) => stub().fetch(new Request(`${BASE}/live`, new Request(req, { headers: named(req.headers, v) }))),
+    async pages() {
+      const res = await stub().fetch(`${BASE}/pages`);
+      if (!res.ok) throw new Error(`The hub answered ${res.status}`);
+      return (await res.json()) as PagesView;
+    },
     async mac() {
       const res = await stub().fetch(`${BASE}/mac`);
       if (!res.ok) throw new Error(`The hub answered ${res.status}`);
