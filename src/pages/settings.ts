@@ -264,7 +264,7 @@ const areaOf = (id: AreaId) => AREAS.find((a) => a.id === id)!;
 type SettingRow = { area: AreaId; label: string; href: string; now?: string; changed?: boolean; also?: string[] };
 
 /** A pack with settings: its manifest's (set or not), and whether it has its own panel or ingest tokens. */
-export type PackSettings = { id: string; name: string; on: boolean; settings: { key: string; label: string; set: boolean }[]; panel: boolean };
+export type PackSettings = { id: string; name: string; on: boolean; settings: { key: string; label: string; set: boolean; /** A choice's or a number's value now, its default when unset (API 2.5). */ now?: string; /** Set to other than its default; unset: as `set`. */ changed?: boolean }[]; panel: boolean };
 
 type RowsState = {
   layout: Layout;
@@ -329,8 +329,8 @@ export function settingRows(s: RowsState): SettingRow[] {
   for (const r of s.agents ?? []) rows.push({ area: "agents", label: `Pack tools for ${TOOL_NAMES[r.id]}`, href: "/settings/agents", now: r.id === "claude" || r.id === "codex" || r.state === "yes" ? "Set up" : "Not set up", also: ["mcp", r.id] });
   for (const k of s.packs) {
     const n = k.settings.filter((x) => x.set).length;
-    rows.push({ area: "packs", label: k.name, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: k.settings.length ? `${n} of ${k.settings.length} set${k.on ? "" : " · off"}` : k.on ? undefined : "off", changed: n > 0, also: [k.id] });
-    for (const x of k.settings) rows.push({ area: "packs", label: `${k.name}: ${x.label}`, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: x.set ? "Set" : "Not set", changed: x.set, also: [x.key] });
+    rows.push({ area: "packs", label: k.name, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: k.settings.length ? `${n} of ${k.settings.length} set${k.on ? "" : " · off"}` : k.on ? undefined : "off", changed: k.settings.some((x) => x.changed ?? x.set), also: [k.id] });
+    for (const x of k.settings) rows.push({ area: "packs", label: `${k.name}: ${x.label}`, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: x.now ?? (x.set ? "Set" : "Not set"), changed: x.changed ?? x.set, also: [x.key] });
   }
   rows.push({ area: "about", label: "Version", href: "/settings/about", also: ["release", "running since"] }, { area: "about", label: "Install Dovre as an app", href: "/settings/about", also: ["pwa", "window"] });
   if (s.canRestart) rows.push({ area: "about", label: "Restart Dovre", href: "/settings/about", also: ["reload", "start again"] });

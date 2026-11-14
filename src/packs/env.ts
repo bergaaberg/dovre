@@ -8,7 +8,7 @@
  * A view, not a copy: a key saved on Settings shows up without a restart. Read-only: the settings
  * are every pack's, so a pack can't set or remove one through it.
  */
-import type { PackManifest } from "./types.ts";
+import type { PackManifest, PackSetting } from "./types.ts";
 
 type Vars = Record<string, string | undefined>;
 
@@ -21,6 +21,33 @@ const KEY = /^[A-Z][A-Z0-9_]{0,63}$/;
 export const switchKey = (id: string) => `PACK_${id.toUpperCase().replace(/-/g, "_")}`;
 
 const settingsOf = (m: PackManifest) => (Array.isArray(m.settings) ? m.settings.filter((s) => s && typeof s.key === "string" && KEY.test(s.key)) : []);
+
+/** A whole number, as a setting's value holds it. */
+const WHOLE = /^-?\d{1,15}$/;
+const bound = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) ? v : undefined);
+
+/**
+ * What a setting says about its values (API 2.5), after the checks: its bounds when it's a number,
+ * and its default when that's a value it could hold. A secret or a `namesKeys` setting has neither.
+ */
+export function typedOf(s: PackSetting): { number?: { min?: number; max?: number }; default?: string } {
+  if (s.secret || s.namesKeys) return {};
+  const choices = Array.isArray(s.choices) ? s.choices.filter((c) => c && typeof c.value === "string").map((c) => c.value) : [];
+  const number = s.kind === "number" && !choices.length ? { min: bound(s.min), max: bound(s.max) } : undefined;
+  const fits = (v: string) => (number ? wholeIn(number, v) : choices.length ? choices.includes(v) : true);
+  const d = typeof s.default === "string" && s.default.trim().length <= 200 && !/[\u0000-\u001f\u007f]/.test(s.default) ? s.default.trim() : "";
+  return { number, default: d && fits(d) ? d : undefined };
+}
+/** Whether a value is a whole number within these bounds. */
+export const wholeIn = (n: { min?: number; max?: number }, v: string) => WHOLE.test(v) && (n.min === undefined || Number(v) >= n.min) && (n.max === undefined || Number(v) <= n.max);
+
+/** A setting's value as its pack reads it (API 2.5): a number that isn't one reads as unset, and unset reads as its default. */
+export function settingValue(s: PackSetting, raw: string | undefined): string | undefined {
+  const t = typedOf(s);
+  if (!t.number && t.default === undefined) return raw;
+  const v = raw?.trim() || undefined;
+  return (v !== undefined && t.number && !wholeIn(t.number, v) ? undefined : v) ?? t.default;
+}
 
 /** The keys a pack's env always holds: its settings, its switch, the shared few. */
 export function ownKeys(m: PackManifest): Set<string> {
@@ -91,15 +118,20 @@ export function envReads(): EnvReads {
 export function packEnv(m: PackManifest, all: Vars, seen: (key: string) => void): Vars {
   const own = ownKeys(m);
   const mine = (target: Vars, key: string | symbol): key is string => typeof key === "string" && Object.hasOwn(target, key) && (own.has(key) || namedKeys(m, target).includes(key));
+  // API 2.5: a setting with a default or a number's bounds reads through them, set or not.
+  const typed = new Map(settingsOf(m).filter((s) => { const t = typedOf(s); return !!t.number || t.default !== undefined; }).map((s) => [s.key, s]));
+  const read = (target: Vars, key: string) => (typed.has(key) ? settingValue(typed.get(key)!, target[key]) : target[key]);
+  const there = (target: Vars, key: string | symbol): key is string => mine(target, key) || (typeof key === "string" && typed.has(key) && read(target, key) !== undefined);
   return new Proxy(all, {
     get(target, key) {
+      if (typeof key === "string" && typed.has(key)) return read(target, key);
       if (mine(target, key)) return target[key];
       if (typeof key === "string" && Object.hasOwn(target, key) && target[key] !== undefined) seen(key);
       return undefined;
     },
-    has: (target, key) => mine(target, key),
-    ownKeys: (target) => Object.keys(target).filter((k) => mine(target, k)),
-    getOwnPropertyDescriptor: (target, key) => (mine(target, key) ? { value: target[key], writable: false, enumerable: true, configurable: true } : undefined),
+    has: (target, key) => there(target, key),
+    ownKeys: (target) => [...new Set([...Object.keys(target), ...typed.keys()])].filter((k) => there(target, k)),
+    getOwnPropertyDescriptor: (target, key) => (there(target, key) ? { value: read(target, key), writable: false, enumerable: true, configurable: true } : undefined),
     set: () => false,
     defineProperty: () => false,
     deleteProperty: () => false,

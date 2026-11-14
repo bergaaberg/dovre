@@ -2,6 +2,7 @@
  * Packs: every pack this instance lists, on or off here and why, how its refreshes and cron runs
  * went, and its settings, a secret one only as set or missing (never its value).
  */
+import { typedOf } from "../packs/env.ts";
 import { type KeyState, STORES } from "../secretrefs.ts";
 import { html } from "hono/html";
 import { AGENT_MINUTES, type AiGrant, MAX_DAY_USD, MAX_RUN_USD, MAX_TURNS } from "../packs/ai.ts";
@@ -109,7 +110,7 @@ function settingItem(s: PackSetting, env: PacksView["env"], keys?: KeyLookup) {
       ? Pill({ tone: "ok", children: "set" })
       : Pill({ tone: s.required ? "bad" : undefined, children: s.required ? "missing, needed" : "not set" });
   const label = s.choices?.find((c) => c.value === v)?.label;
-  const shown = v && !s.secret ? (label ? html` ${label}` : html` <code>${v.length > 80 ? `${v.slice(0, 80)}…` : v}</code>`) : "";
+  const shown = v && !s.secret ? (label ? html` ${label}` : html` <code>${v.length > 80 ? `${v.slice(0, 80)}…` : v}</code>`) : !v && s.default !== undefined ? html` · unset, so ${s.choices ? named(s, s.default) : html`<code>${s.default}</code>`}` : "";
   const from = k && "from" in k ? ` · from ${STORES[k.from]}` : "";
   return Item({ title: html`${s.label} ${state}`, line: html`<code>${s.key}</code>${s.secret ? " · secret" : ""}${from}${shown}`, clamp: unread ?? s.help });
 }
@@ -123,10 +124,12 @@ function settingsForm(id: string, settings: PackSetting[], env: PacksView["env"]
   <div class="fields aligned">${settings.map((s) => {
     const v = env[s.key]?.trim();
     if (s.choices)
-      return html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><select name="${s.key}"><option value=""${v ? "" : " selected"}>Its default</option>${s.choices.map((c) => html`<option value="${c.value}"${v === c.value ? " selected" : ""}>${c.label}</option>`)}</select>${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
+      return html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><select name="${s.key}"><option value=""${v ? "" : " selected"}>Its default${s.default === undefined ? "" : ` (${named(s, s.default)})`}</option>${s.choices.map((c) => html`<option value="${c.value}"${v === c.value ? " selected" : ""}>${c.label}</option>`)}</select>${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
+    if (s.kind === "number")
+      return html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="number" name="${s.key}" value="${v ?? ""}" step="1"${s.min === undefined ? "" : html` min="${s.min}"`}${s.max === undefined ? "" : html` max="${s.max}"`} placeholder="${s.default ?? ""}">${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
     return s.secret
       ? html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="password" name="${s.key}" value="" placeholder="${v ? "(set — leave blank to keep)" : s.help ?? ""}" maxlength="2000" spellcheck="false" autocomplete="off">${v ? html`<label class="check"><input type="checkbox" name="clear.${s.key}" value="1"> Clear saved secret</label>` : ""}<span class="hint">${s.help ? html`${s.help} ` : ""}${KEY_HINT}</span></label>`
-      : html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="text" name="${s.key}" value="${v ?? ""}" placeholder="${s.help ?? ""}" maxlength="2000" spellcheck="false">${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
+      : html`<label class="field"><span class="label">${s.label} (<code>${s.key}</code>)</span><input type="text" name="${s.key}" value="${v ?? ""}" placeholder="${s.default ?? s.help ?? ""}" maxlength="2000" spellcheck="false">${s.help ? html`<span class="hint">${s.help}</span>` : ""}</label>`;
   })}</div>
   <div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save settings</button></div>
 </form>`;
@@ -139,13 +142,30 @@ export const manifestSettings = (m: PackManifest | undefined): PackSetting[] =>
 /** Its choices after the checks (API 1.15): a value of letters, digits and . _ : - each once, a one-line label, 20 at most; none for a secret. */
 function withChoices(s: PackSetting): PackSetting {
   const { choices, ...rest } = s;
-  if (!Array.isArray(choices) || s.secret) return rest;
+  if (!Array.isArray(choices) || s.secret) return typed(rest);
   const seen = new Set<string>();
   const ok = choices
     .filter((c) => c && typeof c.value === "string" && /^[\w.:-]{1,64}$/.test(c.value) && typeof c.label === "string" && !seen.has(c.value) && !!seen.add(c.value))
     .map((c) => ({ value: c.value, label: c.label.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 80) || c.value }))
     .slice(0, 20);
-  return ok.length ? { ...rest, choices: ok } : rest;
+  return typed(ok.length ? { ...rest, choices: ok } : rest);
+}
+
+/** Its kind, bounds and default after the checks (API 2.5): only what `typedOf` keeps. */
+function typed(s: PackSetting): PackSetting {
+  const { kind: _k, min: _min, max: _max, default: _d, ...rest } = s;
+  const t = typedOf(s);
+  return { ...rest, ...(t.number ? { kind: "number" as const, ...(t.number.min === undefined ? {} : { min: t.number.min }), ...(t.number.max === undefined ? {} : { max: t.number.max }) } : {}), ...(t.default === undefined ? {} : { default: t.default }) };
+}
+/** A value as Settings names it: a choice's label, else itself. */
+const named = (s: PackSetting, v: string) => s.choices?.find((c) => c.value === v)?.label ?? v;
+
+/** What Settings' overview says of one setting: whether it's set, what it is now when that's a choice or a number, and whether that's other than its default. */
+export function settingState(s: PackSetting, env: Record<string, string | undefined>): { key: string; label: string; set: boolean; now?: string; changed: boolean } {
+  const v = env[s.key]?.trim() || undefined;
+  const plain = !s.secret && (!!s.choices || s.kind === "number");
+  const now = plain ? (v ?? s.default) : undefined;
+  return { key: s.key, label: s.label, set: !!v, now: now === undefined ? undefined : named(s, now), changed: !!v && v !== s.default };
 }
 
 /** Settings → Packs → a pack: its manifest's settings, set or missing, and (on a machine) the form that keeps them in `.dev.vars`. */

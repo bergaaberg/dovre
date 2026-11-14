@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "2.4")
+   src/packs/types.ts     its types (PACK_API = "2.5")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -397,6 +397,7 @@ Also:
   | 2.2 | `Pack.isolated` (#304): its own pages are cross-origin isolated (COEP `require-corp`), for `SharedArrayBuffer` and WebAssembly threads. |
   | 2.3 | `manifest.replaces`: packs it takes the place of, held off while it's on; `ctx.required` on one of them reads this pack's share. |
   | 2.4 | `Pack.themes`: themes as palette tokens (`PackTheme`, `THEME_TOKENS`), checked for contrast and written into the stylesheet by core, picked on Settings → Look; in tests, `assertThemes`. |
+  | 2.5 | A setting's `default` (what `ctx.env[key]` reads while it's unset, shown on Settings, and what "changed" is measured against) and `kind: "number"` with `min` and `max` (a number field; a value that isn't a whole number within them isn't saved, and reads as unset). |
 
 ## Open questions
 

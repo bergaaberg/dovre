@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "2.4";
+export const PACK_API = "2.5";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -57,6 +57,21 @@ export type PackSetting = {
    * Those keys count as the pack's own in `ctx.env`, and the Packs page lists them. Not with `secret`.
    */
   namesKeys?: boolean;
+  /**
+   * API 2.5: `"number"` is a whole number, typed in a number field and kept only within `min` and
+   * `max` (each optional). A value that isn't one (a hand-edited .dev.vars) reads as unset. Not with
+   * `secret`, `choices` or `namesKeys`.
+   */
+  kind?: "number";
+  min?: number;
+  max?: number;
+  /**
+   * API 2.5: what it is while unset, one line. `ctx.env[key]` reads as this then, so the pack
+   * doesn't repeat it; Settings shows it beside the field, and marks the setting as changed only
+   * when it's set to something else. With `choices` it's one of their values, with `kind: "number"`
+   * a number within its bounds. Not with `secret` or `namesKeys`.
+   */
+  default?: string;
 };
 
 export type PackManifest = {

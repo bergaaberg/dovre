@@ -194,3 +194,36 @@ test("CORE_PACKS names every folder of Dovre's own packs, and no more", () => {
   assert.equal(CORE_PACKS.length, folders.length, "a pack was added to or taken out of src/packs/core: fix src/packs/own.ts");
   assert.equal(new Set(CORE_PACKS).size, CORE_PACKS.length);
 });
+
+test("typed settings (API 2.5): unset reads as its default, a number outside its bounds as unset; only a default the setting could hold counts", async () => {
+  const { settingValue, typedOf } = await import("../src/packs/env.ts");
+  const m = {
+    ...manifest("shop"),
+    settings: [
+      { key: "SHOP_LAG", label: "Lag", kind: "number" as const, min: 1, max: 500, default: "100" },
+      { key: "SHOP_VIEW", label: "View", choices: [{ value: "wide", label: "Wide" }, { value: "tight", label: "Tight" }], default: "wide" },
+      { key: "SHOP_NAME", label: "Name", default: "the shop" },
+      { key: "SHOP_PORT", label: "Port", kind: "number" as const },
+      { key: "SHOP_PLAIN", label: "Plain" },
+    ],
+  };
+  const all: Record<string, string | undefined> = {};
+  const env = packEnv(m, all, () => {});
+  assert.deepEqual([env.SHOP_LAG, env.SHOP_VIEW, env.SHOP_NAME, env.SHOP_PORT, env.SHOP_PLAIN], ["100", "wide", "the shop", undefined, undefined]);
+  assert.deepEqual(Object.keys(env).sort(), ["SHOP_LAG", "SHOP_NAME", "SHOP_VIEW"], "a defaulted key is there though unset");
+  assert.ok("SHOP_LAG" in env && !("SHOP_PORT" in env));
+  Object.assign(all, { SHOP_LAG: " 250 ", SHOP_VIEW: "tight", SHOP_NAME: "", SHOP_PORT: "80.5", SHOP_PLAIN: " as typed " });
+  assert.deepEqual([env.SHOP_LAG, env.SHOP_VIEW, env.SHOP_NAME, env.SHOP_PORT, env.SHOP_PLAIN], ["250", "tight", "the shop", undefined, " as typed "], "a view, not a copy; an untyped setting is untouched");
+  all.SHOP_LAG = "9000";
+  assert.equal(env.SHOP_LAG, "100", "over its max: unset, so its default");
+  all.SHOP_PORT = "-3";
+  assert.equal(env.SHOP_PORT, "-3");
+  // A default the setting couldn't hold is no default; a secret or a namesKeys setting has none.
+  assert.deepEqual(typedOf({ key: "K", label: "K", kind: "number", min: 1, default: "0" }), { number: { min: 1, max: undefined }, default: undefined });
+  assert.equal(typedOf({ key: "K", label: "K", choices: [{ value: "a", label: "A" }], default: "b" }).default, undefined);
+  assert.deepEqual(typedOf({ key: "K", label: "K", secret: true, default: "hunter2", kind: "number" }), {});
+  assert.deepEqual(typedOf({ key: "K", label: "K", namesKeys: true, default: "A" }), {});
+  assert.equal(typedOf({ key: "K", label: "K", default: "two\nlines" }).default, undefined);
+  assert.equal(typedOf({ key: "K", label: "K", kind: "number", min: 1.5 as number, default: "1" }).number!.min, undefined, "a bound is a whole number");
+  assert.equal(settingValue({ key: "K", label: "K" }, " raw "), " raw ");
+});
