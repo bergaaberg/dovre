@@ -11,13 +11,15 @@
  * - Every POST here must come from this origin, as JSON, small, and is rate-limited per address.
  * - With the instance's GitHub App set (GITHUB_APP_CLIENT_ID and _SECRET, #523), people can also
  *   sign in with GitHub (./github.ts): a verified email of theirs that ALLOWED_EMAILS names. With
- *   ALLOWED_EMAILS empty, nobody gets in that way.
+ *   ALLOWED_EMAILS empty, nobody gets in that way. With GITHUB_TOKEN_SEAL set, the sign-in's user
+ *   token is kept sealed, and Dovre calls GitHub as that person (./tokens.ts).
  * - The result is the same `Verified` a Cloudflare Access token gives (src/access.ts): pages take a
  *   person, and nothing else in the app changes.
  */
 import type { AccessVerifier } from "../../access.ts";
 import type { D1 } from "../../db.ts";
-import { authorizeUrl, type GithubApp, githubEmails } from "./github.ts";
+import { authorizeUrl, type GithubApp, githubSignIn, type SignedIn } from "./github.ts";
+import { keepGrant } from "./tokens.ts";
 import { b64url, ES256, RS256, verifyAssertion, verifyRegistration } from "./webauthn.ts";
 
 export const SESSION_COOKIE = "__Host-dovre_s";
@@ -87,7 +89,7 @@ export type Login = {
   handle(req: Request): Promise<Response | undefined>;
 };
 
-export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => number; /** Sign in with GitHub (#523). */ github?: GithubApp; fetch?: typeof fetch }): Login {
+export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => number; /** Sign in with GitHub (#523). */ github?: GithubApp; /** Keeps a GitHub sign-in's tokens, sealed with this (GITHUB_TOKEN_SEAL, ./tokens.ts). */ seal?: string; fetch?: typeof fetch }): Login {
   const { db, github } = o;
   const f = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const now = o.now ?? Date.now;
@@ -191,15 +193,17 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
     if (q.get("error")) return fail("cancelled", 400);
     const code = q.get("code") ?? "";
     if (!ch.claim || q.get("state") !== ch.claim || !/^[A-Za-z0-9_-]{1,200}$/.test(code)) return fail("again", 400);
-    let emails: string[];
+    let who: SignedIn;
     try {
-      emails = await githubEmails(f, github!, { code, verifier: ch.challenge, redirectUri: callbackOf(req) });
+      who = await githubSignIn(f, github!, { code, verifier: ch.challenge, redirectUri: callbackOf(req), now: now() });
     } catch {
       return fail("github", 502);
     }
     // Unlike a passkey (which needs a claim link), any GitHub account can get this far: only a listed email comes in.
-    const email = allowed.length ? emails.find((e) => allowed.includes(e)) : undefined;
+    const email = allowed.length ? who.emails.find((e) => allowed.includes(e)) : undefined;
     if (!email) return fail("notListed");
+    // Kept for calling GitHub as them; a failure here doesn't stop the sign-in (GITHUB_TOKEN still works).
+    if (o.seal && who.grant) await keepGrant(db, o.seal, email, who.login, who.grant, now()).catch((e) => console.error(`login: keeping the GitHub token failed: ${(e as Error)?.message ?? e}`));
     return new Response(null, { status: 303, headers: await sessionCookies(email, GITHUB_SESSION + email, new Headers({ location: "/", "cache-control": "no-store" })) });
   };
 

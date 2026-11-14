@@ -49,6 +49,7 @@ import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 import { serveLookups } from "./hosted/lookups.ts";
 import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
 import { githubAppOf } from "./hosted/login/github.ts";
+import { appTokens, sealOf } from "./hosted/login/tokens.ts";
 
 interface WorkerBindings {
   DB: D1;
@@ -86,6 +87,8 @@ interface WorkerBindings {
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_APP_CLIENT_SECRET?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
+  /** Seals Sign in with GitHub's user tokens in D1 (32+ characters), so GitHub is called as you instead of with GITHUB_TOKEN (src/hosted/login/tokens.ts). */
+  GITHUB_TOKEN_SEAL?: string;
   IS_HOSTED?: string;
   /** The Durable Object (src/hosted/hub.ts, exported by the instance as DovreHub): pages' live updates and Bino. */
   HUB?: HubNamespace;
@@ -136,6 +139,23 @@ export type { Actor };
  * without, it's the instance's own (pages, the background snapshot, cron).
  */
 type GithubTokenProvider = (bindings: WorkerBindings, actor?: Actor) => Promise<string>;
+
+/**
+ * The built-in provider (#523), with the built-in login, the instance's GitHub App and
+ * GITHUB_TOKEN_SEAL all set: a person's write goes with their own Sign in with GitHub token, the
+ * rest with the operator's, and either falls back to GITHUB_TOKEN.
+ */
+export function appTokenProvider(bindings: WorkerBindings): GithubTokenProvider | undefined {
+  const app = githubAppOf(bindings);
+  const secret = sealOf(bindings);
+  if (!loginOn(bindings) || !app || !secret || !bindings.DB) return undefined;
+  const tokens = appTokens({ db: bindings.DB, secret, app, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), operatorLogin: bindings.GITHUB_USER });
+  return async (b, actor) => {
+    const t = (actor?.email ? await tokens.forEmail(actor.email) : undefined) ?? (await tokens.operator()) ?? b.GITHUB_TOKEN?.trim();
+    if (!t) throw new Error("No GitHub token yet: sign in with GitHub once, or set GITHUB_TOKEN with `wrangler secret put GITHUB_TOKEN`.");
+    return t;
+  };
+}
 
 /** Runs `fn` as nobody in particular: what it starts (a gather) uses the instance's own token. */
 const asInstance = <T>(fn: () => T): T => actingAs(undefined, fn);
@@ -278,7 +298,7 @@ export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">
 /** The vars and secrets among the bindings: what a pack's settings read. */
 const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Object.fromEntries(Object.entries(b).filter(([, v]) => typeof v === "string")) as Record<string, string>;
 
-type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login };
+type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login; /** GitHub tokens tell people apart: a person's POST goes as them. */ byPerson: boolean };
 
 export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.1";
@@ -309,7 +329,8 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     const instancePacks = opts.packs ?? [];
     // GitHub unless FORGE names a forge one of the instance's packs brings (src/forge/pick.ts).
     const forgeId = forgeIdOf(bindings.FORGE);
-    const ghe = forgeId === "github" ? createHostedGhe(bindings, opts.githubToken) : missingGhe(hostOf(bindings), `GitHub isn't this instance's forge (FORGE=${forgeId}).`);
+    const provider = opts.githubToken ?? appTokenProvider(bindings);
+    const ghe = forgeId === "github" ? createHostedGhe(bindings, provider) : missingGhe(hostOf(bindings), `GitHub isn't this instance's forge (FORGE=${forgeId}).`);
     const forge = pickForge(bindings.FORGE, instancePacks, () => githubForge(ghe), strings);
     // The last snapshot, kept in D1: a fresh isolate draws it at once and gathers behind it.
     const kept = d1SnapshotStore(bindings.DB, version);
@@ -341,7 +362,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     };
     const access = accessConfigOf(bindings);
     // The built-in login when it's on (AUTH_MODE=passkey), else Cloudflare Access or another issuer.
-    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), github: githubAppOf(bindings) }) : undefined;
+    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), github: githubAppOf(bindings), seal: sealOf(bindings) }) : undefined;
     const verify = builtIn?.verify ?? (access ? createAccessVerifier(access) : undefined);
     // The hub, when the instance binds it: live pages, and Bino answering in the object.
     const hub = bindings.HUB ? hubClient(bindings.HUB) : undefined;
@@ -370,7 +391,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, keys, bindings, core: [...CORE_PACKS] },
-      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!opts.githubToken, servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
+      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!provider, servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
       sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });
     const mounted = packsOf(app)!;
@@ -381,7 +402,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       sync.seed(shownOf(s));
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
-    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh };
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;
@@ -476,7 +497,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       }
       // A write (POST) by a verified person goes to GitHub with their own token, when the instance's
       // provider tells people apart. The app still checks Access itself; this only names the actor.
-      const who = opts.githubToken && request.method === "POST" && h.verify ? await h.verify(request).catch(() => undefined) : undefined;
+      const who = h.byPerson && request.method === "POST" && h.verify ? await h.verify(request).catch(() => undefined) : undefined;
       // The request's context goes along: a route's c.executionCtx.waitUntil() keeps its job past the
       // response. Without it that throws, and a job started in the request dies when it answers.
       const call = () => h.app.fetch(request, {}, ctx as Parameters<typeof h.app.fetch>[2]);

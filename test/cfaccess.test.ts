@@ -331,10 +331,17 @@ test("provision --github: makes the GitHub App once, its secrets on the Worker a
   assert.match(cfg, /"GITHUB_APP_ID": "42"/);
   assert.match(cfg, /"GITHUB_APP_CLIENT_ID": "Iv23abc"/);
   assert.doesNotMatch(cfg, /cs_secret|PRIVATE KEY/, "secrets stay off disk");
+  // GitHub goes as whoever signs in: a sealing secret goes up, the broad `gh auth token` doesn't.
+  const seal = put.filter(([k]) => k === "GITHUB_TOKEN_SEAL");
+  assert.equal(seal.length, 1);
+  assert.ok(seal[0]![1].length >= 32);
+  assert.ok(!put.some(([k]) => k === "GITHUB_TOKEN"), "no GITHUB_TOKEN with the app");
 
-  const again = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, github: true, makeGithubApp, run: run([], ["BRIDGE_KEY", "GITHUB_TOKEN", "GITHUB_APP_CLIENT_SECRET"]), log: () => {} });
+  const again = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, github: true, makeGithubApp, run: run([], ["BRIDGE_KEY", "GITHUB_TOKEN", "GITHUB_APP_CLIENT_SECRET", "GITHUB_TOKEN_SEAL"]), log: () => {} });
   assert.equal(asked.length, 1, "one app, never a second");
   assert.equal(again.steps.find((s) => s.what === "GitHub sign-in")?.action, "reuse");
+  assert.equal(again.steps.find((s) => s.what === "GitHub as you")?.action, "reuse");
+  assert.equal(put.filter(([k]) => k === "GITHUB_TOKEN_SEAL").length, 1, "the seal is made once (a new one would lose every kept token)");
 
   await assert.rejects(provisionInstance({ dir, coreVarsFile: vars, api: wf.api, github: true, makeGithubApp, run: run([]), log: () => {} }), /built-in login/);
 });

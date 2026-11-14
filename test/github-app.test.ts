@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appManifest, convertManifest, manifestPage } from "../src/github-app.ts";
 
-test("github app: the manifest asks only for emails, sends sign-in back to the instance, and the page escapes it", () => {
+test("github app: the manifest asks for emails and what Dovre does on repos (nothing admin), sends sign-in back to the instance, and the page escapes it", () => {
   const m = appManifest({ host: "home.me.workers.dev", name: `Dovre "><script>alert(1)</script> and a very long name`, redirectUrl: "http://127.0.0.1:5555/done" });
   assert.deepEqual(m.callback_urls, ["https://home.me.workers.dev/_auth/github/callback"]);
-  assert.deepEqual(m.default_permissions, { email_addresses: "read" });
+  assert.equal(m.default_permissions.email_addresses, "read");
+  assert.equal(m.default_permissions.pull_requests, "write");
+  for (const k of ["administration", "secrets", "workflows", "members", "organization_administration"]) assert.ok(!(k in m.default_permissions), k);
   assert.equal(m.public, false);
   assert.equal(m.hook_attributes.active, false);
   assert.ok(m.name.length <= 34);

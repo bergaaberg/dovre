@@ -10,7 +10,11 @@ import { createServer } from "node:http";
 
 export type AppCreds = { id: number; slug: string; clientId: string; clientSecret: string; pem: string; htmlUrl?: string };
 
-/** The app: sign-in only (a user's verified emails), private, no webhook. */
+/**
+ * The app: private, no webhook. Sign-in reads a user's verified emails; the repository permissions
+ * are what Dovre does on GitHub as the signed-in person (their token reaches only the repos the app
+ * is installed on, and never more than they can do themselves).
+ */
 export function appManifest(o: { host: string; name: string; redirectUrl: string }) {
   return {
     name: o.name.slice(0, 34),
@@ -21,7 +25,18 @@ export function appManifest(o: { host: string; name: string; redirectUrl: string
     public: false,
     request_oauth_on_install: false,
     hook_attributes: { url: `https://${o.host}/`, active: false },
-    default_permissions: { email_addresses: "read" },
+    default_permissions: {
+      email_addresses: "read",
+      metadata: "read",
+      contents: "write",
+      pull_requests: "write",
+      issues: "write",
+      actions: "write",
+      deployments: "write",
+      checks: "read",
+      statuses: "read",
+      vulnerability_alerts: "read",
+    },
     default_events: [],
   };
 }
@@ -35,7 +50,7 @@ export function manifestPage(o: { manifest: object; state: string; org?: string 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Dovre · GitHub App</title><style>${PAGE_CSS}</style></head>
 <body>
 <form id="f" method="post" action="${esc(`${base}?state=${encodeURIComponent(o.state)}`)}"><input type="hidden" name="manifest" value="${esc(JSON.stringify(o.manifest))}">
-<p>This makes your Dovre's own GitHub App, for Sign in with GitHub. On GitHub, check the name (it has to be unique) and click “Create GitHub App”.</p>
+<p>This makes your Dovre's own GitHub App, for Sign in with GitHub and for calling GitHub as you. On GitHub, check the name (it has to be unique) and click “Create GitHub App”.</p>
 <button type="submit">Continue to GitHub</button></form></body></html>`;
 }
 
@@ -67,7 +82,7 @@ export const makeGithubApp: MakeGithubApp = (o) =>
       done = true;
       convertManifest(fetch, url.searchParams.get("code") ?? "").then(
         (app) => {
-          send(200, `<!doctype html><meta charset="utf-8"><title>Dovre</title><style>${PAGE_CSS}</style><p>The GitHub App ${esc(app.slug)} is made. Back to the terminal.</p>`);
+          send(200, `<!doctype html><meta charset="utf-8"><title>Dovre</title><style>${PAGE_CSS}</style><p>The GitHub App ${esc(app.slug)} is made. Now <a href="https://github.com/apps/${encodeURIComponent(app.slug)}/installations/new">install it</a> on the accounts whose repos Dovre tracks, then back to the terminal.</p>`);
           finish(() => resolve(app));
         },
         (e: unknown) => {
