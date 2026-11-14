@@ -74,3 +74,28 @@ test("/prs: hostile PR text and a hostile query stay inert", async () => {
   // A cookie from somewhere else is read as a query, nothing more.
   assertInert("cookie", await (await get("/prs", { cookie: `u_tk=test-token; dovre_prs=${encodeURIComponent(`repo=${H}&author=${H}`)}` })).text());
 });
+
+test("/prs and Today: a list the forge cut short says how many there are in all; a whole one says nothing (#540)", async () => {
+  const mine = Array.from({ length: 3 }, (_, i) => pr({ number: i + 1, title: `mine ${i + 1}` }));
+  const review = [pr({ number: 9, title: "asked", author: "kari" })];
+  const cut = signedIn(snapshot({ prs: { ok: true, value: { mine, review, total: { mine: 57 } } } }));
+  const page = await (await cut.get("/prs")).text();
+  assert.match(page, /1 to review · 3 of 57 open/);
+  assert.match(page, /The 3 most recently updated of 57\. The rest are on GitHub\./);
+  assert.equal(page.match(/most recently updated of/g)?.length, 1, "only the list that was cut says so");
+  assert.match(await (await cut.get("/")).text(), /3 of 57 open/);
+
+  const whole = await (await signedIn(snapshot({ prs: { ok: true, value: { mine, review } } })).get("/prs")).text();
+  assert.match(whole, /1 to review · 3 open/);
+  assert.ok(!whole.includes("most recently updated of"));
+
+  // A total that isn't a number past the list's length is no total: nothing is said, nothing is drawn from it.
+  for (const total of [{ mine: H, review: H }, { mine: 3, review: -1 }, { mine: NaN }, H]) {
+    const { get } = signedIn(snapshot({ prs: { ok: true, value: { mine, review, total: total as never } } }));
+    for (const path of ["/prs", "/"]) {
+      const out = await (await get(path)).text();
+      assertInert(path, out);
+      assert.ok(!/ of (57|NaN|-1)/.test(out) && !out.includes("most recently updated of"), path);
+    }
+  }
+});

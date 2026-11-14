@@ -7,6 +7,8 @@ import { accessConfigOf } from "../access.ts";
 import type { Off } from "../packs/registry.ts";
 import type { D1 } from "../db.ts";
 import type { SetupLine } from "../pages/settings.ts";
+import { bytes } from "../format.ts";
+import { MAX_BYTES } from "./snapshot.ts";
 
 /** The bindings this reads: the same names as the Worker's (src/worker.ts). */
 type SetupBindings = { DB?: unknown; AUTH_MODE?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
@@ -19,7 +21,7 @@ const isDb = (v: unknown): v is D1 => !!v && typeof (v as D1).prepare === "funct
 type HostedLine = SetupLine & { needed?: boolean };
 
 /** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
-export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
+export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** How big the newest snapshot is as it's kept (src/hosted/snapshot.ts); unset before the first gather. */ snapshotBytes?: number; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
   const access = (str(b.AUTH_MODE)?.trim().toLowerCase() === "passkey") || !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
   // With the built-in login the dial proves BRIDGE_KEY itself (#522): no service token.
@@ -46,6 +48,17 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
       fix: "An Access service token with a Service Auth policy: its client id as the var BRIDGE_CLIENT_ID, and `wrangler secret put BRIDGE_KEY` (the same key as the Mac's .dev.vars). README: Run it hosted.",
     },
   ];
+  // The snapshot a fresh start draws first: one over a row's size isn't kept, which only a log line said (#540).
+  if (o.snapshotBytes !== undefined) {
+    const big = o.snapshotBytes > MAX_BYTES;
+    lines.push({
+      name: "Kept snapshot",
+      on: !big,
+      ...(!big && o.snapshotBytes > MAX_BYTES * 0.8 ? { warn: true } : {}),
+      what: big ? `${bytes(o.snapshotBytes)}, over the ${bytes(MAX_BYTES)} that can be kept: a fresh start gathers before it draws` : `${bytes(o.snapshotBytes)} of the ${bytes(MAX_BYTES)} that can be kept: a fresh start draws it at once`,
+      fix: "Past that size a fresh start shows “Gathering” until the forge answers. It shrinks with fewer open PRs and waiting deploys in the owners' repos (REPO_OWNERS).",
+    });
+  }
   for (const sv of o.servers ?? [])
     lines.push({ name: `Pack server: ${sv.name}`, on: !!(b as Record<string, unknown>)[sv.binding], what: "What the pack runs apart from the app, in a Worker of its own", fix: `\`node ../dovre/src/packs/servers.ts --out .servers --deploy\` (it prints the line), then a service binding ${sv.binding} in wrangler.jsonc's "services".` });
   for (const c of o.off ?? []) lines.push({ name: `Pack: ${c.name}`, on: false, what: c.why, fix: "Packs (under You) says what it needs." });

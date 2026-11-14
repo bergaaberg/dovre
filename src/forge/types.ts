@@ -5,7 +5,7 @@
  */
 import type { Proposal } from "../actions/propose.ts";
 import type { Changelog } from "../sources/changelog.ts";
-import type { Deploy, Move, Note, Pr, PrRef, RedBranch } from "../sources/ghe.ts";
+import type { Deploy, Move, Note, Pr, MyPrs, PrRef, RedBranch } from "../sources/ghe.ts";
 import type { Issue, IssueAct, IssueSets } from "../sources/issues.ts";
 import type { Thread, ThreadHit } from "../sources/threads.ts";
 import type { ForgePr, RepoFiles } from "../sources/files.ts";
@@ -39,8 +39,11 @@ export type Forge = {
   viewer(): Promise<{ login: string; name: string | null }>;
   /** Its API quota is nearly gone: background reads that can wait, wait. Absent: never. */
   low?(): boolean;
-  /** My open PRs, and those asking for my review, in the owners' repos (`owners`: comma-separated). */
-  prs(login: string, owners: string): Promise<{ mine: Pr[]; review: Pr[] }>;
+  /**
+   * My open PRs, and those asking for my review, in the owners' repos (`owners`: comma-separated).
+   * A forge that reads only some of a list says how many there are in all (`total`), newest first.
+   */
+  prs(login: string, owners: string): Promise<MyPrs>;
   /** What asks for me (notifications, todos), newest first. */
   notes(): Promise<Note[]>;
   /** What happened in the owners' repos lately. */

@@ -40,3 +40,11 @@ test("setupPage: only what's needed and missing, each with how; hostile text ine
   assert.doesNotMatch(page, /Advised|Done/);
   assert.match(page, /<code>/);
 });
+
+test("hostedSetup: the kept snapshot's size, once there's one: on, worth watching near the limit, off past it (#540)", () => {
+  const line = (snapshotBytes?: number) => hostedSetup({}, { snapshotBytes }).find((l) => l.name === "Kept snapshot");
+  assert.equal(line(), undefined, "before the first gather there's nothing to say");
+  assert.deepEqual([line(133_000)!.on, line(133_000)!.warn, line(133_000)!.what], [true, undefined, "130 KB of the 1.4 MB that can be kept: a fresh start draws it at once"]);
+  assert.deepEqual([line(1_300_000)!.on, line(1_300_000)!.warn], [true, true]);
+  assert.deepEqual([line(1_800_000)!.on, line(1_800_000)!.what], [false, "1.7 MB, over the 1.4 MB that can be kept: a fresh start gathers before it draws"]);
+});

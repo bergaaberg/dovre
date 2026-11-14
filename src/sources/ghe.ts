@@ -300,14 +300,40 @@ export const prWeight = (p: Pr) => (prFailing(p) ? 0 : p.review === "CHANGES_REQ
 /** Mine first where I'm needed (Today's card and the PR list's "attention" sort). */
 export const prOrder = (prs: Pr[]): Pr[] => [...prs].sort((a, b) => prWeight(a) - prWeight(b) || b.updatedAt.localeCompare(a.updatedAt));
 
-export async function loadPrs(ghe: Ghe, login: string, org: string): Promise<{ mine: Pr[]; review: Pr[] }> {
+/**
+ * My open PRs and those asking for my review. A forge reads only so many of each: `total` says how
+ * many there are in all for a list it cut short, so a page can say so (#540).
+ */
+export type MyPrs = { mine: Pr[]; review: Pr[]; total?: { mine?: number; review?: number } };
+/** How many there are in all, when `which` was cut short; undefined when the list is all of them. */
+export function prsCut(p: MyPrs, which: "mine" | "review"): number | undefined {
+  const n = p.total?.[which];
+  return typeof n === "number" && Number.isFinite(n) && n > p[which].length ? Math.floor(n) : undefined;
+}
+/** A list's count for a heading: "40", or "40 of 57" when it was cut short. */
+export const prsCount = (p: MyPrs, which: "mine" | "review"): string => {
+  const all = prsCut(p, which);
+  return all ? `${p[which].length} of ${all}` : String(p[which].length);
+};
+
+/** How many of my open PRs, and of those asking for my review, one gather reads. */
+const MINE_MAX = 40;
+const REVIEW_MAX = 30;
+
+export async function loadPrs(ghe: Ghe, login: string, org: string): Promise<MyPrs> {
   const q = (s: string) => JSON.stringify(s);
-  const d = await ghe.graphql<{ mine: { nodes: PrNode[] }; review: { nodes: PrNode[] } }>(`{
-    mine: search(query:${q(`is:pr is:open author:${login} ${ownerQuery(org)} archived:false`)}, type:ISSUE, first:40){ nodes{ ... on PullRequest { ${PR_FIELDS} } } }
-    review: search(query:${q(`is:pr is:open review-requested:${login} ${ownerQuery(org)} archived:false`)}, type:ISSUE, first:30){ nodes{ ... on PullRequest { ${PR_FIELDS} } } }
+  // Newest first, so a list that's cut keeps the ones last touched; issueCount is how many match in all.
+  const d = await ghe.graphql<{ mine: { issueCount?: number; nodes: PrNode[] }; review: { issueCount?: number; nodes: PrNode[] } }>(`{
+    mine: search(query:${q(`is:pr is:open author:${login} ${ownerQuery(org)} archived:false sort:updated-desc`)}, type:ISSUE, first:${MINE_MAX}){ issueCount nodes{ ... on PullRequest { ${PR_FIELDS} } } }
+    review: search(query:${q(`is:pr is:open review-requested:${login} ${ownerQuery(org)} archived:false sort:updated-desc`)}, type:ISSUE, first:${REVIEW_MAX}){ issueCount nodes{ ... on PullRequest { ${PR_FIELDS} } } }
   }`, { shareMs: LIST_SHARE_MS });
   const byNewest = (a: Pr, b: Pr) => b.updatedAt.localeCompare(a.updatedAt);
-  return { mine: d.mine.nodes.filter((n) => n.repository).map(normalizePr).sort(byNewest), review: d.review.nodes.filter((n) => n.repository).map(normalizePr).sort(byNewest) };
+  const lists: MyPrs = { mine: d.mine.nodes.filter((n) => n.repository).map(normalizePr).sort(byNewest), review: d.review.nodes.filter((n) => n.repository).map(normalizePr).sort(byNewest) };
+  // Only where the search stopped short of its matches (a full page with more behind it).
+  const cut = (got: number, max: number, all: unknown) => (got >= max && typeof all === "number" && all > got ? all : undefined);
+  const mine = cut(d.mine.nodes.length, MINE_MAX, d.mine.issueCount);
+  const review = cut(d.review.nodes.length, REVIEW_MAX, d.review.issueCount);
+  return mine || review ? { ...lists, total: { ...(mine ? { mine } : {}), ...(review ? { review } : {}) } } : lists;
 }
 
 /** State and title of PRs by "owner/repo#n": for links agents left and events that only carry a number. */
