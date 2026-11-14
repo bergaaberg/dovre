@@ -1,4 +1,5 @@
 /** The first run, the climb (src/pages/welcome.ts, #417), and a pack's own setup pages (src/pages/setup.ts, #418): the pack draws each step, core draws the frame. */
+import { coreTheme } from "../ui/themes.ts";
 import { bugHref, PACK_ROUTE_MS } from "../app.ts";
 import { type Config, configFromForm, saveConfig } from "../config.ts";
 import { type App, fixedKeys } from "../env.ts";
@@ -72,7 +73,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     const before = new Set(flagsAt(from));
     const names = new Map(kitPacks().map((k) => [k.m.id, k.m.name]));
     const flags = now.filter((id) => names.has(id)).map((id) => ({ name: names.get(id)!, fresh: !before.has(id) }));
-    const view: ClimbView = { step, from, flags, role: o.role, forge: o.forge, bad, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, motion: layout.get().motion } };
+    const view: ClimbView = { step, from, flags, role: o.role, forge: o.forge, bad, look: { theme: coreTheme(layout.get().theme), accent: layout.get().accent, font: layout.get().font, motion: layout.get().motion } };
     const fixed = fixedKeys();
     const e = env as unknown as Record<string, string | undefined>;
     const field = (k: string): ClimbField => (fixed.has(k) ? { value: e[k] ?? "", fixed: true } : { value: pending[k] ?? deps.config?.stored[k] ?? e[k] ?? "", fixed: false });
@@ -239,7 +240,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
   const setupView = async (p: Pack, at: number, error?: string, drawn?: Awaited<ReturnType<typeof drawStep>>): Promise<{ view: SetupView; status: 200 | 422 | 500 }> => {
     const { steps } = setupOf(p)!;
     const l = layout.get();
-    const view: SetupView = { look: { theme: l.theme, accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
+    const view: SetupView = { look: { theme: coreTheme(l.theme), accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
     if (at >= steps.length) {
       // Done: the next pack whose setup isn't, in Today's order (#445).
       const next = shown().find((x) => x !== p && !!setupOf(x) && setupLeft(x).length > 0);

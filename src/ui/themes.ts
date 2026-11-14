@@ -182,3 +182,47 @@ export const SWATCH_CSS = [
   `.sw-fjord { --sw-accent: ${MORNING["--accent"]}; }`,
   ...ACCENTS.map((a) => `.sw-${a.id} { --sw-accent: ${a.light.c}; }`),
 ].join("\n");
+
+/** The swatch rule for one theme (a pack's is written beside its block). */
+export const swatchRule = swatch;
+
+/** One of core's own themes by id, or undefined: what the pages without packs' styles may wear (first run). */
+export const coreTheme = (id: string | undefined): ThemeId | undefined => (id && Object.hasOwn(DEFS, id) ? (id as ThemeId) : undefined);
+
+// ── Themes a pack offers (Pack.themes, pack API 2.4) ──
+
+/** What a pack's theme may set: the palette's colours. The shadow stays its scheme's. */
+export const THEME_TOKENS = Object.keys(MORNING).filter((k) => k !== "--shadow");
+/** A pack's theme in a saved Layout and on <html>: `<pack>-<its id>`. Core's own have no hyphen. */
+export const PACK_THEME_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;
+const OWN_ID = /^[a-z][a-z0-9]{0,23}$/;
+const HEX = /^#[0-9a-f]{6}$/i;
+const words = (v: unknown, max: number) => (typeof v === "string" && v.trim() && v.trim().length <= max && !/[\u0000-\u001f]/.test(v) ? v.trim() : undefined);
+
+/**
+ * A pack's offer as a theme, or why not. Tokens only: names from the palette, values `#rrggbb`,
+ * so nothing a pack writes reaches a selector. Then the whole palette (its scheme's with its own
+ * on top) must pass the same contrast check as core's themes, with each accent too.
+ */
+export function packTheme(pack: { id: string; name: string }, raw: unknown, fails: (palette: Tokens, scheme: Scheme, label: string) => string[]): { theme: ThemeDef } | { why: string } {
+  const v = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+  if (!v) return { why: "a theme is an object" };
+  if (typeof v.id !== "string" || !OWN_ID.test(v.id)) return { why: `a theme's id is a lowercase word (${JSON.stringify(v.id) ?? "none"})` };
+  const label = words(v.label, 32);
+  if (!label) return { why: `${v.id}: needs a label, at most 32 characters` };
+  const about = v.about === undefined ? `from ${pack.name}` : words(v.about, 40);
+  if (!about) return { why: `${v.id}: its about is at most 40 characters` };
+  if (v.scheme !== "light" && v.scheme !== "dark") return { why: `${v.id}: its scheme is "light" or "dark"` };
+  if (!v.tokens || typeof v.tokens !== "object" || Array.isArray(v.tokens)) return { why: `${v.id}: needs tokens` };
+  const tokens: Tokens = {};
+  for (const [k, val] of Object.entries(v.tokens as Record<string, unknown>).slice(0, 200)) {
+    if (!THEME_TOKENS.includes(k)) return { why: `${v.id}: ${k.slice(0, 40)} isn't a palette token` };
+    if (typeof val !== "string" || !HEX.test(val)) return { why: `${v.id}: ${k} must be a colour like #1a2b3c` };
+    tokens[k] = val.toLowerCase();
+  }
+  if (!Object.keys(tokens).length) return { why: `${v.id}: sets no tokens` };
+  const theme: ThemeDef = { id: `${pack.id}-${v.id}`, label, about, scheme: v.scheme, tokens };
+  const bad = fails(paletteOf(theme), theme.scheme, v.id);
+  if (bad.length) return { why: `${bad.slice(0, 3).join("; ")}${bad.length > 3 ? `; and ${bad.length - 3} more` : ""}` };
+  return { theme };
+}

@@ -36,8 +36,8 @@ import { writeKinds } from "../writes.ts";
 import type { Context } from "hono";
 import type { AppScope } from "./scope.ts";
 
-export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
-  const { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
+export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
+  const { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
   let saved = false;
   /** Set when a save restarts Dovre: when this server started, so the page knows when the next one is up. */
@@ -320,6 +320,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
     const v = panesView();
     return settingRows({
       layout: layout.get(),
+      themes: packThemes(),
       policy: deps.notify?.policy() ?? policyOf(undefined),
       rings: packRings,
       writes: { chosen: await clicks.get().catch(() => new Map()), kinds: writeKinds(packs.on) },
@@ -342,7 +343,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "publicOrigin" | "ref
   const areaBody = async (area: AreaId, frame: Frame): Promise<Html> => {
     switch (area) {
       case "look":
-        return lookPanel(layout.get());
+        return lookPanel(layout.get(), packThemes());
       case "layout":
         return layoutPanel(await layoutView(frame));
       case "notifications":

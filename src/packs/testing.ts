@@ -27,6 +27,7 @@ import { CORE_PACKS } from "./own.ts";
 import { activePacks, initAll, lookupsFrom } from "./registry.ts";
 import { foreignTables, migrationsGap, tablePrefix } from "./migrations.ts";
 import { checkHtml, classesOf, scopeCss } from "./guard.ts";
+import { themesFrom } from "./themes.ts";
 import { STYLE } from "../ui/style.ts";
 import { type AgentShare, type ListItem, type ListShare, type Pack, PACK_API, type PackContext, type PageOpts } from "./types.ts";
 
@@ -198,6 +199,14 @@ export function assertFragment(name: string, out: string) {
   if (/<html[\s>]/i.test(out)) return;
   const why = checkHtml(out);
   assert.equal(why, undefined, `${name}: ${why}`);
+}
+
+/** Fails when a theme the pack offers (`Pack.themes`, API 2.4) would be left out, with why: a bad token, or a contrast that falls short. */
+export function assertThemes(pack: Pack) {
+  const lines: string[] = [];
+  const kept = themesFrom([pack], (_id, line) => lines.push(line)).get(pack.manifest.id) ?? [];
+  assert.deepEqual(lines, [], `${pack.manifest.id}: themes core would leave out`);
+  assert.equal(kept.length, pack.themes?.length ?? 0, `${pack.manifest.id}: every theme offered is kept`);
 }
 
 /** Fails when the pack's styles would restyle core: each such selector is left out when it's served. */

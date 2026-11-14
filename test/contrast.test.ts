@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { STYLE } from "../src/ui/style.ts";
+import { colourOf, contrastFails, paletteFails } from "../src/ui/contrast.ts";
 
 type Tokens = Map<string, string>;
 
@@ -27,42 +28,9 @@ const light = block(":root");
 const schemes: [string, Tokens][] = [["light", light], ...["dark", ...[...STYLE.matchAll(/:root\[data-theme="([a-z]+)"\] \{\n {2}color-scheme/g)].map((m) => m[1])].filter((n, i, a) => a.indexOf(n) === i).map((n): [string, Tokens] => [n, new Map([...light, ...block(`:root[data-theme="${n}"]`)])])];
 const accents = [...new Set([...STYLE.matchAll(/\[data-accent="([a-z]+)"\]/g)].map((m) => m[1]))];
 
-/** A token's colour as #rrggbb, through var() aliases; undefined for anything else (color-mix, rgb). */
-const colour = (t: Tokens, name: string): string | undefined => {
-  const v = t.get(name);
-  if (!v) return undefined;
-  const alias = /^var\((--[a-z0-9-]+)\)$/.exec(v);
-  if (alias) return colour(t, alias[1]);
-  return /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : undefined;
-};
-const luminance = (hex: string) => {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
-const ratio = (a: string, b: string) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-};
-
-const SURFACES = ["--bg", "--surface", "--surface-2", "--hover"];
-const TEXT = ["--ink", "--ink-2", "--ink-3", "--accent", "--ok", "--warn", "--bad"];
-/** Edges and marks that carry meaning, each on what it's drawn on: a control's boundary on any surface,
- *  chart series on a card's --surface (as the dataviz validator checks them), the horizon's ridge line on its sky. */
-const GRAPHIC: [string, string[]][] = [["--control", SURFACES], ["--c1", ["--surface"]], ["--c2", ["--surface"]], ["--ridge-edge", ["--bg", "--sky"]]];
-
-const check = (t: Tokens, names: string[], min: number, label: string, on = SURFACES) => {
-  const fails: string[] = [];
-  for (const name of names) {
-    const fg = colour(t, name);
-    if (!fg) { fails.push(`${label} ${name}: not a #rrggbb colour`); continue; }
-    for (const s of on) {
-      const bg = colour(t, s)!;
-      const r = ratio(fg, bg);
-      if (r < min) fails.push(`${label} ${name} on ${s}: ${r.toFixed(2)}:1 (needs ${min})`);
-    }
-  }
-  return fails;
-};
+const obj = (t: Tokens) => Object.fromEntries(t);
+const colour = (t: Tokens, name: string) => colourOf(obj(t), name);
+const check = (t: Tokens, names: string[], min: number, label: string) => contrastFails(obj(t), names, min, label);
 
 test("the schemes are all found", () => {
   assert.deepEqual(schemes.map(([n]) => n).slice(0, 2), ["light", "dark"]);
@@ -71,7 +39,7 @@ test("the schemes are all found", () => {
 });
 
 test("text is 4.5:1 and controls and marks 3:1 on every surface, in every scheme", () => {
-  const fails = schemes.flatMap(([n, t]) => [...check(t, TEXT, 4.5, n), ...GRAPHIC.flatMap(([g, on]) => check(t, [g], 3, n, on))]);
+  const fails = schemes.flatMap(([n, t]) => paletteFails(obj(t), n));
   assert.deepEqual(fails, []);
 });
 

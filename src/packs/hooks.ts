@@ -69,6 +69,8 @@ export const HOOKS: Hook[] = [
   { name: "writes", where: "Declared", call: "special" },
   { name: "shares", where: "Declared", call: "memory", from: (on, ctxOf, log) => sharedFrom(on, ctxOf, "list", log) },
   { name: "styles", where: "Own pages", call: "special" },
+  // Data, read once at load and checked (src/packs/themes.ts); on Settings → Look while the pack is shown.
+  { name: "themes", where: "Own pages", call: "special" },
   { name: "script", where: "Own pages", call: "special" },
   { name: "wasm", where: "Own pages", call: "special" },
   { name: "files", where: "Own pages", call: "special" },

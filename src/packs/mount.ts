@@ -29,6 +29,8 @@ import { checkoutIn, checkoutsIn } from "./checkouts.ts";
 import { packCan } from "./can.ts";
 import { envReads, packBindings, packEnv } from "./env.ts";
 import { boxed, classesOf, guardHtml, scopeCss, scriptOf } from "./guard.ts";
+import { themesCss, themesFrom } from "./themes.ts";
+import type { ThemeDef } from "../ui/themes.ts";
 import { loggedFor } from "./logged.ts";
 import { packDirOf, programsFor } from "./programs.ts";
 import { boundServer, localServer, serverBinding, serverWhy, type ServerCall } from "./server.ts";
@@ -295,14 +297,20 @@ export function mountPacks(app: App, o: MountOpts) {
   const sharedList = (): ListShare | undefined => shared("list");
   // Each pack's styles keep only the rules for its own markup (src/packs/guard.ts): none restyles core.
   const coreClasses = classesOf(STYLE);
-  const packCss = packs.on
-    .filter((c) => c.styles)
-    .map((c) => {
-      const { css, dropped } = scopeCss(c.styles!, coreClasses);
-      if (dropped.length) packLog(c.manifest.id)(`styles: ${dropped.length} selector${dropped.length === 1 ? "" : "s"} restyle core, left out: ${dropped.slice(0, 5).join(" | ")}`);
-      return `/* ${c.manifest.id} */\n${css}`;
-    })
-    .join("\n");
+  // Their themes (`themes`, API 2.4): tokens in, checked, and the blocks written here (src/packs/themes.ts).
+  const themed = themesFrom(packs.on, (id, line) => packLog(id)(line));
+  const packCss = [
+    ...packs.on
+      .filter((c) => c.styles)
+      .map((c) => {
+        const { css, dropped } = scopeCss(c.styles!, coreClasses);
+        if (dropped.length) packLog(c.manifest.id)(`styles: ${dropped.length} selector${dropped.length === 1 ? "" : "s"} restyle core, left out: ${dropped.slice(0, 5).join(" | ")}`);
+        return `/* ${c.manifest.id} */\n${css}`;
+      }),
+    ...[...themed].map(([id, themes]) => `/* ${id}: themes */\n${themesCss(themes)}`),
+  ].join("\n");
+  /** The themes of the packs that are on and shown, in the packs' order. */
+  const packThemes = (): ThemeDef[] => shown().flatMap((c) => themed.get(c.manifest.id) ?? []);
   const PACK_CSS = packCss ? { path: `/assets/packs.${hashOf(packCss)}.css`, body: packCss } : undefined;
   // Their scripts (`script`): one file after the core's, each pack's in a block of its own.
   // One that listens to every change itself rather than through dovreOn isn't served: each change
@@ -607,7 +615,7 @@ export function mountPacks(app: App, o: MountOpts) {
   };
   return {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm,
-    styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts,
+    styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, packThemes,
     packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
     refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,

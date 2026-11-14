@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "2.3")
+   src/packs/types.ts     its types (PACK_API = "2.4")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -143,6 +143,16 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
   started from one needs it too) and to dock pages (a dock opens in a frame, and an isolated page
   frames only pages that send it). Its pages then load only this app's files; a site in its
   `frames` shows only if it sends COEP and CORP itself.
+- **`themes`** (API 2.4): themes the pack offers on Settings → Look, after core's, while it's on
+  and shown. A theme is data, never CSS: an `id`, a `label`, a `scheme` and the palette tokens it
+  sets on top of that scheme's (`THEME_TOKENS`: `--bg`, `--surface`, `--ink`, `--accent`, `--ok`,
+  …), each `#rrggbb`. Core writes the block (`:root[data-theme="<pack>-<id>"]`), its accents and
+  its swatch into the packs' stylesheet, so a pack's own `styles` still can't reach `:root`. Before
+  that the whole palette goes through the contrast check core's themes pass (text 4.5:1 on every
+  surface, a control's edge and chart marks 3:1, each accent as text); a theme that fails, or
+  names a token outside the palette, is left out and the pack's log says why. The pick is kept in
+  the Layout like core's; while its pack is off or hidden the page wears the system's, and wears
+  it again when the pack is back. `assertThemes(pack)` in the pack's tests.
 - **`replaces`** (API 2.3): packs this one takes the place of (Tasks: `["todo"]`, My list).
   While it's on and shown, each is held off (the Packs page says which pack took its place, and
   switching that one off brings it back), what requires it stays on, and `ctx.required(id, …)`
@@ -201,7 +211,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 | Where | Hooks | Timing |
 |---|---|---|
 | Declared | `manifest` (id, name, `api`, `settings`, `requires`, `uses`, `replaces`, `ai`…), `writes` (its write kinds), `shares` (what packs requiring it read) | at load; `shares` from memory |
-| Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `server`, `isolated`, `nav`, manifest `paths` | on request; `server` when called |
+| Own pages | `routes`, `styles`, `themes`, `script`, `wasm`, `files`, `server`, `isolated`, `nav`, manifest `paths` | on request; `server` when called |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
 | Stats | `stats` (chart, headline number or bar list); Stats exists only while a pack draws there | from memory |
 | Search | `pages`, `finds` | from memory |
@@ -352,7 +362,7 @@ Also:
   bypass; how its stream reads) and a `HarnessDef`; its filter `launcher/keep_<id>.go`, which
   `Keep` dispatches to; and an entry in `HARNESS_DEFS` (`src/agents/harnesses/index.ts`).
   `test/harnesses.test.ts` checks the pairs line up.
-- **A new theme or accent** (core only, for now): one entry in `src/ui/themes.ts`, the tokens it
+- **A new theme or accent** in core (a pack offers its own with `Pack.themes`): one entry in `src/ui/themes.ts`, the tokens it
   changes on top of its scheme's. The picker, its swatch, the stylesheet's block, the ids a saved
   Layout may hold and the browser bar's colour are read from there, and `test/contrast.test.ts`
   checks it against WCAG AA without listing it.
@@ -386,6 +396,7 @@ Also:
   | 2.1 | `Pack.server` and `ctx.call` (#304): code a pack runs apart from the app, locally in a thread of its own, hosted in a Worker of its own over a service binding (`src/packs/servers.ts` writes and deploys it). Types `PackServer` and `PackCalled`; in tests, `serverOf` runs a pack's own. |
   | 2.2 | `Pack.isolated` (#304): its own pages are cross-origin isolated (COEP `require-corp`), for `SharedArrayBuffer` and WebAssembly threads. |
   | 2.3 | `manifest.replaces`: packs it takes the place of, held off while it's on; `ctx.required` on one of them reads this pack's share. |
+  | 2.4 | `Pack.themes`: themes as palette tokens (`PackTheme`, `THEME_TOKENS`), checked for contrast and written into the stylesheet by core, picked on Settings → Look; in tests, `assertThemes`. |
 
 ## Open questions
 

@@ -128,4 +128,5 @@ export const API_ADDED: Record<string, ApiUse[]> = {
   "2.1": [has("Pack.server", (p) => p.server), ctx("call"), ...door("PackServer PackCalled"), ...testing("serverOf")],
   "2.2": [has("Pack.isolated", (p) => p.isolated)],
   "2.3": [has("manifest.replaces", (p) => p.manifest.replaces?.length)],
+  "2.4": [has("Pack.themes", (p) => p.themes?.length), ...door("PackTheme THEME_TOKENS"), ...testing("assertThemes")],
 };

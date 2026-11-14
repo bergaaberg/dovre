@@ -1659,3 +1659,64 @@ test("binoOf: what a pack gives Bino and agents, as /packs says it (#262)", () =
   assert.equal(binoOf({ manifest: m, glance: () => [], routes: () => {} }), "context: what it shows on Today · its pages by name only");
   assert.equal(binoOf({ manifest: { ...m, private: true }, bino: () => "x", acts: () => [] }), "only its name: private · proposes acts");
 });
+
+test("themes (API 2.4): a pack's theme is checked, written by core and picked on Look; a bad one is left out with why; hidden, the page wears the system's", async () => {
+  const { themesFrom, themesCss } = await import("../src/packs/themes.ts");
+  const { assertThemes } = await import("../src/packs/testing.ts");
+  const dusk = { id: "dusk", label: "Dusk <b>", scheme: "dark" as const, tokens: { "--bg": "#0B0D16", "--sky": "#10131f" } };
+  const aurora = pack({ id: "aurora", name: "Aurora" }, {
+    themes: [
+      dusk,
+      { id: "faint", label: "Faint", scheme: "dark", tokens: { "--ink-3": "#333333" } },
+      { id: "sel", label: "Sel", scheme: "light", tokens: { "--bg": "red; } body { display: none" } },
+      { id: "reach", label: "Reach", scheme: "light", tokens: { "--zoom": "#000000" } },
+      { id: 'x"] body', label: "Id", scheme: "light", tokens: { "--bg": "#ffffff" } },
+      { id: "shade", label: "Shade", scheme: "light", tokens: { "--shadow": "#000000" } },
+      { id: "noscheme", label: "No", scheme: "sepia", tokens: { "--bg": "#ffffff" } },
+      "junk",
+    ] as never,
+  });
+  const second = pack({ id: "aurora-dusk-x" }, { themes: [{ id: "a", label: "A", about: "plain", scheme: "light", tokens: { "--bg": "#f4f4f4" } }] });
+  const lines: string[] = [];
+  const kept = themesFrom([aurora, second, pack({ id: "bad" }, { themes: "all" as never }), pack({ id: "none" })], (id, line) => lines.push(`${id}: ${line}`));
+  assert.deepEqual(kept.get("aurora")!.map((t) => [t.id, t.label, t.about, t.tokens["--bg"]]), [["aurora-dusk", "Dusk <b>", "from Aurora", "#0b0d16"]]);
+  assert.deepEqual(kept.get("aurora-dusk-x")!.map((t) => t.id), ["aurora-dusk-x-a"]);
+  assert.equal(lines.length, 8, lines.join("\n"));
+  assert.match(lines.join("\n"), /faint --ink-3 on --bg: [\d.]+:1 \(needs 4.5\)/);
+  assert.match(lines.join("\n"), /sel: --bg must be a colour like #1a2b3c/);
+  assert.match(lines.join("\n"), /reach: --zoom isn't a palette token/);
+  assert.match(lines.join("\n"), /shade: --shadow isn't a palette token/);
+  assert.match(lines.join("\n"), /bad: themes: not a list/);
+  const css = themesCss(kept.get("aurora")!);
+  assert.match(css, /^:root\[data-theme="aurora-dusk"\] \{\n {2}color-scheme: dark;\n {2}--bg: #0b0d16;/);
+  assert.ok(css.includes(':root[data-theme="aurora-dusk"][data-accent="heather"]') && css.includes(".sw-aurora-dusk { --sw-bg: #0b0d16;"));
+  assert.doesNotMatch(css, /display|<|Dusk/, "only ids and colours reach the stylesheet");
+  assert.throws(() => assertThemes(aurora), /themes core would leave out/);
+  assertThemes(pack({ id: "aurora" }, { themes: [dusk] }));
+  // A core id can't be taken, nor one another pack has.
+  assert.equal(themesFrom([pack({ id: "a" }, { themes: [dusk] }), pack({ id: "a" }, { themes: [dusk] })], () => {}).get("a")!.length, 1);
+
+  const { get, post } = signedIn(snapshot(), {}, { packs: [aurora] });
+  const look = await (await get("/settings/look")).text();
+  assert.match(look, /name="theme" value="aurora-dusk"><span class="sw sw-theme sw-aurora-dusk"/);
+  assert.match(look, /Dusk &lt;b&gt; <span class="t3">from Aurora<\/span>/, "its label is escaped");
+  assert.doesNotMatch(look, /aurora-faint|aurora-sel/);
+  const sheet = /href="(\/assets\/packs\.[^"]+\.css)"/.exec(look)![1]!;
+  assert.match(await (await get(sheet)).text(), /:root\[data-theme="aurora-dusk"\] \{/);
+  await post("/settings/layout", { part: "look", theme: "aurora-dusk" });
+  const worn = await (await get("/actions")).text();
+  assert.match(worn, /<html lang="en" data-theme="aurora-dusk">/);
+  assert.match(worn, /<meta name="theme-color" content="#10131f">/, "the browser's bar is its --sky");
+  assert.match(await (await get("/settings/look")).text(), /name="theme" value="aurora-dusk" checked>/);
+  assert.match(await (await get("/settings?q=theme")).text(), /Dusk/, "the overview names it");
+  // Hidden (Settings → Layout): the pick is kept, the page wears the system's, and it's back with the pack.
+  await post("/settings/layout", { part: "layout" });
+  const away = await (await get("/actions")).text();
+  assert.match(away, /<html lang="en">/);
+  assert.doesNotMatch(await (await get("/settings/look")).text(), /aurora-dusk/);
+  await post("/settings/layout", { part: "layout", pack: "aurora" });
+  assert.match(await (await get("/actions")).text(), /<html lang="en" data-theme="aurora-dusk">/);
+  // A pick no pack offers is kept but never worn.
+  await post("/settings/layout", { part: "look", theme: "nobody-here" });
+  assert.match(await (await get("/actions")).text(), /<html lang="en">/);
+});

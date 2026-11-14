@@ -65,6 +65,7 @@ import type { Copies } from "./packs/copies.ts";
 import { strictOrigin } from "./strict.ts";
 import { webUrl } from "./open-link.ts";
 import { type Layout, type LayoutStore, layoutStore, withTabs } from "./layout.ts";
+import { coreTheme, paletteOf } from "./ui/themes.ts";
 import { safeUrl } from "./pages/parts.ts";
 import type { AiSummary, ListShare, Pack, PackContext, PrSlotArg } from "./packs/types.ts";
 import { type Note, type Policy, type Rung } from "./notify.ts";
@@ -225,7 +226,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const layout = deps.layout ?? layoutStore(env.DB);
   // ── Packs (src/packs/mount.ts, PLAN D23): each pack's ctx and core's call of every hook, made here; their routes mount below, after every core route ──
   const {
-    packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts,
+    packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts, packThemes,
     packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen, mountCallbacks, mountAssets, mountRoutes,
@@ -402,7 +403,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   /** Every page's frame: menu, docks, styles, sync state. */
   /** Bino answers, and its pack is on (a pack switched off on Packs takes Bino with it, #271). */
   const binoOn = () => !!bino?.route.ready && !!assistant && packs.on.includes(assistant) && !hidden("assistant");
-  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { theme: layout.get().theme, accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: packStyles, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), tzAuto: hosted && !env.TZ_NAME?.trim() ? true : undefined, greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined, goOff: Object.keys(GO_KEYS).filter((k) => !pageOn(GO_KEYS[k]!)) });
+  /** The theme to wear: core's own, or a pack's while that pack is on and shown (else the system's), with its bar colour. */
+  const themeNow = (): { theme?: string; bar?: string } => {
+    const id = layout.get().theme;
+    if (!id || coreTheme(id)) return { theme: id };
+    const t = packThemes().find((x) => x.id === id);
+    return t ? { theme: t.id, bar: paletteOf(t)["--sky"] } : {};
+  };
+  const fullFrame = (s: Snapshot, path = ""): Frame => ({ operator: s.login, look: { ...themeNow(), accent: layout.get().accent, font: layout.get().font, textSize: layout.get().textSize, lineHeight: layout.get().lineHeight, binoIcon: layout.get().binoButton === "icon", motion: layout.get().motion, links: openUrl && layout.get().links === "default" ? "default" : undefined }, styles: packStyles, scripts: packScripts, nav: withTabs([...navOf(s, { hosted: env.IS_HOSTED === "1", bino: binoOn(), stats: statsOn(), packs: packs.on.length + packs.off.length > 0 }), ...packNav()], layout.get().tabs), syncedAt: s.at, syncing: gatherer.gathering() && Date.now() - s.at > 120_000, host: env.GHE_HOST, asks: asks.list(), docks: docksFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), bino: binoOn(), face: (o) => fill("bino.face", o)[0] ?? "", banners: bannersFrom(shown(), ctxOf, path, (id, line) => packLog(id)(line)), tz: env.TZ_NAME ? validZone(env.TZ_NAME) : currentTz(), tzAuto: hosted && !env.TZ_NAME?.trim() ? true : undefined, greeting: greetingLang(env.GREETING), live: deps.live ? "ws" : undefined, goOff: Object.keys(GO_KEYS).filter((k) => !pageOn(GO_KEYS[k]!)) });
   // A pack session's frame: the pack's own menu entries, nothing of the cockpit's (no Bino, docks, questions or bars).
   // On or off: a pack waiting for its settings is still the session's (#369).
   const sessionManifest = () => (deps.session ? (packs.on.find((x) => x.manifest.id === deps.session!.pack)?.manifest ?? packs.off.find((x) => x.id === deps.session!.pack)?.manifest) : undefined);
@@ -555,7 +563,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
-  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
+  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
   const { setUp } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──
