@@ -505,8 +505,14 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
         ),
     );
     // And the instance's snapshot, so a page opened later has something to draw at once. (A person's
-    // own is gathered while they have pages open: the cron doesn't grow with the team.)
-    await Promise.all([capped(h.refresh.due(), CRON_REFRESH_MS), capped(h.instance.get().then(() => h.kept.drain()))]);
+    // own is gathered while they have pages open: the cron doesn't grow with the team.) An isolate
+    // that started from the kept snapshot gets that one back at once and a gather behind it: the
+    // cron waits for that gather too, or it ends with the cron and the kept one never moves on.
+    const gathered = h.instance
+      .get()
+      .then(() => (h.instance.gathering() ? h.instance.get({ fresh: true }).catch(() => undefined) : undefined))
+      .then(() => h.kept.drain());
+    await Promise.all([capped(h.refresh.due(), CRON_REFRESH_MS), capped(gathered)]);
     // What the cron's calls counted (#253).
     await capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
     // Old log rows go once a day (#541).
