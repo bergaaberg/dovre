@@ -84,6 +84,52 @@ test("shipped: a week with more than the search gives says so", async () => {
   assert.equal(got.prs.length, 10);
 });
 
+test("shipped: a repo with more than a page of tags in the window is read on, until a tag before the day", async () => {
+  const tag = (name: string, day: string) => ({ name, target: { committedDate: `${day}T00:00:00Z` } });
+  const asked: string[] = [];
+  const ghe: Ghe = {
+    host: "github.com",
+    rest: async () => assert.fail("no REST"),
+    async graphql<T>(q: string) {
+      if (q.includes("search(")) return { shipped: { issueCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } } as T;
+      if (q.includes("repositoryOwner"))
+        return {
+          shipped0: {
+            repositories: {
+              nodes: [
+                { nameWithOwner: "acme/packs", refs: { pageInfo: { hasNextPage: true, endCursor: "t1" }, nodes: [tag("a@3", "2026-11-13"), tag("a@2", "2026-11-12")] } },
+                { nameWithOwner: "acme/quiet", refs: { pageInfo: { hasNextPage: true, endCursor: "q1" }, nodes: [tag("v2", "2026-11-13"), tag("v1", "2026-10-01")] } },
+                { nameWithOwner: "acme/done", refs: { pageInfo: { hasNextPage: false, endCursor: "d1" }, nodes: [tag("v1", "2026-11-13")] } },
+                { nameWithOwner: "evil/x", refs: { pageInfo: { hasNextPage: true, endCursor: "e1" }, nodes: [tag("v1", "2026-11-13")] } },
+              ],
+            },
+          },
+        } as T;
+      asked.push(q);
+      assert.match(q, /repository\(owner: "acme", name: "packs"\)/);
+      if (q.includes('after: "t1"')) return { tags: { refs: { pageInfo: { hasNextPage: true, endCursor: "t2" }, nodes: [tag("a@1", "2026-11-11"), tag("b@1", "2026-11-10")] } } } as T;
+      if (q.includes('after: "t2"')) return { tags: { refs: { pageInfo: { hasNextPage: true, endCursor: "t3" }, nodes: [tag("b@0", "2026-11-09"), tag("old", "2026-10-20")] } } } as T;
+      return assert.fail(`not asked past a tag before the day: ${q}`);
+    },
+  };
+  const got = await loadShipped(ghe, "acme", "2026-11-08", Date.parse("2026-11-14T12:00:00Z"));
+  assert.deepEqual(got.tags.map((t) => `${t.repo} ${t.tag}`), ["acme/packs a@3", "acme/quiet v2", "acme/done v1", "acme/packs a@2", "acme/packs a@1", "acme/packs b@1", "acme/packs b@0"]);
+  assert.equal(asked.length, 2, "only the repo whose page ended inside the window, and only that far");
+});
+
+test("shipped: a repo's tags are read ten pages at most", async () => {
+  let pages = 0;
+  const page = () => ({ pageInfo: { hasNextPage: true, endCursor: `c${++pages}` }, nodes: [{ name: `v${pages}`, target: { committedDate: "2026-11-13T00:00:00Z" } }] });
+  const ghe: Ghe = {
+    host: "github.com",
+    rest: async () => assert.fail("no REST"),
+    graphql: async <T>(q: string) => (q.includes("search(") ? { shipped: { nodes: [] } } : q.includes("repositoryOwner") ? { shipped0: { repositories: { nodes: [{ nameWithOwner: "acme/packs", refs: page() }] } } } : { tags: { refs: page() } }) as T,
+  };
+  const got = await loadShipped(ghe, "acme", "2026-11-08", Date.parse("2026-11-14T12:00:00Z"));
+  assert.equal(pages, 10);
+  assert.equal(got.tags.length, 10);
+});
+
 test("shipped: more than the search gives is said; hostile text is cut to size, never made a link of ours", () => {
   const got = shippedOf({ nodes: [{ ...pr("acme/site", 1, "2026-11-10T08:00:00Z", "x".repeat(900)), url: "javascript:alert(1)" }, pr("acme/../x", 2, "2026-11-10T08:00:00Z"), pr("acme/site", 3, "soon")], more: true }, { o0: { repositories: { nodes: [{ nameWithOwner: 'acme/"><script>', refs: { nodes: [{ name: "v1", target: { committedDate: "2026-11-10T08:00:00Z" } }] } }] } } }, { owners: "acme", since: "2026-11-01", host: "github.com" });
   assert.equal(got.more, true);
