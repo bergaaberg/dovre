@@ -21,7 +21,7 @@ const WEEK = 7 * DAY;
 /** Repos read per owner (the last pushed first), and the releases and tags read of each. */
 const REPOS = 100;
 const RELEASES = 20;
-const TAGS = 50;
+const TAGS = 100;
 
 const str = (v: unknown, max = 255) => (typeof v === "string" ? v.slice(0, max) : "");
 const nodes = (x: any): Node[] => (Array.isArray(x?.nodes) ? x.nodes.filter((n: unknown) => n && typeof n === "object") : []);
