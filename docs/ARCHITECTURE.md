@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "2.2")
+   src/packs/types.ts     its types (PACK_API = "2.3")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -143,6 +143,12 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
   started from one needs it too) and to dock pages (a dock opens in a frame, and an isolated page
   frames only pages that send it). Its pages then load only this app's files; a site in its
   `frames` shows only if it sends COEP and CORP itself.
+- **`replaces`** (API 2.3): packs this one takes the place of (Tasks: `["todo"]`, My list).
+  While it's on and shown, each is held off (the Packs page says which pack took its place, and
+  switching that one off brings it back), what requires it stays on, and `ctx.required(id, …)`
+  reads the taker's share by that name instead, so New work's "Also put it on My list" goes to
+  the taker without core naming it. The taker itself still reads the one it replaces, to bring
+  its items over. A replaced pack that replaces others gives them back.
 - **Markdown.** Core's Markdown marks a closed fence's language (`pre.code[data-lang]`) and its
   math (`code[data-tex]`, a `$$` block as a `math` fence), so a pack's script may draw them in
   place (mermaid in Bino's answers). Without one, the source shows.
@@ -194,7 +200,7 @@ allows. The demo repo supplies fake packs, fixtures, a fake `fetch` and scripted
 
 | Where | Hooks | Timing |
 |---|---|---|
-| Declared | `manifest` (id, name, `api`, `settings`, `requires`, `uses`, `ai`…), `writes` (its write kinds), `shares` (what packs requiring it read) | at load; `shares` from memory |
+| Declared | `manifest` (id, name, `api`, `settings`, `requires`, `uses`, `replaces`, `ai`…), `writes` (its write kinds), `shares` (what packs requiring it read) | at load; `shares` from memory |
 | Own pages | `routes`, `styles`, `script`, `wasm`, `files`, `server`, `isolated`, `nav`, manifest `paths` | on request; `server` when called |
 | Today | `today`, `glance`, `brief`, `lane`, `feed` | cards: 250 ms total; rest from memory |
 | Stats | `stats` (chart, headline number or bar list); Stats exists only while a pack draws there | from memory |
@@ -375,6 +381,7 @@ Also:
   | 2.0 | Everything 1.x added (docs/PACK-API-1.md), with the old ways gone (#484). A pack moving from 1.x: `ctx.db` only with `migrations` or the manifest line `db: "raw"`; `ctx.bindings` holds only `requiredBindings` and the new `bindings` (read when there); `ctx.checkouts()` and `ctx.checkout()` are always there (none hosted) and `forge().owns` too; `ctx.can(what)` is the one answer for what's local only or needs my OK; `span.actions` is otel-sink's own place, not core's slot; the door no longer names the agents pack's `auto` share types; and core's `package.json` exports the doors and an instance's wiring, not every file. |
   | 2.1 | `Pack.server` and `ctx.call` (#304): code a pack runs apart from the app, locally in a thread of its own, hosted in a Worker of its own over a service binding (`src/packs/servers.ts` writes and deploys it). Types `PackServer` and `PackCalled`; in tests, `serverOf` runs a pack's own. |
   | 2.2 | `Pack.isolated` (#304): its own pages are cross-origin isolated (COEP `require-corp`), for `SharedArrayBuffer` and WebAssembly threads. |
+  | 2.3 | `manifest.replaces`: packs it takes the place of, held off while it's on; `ctx.required` on one of them reads this pack's share. |
 
 ## Open questions
 

@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "2.2";
+export const PACK_API = "2.3";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -109,6 +109,13 @@ export type PackManifest = {
    * its `slots` under `"<this id>/<name>"`.
    */
   hosts?: { name: string; about: string }[];
+  /**
+   * Packs it takes the place of (API 2.3; Tasks: ["todo"], My list). While it's on and shown, each
+   * one here is held off, its switch saying which pack took its place, and a pack reading it
+   * through `ctx.required(id, …)` reads this one's share by that name instead. This pack itself
+   * still reads the one it replaces (list it in `uses`), to bring its items over.
+   */
+  replaces?: string[];
   /**
    * Top-level paths it owns besides /<id> (agents: "worktrees"), each a lowercase word. One that's a
    * core path or another pack's keeps the pack off, as a route outside them does.
