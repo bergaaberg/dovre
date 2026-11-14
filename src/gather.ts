@@ -7,7 +7,7 @@ import { ownersIn } from "./owners.ts";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { Env } from "./env.ts";
 import type { Changelog } from "./sources/changelog.ts";
-import type { Deploy, Fetch, Move, Note, Pr, PrRef, RedBranch } from "./sources/ghe.ts";
+import type { Deploy, Fetch, Move, Note, Pr, MyPrs, PrRef, RedBranch } from "./sources/ghe.ts";
 import type { Forge } from "./forge/types.ts";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -18,7 +18,7 @@ export type Snapshot = {
   began?: number;
   login: string;
   org: string;
-  prs: Result<{ mine: Pr[]; review: Pr[] }>;
+  prs: Result<MyPrs>;
   notes: Result<Note[]>;
   moves: Result<Move[]>;
   deploys: Result<Deploy[]>;

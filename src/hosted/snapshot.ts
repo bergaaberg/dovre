@@ -16,7 +16,7 @@ const KEY = "snapshot";
 export const personKey = (email: string) => `${KEY}:${email.trim().toLowerCase()}`;
 const WEEK = 7 * 86_400_000;
 /** D1 rows top out at 2 MB; a snapshot bigger than this isn't kept (the next isolate gathers). */
-const MAX_BYTES = 1_500_000;
+export const MAX_BYTES = 1_500_000;
 
 export function d1SnapshotStore(db: D1, version: string, opts: { everyMs?: number; now?: () => number; log?: (line: string) => void; /** A person's row (`personKey`); without it, the instance's. */ key?: string } = {}) {
   const key = opts.key ?? KEY;
@@ -55,5 +55,7 @@ export function d1SnapshotStore(db: D1, version: string, opts: { everyMs?: numbe
     },
     /** Resolves when the writes started so far are done. */
     drain: (): Promise<void> => writing,
+    /** How big `snap` is as it's kept, to hold against MAX_BYTES (Settings → About says, #540). */
+    size: (snap: Snapshot): number => encodeSnapshot(snap, version).length,
   };
 }

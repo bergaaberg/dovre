@@ -1,7 +1,7 @@
 /** The pull requests page: my PRs and the ones asking for my review, in views, filtered and sorted (list.ts). */
 import { html } from "hono/html";
 import type { Snapshot } from "../../../gather.ts";
-import type { Pr } from "../../../sources/ghe.ts";
+import { type Pr, prsCount, prsCut } from "../../../sources/ghe.ts";
 import { applyPrQuery, choicesOf, CIS, DEFAULT_QUERY, prHref, type PrQuery, SORTS, STATES, type View, viewCounts, VIEWS } from "./list.ts";
 import { Empty, type Html, List, PageHeader, Panel, Tabs } from "../../../ui/kit.ts";
 import { type AgentOf, prCard, type PrSlots, type SummaryOf } from "../../../pages/inline.ts";
@@ -27,15 +27,20 @@ ${select("state", "State", Object.entries(STATES), q.state, "Any state")}
 ${select("ci", "CI", Object.entries(CIS), q.ci, "Any")}
 <div class="field buttons"><button type="submit" class="sm">Apply</button>${filtered || q.view !== "all" || q.sort !== "attention" ? html`<a class="btn sm" href="/prs?reset=1">Reset</a>` : ""}</div>
 </div></form>`;
-  const panel = (title: string, list: Pr[] | null, showAuthor: boolean, empty: string) =>
-    list === null ? "" : Panel({ title, meta: String(list.length), flush: true, children: list.length ? List(list.map((x) => prCard(x, { org: s.org, summary, agent, showAuthor, slots, forge }))) : Empty({ title: filtered || q.view !== "all" ? "None match" : empty }) });
-  const body = html`${PageHeader({ title: "Pull requests", sub: `${p.review.length} to review · ${p.mine.length} open`, tabs: prTabs("list", forgeCan(forge, "stacks") && on.stacks !== false, forgeCan(forge, "dependabot") && on.dependabot !== false) })}
+  // A list the forge cut short says so: these are the ones last touched, and how many there are in all (#540).
+  const cutFoot = (which: "mine" | "review") => {
+    const all = prsCut(p, which);
+    return all ? html`The ${p[which].length} most recently updated of ${all}. The rest are on ${forge.name}.` : undefined;
+  };
+  const panel = (title: string, list: Pr[] | null, showAuthor: boolean, empty: string, which: "mine" | "review") =>
+    list === null ? "" : Panel({ title, meta: String(list.length), flush: true, foot: cutFoot(which), children: list.length ? List(list.map((x) => prCard(x, { org: s.org, summary, agent, showAuthor, slots, forge }))) : Empty({ title: filtered || q.view !== "all" ? "None match" : empty }) });
+  const body = html`${PageHeader({ title: "Pull requests", sub: `${prsCount(p, "review")} to review · ${prsCount(p, "mine")} open`, tabs: prTabs("list", forgeCan(forge, "stacks") && on.stacks !== false, forgeCan(forge, "dependabot") && on.dependabot !== false) })}
 ${failed("Pull requests", s.prs)}
 <div data-live id="prs-views" class="pr-views">${views}</div>
 ${form}
 <div data-live id="prs">
-${panel("Review requested", lists.review, true, "No reviews asked of you")}
-${panel("Mine", lists.mine, false, "No open PRs")}
+${panel("Review requested", lists.review, true, "No reviews asked of you", "review")}
+${panel("Mine", lists.mine, false, "No open PRs", "mine")}
 </div>`;
   return body;
 }

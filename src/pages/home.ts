@@ -11,7 +11,7 @@ import { eyebrow, glance, greeting, lede } from "../home/brief.ts";
 import { type FeedEvent, feedOf, mergeFeeds } from "../home/feed.ts";
 import { horizon } from "../home/horizon.ts";
 import { type Frame, shell } from "../html.ts";
-import { type Deploy, type Pr, prKeyOfUrl, prNeeds } from "../sources/ghe.ts";
+import { type Deploy, type MyPrs, type Pr, prKeyOfUrl, prNeeds, prsCount } from "../sources/ghe.ts";
 import { Card, type Child, Confirm, type Html } from "../ui/kit.ts";
 import { type ForgeView, forgeCan, GITHUB_VIEW } from "../forge/types.ts";
 import type { Off } from "../packs/registry.ts";
@@ -116,17 +116,18 @@ const SHOW = 5;
 const SHOW_REVIEW = 3;
 
 function prsCard(s: Snapshot, summary: SummaryOf, agent?: AgentOf, forge?: ForgeView, /** The PR list answers here (the prs pack is on). */ list = true) {
-  const mine = s.prs.ok ? prOrder(s.prs.value.mine) : [];
-  const review = s.prs.ok ? s.prs.value.review : [];
+  const lists: MyPrs = s.prs.ok ? s.prs.value : { mine: [], review: [] };
+  const mine = prOrder(lists.mine);
+  const review = lists.review;
   const n = prStats(mine);
   const showReview = Math.min(review.length, SHOW_REVIEW);
   const showMine = SHOW - showReview;
   const more = Math.max(0, mine.length - showMine) + Math.max(0, review.length - showReview);
   return html`<section class="card" id="prs" aria-labelledby="prs-h">
-<div class="card-h"><h2 id="prs-h">Pull requests</h2><p>${mine.length} open</p></div>
+<div class="card-h"><h2 id="prs-h">Pull requests</h2><p>${prsCount(lists, "mine")} open</p></div>
 ${!s.prs.ok ? html`<p class="notes bad">Pull requests didn't load: ${s.prs.error}</p>` : ""}
 ${mine.length ? html`<p class="stat-row">${n.failing ? st("bad", `${n.failing} failing`) : ""}${n.changes ? st("bad", `${n.changes} changes asked`) : ""}${n.threads ? st("warn", `${n.threads} with open threads`) : ""}${n.ready ? st("ok", `${n.ready} ready to merge`) : ""}${n.drafts ? st("mute", `${n.drafts} draft${n.drafts === 1 ? "" : "s"}`) : ""}</p>` : ""}
-${review.length ? html`<h3 class="sub-h">Asking for your review <span class="cnt">${review.length}</span></h3><ul class="rows">${review.slice(0, showReview).map((p) => prRow(p, s, summary, true, agent, forge))}</ul><h3 class="sub-h">Yours</h3>` : ""}
+${review.length ? html`<h3 class="sub-h">Asking for your review <span class="cnt">${prsCount(lists, "review")}</span></h3><ul class="rows">${review.slice(0, showReview).map((p) => prRow(p, s, summary, true, agent, forge))}</ul><h3 class="sub-h">Yours</h3>` : ""}
 <ul class="rows">${mine.slice(0, showMine).map((p) => prRow(p, s, summary, false, agent, forge))}${!mine.length ? html`<li class="row"><p class="empty">No open PRs.</p></li>` : ""}</ul>
 ${list ? html`<div class="card-f"><span>${more ? html`<a href="/prs">${more} more</a>` : ""}</span><a href="/prs">All ${mine.length + review.length}</a></div>` : ""}
 </section>`;

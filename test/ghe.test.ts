@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { apiEndpointsOf, apiToHtml, createGhe, byPerson, describeEvent, inFiles, isBot, loadDeploys, newestWaiting, normalizePr, prKeyOfUrl, type Run } from "../src/sources/ghe.ts";
+import { apiEndpointsOf, apiToHtml, createGhe, byPerson, describeEvent, inFiles, isBot, loadDeploys, loadPrs, newestWaiting, normalizePr, prKeyOfUrl, prsCount, prsCut, type Run } from "../src/sources/ghe.ts";
 import { fakeGhe, move } from "./helpers.ts";
 
 test("apiEndpointsOf: github.com and GHE.com on api., GitHub Enterprise Server under /api/v3", () => {
@@ -120,4 +120,26 @@ test("a waiting deploy only counts when I may approve it", async () => {
   assert.deepEqual(deploys[0]!.superseded.map((r) => r.id), [1]);
   assert.deepEqual(deploys[0]!.envs, [{ id: 9, name: "prod" }]);
   assert.equal(deploys[0]!.sha, "0123456");
+});
+
+test("loadPrs: newest first, and a list the search stopped short of says how many there are in all (#540)", async () => {
+  const node = (n: number) => ({ number: n, title: `t${n}`, url: `https://github.com/ACME/a/pull/${n}`, isDraft: false, updatedAt: `2026-11-${String(10 + (n % 10)).padStart(2, "0")}T00:00:00Z`, headRefName: "b", author: null,
+    repository: { nameWithOwner: "ACME/a" }, reviewDecision: null, reviewThreads: { nodes: [] }, commits: { nodes: [] } });
+  const nodes = (n: number) => Array.from({ length: n }, (_, i) => node(i + 1));
+  let asked = "";
+  const ghe = (data: unknown) => ({ graphql: async (q: string) => ((asked = q), data) }) as never;
+
+  const cut = await loadPrs(ghe({ mine: { issueCount: 57, nodes: nodes(40) }, review: { issueCount: 30, nodes: nodes(30) } }), "me", "ACME");
+  assert.match(asked, /author:me [^"]*sort:updated-desc", type:ISSUE, first:40\)\{ issueCount /);
+  assert.match(asked, /review-requested:me [^"]*sort:updated-desc", type:ISSUE, first:30\)\{ issueCount /);
+  assert.deepEqual(cut.total, { mine: 57 }, "review has all 30 of its 30");
+  assert.equal(prsCut(cut, "mine"), 57);
+  assert.equal(prsCut(cut, "review"), undefined);
+  assert.equal(prsCount(cut, "mine"), "40 of 57");
+  assert.equal(prsCount(cut, "review"), "30");
+
+  // Fewer than a page: that's all of them, whatever the count says. A forge that gives no count says nothing.
+  assert.equal((await loadPrs(ghe({ mine: { issueCount: 9, nodes: nodes(3) }, review: { issueCount: 0, nodes: [] } }), "me", "ACME")).total, undefined);
+  assert.equal((await loadPrs(ghe({ mine: { nodes: nodes(40) }, review: { nodes: nodes(30) } }), "me", "ACME")).total, undefined);
+  assert.equal((await loadPrs(ghe({ mine: { issueCount: "57", nodes: nodes(40) }, review: { nodes: [] } }), "me", "ACME")).total, undefined);
 });

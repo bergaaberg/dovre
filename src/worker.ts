@@ -396,6 +396,11 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     // Where GitHub tokens tell people apart, a person with their own gets their own snapshot (#538).
     const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (at, changed) => hub?.gathered(at, changed) }) }) : undefined;
     const gatherer: Gatherer = people?.gatherer ?? instance;
+    /** The instance's newest snapshot as it's kept: how near a D1 row's size it is (Settings → About). */
+    const snapshotBytes = () => {
+      const s = instance.peek();
+      return s ? kept.size(s) : undefined;
+    };
 
     const env: Env = {
       DB: bindings.DB,
@@ -446,7 +451,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, keys, bindings, core: [...CORE_PACKS] },
-      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!provider, servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
+      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!provider, snapshotBytes: snapshotBytes(), servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
       sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });
     const mounted = packsOf(app)!;
