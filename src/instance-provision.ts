@@ -258,15 +258,21 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
   // 7. The bridge key: kept when this machine has it and the Worker too; else a new one for both.
   const keepKey = bridgeOurs && (local.BRIDGE_KEY?.length ?? 0) >= 32 && secrets.has("BRIDGE_KEY");
   if (bridgeOurs) step("Bridge key", keepKey ? "reuse" : secrets.has("BRIDGE_KEY") ? "fix" : "create", keepKey ? "BRIDGE_KEY" : "BRIDGE_KEY, here and on the Worker");
-  const ghToken = secrets.has("GITHUB_TOKEN") ? undefined : run("gh", ["auth", "token"], { cwd: o.dir }).stdout.trim() || undefined;
-  step("GitHub token", secrets.has("GITHUB_TOKEN") ? "reuse" : ghToken ? "create" : "fix", secrets.has("GITHUB_TOKEN") ? "GITHUB_TOKEN" : ghToken ? "GITHUB_TOKEN from `gh auth token`" : "none: `gh auth login`, or `wrangler secret put GITHUB_TOKEN`");
-
   // Sign in with GitHub: the app's id in wrangler.jsonc and its secret on the Worker, else (with --github) a new app.
   const appId = readVar(raw, "GITHUB_APP_CLIENT_ID");
   const hasApp = passkey && !!appId && secrets.has("GITHUB_APP_CLIENT_SECRET");
   const makeApp = passkey && !hasApp && !!o.github;
   if (hasApp) step("GitHub sign-in", "reuse", `the GitHub App ${appId}`);
   else if (makeApp) step("GitHub sign-in", "create", `a GitHub App${o.githubOrg ? ` under ${o.githubOrg}` : ""} (one click in the browser); GITHUB_APP_* on the Worker`);
+
+  // With the app, GitHub is called as whoever signs in with GitHub (their sealed user token), so
+  // the broad `gh auth token` doesn't go up; a GITHUB_TOKEN already there stays as the fallback.
+  const viaApp = hasApp || makeApp;
+  const makeSeal = viaApp && !secrets.has("GITHUB_TOKEN_SEAL");
+  if (viaApp) step("GitHub as you", makeSeal ? "create" : "reuse", makeSeal ? "GITHUB_TOKEN_SEAL (seals sign-ins' GitHub tokens in D1)" : "GITHUB_TOKEN_SEAL");
+  const ghToken = secrets.has("GITHUB_TOKEN") || viaApp ? undefined : run("gh", ["auth", "token"], { cwd: o.dir }).stdout.trim() || undefined;
+  if (secrets.has("GITHUB_TOKEN")) step("GitHub token", "reuse", viaApp ? "GITHUB_TOKEN (until someone signs in with GitHub)" : "GITHUB_TOKEN");
+  else if (!viaApp) step("GitHub token", ghToken ? "create" : "fix", ghToken ? "GITHUB_TOKEN from `gh auth token`" : "none: `gh auth login`, or `wrangler secret put GITHUB_TOKEN`");
 
   // The passkey link: when the instance has no passkey yet (or --login-link). Counted in D1, whose
   // table may not be there yet before the first migrations: then there's none.
@@ -291,7 +297,9 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     app = await (o.makeGithubApp ?? makeGithubApp)({ host, name: `Dovre ${info.worker}`, org: o.githubOrg, log });
     put(run, o.dir, "GITHUB_APP_CLIENT_SECRET", app.clientSecret);
     put(run, o.dir, "GITHUB_APP_PRIVATE_KEY", app.pem);
+    if (app.slug) log(`→ Install the app on the accounts whose repos Dovre tracks: https://github.com/apps/${app.slug}/installations/new`);
   }
+  if (makeSeal) put(run, o.dir, "GITHUB_TOKEN_SEAL", randomBytes(32).toString("base64url"));
   raw = patchWranglerConfig(raw, {
     databaseId: dbId,
     domain: workersDev ? undefined : host,

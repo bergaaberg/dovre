@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { openDb } from "../src/db.ts";
 import { addressOf, claimSql, createLogin, hashOf, mintClaim, SESSION_COOKIE } from "../src/hosted/login/login.ts";
 import { pkceChallenge } from "../src/hosted/login/github.ts";
+import { appTokens } from "../src/hosted/login/tokens.ts";
 import { b64url, cborDecode, derToRaw, ES256, RS256, verifyAssertion, verifyRegistration } from "../src/hosted/login/webauthn.ts";
 import { DIAL_HEADER, dialProof, dialProofOk } from "../src/bridge/wire.ts";
 import { bridgeIn, createWorker } from "../src/worker.ts";
@@ -344,12 +345,13 @@ test("login: expired challenges and sessions are swept; an IPv6 /64 counts as on
 
 // ── Sign in with GitHub (#523) ──
 
-function fakeGithub(o: { emails?: unknown; token?: boolean } = {}) {
+function fakeGithub(o: { emails?: unknown; token?: boolean; refresh?: boolean } = {}) {
   const calls: { url: string; body?: string; auth?: string | null }[] = [];
   const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, body: init?.body ? String(init.body) : undefined, auth: new Headers(init?.headers).get("authorization") });
-    if (url === "https://github.com/login/oauth/access_token") return new Response(JSON.stringify(o.token === false ? { error: "bad_verification_code" } : { access_token: "ghu_user" }));
+    if (url === "https://github.com/login/oauth/access_token") return new Response(JSON.stringify(o.token === false ? { error: "bad_verification_code" } : o.refresh ? { access_token: "ghu_user", expires_in: 28800, refresh_token: "ghr_user", refresh_token_expires_in: 15897600 } : { access_token: "ghu_user" }));
+    if (url === "https://api.github.com/user") return new Response(JSON.stringify({ login: "me-gh" }));
     if (url === "https://api.github.com/user/emails") return new Response(JSON.stringify(o.emails ?? [{ email: "old@x.dev", verified: false, primary: false }, { email: "Me@X.dev", verified: true, primary: true }]));
     return new Response("no", { status: 404 });
   }) as typeof fetch;
@@ -387,7 +389,7 @@ test("login with GitHub: PKCE and a cookie-bound state; a listed verified email 
   const body = new URLSearchParams(gh.calls[0]!.body);
   assert.equal(await pkceChallenge(body.get("code_verifier")!), to.searchParams.get("code_challenge"));
   assert.equal(body.get("client_secret"), "cs_secret");
-  assert.equal(gh.calls[1]!.auth, "Bearer ghu_user");
+  assert.deepEqual(gh.calls.slice(1).map((c) => [c.url, c.auth]), [["https://api.github.com/user", "Bearer ghu_user"], ["https://api.github.com/user/emails", "Bearer ghu_user"]]);
   assert.equal(JSON.stringify(await DB.prepare("SELECT * FROM login_sessions").all()).includes("ghu_user"), false, "the token isn't kept");
 
   // The callback again (replayed): the challenge is spent.
@@ -397,6 +399,29 @@ test("login with GitHub: PKCE and a cookie-bound state; a listed verified email 
   assert.equal(await without.verify(c.page()), undefined);
   assert.equal((await client(without).send("/_auth/github")).status, 404);
   assert.doesNotMatch(await (await client(without).send("/_auth/login")).text(), /_auth\/github/);
+});
+
+test("login with GitHub and GITHUB_TOKEN_SEAL: the user token is kept sealed, and GitHub is then called as that person", async () => {
+  const { DB } = openDb();
+  const t = Date.parse("2026-11-13T12:00:00Z");
+  const seal = "s".repeat(40);
+  const login = createLogin({ db: DB, allowedEmails: ["me@x.dev"], now: () => t, github: APP, seal, fetch: fakeGithub({ refresh: true }).f });
+  const { back } = await githubTrip(client(login));
+  assert.equal(back.status, 303);
+  const rows = (await DB.prepare("SELECT * FROM github_tokens").all<Record<string, unknown>>()).results;
+  assert.deepEqual(rows.map((r) => [r.email, r.login, r.status, r.access_expires_at]), [["me@x.dev", "me-gh", "ok", t + 28_800_000]]);
+  assert.equal(JSON.stringify(rows).includes("ghu_user") || JSON.stringify(rows).includes("ghr_user"), false, "sealed, never plain");
+  const tokens = appTokens({ db: DB, secret: seal, app: APP, allowedEmails: ["me@x.dev"], now: () => t, fetch: (async () => new Response("no", { status: 500 })) as typeof fetch });
+  assert.equal(await tokens.forEmail("Me@x.dev"), "ghu_user");
+  assert.equal(await tokens.operator(), "ghu_user");
+  // Another seal doesn't open it.
+  assert.equal(await appTokens({ db: DB, secret: "t".repeat(40), app: APP, allowedEmails: ["me@x.dev"], now: () => t }).forEmail("me@x.dev"), undefined);
+
+  // Without a seal (or with an app whose tokens don't expire), nothing is kept.
+  const { DB: db2 } = openDb();
+  await githubTrip(client(createLogin({ db: db2, allowedEmails: ["me@x.dev"], now: () => t, github: APP, fetch: fakeGithub({ refresh: true }).f })));
+  await githubTrip(client(createLogin({ db: db2, allowedEmails: ["me@x.dev"], now: () => t, github: APP, seal, fetch: fakeGithub().f })));
+  assert.equal((await db2.prepare("SELECT * FROM github_tokens").all()).results.length, 0);
 });
 
 test("login with GitHub: another state, another browser, a cancel, a bad code, an unlisted or unverified email, and no allow list are refused", async () => {
