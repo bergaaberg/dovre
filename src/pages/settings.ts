@@ -11,7 +11,8 @@ import { quietLabel } from "../quiet.ts";
 import type { Layout } from "../layout.ts";
 import { DEFAULT_KEYS, KEY_GROUPS, type KeyPrefs, SCROLL_STEPS } from "../keys.ts";
 import type { Clicks, WriteKind } from "../writes.ts";
-import { LOOK, STATS_RANGES, statsRange } from "./layout.ts";
+import { lookWith, STATS_RANGES, statsRange } from "./layout.ts";
+import type { ThemeDef } from "../ui/themes.ts";
 import type { Reg, ToolsHarness } from "../agents/mcpsetup.ts";
 import { Confirm, Empty, type Html, Item, List, Notice, PageHeader, Panel, Pill, Tabs } from "../ui/kit.ts";
 import { Ago, forgeName, quietFields } from "./parts.ts";
@@ -267,6 +268,8 @@ export type PackSettings = { id: string; name: string; on: boolean; settings: { 
 
 type RowsState = {
   layout: Layout;
+  /** The packs' themes (pack API 2.4), after core's in the picker. */
+  themes?: ThemeDef[];
   policy: Policy;
   rings: { kind: string; label: string; off?: boolean }[];
   writes: { chosen: Map<string, Clicks>; kinds: WriteKind[] };
@@ -284,7 +287,7 @@ const onOff = (on: boolean) => (on ? "On" : "Off");
 export function settingRows(s: RowsState): SettingRow[] {
   const rows: SettingRow[] = [];
   const l = s.layout;
-  for (const o of LOOK) {
+  for (const o of lookWith(s.themes ?? [])) {
     const v = l[o.key] ?? "";
     rows.push({ area: "look", label: o.label, href: "/settings/look", now: o.choices.find((c) => c.value === v)?.label, changed: v !== "", also: LOOK_ALSO[o.key] });
   }

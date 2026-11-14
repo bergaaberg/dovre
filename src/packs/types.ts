@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "2.3";
+export const PACK_API = "2.4";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -33,6 +33,14 @@ export type PackDomain = "general" | "personal" | "work" | "fun";
  * Worker's bindings (service bindings, D1, R2, email), "any" runs in both.
  */
 export type ExecutionAffinity = "any" | "local-only" | "hosted-only";
+
+/**
+ * A theme a pack offers (`Pack.themes`, API 2.4). `id` is a lowercase word, its own within the
+ * pack (it's saved as `<pack id>-<id>`); `label` is its name in the picker and `about` what it's
+ * like, quieter beside it (unset: "from <the pack's name>"). `tokens` are the palette's names
+ * (`--bg`, `--sky`, `--surface`, `--ink`, `--accent`, `--ok`, …: `THEME_TOKENS`), each `#rrggbb`.
+ */
+export type PackTheme = { id: string; label: string; about?: string; scheme: "light" | "dark"; tokens: Record<string, string> };
 
 /** A setting the pack reads from the instance's config (.dev.vars locally, wrangler vars/secrets hosted). */
 export type PackSetting = {
@@ -947,6 +955,15 @@ export type Pack = {
    * restyles core (`body`, `:root`, `.panel`) is left out and logged (src/packs/guard.ts).
    */
   styles?: string;
+  /**
+   * Themes it offers (API 2.4), each beside core's on Settings → Look while the pack is on and
+   * shown. Tokens only, never CSS: core writes the block. A theme sets palette tokens on top of its
+   * scheme's (light: morning's, dark: night's), each a `#rrggbb` colour, and the whole palette must
+   * pass the contrast check core's own themes pass (text 4.5:1 on every surface, a control's edge
+   * and chart marks 3:1, with each accent). One that doesn't is left out, with the reason in the
+   * pack's log. At most 8. Read once at load. In a pack's tests, `assertThemes(pack)`.
+   */
+  themes?: PackTheme[];
   /**
    * Plain JS for its own pages and slots, served as a file of its own (in a try, so a throw stops only it) beside the core's script (CSP `script-src 'self'`)
    * and run on every page while the pack is on, in a block of its own. Like the core's, it's an

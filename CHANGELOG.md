@@ -8,6 +8,7 @@ Breaking:
 
 Added:
 
+- **Packs** can offer themes (pack API 2.4): `Pack.themes` lists them as palette tokens, never CSS, and each shows on Settings → Look after Dovre's own while the pack is on. Dovre checks a theme's contrast the way it checks its own (text 4.5:1 on every surface, a control's edge and chart marks 3:1, each accent) and writes its styles itself; one that falls short is left out, and the pack's log says why. Switch the pack off and the page wears the system's theme until it's back.
 - **Packs** can take another pack's place (pack API 2.3): with `replaces: ["todo"]`, a pack that's on holds My list off (the Packs page says which pack took its place) and answers for it: a pack reading `ctx.required("todo", …)` (New work's "Also put it on My list") reads the replacing pack's share instead, while that pack still reads My list to bring its items over.
 - **Packs** can ask for cross-origin isolated pages (pack API 2.2, #304): with `isolated: true`, a pack's own pages get `Cross-Origin-Embedder-Policy: require-corp` beside the COOP every page has, so its script may use `SharedArrayBuffer` and WebAssembly threads. Pack files and dock pages send it too, so a worker or a dock still loads on such a page.
 - **Packs**' WebAssembly files can be up to 128 MB (#304). Hosted, a module over 25 MB (the static assets' limit) goes to R2: `node ../dovre/src/packs/assets.ts --r2 <bucket>` before `wrangler deploy` sends each one once, and the Worker reads it from an R2 binding named `PACK_FILES`.

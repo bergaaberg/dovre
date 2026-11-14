@@ -6,7 +6,7 @@
 import { html } from "hono/html";
 import type { Layout } from "../layout.ts";
 import { type Html, Panel } from "../ui/kit.ts";
-import { ACCENTS, FJORD, THEMES } from "../ui/themes.ts";
+import { ACCENTS, FJORD, type ThemeDef, THEMES } from "../ui/themes.ts";
 
 export type LayoutView = {
   layout: Layout;
@@ -77,14 +77,17 @@ function choices(key: (typeof LOOK)[number]["key"], label: string, value: string
   })}</div></fieldset>`;
 }
 
-export function lookPanel(l: Layout) {
+/** Look's choices with the packs' themes after core's. */
+export const lookWith = (more: ThemeDef[]) => (more.length ? LOOK.map((o) => (o.key === "theme" ? { ...o, choices: [...o.choices, ...more.map(named)] } : o)) : LOOK);
+
+export function lookPanel(l: Layout, more: ThemeDef[] = []) {
   return Panel({
     id: "look",
     title: "Look",
     meta: "saves as you change it",
     actions: reset("look"),
     children: html`<form method="post" action="/settings/layout" data-autosave class="look"><input type="hidden" name="part" value="look">
-${LOOK.map((o) => choices(o.key, o.label, l[o.key], o.choices))}
+${lookWith(more).map((o) => choices(o.key, o.label, l[o.key], o.choices))}
 <noscript><div class="buttons"><button type="submit" class="primary">Save</button></div></noscript>
 </form>`,
   });

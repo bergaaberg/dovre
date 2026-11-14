@@ -7,7 +7,7 @@
 import { sharedRead } from "./shared-read.ts";
 import type { D1 } from "./db.ts";
 import type { NavItem } from "./html.ts";
-import { ACCENT_IDS, type AccentId, THEME_IDS, type ThemeId } from "./ui/themes.ts";
+import { ACCENT_IDS, type AccentId, PACK_THEME_ID, THEME_IDS, type ThemeId } from "./ui/themes.ts";
 
 export type Column = "left" | "right";
 type CardPlace = { col: Column | "off"; order: number };
@@ -49,8 +49,9 @@ type StatsWeeks = (typeof STATS_WEEKS)[number];
 const STATS_DAYS = [14, 28] as const;
 type StatsDays = (typeof STATS_DAYS)[number];
 /** The themes and accents a Layout may name: the registry's (src/ui/themes.ts). */
-export const THEMES: readonly Theme[] = THEME_IDS;
-export type Theme = ThemeId;
+export const THEMES: readonly ThemeId[] = THEME_IDS;
+/** One of core's, or a pack's as `<pack>-<id>` (pack API 2.4): kept while its pack is away, worn only while it's on. */
+export type Theme = ThemeId | (string & {});
 const ACCENTS: readonly Accent[] = ACCENT_IDS;
 export type Accent = AccentId;
 /** Sans is the default (unset); a layout saved before #419 that says "sans" reads as unset. */
@@ -96,7 +97,7 @@ export function layoutOf(raw: unknown): Layout {
   if (feedOff) out.feedOff = feedOff;
   const packsOff = ids(v.packsOff, ID, 50);
   if (packsOff) out.packsOff = packsOff;
-  if (THEMES.includes(v.theme as Theme)) out.theme = v.theme as Theme;
+  if (THEMES.includes(v.theme as ThemeId) || (typeof v.theme === "string" && v.theme.length <= 64 && PACK_THEME_ID.test(v.theme))) out.theme = v.theme as Theme;
   if (ACCENTS.includes(v.accent as Accent)) out.accent = v.accent as Accent;
   if (FONTS.includes(v.font as Font)) out.font = v.font as Font;
   if (TEXT_SIZES.includes(v.textSize as TextSize)) out.textSize = v.textSize as TextSize;

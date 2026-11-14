@@ -19,10 +19,10 @@ const PACK = words(`
   Child Confirm ConfirmSubmit Crumb Defer Delta Dock Dot Empty ExecutionAffinity FIX_TURNS FeedItem FindItem Found Gauge Glance Grid2 Grid3 Html
   IngestInput IngestReply IngestSpec Investigate Item KeyValues Lane Link List ListItem ListShare ListState LookupField LookupKind Notice OnboardStep
   PACK_API Pack PackAgent PackAgentAsk PackAgentCan PackAgentRun PackAgentStart PackAgentWhere PackAi PackAiAsk PackCan PackCanWhat PackCompleteAsk PackContext PackDomain
-  PackCalled PackFile PackForge PackKv PackLogged PackManifest PackMcp PackMcpAsk PackMcpCall PackMcpCan PackMcpResult PackMcpSetup PackNeed PackNote PackRan PackRunOpts PackServer PackSetting PackSetup PackShares PackStat PackStore PackTool PackWrite PacksModule PageHeader PageOpts Panel
+  PackCalled PackFile PackForge PackKv PackLogged PackManifest PackMcp PackMcpAsk PackMcpCall PackMcpCan PackMcpResult PackMcpSetup PackNeed PackNote PackRan PackRunOpts PackServer PackSetting PackSetup PackShares PackStat PackStore PackTheme PackTool PackWrite PacksModule PageHeader PageOpts Panel
   Pick Pill Post PrSlotArg Pulse PulseFeed Read Ref RefRule RingDecl Role ScheduledEvent SetupStep SlotMap SlotName Slots Spark Stat
   StatUnit Stats Tab Tabs TodayCard Tone ToolCall ToolResult WasmFile Wrote assignAct commentAct createAct failed fieldInputs html icon
-  investigateHref isExternal markdown newTab refused safeUrl statusAct trunc writeAct
+  investigateHref isExternal markdown newTab THEME_TOKENS refused safeUrl statusAct trunc writeAct
   App AppEnv Changelog D1 D1Statement Deploy EveryRepo Forge ForgeCan ForgeDecl ForgeWork Issue IssueSets Move Need Note PackProposal Pr PrRef Proposal Proposed
   Reading Snapshot byPerson deploySummaryKey hashOf hourAt inFiles later needsOf prSummaryKey strictOrigin throttle format
   ColumnChart D1Value FunnelDiagram HBars Heatmap IconName Page SankeyChart StackedBar chart within owners
@@ -30,7 +30,7 @@ const PACK = words(`
 
 /** dovre/pack-testing.ts. */
 const TESTING = words(`
-  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap apiOver assertApi assertDoors assertFragment assertInert assertScoped assertStyled assertTables createWorker ingestToken keptLookups openDb
+  HOSTILE ON_JS PACK_DOOR PACK_TEST_DOOR activePacks apiGap apiOver assertApi assertDoors assertFragment assertInert assertScoped assertStyled assertTables assertThemes createWorker ingestToken keptLookups openDb
   packApp reachIns resetWhen serverOf setWhen soonOf testAgentLinks testAgentsPack testContext testDeploy testForge testList testPage testPr testSession testSnapshot
 `);
 

@@ -2,6 +2,7 @@
  * What createApp (src/app.ts) shares with its route modules (src/routes/): the app's state and
  * helpers, made once in createApp. Each module takes the part it uses (`Pick<AppScope, …>`).
  */
+import type { ThemeDef } from "../ui/themes.ts";
 import type { createApp } from "../app.ts";
 import type { Config } from "../config.ts";
 import type { Env } from "../env.ts";
@@ -81,6 +82,8 @@ export type AppScope = {
   packCards(): Promise<{ cards: TodayCard[]; failed: Off[] }>;
   packRings: ReturnType<typeof ringsOf>;
   packStats(): ReturnType<typeof statsFrom>;
+  /** The themes of the packs that are on and shown (pack API 2.4). */
+  packThemes(): ThemeDef[];
   runPackRefresh: ReturnType<typeof refresher>;
   /** Hosted: the instance repo Add opens its PR on. */
   instanceRepo(): string | null;

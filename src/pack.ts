@@ -23,6 +23,8 @@ export * from "./ui/kit.ts";
 export * from "./packs/acts.ts";
 /** Links and small parts: every `href` built from data goes through `safeUrl`. */
 export { Ago, failed, Link, safeUrl, trunc } from "./pages/parts.ts";
+/** The palette tokens a theme of a pack's may set (`Pack.themes`, API 2.4). */
+export { THEME_TOKENS } from "./ui/themes.ts";
 /** Core's Markdown, as inert HTML. */
 export { markdown } from "./ui/markdown.ts";
 
