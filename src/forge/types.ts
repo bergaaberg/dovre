@@ -122,7 +122,7 @@ export type ForgeShipped = {
   more?: true;
   /** The releases published, of each repo's 20 newest (drafts left out; `pre`: a prerelease). `name` is the tag when it has none. */
   releases: { repo: string; tag: string; name: string; url: string; at: string; pre?: true }[];
-  /** The tags with no release, of each repo's 50 newest, by when they were made (a plain tag: its commit's time). */
+  /** The tags with no release, of each repo's 100 newest, by when they were made (a plain tag: its commit's time). */
   tags: { repo: string; tag: string; url: string; at: string }[];
 };
 
