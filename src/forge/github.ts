@@ -5,6 +5,7 @@ import { actOnIssue, loadIssue, loadIssues, loadUntriaged } from "../sources/iss
 import { loadDir, loadEveryRepo, loadFile, loadPr, loadRepos } from "../sources/files.ts";
 import { loadThread, searchThreads } from "../sources/threads.ts";
 import { proposeFiles } from "../actions/propose.ts";
+import { loadShipped } from "../sources/shipped.ts";
 import { loadMerged, loadWork } from "../sources/work.ts";
 import { FORGE_CAN, type Forge } from "./types.ts";
 
@@ -35,6 +36,7 @@ export function githubForge(ghe: Ghe): Forge {
     merged: (login, owners, since) => loadMerged(ghe, login, owners, since),
     repos: (owners) => loadRepos(ghe, owners),
     untriaged: (owners) => loadUntriaged(ghe, owners),
+    shipped: (owners, since) => loadShipped(ghe, owners, since),
     file: (repo, path, at) => loadFile(ghe, repo, path, at),
     pr: (repo, n) => loadPr(ghe, repo, n),
     dir: (repo, path, at) => loadDir(ghe, repo, path, at),

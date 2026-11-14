@@ -37,7 +37,7 @@ export type { D1, D1Statement } from "./db.ts";
 export type { Snapshot } from "./gather.ts";
 export { type Need, needsOf } from "./home/needs.ts";
 /** The forge contract: what a pack that brings a forge (`manifest.forge`) implements, and what a forge hands out. */
-export type { Changelog, Deploy, Forge, ForgeCan, ForgeDecl, ForgeWork, Issue, IssueSets, Move, Note, Pr, PrRef } from "./forge/types.ts";
+export type { Changelog, Deploy, Forge, ForgeCan, ForgeDecl, ForgeShipped, ForgeWork, Issue, IssueSets, Move, Note, Pr, PrRef } from "./forge/types.ts";
 export type { EveryRepo } from "./sources/files.ts";
 /** What `ctx.forge().propose` takes and answers. */
 export type { PackProposal, Proposal, Proposed } from "./actions/propose.ts";

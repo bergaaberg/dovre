@@ -130,4 +130,5 @@ export const API_ADDED: Record<string, ApiUse[]> = {
   "2.3": [has("manifest.replaces", (p) => p.manifest.replaces?.length)],
   "2.4": [has("Pack.themes", (p) => p.themes?.length), ...door("PackTheme THEME_TOKENS"), ...testing("assertThemes")],
   "2.5": [has("a setting's default", (p) => p.manifest.settings?.some((s) => s.default !== undefined)), has("a setting's kind: number", (p) => p.manifest.settings?.some((s) => s.kind === "number"))],
+  "2.6": [forge("shipped"), ...door("ForgeShipped")],
 };

@@ -4,6 +4,7 @@
  * Only repos of REPO_OWNERS are read; a path is a plain relative one. Answers are kept a few minutes.
  */
 import type { D1 } from "../db.ts";
+import type { ForgeShipped } from "../forge/types.ts";
 import type { Ghe } from "./ghe.ts";
 import { owns, ownersOf } from "../owners.ts";
 
@@ -158,12 +159,16 @@ export async function loadDir(ghe: Ghe, repo: string, path: string, at: string):
   return Array.isArray(got) ? (got as { type?: unknown; path?: unknown }[]).filter((x) => x?.type === "file" && typeof x.path === "string" && !!repoPath(x.path)).map((x) => x.path as string).slice(0, 1000) : [];
 }
 
+/** How far back a pack may ask what shipped. */
+export const MAX_SHIPPED_DAYS = 92;
+
 /** The longest a pack may take an every-repo read to be. */
 const MAX_AGE = 24 * 3600_000;
 
 type Source = {
   repos?(owners: string): Promise<string[]>;
   untriaged?(owners: string): Promise<Record<string, number>>;
+  shipped?(owners: string, since: string): Promise<ForgeShipped>;
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   everyRepo?(owners: string, paths: string[]): Promise<RepoFiles[]>;
   pr?(repo: string, n: number): Promise<ForgePr | undefined>;
@@ -207,6 +212,16 @@ export function packReads(f: Source, owners: () => string, o: { ttlMs?: number; 
   return {
     ...(f.repos ? { repos: async () => (await cached(`repos:${owners()}`, () => f.repos!(owners()))).value } : {}),
     ...(f.untriaged ? { untriaged: async () => (await cached(`untriaged:${owners()}`, () => f.untriaged!(owners()))).value } : {}),
+    ...(f.shipped
+      ? {
+          shipped: async (since: string) => {
+            // A day, so every pack asking for the same window gets the one kept answer.
+            const t = typeof since === "string" && /^\d{4}-\d{2}-\d{2}$/.test(since) ? Date.parse(`${since}T00:00:00Z`) : NaN;
+            if (!Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== since || t > now() || Math.floor(now() / 86_400_000) - t / 86_400_000 > MAX_SHIPPED_DAYS) throw new Error(`Not a day to read from: YYYY-MM-DD, ${MAX_SHIPPED_DAYS} days back at most`);
+            return (await cached(`shipped:${owners()}:${since}`, () => f.shipped!(owners(), since))).value;
+          },
+        }
+      : {}),
     ...(f.file
       ? {
           file: async (repo: string, path: string, at?: string) => {

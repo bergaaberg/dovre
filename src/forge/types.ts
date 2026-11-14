@@ -80,6 +80,8 @@ export type Forge = {
   repos?(owners: string): Promise<string[]>;
   /** Each of the owners' repos with open issues that have no assignee and no label: how many (#447). Absent: packs read none. */
   untriaged?(owners: string): Promise<Record<string, number>>;
+  /** What shipped in the owners' repos since a day (YYYY-MM-DD, API 2.6): merged PRs, releases, tags with no release. Absent: packs read none. */
+  shipped?(owners: string, since: string): Promise<ForgeShipped>;
   /** One file's text on a repo's default branch, or at commit `at`; undefined when there's none. Absent: packs read none. */
   file?(repo: string, path: string, at?: string): Promise<string | undefined>;
   /** Each of the owners' repos with its files at these paths, in as few calls as it can (#294). Absent: packs read them a file at a time. */
@@ -107,6 +109,21 @@ export type ForgeWork = {
   commits: { repo: string; date: string }[];
   /** The biggest languages of the repos I commit to most (six at most), by repo. */
   languages: Record<string, string[]>;
+};
+
+/**
+ * What shipped in the owners' repos since a day (Forge.shipped), for packs to read
+ * (PackContext.forge, API 2.6): titles, names, logins, links and times (UTC), each list newest first.
+ */
+export type ForgeShipped = {
+  /** The PRs merged (the 3000 newest at most). */
+  prs: { repo: string; number: number; title: string; url: string; mergedAt: string; author: string }[];
+  /** More merged than the forge gave: `prs` isn't all of them. */
+  more?: true;
+  /** The releases published, of each repo's 20 newest (drafts left out; `pre`: a prerelease). `name` is the tag when it has none. */
+  releases: { repo: string; tag: string; name: string; url: string; at: string; pre?: true }[];
+  /** The tags with no release, of each repo's 50 newest, by when they were made (a plain tag: its commit's time). */
+  tags: { repo: string; tag: string; url: string; at: string }[];
 };
 
 /** A forge a pack brings: picked when FORGE is its id. `env` is the pack's env (its settings). */
