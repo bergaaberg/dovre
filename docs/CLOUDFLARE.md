@@ -34,8 +34,11 @@ person's user token and refresh token in D1 (`github_tokens`), sealed with AES-G
 secret. Dovre then calls GitHub with them:
 
 - A person's write goes as them.
-- Pages, the background snapshot and cron go as the operator: `GITHUB_USER`'s row, else the first
-  `ALLOWED_EMAILS` entry that has one.
+- A person who has signed in with GitHub gets a snapshot of their own (`src/hosted/people.ts`):
+  their PRs, review requests and mentions, gathered with their token while they have pages open.
+  The last one is kept in D1 (the `settings` row `snapshot:<email>`) for a week.
+- The cron, the other pages' reads, and the snapshot of anyone who hasn't signed in with GitHub go
+  as the operator: `GITHUB_USER`'s row, else the first `ALLOWED_EMAILS` entry that has one.
 - When nobody has signed in with GitHub yet, it's `GITHUB_TOKEN` if the Worker has one, else GitHub
   calls fail and say so.
 

@@ -264,6 +264,59 @@ test("worker, AUTH_MODE=passkey: no Access needed; a page without a session goes
   }
 });
 
+test("worker: two people signed in with GitHub each see their own PRs; one without a token sees the instance's (#538)", async () => {
+  const { keepGrant } = await import("../src/hosted/login/tokens.ts");
+  const SEAL = "k".repeat(40);
+  const logins: Record<string, string> = { ghu_me: "me", ghu_two: "two" };
+  const pr = (login: string) => ({
+    number: 7, title: `Change by ${login} <script>alert(1)</script>`, url: `https://github.com/acme/app/pull/${login.length}`, isDraft: false, updatedAt: new Date().toISOString(), headRefName: "b", author: { login },
+    repository: { nameWithOwner: "acme/app" }, reviewDecision: null, commits: { nodes: [] }, reviewThreads: { nodes: [] },
+  });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const login = logins[String((init?.headers as Record<string, string> | undefined)?.authorization).replace("Bearer ", "")] ?? "nobody";
+    const u = String(url);
+    if (u.endsWith("/user")) return new Response(JSON.stringify({ login }));
+    if (u.endsWith("/graphql")) return new Response(JSON.stringify({ data: { mine: { nodes: [pr(login)] }, review: { nodes: [] } } }));
+    return new Response("[]");
+  }) as typeof fetch;
+  const w = createWorker();
+  const { DB } = openDb();
+  const now = Date.now();
+  const grant = (n: string) => ({ access: `ghu_${n}`, accessExpiresAt: now + 8 * 3_600_000, refresh: `ghr_${n}`, refreshExpiresAt: now + 180 * 86_400_000 });
+  await keepGrant(DB, SEAL, "me@x.dev", "me", grant("me"), now);
+  await keepGrant(DB, SEAL, "two@x.dev", "two", grant("two"), now);
+  const bindings = { DB, IS_HOSTED: "1", AUTH_MODE: "passkey", ALLOWED_EMAILS: "me@x.dev,two@x.dev,three@x.dev", GITHUB_USER: "me", REPO_OWNERS: "acme", GITHUB_APP_CLIENT_ID: "Iv23abc", GITHUB_APP_CLIENT_SECRET: "cs", GITHUB_TOKEN_SEAL: SEAL };
+  try {
+    const login = createLogin({ db: DB });
+    const cookieOf = async (email: string) => {
+      const c = client(login);
+      assert.equal((await claim(c, await authenticator(), await mintClaim(DB, email))).status, 200);
+      return c.page().headers.get("cookie")!;
+    };
+    const prs = async (cookie: string) => {
+      const res = await w.fetch(new Request(`${ORIGIN}/prs`, { headers: { accept: "text/html", cookie } }), bindings as never);
+      assert.equal(res.status, 200);
+      return res.text();
+    };
+    const [me, two, three] = [await cookieOf("me@x.dev"), await cookieOf("two@x.dev"), await cookieOf("three@x.dev")];
+    const mine = await prs(me);
+    assert.match(mine, /Change by me/);
+    const theirs = await prs(two);
+    assert.match(theirs, /Change by two/);
+    assert.doesNotMatch(theirs, /Change by me/, "not the operator's");
+    assert.doesNotMatch(theirs, /<script>alert/, "a hostile title is escaped on a person's page too");
+    assert.match(await prs(three), /Change by me/, "no GitHub sign-in: the instance's, as before");
+    assert.match(await prs(me), /Change by me/);
+    assert.doesNotMatch(await prs(me), /Change by two/);
+    const kept = (await DB.prepare("SELECT key FROM settings WHERE key LIKE 'snapshot%' ORDER BY key").all<{ key: string }>()).results.map((r) => r.key);
+    assert.ok(!kept.includes("snapshot:me@x.dev") && !kept.includes("snapshot:three@x.dev"), "only someone with a gatherer of their own has a row");
+  } finally {
+    globalThis.fetch = realFetch;
+    w.reset();
+  }
+});
+
 test("bridge without Access: the dial proves BRIDGE_KEY before the hub sees it; stale, forged or missing proofs are turned away", async () => {
   const key = "k".repeat(40);
   const handed: Request[] = [];
