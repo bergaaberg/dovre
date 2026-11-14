@@ -71,6 +71,30 @@ test("per person: no viewer, no token, or the instance's own login stay on the i
   await as("op@x.dev", () => real.gatherer.get());
   assert.deepEqual(finds.slice(4), ["op@x.dev"]);
 
+  // Asking again never holds the page: it draws from the instance's at once, and the answer lands behind it.
+  let release!: () => void;
+  const gate = new Promise<void>((res) => (release = res));
+  let lateAsks = 0;
+  const late = perPerson({
+    shared: shared.g,
+    login: "op",
+    viewer: currentViewer,
+    now: () => t,
+    findMs: 60_000,
+    find: async () => {
+      if (++lateAsks === 1) throw new Error("No GitHub token of your own");
+      await gate;
+      return { login: "three", start: async () => ({ gatherer: fakeGatherer("three").g, drain: async () => {} }) };
+    },
+  });
+  assert.equal((await as("three@x.dev", () => late.gatherer.get())).login, "op");
+  t += MISS_MS + 1;
+  assert.equal((await as("three@x.dev", () => late.gatherer.get())).login, "op", "not waited for, though the question is still open");
+  assert.equal(lateAsks, 2);
+  release();
+  await late.settle();
+  assert.equal((await as("three@x.dev", () => late.gatherer.get())).login, "three", "they signed in with GitHub meanwhile: their own from the next page on");
+
   // An action's stale() reaches the snapshot the person sees.
   as("two@x.dev", () => real.gatherer.stale());
   as("three@x.dev", () => real.gatherer.stale());

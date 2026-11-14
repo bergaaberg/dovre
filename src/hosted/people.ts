@@ -36,7 +36,7 @@ type Mine = ({ kind: "own" } & Own) | { kind: "shared"; until: number };
 export type People = {
   /** The gatherer every page and pack reads: it answers for whoever the request is for. */
   gatherer: Gatherer;
-  /** Waits for people's gathers under way and their kept snapshots' writes (the Worker holds a request open for it). */
+  /** Waits for questions and people's gathers under way, and their kept snapshots' writes (the Worker holds a request open for it). */
   settle(): Promise<void>;
   /** How many people have a gatherer of their own here. */
   size(): number;
@@ -108,13 +108,21 @@ export function perPerson(o: {
   // In Node (tests) the timer doesn't keep the process up; a Worker's timer has no unref.
   const wait = (ms: number) => new Promise<undefined>((res) => void (setTimeout(res, ms) as unknown as { unref?: () => void }).unref?.());
 
-  /** The gatherer for the current request, once it's known whose it is. A slow answer doesn't hold the page. */
+  const pick = (m: Mine | undefined): Gatherer => (m?.kind === "own" ? m.gatherer : o.shared);
+
+  /**
+   * The gatherer for the current request. Someone not asked about yet is waited for a moment, so
+   * their first page is their own. Someone on the instance's snapshot whose answer has lapsed is
+   * asked about again behind the page, which draws at once (`settle` keeps the question alive).
+   */
   async function mine(): Promise<Gatherer> {
     const v = o.viewer();
     if (!v) return o.shared;
+    const had = known.get(v);
     const m = mineOf(v);
-    const got = m instanceof Promise ? await Promise.race([m, wait(o.findMs ?? FIND_MS)]) : m;
-    return got?.kind === "own" ? got.gatherer : o.shared;
+    if (!(m instanceof Promise)) return pick(m);
+    if (had) return pick(had);
+    return pick(await Promise.race([m, wait(o.findMs ?? FIND_MS)]));
   }
 
   /** The same without waiting: undefined while a person hasn't been asked about yet. */
@@ -137,6 +145,8 @@ export function perPerson(o: {
       seed: (s) => o.shared.seed?.(s),
     },
     async settle() {
+      // Questions first: one answered now may start a gatherer, whose first gather is then waited for too.
+      await Promise.all([...asking.values()].map((a) => a.p.catch(() => undefined)));
       await Promise.all(
         owns().map(async (m) => {
           if (m.gatherer.gathering()) await m.gatherer.get({ fresh: true }).catch(() => undefined);
