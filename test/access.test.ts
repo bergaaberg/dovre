@@ -328,7 +328,7 @@ test("worker: an instance's GitHub token provider wins over GITHUB_TOKEN, is ask
   }
 });
 
-test("worker: a person's POST goes to GitHub with their own token; pages and the gather it starts use the instance's", async () => {
+test("worker: a person's POST goes to GitHub with their own token; for someone on the instance's snapshot, pages and the gather it starts use the instance's", async () => {
   const k = await keyPair("k1");
   const realFetch = globalThis.fetch;
   const calls: Array<{ path: string; method: string; auth: string }> = [];
@@ -349,7 +349,11 @@ test("worker: a person's POST goes to GitHub with their own token; pages and the
     w.reset();
     const page = await w.fetch(new Request("https://dovre.example.dev/deploys", { headers: { "cf-access-jwt-assertion": jwt } }), bindings);
     assert.equal(page.status, 200);
-    assert.ok(calls.length && calls.every((c) => c.auth === "Bearer instance"), "a page reads as the instance");
+    // Who Per is on GitHub is asked once, with Per's own token (#538). GitHub names no login of
+    // their own here, so they stay on the instance's snapshot and everything else reads as the instance.
+    assert.deepEqual(calls.filter((c) => c.path === "/user").map((c) => `${c.method} ${c.auth}`), ["GET Bearer as-per@example.dev"]);
+    const reads = calls.filter((c) => c.path !== "/user");
+    assert.ok(reads.length && reads.every((c) => c.auth === "Bearer instance"), "a page reads as the instance");
     calls.length = 0;
     const res = await w.fetch(
       new Request("https://dovre.example.dev/deploys/approve", { method: "POST", body: new URLSearchParams({ repo: "dovre-user/app", run: "42" }), headers: { "cf-access-jwt-assertion": jwt, origin: "https://dovre.example.dev" } }),

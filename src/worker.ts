@@ -10,7 +10,7 @@ import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
 import { DIAL_HEADER, dialProofOk, keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
 import { sameSecret } from "./access.ts";
-import { viewingAs } from "./viewer.ts";
+import { currentViewer, viewingAs } from "./viewer.ts";
 import { packsOf, createApp } from "./app.ts";
 import { CORE_PACKS } from "./packs/own.ts";
 import { serverBinding } from "./packs/server.ts";
@@ -19,9 +19,10 @@ import type { Pack, Defer, ScheduledEvent } from "./packs/types.ts";
 import type { D1 } from "./db.ts";
 import type { App, Env } from "./env.ts";
 import { createGatherer, type Gatherer, type Snapshot, type SnapshotStore, shownOf } from "./gather.ts";
-import { d1SnapshotStore } from "./hosted/snapshot.ts";
+import { d1SnapshotStore, personKey } from "./hosted/snapshot.ts";
+import { type Found, type People, perPerson } from "./hosted/people.ts";
 import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
-import { d1Reads } from "./sources/files.ts";
+import { d1Reads, type SharedReads } from "./sources/files.ts";
 import { startWaited } from "./speed.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
@@ -143,7 +144,8 @@ type GithubTokenProvider = (bindings: WorkerBindings, actor?: Actor) => Promise<
 /**
  * The built-in provider (#523), with the built-in login, the instance's GitHub App and
  * GITHUB_TOKEN_SEAL all set: a person's write goes with their own Sign in with GitHub token, the
- * rest with the operator's, and either falls back to GITHUB_TOKEN.
+ * rest with the operator's, and either falls back to GITHUB_TOKEN. An actor marked `own` (a
+ * person's own gather, #538) gets their own token or none.
  */
 export function appTokenProvider(bindings: WorkerBindings): GithubTokenProvider | undefined {
   const app = githubAppOf(bindings);
@@ -151,6 +153,11 @@ export function appTokenProvider(bindings: WorkerBindings): GithubTokenProvider 
   if (!loginOn(bindings) || !app || !secret || !bindings.DB) return undefined;
   const tokens = appTokens({ db: bindings.DB, secret, app, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), operatorLogin: bindings.GITHUB_USER });
   return async (b, actor) => {
+    if (actor?.own) {
+      const mine = await tokens.forEmail(actor.email);
+      if (!mine) throw new Error("No GitHub token of your own: sign in with GitHub.");
+      return mine;
+    }
     const t = (actor?.email ? await tokens.forEmail(actor.email) : undefined) ?? (await tokens.operator()) ?? b.GITHUB_TOKEN?.trim();
     if (!t) throw new Error("No GitHub token yet: sign in with GitHub once, or set GITHUB_TOKEN with `wrangler secret put GITHUB_TOKEN`.");
     return t;
@@ -243,8 +250,52 @@ function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Fo
     store,
     onGathered,
   });
-  // The snapshot is shared: a gather a member's action starts still reads as the instance.
+  // The instance's snapshot is shared: a gather a member's action starts still reads as the instance.
   return { ...g, get: (o) => asInstance(() => g.get(o)), stale: () => asInstance(() => g.stale()) };
+}
+
+/** A person's kept reads, apart from everyone else's: the same paths answer differently for another token. */
+const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) => reads.get(`as:${who}:${key}`), put: (key, at, value) => reads.put(`as:${who}:${key}`, at, value) });
+
+/**
+ * A person's own GitHub (#538, src/hosted/people.ts): a client that only ever calls with their own
+ * token (`own`: never the instance's in its place), who that makes them, and a gatherer on it over
+ * the instance's owners. Its kept reads and kept snapshot are theirs alone. Rejects when the
+ * provider has no token for them.
+ */
+export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; told: (at: number, changed: boolean) => void }): (email: string) => Promise<Found> {
+  const host = hostOf(bindings);
+  const reads = bindings.DB ? d1Reads(bindings.DB) : undefined;
+  const owners = ownersOfBindings(bindings, o.instanceLogin);
+  return async (email) => {
+    const who = email.trim().toLowerCase();
+    const mine: Actor = { email: who, own: true };
+    const ghe = createGhe({ host, token: () => provider(bindings, mine), shared: reads && readsAs(reads, who) });
+    const login = (await ghe.rest<{ login?: string }>("/user"))?.login ?? "";
+    return {
+      login,
+      async start() {
+        const kept = d1SnapshotStore(bindings.DB, o.version, { key: personKey(who) });
+        const sync = syncTeller(o.told);
+        const g = createGatherer({
+          env: { GHE_ORG: primaryOf(owners), OWNERS: owners },
+          forge: githubForge(ghe),
+          login,
+          linked: o.linked,
+          maxGatherMs: STUCK_MS,
+          store: { load: () => undefined, save: (s) => kept.save(s) },
+          onGathered: (s) => sync.gathered(s.at, shownOf(s)),
+        });
+        const last = await kept.load();
+        // One kept under another login isn't theirs to see again: they signed in to GitHub as someone else since.
+        if (last && last.login === login) {
+          g.seed?.(last);
+          sync.seed(shownOf(last));
+        }
+        return { gatherer: { ...g, stale: () => (sync.asked(), g.stale()) }, drain: kept.drain };
+      },
+    };
+  };
 }
 
 /**
@@ -298,7 +349,7 @@ export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">
 /** The vars and secrets among the bindings: what a pack's settings read. */
 const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Object.fromEntries(Object.entries(b).filter(([, v]) => typeof v === "string")) as Record<string, string>;
 
-type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; gatherer: Gatherer; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login; /** GitHub tokens tell people apart: a person's POST goes as them. */ byPerson: boolean };
+type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; /** What pages and packs read: each person's own snapshot where they have one (`people`), else the instance's. */ gatherer: Gatherer; /** The instance's own snapshot: the cron's. */ instance: Gatherer; people?: People; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login; /** GitHub tokens tell people apart: a person's POST goes as them. */ byPerson: boolean };
 
 export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.1";
@@ -340,7 +391,10 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     let linked = (): string[] => [];
     const plain = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => sync.gathered(s.at, shownOf(s)), () => linked());
     // A Refresh or an action waits on the next gather's "Synced", changed or not.
-    const gatherer: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
+    const instance: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
+    // Where GitHub tokens tell people apart, a person with their own gets their own snapshot (#538).
+    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (at, changed) => hub?.gathered(at, changed) }) }) : undefined;
+    const gatherer: Gatherer = people?.gatherer ?? instance;
 
     const env: Env = {
       DB: bindings.DB,
@@ -402,7 +456,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       sync.seed(shownOf(s));
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
-    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider };
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, instance, people, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;
@@ -446,8 +500,9 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
           ),
         ),
     );
-    // And the snapshot, so a page opened later has something to draw at once.
-    await Promise.all([capped(h.refresh.due(), CRON_REFRESH_MS), capped(h.gatherer.get().then(() => h.kept.drain()))]);
+    // And the instance's snapshot, so a page opened later has something to draw at once. (A person's
+    // own is gathered while they have pages open: the cron doesn't grow with the team.)
+    await Promise.all([capped(h.refresh.due(), CRON_REFRESH_MS), capped(h.instance.get().then(() => h.kept.drain()))]);
     // What the cron's calls counted (#253).
     await capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
     if (h.hub) ctx.waitUntil(capped(h.hub.drain()));
@@ -505,7 +560,8 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       if (ctx) {
         // A page answered from memory and started a gather, or a pack is due: finish after the response.
         const work = [capped(h.refresh.due())];
-        if (h.gatherer.gathering()) work.push(capped(h.gatherer.get({ fresh: true }).then(() => h.kept.drain())));
+        if (h.instance.gathering()) work.push(capped(h.instance.get({ fresh: true }).then(() => h.kept.drain())));
+        if (h.people) work.push(capped(h.people.settle()));
         // Then what the request and that work published, on its way to the hub. After it, not beside
         // it: a publish made once the hub was drained had nothing keeping the Worker alive for it.
         const hub = h.hub;

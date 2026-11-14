@@ -5,8 +5,13 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 
-/** The person a write is made by: the verified email on a POST. Background work has none. */
-export type Actor = { email: string };
+/**
+ * The person a write is made by: the verified email on a POST. Background work has none.
+ * `own`: only this person's own token will do, never the instance's in its place. Their own
+ * gather asks so (src/hosted/people.ts): gathered with another's token, it would show them that
+ * person's notifications.
+ */
+export type Actor = { email: string; own?: true };
 
 const acting = new AsyncLocalStorage<Actor | undefined>();
 

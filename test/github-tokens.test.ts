@@ -137,6 +137,9 @@ test("the Worker's provider: a person's own token for their write, else the oper
   assert.equal(await p(b as never, { email: "two@x.dev" }), "ghu_two");
   assert.equal(await p(b as never, { email: "three@x.dev" }), "ghu_op", "no token of their own: the instance's, as before");
   assert.equal(await p(b as never), "ghu_op");
+  // A person's own gather (#538): their own token or none, never the operator's or GITHUB_TOKEN in its place.
+  assert.equal(await p(b as never, { email: "two@x.dev", own: true }), "ghu_two");
+  await assert.rejects(p(b as never, { email: "three@x.dev", own: true }), /token of your own/);
 
   const { DB: empty } = openDb();
   const e = { ...b, DB: empty };
