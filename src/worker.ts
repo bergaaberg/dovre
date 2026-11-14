@@ -48,6 +48,7 @@ import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER } from "./ho
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 import { serveLookups } from "./hosted/lookups.ts";
 import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
+import { githubAppOf } from "./hosted/login/github.ts";
 
 interface WorkerBindings {
   DB: D1;
@@ -80,6 +81,11 @@ interface WorkerBindings {
   WORKERS_DEV_HOST?: string;
   /** "passkey": the built-in login (#522, src/hosted/login/) instead of Cloudflare Access. */
   AUTH_MODE?: string;
+  /** The instance's GitHub App (#523, made by provision --github): Sign in with GitHub on the built-in login. */
+  GITHUB_APP_ID?: string;
+  GITHUB_APP_CLIENT_ID?: string;
+  GITHUB_APP_CLIENT_SECRET?: string;
+  GITHUB_APP_PRIVATE_KEY?: string;
   IS_HOSTED?: string;
   /** The Durable Object (src/hosted/hub.ts, exported by the instance as DovreHub): pages' live updates and Bino. */
   HUB?: HubNamespace;
@@ -335,7 +341,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     };
     const access = accessConfigOf(bindings);
     // The built-in login when it's on (AUTH_MODE=passkey), else Cloudflare Access or another issuer.
-    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(",") }) : undefined;
+    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), github: githubAppOf(bindings) }) : undefined;
     const verify = builtIn?.verify ?? (access ? createAccessVerifier(access) : undefined);
     // The hub, when the instance binds it: live pages, and Bino answering in the object.
     const hub = bindings.HUB ? hubClient(bindings.HUB) : undefined;

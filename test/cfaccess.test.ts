@@ -304,3 +304,37 @@ test("provision, built-in login (no token): only wrangler's login; AUTH_MODE=pas
   assert.ok(more.link);
   assert.equal(sql.length, 2);
 });
+
+test("provision --github: makes the GitHub App once, its secrets on the Worker and its ids in wrangler.jsonc; not with --access", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-prov-"));
+  writeInstance(dir, instanceFiles({ name: "home" }));
+  const vars = join(dir, "bridge.vars");
+  const wf = fakeCf(blank());
+  const asked: { host: string; name: string; org?: string }[] = [];
+  const makeGithubApp = async (o: { host: string; name: string; org?: string }) => (asked.push(o), { id: 42, slug: "dovre-home", clientId: "Iv23abc", clientSecret: "cs_secret", pem: "-----BEGIN RSA PRIVATE KEY-----\nx\n-----END RSA PRIVATE KEY-----\n" });
+  const put: [string, string][] = [];
+  const run = (ran: string[], secrets: string[] = []) => {
+    const base = fakeRun(ran, { secrets });
+    return (cmd: string, args: string[], opts?: { cwd?: string; input?: string }) => {
+      if (args.includes("put")) put.push([args.at(-1)!, opts?.input ?? ""]);
+      return base(cmd, args);
+    };
+  };
+  const planned = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, github: true, plan: true, makeGithubApp, run: run([]), log: () => {} });
+  assert.equal(planned.steps.find((s) => s.what === "GitHub sign-in")?.action, "create");
+  assert.equal(asked.length, 0, "--plan only looks");
+
+  await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, github: true, githubOrg: "acme", makeGithubApp, run: run([]), log: () => {} });
+  assert.deepEqual(asked.map(({ host, name, org }) => ({ host, name, org })), [{ host: "home.home.workers.dev", name: "Dovre home", org: "acme" }]);
+  assert.deepEqual(put.filter(([k]) => k.startsWith("GITHUB_APP")).map(([k, v]) => [k, v.slice(0, 9)]), [["GITHUB_APP_CLIENT_SECRET", "cs_secret"], ["GITHUB_APP_PRIVATE_KEY", "-----BEGI"]]);
+  const cfg = readFileSync(join(dir, "wrangler.jsonc"), "utf8");
+  assert.match(cfg, /"GITHUB_APP_ID": "42"/);
+  assert.match(cfg, /"GITHUB_APP_CLIENT_ID": "Iv23abc"/);
+  assert.doesNotMatch(cfg, /cs_secret|PRIVATE KEY/, "secrets stay off disk");
+
+  const again = await provisionInstance({ dir, coreVarsFile: vars, wranglerApi: wf.api, github: true, makeGithubApp, run: run([], ["BRIDGE_KEY", "GITHUB_TOKEN", "GITHUB_APP_CLIENT_SECRET"]), log: () => {} });
+  assert.equal(asked.length, 1, "one app, never a second");
+  assert.equal(again.steps.find((s) => s.what === "GitHub sign-in")?.action, "reuse");
+
+  await assert.rejects(provisionInstance({ dir, coreVarsFile: vars, api: wf.api, github: true, makeGithubApp, run: run([]), log: () => {} }), /built-in login/);
+});

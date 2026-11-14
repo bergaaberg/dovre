@@ -18,6 +18,20 @@ With the built-in login every request reaches the Worker, which then checks the 
 are made only through a claim link, sessions are random tokens kept as hashes in D1, and every
 sign-in POST is same-origin and rate-limited. The bridge proves `BRIDGE_KEY` on each dial.
 
+**Sign in with GitHub, too (`--github`).** Provision makes the instance's own GitHub App through
+GitHub's manifest flow: it opens a page on `127.0.0.1`, you check the app's name on GitHub and click
+"Create GitHub App", and GitHub hands back the app's id, client secret and private key. The secrets
+go up as `GITHUB_APP_CLIENT_SECRET` and `GITHUB_APP_PRIVATE_KEY`, and the ids go in `wrangler.jsonc`
+as `GITHUB_APP_ID` and `GITHUB_APP_CLIENT_ID`. `--github-org <org>` makes it under an organisation.
+The app is private, has no webhook, and asks only to read your email addresses. Sign-in uses PKCE
+and a state tied to the browser, and comes in as a *verified* email on your GitHub account that
+`ALLOWED_EMAILS` names. With `ALLOWED_EMAILS` empty, nobody gets in through GitHub. Passkeys keep
+working alongside it. Remove the client secret and the GitHub sessions end.
+
+By hand: make a GitHub App with the callback URL `https://<host>/_auth/github/callback` and the
+"Email addresses: read" account permission. Then set `GITHUB_APP_CLIENT_ID` as a var and
+`GITHUB_APP_CLIENT_SECRET` with `wrangler secret put`.
+
 ```text
 $ pnpm instance provision ../home --plan
   create  workers.dev subdomain  home.workers.dev
