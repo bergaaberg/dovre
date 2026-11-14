@@ -9,11 +9,15 @@
  * - A sign-in sets a `__Host-` session cookie: a random token whose hash is in D1. Each request is
  *   checked against D1, so removing a passkey or an email ends its sessions at once.
  * - Every POST here must come from this origin, as JSON, small, and is rate-limited per address.
+ * - With the instance's GitHub App set (GITHUB_APP_CLIENT_ID and _SECRET, #523), people can also
+ *   sign in with GitHub (./github.ts): a verified email of theirs that ALLOWED_EMAILS names. With
+ *   ALLOWED_EMAILS empty, nobody gets in that way.
  * - The result is the same `Verified` a Cloudflare Access token gives (src/access.ts): pages take a
  *   person, and nothing else in the app changes.
  */
 import type { AccessVerifier } from "../../access.ts";
 import type { D1 } from "../../db.ts";
+import { authorizeUrl, type GithubApp, githubEmails } from "./github.ts";
 import { b64url, ES256, RS256, verifyAssertion, verifyRegistration } from "./webauthn.ts";
 
 export const SESSION_COOKIE = "__Host-dovre_s";
@@ -42,6 +46,8 @@ export function addressOf(req: Request): string {
   const groups = ip.includes("::") ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t] : h;
   return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
 }
+/** What a GitHub session keeps in `login_sessions.passkey`: no passkey id has a colon. */
+const GITHUB_SESSION = "github:";
 const emailOk = (e: string) => e.length <= 254 && /^[^\s@,]+@[^\s@,]+$/.test(e);
 
 /** A claim link's code and the SQL that stores its hash: provision runs it with `wrangler d1 execute`. */
@@ -81,8 +87,9 @@ export type Login = {
   handle(req: Request): Promise<Response | undefined>;
 };
 
-export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => number }): Login {
-  const { db } = o;
+export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => number; /** Sign in with GitHub (#523). */ github?: GithubApp; fetch?: typeof fetch }): Login {
+  const { db, github } = o;
+  const f = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const now = o.now ?? Date.now;
   const allowed = (o.allowedEmails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
   const emailAllowed = (e: string) => !allowed.length || allowed.includes(e);
@@ -92,8 +99,9 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
     const tok = cookieOf(req, SESSION_COOKIE);
     if (!tok || !/^[A-Za-z0-9_-]{43}$/.test(tok)) return undefined;
     const row = await db
-      .prepare("SELECT s.email AS email FROM login_sessions s JOIN login_passkeys p ON p.id = s.passkey WHERE s.hash = ? AND s.expires_at > ?")
-      .bind(await hashOf(tok), now())
+      // A passkey's session lasts while the passkey does; a GitHub one while the app is set.
+      .prepare("SELECT s.email AS email FROM login_sessions s LEFT JOIN login_passkeys p ON p.id = s.passkey WHERE s.hash = ? AND s.expires_at > ? AND (p.id IS NOT NULL OR (? AND s.passkey LIKE 'github:%'))")
+      .bind(await hashOf(tok), now(), github ? 1 : 0)
       .first<{ email: string }>();
     return row && emailAllowed(row.email) ? { email: row.email } : undefined;
   };
@@ -150,13 +158,49 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
     return row ? { hash, email: row.email } : undefined;
   };
 
-  const startSession = async (email: string, passkey: string, to = "/"): Promise<Response> => {
+  const sessionCookies = async (email: string, passkey: string, h: Headers) => {
     const tok = random();
     await db.prepare("INSERT INTO login_sessions (hash, email, passkey, expires_at) VALUES (?, ?, ?, ?)").bind(await hashOf(tok), email, passkey, now() + SESSION_MS).run();
-    const h = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
     h.append("set-cookie", setCookie(SESSION_COOKIE, tok, SESSION_MS / 1000));
     h.append("set-cookie", setCookie(CHALLENGE_COOKIE, "", 0));
-    return new Response(JSON.stringify({ ok: true, to }), { status: 200, headers: h });
+    return h;
+  };
+  const startSession = async (email: string, passkey: string, to = "/"): Promise<Response> =>
+    new Response(JSON.stringify({ ok: true, to }), { status: 200, headers: await sessionCookies(email, passkey, new Headers({ "content-type": "application/json", "cache-control": "no-store" })) });
+
+  // ── Sign in with GitHub: a challenge row holds the PKCE verifier (challenge) and the state (claim) ──
+
+  const callbackOf = (req: Request) => `${new URL(req.url).origin}/_auth/github/callback`;
+  const githubStart = async (req: Request): Promise<Response> => {
+    if (await limited(req, "github")) return page("Sign in", "login", { github: !!github, note: "busy" }, 429);
+    const id = random(16);
+    const verifier = random();
+    const state = random();
+    await db.prepare("INSERT INTO login_challenges (id, challenge, kind, claim, expires_at) VALUES (?, ?, 'github', ?, ?)").bind(id, verifier, state, now() + CHALLENGE_MS).run();
+    return new Response(null, { status: 302, headers: { location: await authorizeUrl(github!, { redirectUri: callbackOf(req), state, verifier }), "set-cookie": setCookie(CHALLENGE_COOKIE, id, CHALLENGE_MS / 1000), "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+  };
+  const githubBack = async (req: Request): Promise<Response> => {
+    const q = new URL(req.url).searchParams;
+    const fail = (note: Note, status = 403) => page("Sign in", "login", { github: true, note }, status);
+    const cid = cookieOf(req, CHALLENGE_COOKIE);
+    if (!cid || !/^[A-Za-z0-9_-]{22}$/.test(cid)) return fail("again", 400);
+    // Single use, and only with the cookie of the browser that started it.
+    const ch = await db.prepare("DELETE FROM login_challenges WHERE id = ? RETURNING challenge, kind, claim, expires_at").bind(cid).first<{ challenge: string; kind: string; claim: string | null; expires_at: number }>();
+    if (!ch || ch.kind !== "github" || ch.expires_at <= now()) return fail("again", 400);
+    if (await limited(req, "github")) return fail("busy", 429);
+    if (q.get("error")) return fail("cancelled", 400);
+    const code = q.get("code") ?? "";
+    if (!ch.claim || q.get("state") !== ch.claim || !/^[A-Za-z0-9_-]{1,200}$/.test(code)) return fail("again", 400);
+    let emails: string[];
+    try {
+      emails = await githubEmails(f, github!, { code, verifier: ch.challenge, redirectUri: callbackOf(req) });
+    } catch {
+      return fail("github", 502);
+    }
+    // Unlike a passkey (which needs a claim link), any GitHub account can get this far: only a listed email comes in.
+    const email = allowed.length ? emails.find((e) => allowed.includes(e)) : undefined;
+    if (!email) return fail("notListed");
+    return new Response(null, { status: 303, headers: await sessionCookies(email, GITHUB_SESSION + email, new Headers({ location: "/", "cache-control": "no-store" })) });
   };
 
   const options = async (req: Request, b: Record<string, unknown>): Promise<Response> => {
@@ -247,7 +291,9 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
   const handle = async (req: Request): Promise<Response | undefined> => {
     const path = new URL(req.url).pathname;
     if (!path.startsWith("/_auth/")) return undefined;
-    if (req.method === "GET" && path === "/_auth/login") return page("Sign in", "login");
+    if (req.method === "GET" && path === "/_auth/login") return page("Sign in", "login", { github: !!github });
+    if (github && req.method === "GET" && path === "/_auth/github") return githubStart(req);
+    if (github && req.method === "GET" && path === "/_auth/github/callback") return githubBack(req);
     if (req.method === "GET" && path === "/_auth/claim") return page("Make your passkey", "claim");
     if (req.method === "GET" && path === "/_auth/login.js") return new Response(SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
     if (req.method === "POST" && path === "/_auth/logout") return logout(req);
@@ -264,18 +310,31 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
 
 // ── pages: static, nothing from the request in them ──
 
-function page(title: string, kind: "login" | "claim"): Response {
+/** What a sign-in page may say about a try that didn't work: fixed text only. */
+const NOTES = {
+  again: "That sign-in didn't finish, or took too long: start again.",
+  busy: "Too many tries; wait a few minutes.",
+  cancelled: "GitHub sign-in was cancelled.",
+  github: "GitHub didn't answer as expected; try again.",
+  notListed: "None of the verified emails on that GitHub account may come in here.",
+} as const;
+type Note = keyof typeof NOTES;
+
+function page(title: string, kind: "login" | "claim", x: { github?: boolean; note?: Note } = {}, status = 200): Response {
   const lead =
     kind === "login"
-      ? "Sign in with the passkey you made for this Dovre."
+      ? x.github
+        ? "Sign in with the passkey you made for this Dovre, or with GitHub."
+        : "Sign in with the passkey you made for this Dovre."
       : "This link lets you make a passkey for this Dovre. Your device keeps it (and may sync it); the link works once.";
+  const gh = kind === "login" && x.github ? `<p><a id="gh" href="/_auth/github">Sign in with GitHub</a></p>` : "";
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light dark"><title>Dovre · ${title}</title>
-<style>body{margin:0 auto;max-width:32rem;padding:3rem 1rem;font:15px/1.55 ui-monospace,Menlo,Consolas,monospace}h1{font-size:1.4rem}button{font:inherit;padding:.6rem 1rem;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}.t2{opacity:.75}#said{min-height:1.5em}</style></head>
+<style>body{margin:0 auto;max-width:32rem;padding:3rem 1rem;font:15px/1.55 ui-monospace,Menlo,Consolas,monospace}h1{font-size:1.4rem}button{font:inherit;padding:.6rem 1rem;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}.t2{opacity:.75}#said{min-height:1.5em}a{color:inherit}</style></head>
 <body data-kind="${kind}"><h1>Dovre</h1><p class="t2">${lead}</p>
-<p><button id="go" type="button">${kind === "login" ? "Sign in with a passkey" : "Make a passkey"}</button></p><p id="said" role="status"></p>
+<p><button id="go" type="button">${kind === "login" ? "Sign in with a passkey" : "Make a passkey"}</button></p>${gh}<p id="said" role="status">${x.note ? NOTES[x.note] : ""}</p>
 <script src="/_auth/login.js"></script></body></html>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" } });
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" } });
 }
 
 const SCRIPT = `(() => {

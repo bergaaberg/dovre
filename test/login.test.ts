@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../src/db.ts";
 import { addressOf, claimSql, createLogin, hashOf, mintClaim, SESSION_COOKIE } from "../src/hosted/login/login.ts";
+import { pkceChallenge } from "../src/hosted/login/github.ts";
 import { b64url, cborDecode, derToRaw, ES256, RS256, verifyAssertion, verifyRegistration } from "../src/hosted/login/webauthn.ts";
 import { DIAL_HEADER, dialProof, dialProofOk } from "../src/bridge/wire.ts";
 import { bridgeIn, createWorker } from "../src/worker.ts";
@@ -339,4 +340,93 @@ test("login: expired challenges and sessions are swept; an IPv6 /64 counts as on
   assert.equal(at("::1"), "0:0:0:0::/64");
   assert.equal(at("203.0.113.9"), "203.0.113.9");
   assert.equal(addressOf(new Request(ORIGIN)), "?");
+});
+
+// ── Sign in with GitHub (#523) ──
+
+function fakeGithub(o: { emails?: unknown; token?: boolean } = {}) {
+  const calls: { url: string; body?: string; auth?: string | null }[] = [];
+  const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, body: init?.body ? String(init.body) : undefined, auth: new Headers(init?.headers).get("authorization") });
+    if (url === "https://github.com/login/oauth/access_token") return new Response(JSON.stringify(o.token === false ? { error: "bad_verification_code" } : { access_token: "ghu_user" }));
+    if (url === "https://api.github.com/user/emails") return new Response(JSON.stringify(o.emails ?? [{ email: "old@x.dev", verified: false, primary: false }, { email: "Me@X.dev", verified: true, primary: true }]));
+    return new Response("no", { status: 404 });
+  }) as typeof fetch;
+  return { f, calls };
+}
+const APP = { clientId: "Iv23abc", clientSecret: "cs_secret" };
+
+async function githubTrip(c: ReturnType<typeof client>, x: { state?: string; code?: string; error?: string } = {}) {
+  const start = await c.send("/_auth/github");
+  assert.equal(start.status, 302);
+  const to = new URL(start.headers.get("location")!);
+  const q = new URLSearchParams({ state: x.state ?? to.searchParams.get("state")!, code: x.code ?? "gh_code_1" });
+  if (x.error) q.set("error", x.error);
+  return { to, back: await c.send(`/_auth/github/callback?${q}`) };
+}
+
+test("login with GitHub: PKCE and a cookie-bound state; a listed verified email signs in; the session ends with the app", async () => {
+  const { DB } = openDb();
+  const t = Date.parse("2026-11-13T12:00:00Z");
+  const gh = fakeGithub();
+  const login = createLogin({ db: DB, allowedEmails: ["me@x.dev"], now: () => t, github: APP, fetch: gh.f });
+  const page = await (await client(login).send("/_auth/login")).text();
+  assert.match(page, /href="\/_auth\/github"/);
+
+  const c = client(login);
+  const { to, back } = await githubTrip(c);
+  assert.equal(to.origin + to.pathname, "https://github.com/login/oauth/authorize");
+  assert.equal(to.searchParams.get("client_id"), "Iv23abc");
+  assert.equal(to.searchParams.get("redirect_uri"), `${ORIGIN}/_auth/github/callback`);
+  assert.equal(to.searchParams.get("code_challenge_method"), "S256");
+  assert.equal(back.status, 303, await back.clone().text());
+  assert.equal(back.headers.get("location"), "/");
+  assert.deepEqual(await login.verify(c.page()), { email: "me@x.dev" });
+  // The token call carried the verifier whose hash went to GitHub, and the secret; the token went only to GitHub's API.
+  const body = new URLSearchParams(gh.calls[0]!.body);
+  assert.equal(await pkceChallenge(body.get("code_verifier")!), to.searchParams.get("code_challenge"));
+  assert.equal(body.get("client_secret"), "cs_secret");
+  assert.equal(gh.calls[1]!.auth, "Bearer ghu_user");
+  assert.equal(JSON.stringify(await DB.prepare("SELECT * FROM login_sessions").all()).includes("ghu_user"), false, "the token isn't kept");
+
+  // The callback again (replayed): the challenge is spent.
+  assert.equal((await c.send(`/_auth/github/callback?state=${to.searchParams.get("state")}&code=gh_code_1`)).status, 400);
+  // Without the app (its secret removed), the GitHub session is worth nothing and the routes are gone.
+  const without = createLogin({ db: DB, allowedEmails: ["me@x.dev"], now: () => t });
+  assert.equal(await without.verify(c.page()), undefined);
+  assert.equal((await client(without).send("/_auth/github")).status, 404);
+  assert.doesNotMatch(await (await client(without).send("/_auth/login")).text(), /_auth\/github/);
+});
+
+test("login with GitHub: another state, another browser, a cancel, a bad code, an unlisted or unverified email, and no allow list are refused", async () => {
+  const { DB } = openDb();
+  const t = Date.parse("2026-11-13T12:00:00Z");
+  const mk = (o: Parameters<typeof fakeGithub>[0] = {}, allowedEmails = ["me@x.dev"]) => createLogin({ db: DB, allowedEmails, now: () => t, github: APP, fetch: fakeGithub(o).f });
+  const refused = async (login: ReturnType<typeof createLogin>, x: Parameters<typeof githubTrip>[1] = {}) => {
+    const c = client(login);
+    const { back } = await githubTrip(c, x);
+    assert.equal(await login.verify(c.page()), undefined);
+    return back;
+  };
+  assert.equal((await refused(mk(), { state: "x".repeat(43) })).status, 400, "another state");
+  assert.equal((await refused(mk(), { error: "access_denied" })).status, 400, "cancelled");
+  assert.match(await (await refused(mk(), { error: "access_denied" })).text(), /cancelled/);
+  assert.equal((await refused(mk(), { code: "<script>" })).status, 400, "an odd code");
+  assert.equal((await refused(mk({ token: false }))).status, 502, "GitHub gave no token");
+  assert.equal((await refused(mk({ emails: [{ email: "me@x.dev", verified: false, primary: true }] }))).status, 403, "unverified");
+  assert.equal((await refused(mk({ emails: [{ email: "you@x.dev", verified: true }] }))).status, 403, "not listed");
+  assert.equal((await refused(mk({}, []))).status, 403, "no allow list: nobody by GitHub");
+  assert.equal((await refused(mk({ emails: { message: "nope" } }))).status, 502, "not a list");
+
+  // Another browser (no challenge cookie) with a real state: nothing.
+  const login = mk();
+  const start = await client(login).send("/_auth/github");
+  const state = new URL(start.headers.get("location")!).searchParams.get("state");
+  const other = client(login);
+  assert.equal((await other.send(`/_auth/github/callback?state=${state}&code=gh_code_1`)).status, 400);
+  assert.equal(await login.verify(other.page()), undefined);
+  // A passkey session marker can't pass as GitHub's, nor a GitHub one as a passkey's.
+  await DB.prepare("INSERT INTO login_sessions (hash, email, passkey, expires_at) VALUES (?, 'me@x.dev', 'nokey', ?)").bind(await hashOf("t".repeat(43)), t + 1000).run();
+  assert.equal(await login.verify(new Request(ORIGIN, { headers: { cookie: `${SESSION_COOKIE}=${"t".repeat(43)}` } })), undefined);
 });

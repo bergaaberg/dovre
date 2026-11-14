@@ -57,7 +57,7 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : undefined);
   const hasFlag = (k: string) => args.includes(k);
-  const bare = new Set(["--deploy", "--plan", "--no-bridge", "--access", "--login-link"]);
+  const bare = new Set(["--deploy", "--plan", "--no-bridge", "--access", "--login-link", "--github"]);
   const rest = args.filter((a, i) => !a.startsWith("--") && (!args[i - 1]?.startsWith("--") || bare.has(args[i - 1])));
   if (rest[0] === "provision" && rest[1]) {
     try {
@@ -80,6 +80,8 @@ if (import.meta.main) {
         bridge: !hasFlag("--no-bridge"),
         api: token ? cfApi(token) : undefined,
         loginLink: hasFlag("--login-link"),
+        github: hasFlag("--github"),
+        githubOrg: flag("--github-org"),
       });
       process.exit(0);
     } catch (e) {
@@ -88,7 +90,7 @@ if (import.meta.main) {
     }
   }
   if (rest[0] !== "new" || !rest[1]) {
-    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--subdomain <name>] [--vars <file>] [--no-bridge] [--login-link]\n      [--access [--team <name>]]   (behind Cloudflare Access instead of the built-in passkey login)");
+    console.error("usage:\n  pnpm instance new <folder> [--domain <host>] [--name <name>]\n  pnpm instance provision <folder> [--plan] [--deploy] [--domain <host>] [--email <list>] [--owners <list>]\n      [--account <id>] [--subdomain <name>] [--vars <file>] [--no-bridge] [--login-link]\n      [--github [--github-org <org>]]   (Sign in with GitHub too, through the instance's own GitHub App)\n      [--access [--team <name>]]   (behind Cloudflare Access instead of the built-in passkey login)");
     process.exit(2);
   }
   try {

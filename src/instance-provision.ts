@@ -11,6 +11,9 @@
  * again changes nothing, and after a failure it carries on from what's missing. `--plan` only looks
  * and prints the steps. Nothing is deleted.
  *
+ * With `--github` it also makes the instance's own GitHub App (#523, src/github-app.ts: one click in
+ * the browser), so people on ALLOWED_EMAILS can sign in with GitHub as well as with a passkey.
+ *
  * `wrangler login` covers D1, secrets, deploy and the workers.dev subdomain. Only `--access` needs
  * an API token as well, since wrangler's login can't reach Access (`TOKEN_SCOPES`). The token is
  * read from the environment, never saved.
@@ -20,6 +23,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { type CfApi, cfApi, reconcileAccess, type Step, workersSubdomain } from "./cfaccess.ts";
+import { type MakeGithubApp, makeGithubApp } from "./github-app.ts";
 import { claimSql } from "./hosted/login/login.ts";
 import { upsertDevVar } from "./setup.ts";
 
@@ -61,6 +65,9 @@ type WranglerPatch = {
   workersDevHost?: string;
   /** "passkey" for the built-in login; "" to turn it off (Access). */
   authMode?: string;
+  /** The instance's GitHub App (#523). */
+  githubAppId?: string;
+  githubAppClientId?: string;
 };
 
 /** Patches `database_id`, the route or workers.dev, and `vars` in `wrangler.jsonc`, keeping comments. */
@@ -81,6 +88,8 @@ export function patchWranglerConfig(jsoncText: string, patch: WranglerPatch): st
     ["BRIDGE_CLIENT_ID", patch.bridgeClientId],
     ["WORKERS_DEV_HOST", patch.workersDevHost],
     ["AUTH_MODE", patch.authMode],
+    ["GITHUB_APP_ID", patch.githubAppId],
+    ["GITHUB_APP_CLIENT_ID", patch.githubAppClientId],
   ];
   for (const [k, v] of vars) {
     if (v === undefined) continue;
@@ -146,6 +155,11 @@ export type ProvisionOpts = {
   wranglerApi?: CfApi;
   /** Mint a passkey link even when the instance has passkeys (another device, or every one lost). */
   loginLink?: boolean;
+  /** Make the instance's GitHub App for Sign in with GitHub (#523), unless it has one; under an organisation with `githubOrg`. */
+  github?: boolean;
+  githubOrg?: string;
+  /** The manifest flow; tests give a made-up one. */
+  makeGithubApp?: MakeGithubApp;
   run?: CmdRunner;
   log?: (line: string) => void;
   platform?: NodeJS.Platform;
@@ -184,6 +198,7 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
   const wantDomain = o.domain ?? info.domain;
   const workersDev = !wantDomain || wantDomain.endsWith(".example") || wantDomain.endsWith(".workers.dev");
   const passkey = !o.api;
+  if (o.github && !passkey) throw new Error("--github signs in on the built-in login, not with --access.");
   let host = wantDomain;
   if (workersDev) {
     const api = o.api ?? o.wranglerApi ?? wranglerApiOf(run, o.dir);
@@ -246,6 +261,13 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
   const ghToken = secrets.has("GITHUB_TOKEN") ? undefined : run("gh", ["auth", "token"], { cwd: o.dir }).stdout.trim() || undefined;
   step("GitHub token", secrets.has("GITHUB_TOKEN") ? "reuse" : ghToken ? "create" : "fix", secrets.has("GITHUB_TOKEN") ? "GITHUB_TOKEN" : ghToken ? "GITHUB_TOKEN from `gh auth token`" : "none: `gh auth login`, or `wrangler secret put GITHUB_TOKEN`");
 
+  // Sign in with GitHub: the app's id in wrangler.jsonc and its secret on the Worker, else (with --github) a new app.
+  const appId = readVar(raw, "GITHUB_APP_CLIENT_ID");
+  const hasApp = passkey && !!appId && secrets.has("GITHUB_APP_CLIENT_SECRET");
+  const makeApp = passkey && !hasApp && !!o.github;
+  if (hasApp) step("GitHub sign-in", "reuse", `the GitHub App ${appId}`);
+  else if (makeApp) step("GitHub sign-in", "create", `a GitHub App${o.githubOrg ? ` under ${o.githubOrg}` : ""} (one click in the browser); GITHUB_APP_* on the Worker`);
+
   // The passkey link: when the instance has no passkey yet (or --login-link). Counted in D1, whose
   // table may not be there yet before the first migrations: then there's none.
   const passkeys = () => Number(/"n"\s*:\s*(\d+)/.exec(wr(run, o.dir, "d1", "execute", info.dbName, "--remote", "--json", "--command", "SELECT COUNT(*) AS n FROM login_passkeys").stdout)?.[1] ?? 0);
@@ -262,7 +284,14 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     return { steps, host, dbId, team: access.team, aud: access.aud };
   }
 
-  // 8. Write it down: wrangler.jsonc, this machine's bridge, the Worker's secrets.
+  // 8. Write it down: wrangler.jsonc, this machine's bridge, the Worker's secrets. The GitHub App
+  //    first, since it waits on the browser; its secrets go up as soon as it's made.
+  let app: Awaited<ReturnType<MakeGithubApp>> | undefined;
+  if (makeApp) {
+    app = await (o.makeGithubApp ?? makeGithubApp)({ host, name: `Dovre ${info.worker}`, org: o.githubOrg, log });
+    put(run, o.dir, "GITHUB_APP_CLIENT_SECRET", app.clientSecret);
+    put(run, o.dir, "GITHUB_APP_PRIVATE_KEY", app.pem);
+  }
   raw = patchWranglerConfig(raw, {
     databaseId: dbId,
     domain: workersDev ? undefined : host,
@@ -275,6 +304,8 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     bridgeClientId: access.bridge?.clientId,
     workersDevHost: workersDev && !passkey ? host : undefined,
     authMode: passkey ? "passkey" : readVar(raw, "AUTH_MODE") ? "" : undefined,
+    githubAppId: app ? String(app.id) : undefined,
+    githubAppClientId: app?.clientId,
   });
   writeFileSync(wranglerPath, raw);
 
@@ -318,6 +349,7 @@ export async function provisionInstance(o: ProvisionOpts): Promise<ProvisionResu
     if (o.coreVarsFile) log(`  The bridge: its settings are in ${varsFile}; run \`pnpm bridge\` in core with its BRIDGE_* lines in the environment.`);
     else log("  The bridge: `pnpm bridge` in core streams this machine's agents to it.");
   }
+  if (app) log(`  Sign in with GitHub: the app ${app.slug}${app.htmlUrl ? ` (${app.htmlUrl})` : ""}, for the verified emails on ALLOWED_EMAILS.${o.deploy ? "" : " It works once deployed."}`);
   if (link) log(`\n  Make your passkey (works once, within a day; don't share it):\n\n  ${link}\n`);
   return { steps, host, dbId, team: access.team, aud: access.aud, link };
 }
