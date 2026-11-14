@@ -46,7 +46,7 @@ import { issuesPack } from "./packs/core/issues/index.ts";
 import { createDismissed } from "./agents/dismissed.ts";
 import { localDesk } from "./agents/desk.ts";
 import { createQueue } from "./agents/queue.ts";
-import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER } from "./hosted/hub.ts";
+import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER, type PagesView } from "./hosted/hub.ts";
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 import { serveLookups } from "./hosted/lookups.ts";
 import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
@@ -264,7 +264,7 @@ const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) 
  * the instance's owners. Its kept reads and kept snapshot are theirs alone. Rejects when the
  * provider has no token for them.
  */
-export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; told: (at: number, changed: boolean) => void }): (email: string) => Promise<Found> {
+export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void }): (email: string) => Promise<Found> {
   const host = hostOf(bindings);
   const reads = bindings.DB ? d1Reads(bindings.DB) : undefined;
   const owners = ownersOfBindings(bindings, o.instanceLogin);
@@ -277,7 +277,7 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
       login,
       async start() {
         const kept = d1SnapshotStore(bindings.DB, o.version, { key: personKey(who) });
-        const sync = syncTeller(o.told);
+        const sync = syncTeller((at, changed) => o.told(who, at, changed));
         const g = createGatherer({
           env: { GHE_ORG: primaryOf(owners), OWNERS: owners },
           forge: githubForge(ghe),
@@ -336,7 +336,7 @@ export async function bridgeIn(request: Request, bindings: Pick<WorkerBindings, 
  * allow list), and the upgrade must come from this app's own origin, since a browser sends the
  * cookie with another site's socket too. Then the socket goes to the hub. Anything else is a 404.
  */
-export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">): Promise<Response> {
+export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify"> & { own?: Hosted["own"] }): Promise<Response> {
   const nope = new Response("Not found", { status: 404 });
   if (!h.hub || !h.verify || request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return nope;
   const site = request.headers.get("sec-fetch-site");
@@ -344,13 +344,14 @@ export async function liveIn(request: Request, h: Pick<Hosted, "hub" | "verify">
   if (request.headers.get("origin") !== new URL(request.url).origin) return nope;
   const who = await h.verify(request);
   if (!who?.email) return nope;
-  return h.hub.live(request);
+  // The hub takes the person from us alone, and which snapshot their page reads from what the page said it drew.
+  return h.hub.live(request, { who: who.email, own: h.own?.(new URL(request.url).searchParams.get("as")) ?? false });
 }
 
 /** The vars and secrets among the bindings: what a pack's settings read. */
 const stringsOf = (b: WorkerBindings): Record<string, string | undefined> => Object.fromEntries(Object.entries(b).filter(([, v]) => typeof v === "string")) as Record<string, string>;
 
-type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; /** What pages and packs read: each person's own snapshot where they have one (`people`), else the instance's. */ gatherer: Gatherer; /** The instance's own snapshot: the cron's. */ instance: Gatherer; people?: People; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login; /** GitHub tokens tell people apart: a person's POST goes as them. */ byPerson: boolean };
+type Hosted = { builtAt: number; started: boolean; app: App; ghe: Ghe; /** What pages and packs read: each person's own snapshot where they have one (`people`), else the instance's. */ gatherer: Gatherer; /** The instance's own snapshot: the cron's. */ instance: Gatherer; people?: People; kept: ReturnType<typeof d1SnapshotStore>; refresh: ReturnType<typeof refresher>; packs: Pack[]; ready: Promise<void>; hub?: HubClient; verify?: AccessVerifier; login?: Login; /** GitHub tokens tell people apart: a person's POST goes as them. */ byPerson: boolean; /** Whether a page drawn as this login reads a person's own snapshot, not the instance's. */ own: (as: string | null | undefined) => boolean };
 
 export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins over GITHUB_TOKEN. */ githubToken?: GithubTokenProvider } = {}) {
   const version = opts.version ?? "0.2.1";
@@ -394,8 +395,17 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     // A Refresh or an action waits on the next gather's "Synced", changed or not.
     const instance: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
     // Where GitHub tokens tell people apart, a person with their own gets their own snapshot (#538).
-    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (at, changed) => hub?.gathered(at, changed) }) }) : undefined;
+    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (who, at, changed) => hub?.gathered(at, changed, who) }) }) : undefined;
+    // A page says which login its snapshot was gathered as (the shell's u-as): any but the instance's is a person's own (#539).
+    const own = (as: string | null | undefined) => !!people && !!as?.trim() && as.trim().toLowerCase() !== login.toLowerCase();
     const gatherer: Gatherer = people?.gatherer ?? instance;
+    // The pages listening on the hub (Settings → About). Every Settings page asks for the setup lines, so one answer serves a few seconds of them.
+    let pagesSeen: { at: number; view: Promise<PagesView | undefined> } | undefined;
+    const pagesNow = () => {
+      if (!hub) return undefined;
+      if (!pagesSeen || Date.now() - pagesSeen.at > 5_000) pagesSeen = { at: Date.now(), view: hub.pages().catch(() => undefined) };
+      return pagesSeen.view;
+    };
     /** The instance's newest snapshot as it's kept: how near a D1 row's size it is (Settings → About). */
     const snapshotBytes = () => {
       const s = instance.peek();
@@ -442,7 +452,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     const app = createApp(env, {
       hub,
       machines: hub ? async () => (await hub.mac()).machines : undefined,
-      events: hub?.events,
+      events: hub ? (as) => hub.events({ who: currentViewer(), own: own(as) }) : undefined,
       live: !!hub,
       bino: hub ? { remote: remoteBino(hub, { route: hostedBinoRoute(bindings as HubEnv), memory, sees: "My list and what your apps share" }) } : undefined,
       gatherer,
@@ -451,7 +461,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, keys, bindings, core: [...CORE_PACKS] },
-      setup: () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!provider, snapshotBytes: snapshotBytes(), servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
+      setup: async () => hostedSetup(bindings, { tables: true, off: packsOf(app)?.off, githubToken: !!provider, snapshotBytes: snapshotBytes(), pages: await pagesNow(), servers: on.filter((p) => p.server).map((p) => ({ name: p.manifest.name, binding: serverBinding(p.manifest.id) })) }),
       sent: async () => ({ hosted: true, received: hub ? await hub.sent().catch(() => []) : [] }),
     });
     const mounted = packsOf(app)!;
@@ -462,7 +472,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       sync.seed(shownOf(s));
     });
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
-    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, instance, people, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider };
+    const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, instance, people, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider, own };
     void ready.then(() => (built.started = true));
     hosted = built;
     return hosted;

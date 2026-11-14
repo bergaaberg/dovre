@@ -699,11 +699,14 @@ function onChange(c) {
 }
 // Hosted (H5): the hub's socket, which lets the hub sleep while the tab is idle. Its keep-alive
 // "ping" is answered "pong" without waking it. A socket that never opens three times running: /events.
+// The page says which login its snapshot was gathered as (u-as), so the hub sends it that one's changes.
 const WS = document.querySelector('meta[name="u-live"]')?.content === "ws" && "WebSocket" in window;
+const AS = document.querySelector('meta[name="u-as"]')?.content || "";
+const asQuery = (sep) => (AS ? sep + "as=" + encodeURIComponent(AS) : "");
 let ws = null, wsFails = 0, wsOff = false, wsEver = false;
 function socket() {
   let opened = false, ping = 0;
-  const s = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/live");
+  const s = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/live" + asQuery("?"));
   ws = s;
   s.addEventListener("open", () => {
     opened = true;
@@ -722,10 +725,13 @@ function socket() {
     try { c = JSON.parse(e.data); } catch {}
     onChange(c);
   });
-  s.addEventListener("close", () => {
+  s.addEventListener("close", (e) => {
     clearInterval(ping);
     $("live-dot")?.classList.remove("on");
     if (ws === s) ws = null;
+    // No room for this page just now (the hub's FULL): it asks again in a while, and the minute's look
+    // below carries on meanwhile. Not /events: a stream would cost the hub more than the socket.
+    if (e.code === 4008) { setTimeout(connect, 300000 + Math.random() * 30000); return; }
     if (!opened && ++wsFails >= 3) { wsOff = true; connect(); return; }
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(wsFails, 5)) + Math.random() * 500);
   });
@@ -734,7 +740,7 @@ function socket() {
 function reconnect() { if (WS && !wsOff) return; es?.close(); connect(); }
 function connect() {
   if (WS && !wsOff) { if (!ws) socket(); return; }
-  es = new EventSource(canNotify() ? "/events?notify=1" : "/events");
+  es = new EventSource(canNotify() ? "/events?notify=1" + asQuery("&") : "/events" + asQuery("?"));
   es.addEventListener("open", () => { $("live-dot")?.classList.add("on"); lastEvent = Date.now(); });
   es.addEventListener("error", () => $("live-dot")?.classList.remove("on"));
   es.addEventListener("ping", () => { lastEvent = Date.now(); });

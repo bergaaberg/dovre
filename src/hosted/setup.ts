@@ -9,6 +9,7 @@ import type { D1 } from "../db.ts";
 import type { SetupLine } from "../pages/settings.ts";
 import { bytes } from "../format.ts";
 import { MAX_BYTES } from "./snapshot.ts";
+import type { PagesView } from "./hub.ts";
 
 /** The bindings this reads: the same names as the Worker's (src/worker.ts). */
 type SetupBindings = { DB?: unknown; AUTH_MODE?: unknown; CF_ACCESS_TEAM?: unknown; CF_ACCESS_AUD?: unknown; AUTH_ISSUER?: unknown; AUTH_AUD?: unknown; AUTH_JWKS_URL?: unknown; ALLOWED_EMAILS?: unknown; HUB?: unknown; ASSETS?: unknown; GITHUB_TOKEN?: unknown; INSTANCE_REPO?: unknown; CF_AIG_TOKEN?: unknown; BINO_VIA?: unknown; ASSISTANT_VIA?: unknown; ASSISTANT_API_KEY?: unknown; ANTHROPIC_API_KEY?: unknown; OPENAI_API_KEY?: unknown; GEMINI_API_KEY?: unknown; BRIDGE_CLIENT_ID?: unknown; BRIDGE_KEY?: unknown };
@@ -21,7 +22,7 @@ const isDb = (v: unknown): v is D1 => !!v && typeof (v as D1).prepare === "funct
 type HostedLine = SetupLine & { needed?: boolean };
 
 /** What the instance has and lacks. `tables`: whether D1's migrations are applied (checked by tablesOk). `githubToken`: the instance brings its own token provider. */
-export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** How big the newest snapshot is as it's kept (src/hosted/snapshot.ts); unset before the first gather. */ snapshotBytes?: number; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
+export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]; githubToken?: boolean; /** How big the newest snapshot is as it's kept (src/hosted/snapshot.ts); unset before the first gather. */ snapshotBytes?: number; /** The pages listening on the hub now (src/hosted/hub.ts); unset without a hub. */ pages?: PagesView; /** Packs with a server (Pack.server): its name and the binding it's reached through. */ servers?: { name: string; binding: string }[] } = {}): HostedLine[] {
   // The same check the verifier makes (src/access.ts): Access, or another issuer, fully and validly set.
   const access = (str(b.AUTH_MODE)?.trim().toLowerCase() === "passkey") || !!accessConfigOf({ CF_ACCESS_TEAM: str(b.CF_ACCESS_TEAM), CF_ACCESS_AUD: str(b.CF_ACCESS_AUD), AUTH_ISSUER: str(b.AUTH_ISSUER), AUTH_AUD: str(b.AUTH_AUD), AUTH_JWKS_URL: str(b.AUTH_JWKS_URL) });
   // With the built-in login the dial proves BRIDGE_KEY itself (#522): no service token.
@@ -57,6 +58,19 @@ export function hostedSetup(b: SetupBindings, o: { tables?: boolean; off?: Off[]
       ...(!big && o.snapshotBytes > MAX_BYTES * 0.8 ? { warn: true } : {}),
       what: big ? `${bytes(o.snapshotBytes)}, over the ${bytes(MAX_BYTES)} that can be kept: a fresh start gathers before it draws` : `${bytes(o.snapshotBytes)} of the ${bytes(MAX_BYTES)} that can be kept: a fresh start draws it at once`,
       fix: "Past that size a fresh start shows “Gathering” until the forge answers. It shrinks with fewer open PRs and waiting deploys in the owners' repos (REPO_OWNERS).",
+    });
+  }
+  // The pages listening on the hub, so the room is seen before it's felt (#539).
+  if (o.pages) {
+    const p = o.pages;
+    const near = p.sockets > p.max * 0.8;
+    const said = `${p.sockets} listening${p.people ? ` for ${p.people} ${p.people === 1 ? "person" : "people"}` : ""}, of ${p.max} at once (${p.mine} a person)`;
+    lines.push({
+      name: "Live pages",
+      on: true,
+      ...(near || p.streams > 0 ? { warn: true } : {}),
+      what: p.streams > 0 ? `${said}; ${p.streams} on the fallback stream, which keeps the hub awake` : said,
+      fix: "A page past the room looks again each minute instead of hearing changes at once. A page whose socket never opened falls back to a stream: a proxy or browser that blocks WebSockets is the usual cause.",
     });
   }
   for (const sv of o.servers ?? [])

@@ -6,7 +6,9 @@
  *   "change"/"ping" events as the local server's /events, src/app.ts), and publish (POST /publish),
  *   so packs' publish() and Bino's replies swap pages hosted as they do locally. A page's socket is
  *   taken with the hibernation API and its keep-alive answered by the runtime, so an idle open tab
- *   lets the object sleep; a stream keeps it awake, so it's only the fallback.
+ *   lets the object sleep; a stream keeps it awake, so it's only the fallback. Each listener is
+ *   its person's (#539): a person's own gather reaches only their pages, and the instance's only
+ *   the pages drawn from it.
  * - Bino: its conversations in this object's SQLite (the last few, as data/bino.json holds them
  *   locally) and its answers, through Cloudflare AI Gateway (src/packs/core/assistant/bino/gateway.ts). A Worker gives
  *   up background work 30 s after it answers; an answer here takes as long as the model does.
@@ -81,8 +83,37 @@ export type MacAnswer = { ok: true; value: unknown } | { ok: false; error: strin
 const MAC = "mac";
 /** Pages' live sockets (H5). */
 const PAGE = "page";
-/** The most pages that may watch at once (tabs and phones): past it, the newest is turned away and falls back to /events. */
-const MAX_PAGES = 64;
+/**
+ * The most pages that may watch at once (tabs and phones), and the most of them one person's
+ * (#539). A page past either is told so (FULL) and looks again each minute instead: a stream in
+ * its place would keep this object awake, which costs more than the socket it was refused.
+ */
+export const MAX_PAGES = 1024;
+export const MAX_MINE = 32;
+/** The close code of a socket turned away for room: the page doesn't fall back to /events on it. */
+export const FULL = 4008;
+/** Who a page is for, from the Worker alone (it replaces whatever the request said): the person's email, and whether the page was drawn from their own snapshot (#538). */
+export const VIEWER_HEADER = "x-dovre-viewer";
+export const OWN_HEADER = "x-dovre-own";
+/** A page's listener: whose it is, and whether it reads that person's own snapshot rather than the instance's. */
+export type Viewer = { who?: string; own?: boolean };
+/**
+ * Whom a change is for (#539): everyone when unset; `for`, one person's pages (their own gather);
+ * `shared`, the pages that read the instance's snapshot (its gather changes nothing on a page
+ * drawn from a person's own).
+ */
+export type Audience = { for?: string; shared?: boolean };
+const audienceKey = (to?: Audience) => (to?.for ? `for:${to.for}` : to?.shared ? "shared" : "");
+const hears = (v: Viewer, to?: Audience) => (to?.for ? v.who === to.for : to?.shared ? !v.own : true);
+/** A person's sockets' tag (a tag holds 256 characters; the attachment is checked too). */
+const whoTag = (who: string) => `who:${who}`.slice(0, 256);
+const viewerOf = (h: Headers): Viewer => {
+  const who = h.get(VIEWER_HEADER)?.trim().toLowerCase().slice(0, 320) || undefined;
+  return who ? { who, ...(h.get(OWN_HEADER) === "1" ? { own: true } : {}) } : {};
+};
+/** What Settings shows of the pages listening (GET /pages). */
+export type PagesView = { sockets: number; streams: number; people: number; max: number; mine: number };
+type PageAttached = { page: true } & Viewer;
 /** The longest a revoke holds a machine out (its last token's lifetime is far shorter). */
 const REVOKE_MAX_MS = 24 * 60 * 60_000;
 /** How long a call waits for the Mac (start a turn, read a session). */
@@ -180,17 +211,18 @@ const enc = new TextEncoder();
 /** An answer in flight keeps the object awake: an alarm a minute, while one is. */
 const AWAKE_MS = 60_000;
 /**
- * Changes go out to pages at most one per this many ms: the first at once, those after it merged
- * (their topics together, the newest synced) into one at the end. Every isolate publishes on its own,
- * and every change reaches every open tab, so a burst would otherwise multiply into the Worker.
+ * Changes go out to pages at most one per this many ms for each audience (everyone, the instance's
+ * readers, one person): the first at once, those after it merged (their topics together, the
+ * newest synced) into one at the end. Every isolate publishes on its own, and a change reaches
+ * every tab it's for, so a burst would otherwise multiply into the Worker.
  */
 export const CHANGE_GAP_MS = 250;
 
 export class DovreHub {
-  private subs = new Set<WritableStreamDefaultWriter<Uint8Array>>();
-  /** Changes waiting for the gap (CHANGE_GAP_MS) to pass, and when the last went out. */
-  private held?: { topics: Set<string>; synced?: number; timer: ReturnType<typeof setTimeout> };
-  private sentAt = 0;
+  private subs = new Map<WritableStreamDefaultWriter<Uint8Array>, Viewer>();
+  /** Changes waiting for the gap (CHANGE_GAP_MS) to pass, and when the last went out, by audience. */
+  private held = new Map<string, { topics: Set<string>; synced?: number; timer: ReturnType<typeof setTimeout> }>();
+  private sentAt = new Map<string, number>();
   /** CHANGE_GAP_MS; a test about something else sets 0 to see each change on its own. */
   changeGap = CHANGE_GAP_MS;
   private bino?: Promise<Engine>;
@@ -234,12 +266,16 @@ export class DovreHub {
       this.revoke(b.machine, b.until);
       return json({ ok: true });
     }
-    if (req.method === "GET" && path === "/events") return this.events();
+    if (req.method === "GET" && path === "/events") return this.events(viewerOf(req.headers));
+    if (req.method === "GET" && path === "/pages") return json(this.pagesView());
     if (req.method === "POST" && path === "/publish") {
-      const b = (await req.json().catch(() => ({}))) as { topics?: unknown; synced?: unknown };
+      const b = (await req.json().catch(() => ({}))) as { topics?: unknown; synced?: unknown; for?: unknown; shared?: unknown };
       const topics = Array.isArray(b.topics) ? b.topics.filter((t): t is string => typeof t === "string" && t.length <= 120).slice(0, 20) : [];
       const synced = typeof b.synced === "number" && Number.isFinite(b.synced) ? b.synced : undefined;
-      if (topics.length || synced) this.publish(topics, synced);
+      const who = typeof b.for === "string" ? b.for.trim().toLowerCase().slice(0, 320) : "";
+      // A change named for someone never widens to everyone: without a name it's dropped.
+      if (b.for !== undefined && !who) return json({ ok: false }, 400);
+      if (topics.length || synced) this.publish(topics, synced, who ? { for: who } : b.shared === true ? { shared: true } : undefined);
       return json({ ok: true, listeners: this.subs.size + this.pages().length });
     }
     if (req.method === "POST" && path === "/bino") return json(await this.binoOp((await req.json()) as BinoOp));
@@ -298,30 +334,36 @@ export class DovreHub {
     return true;
   }
 
-  /** `synced`: a gather finished then (the sidebar's "Synced", as the local server's events say it). */
-  publish(topics: string[], synced?: number): void {
+  /** `synced`: a gather finished then (the sidebar's "Synced", as the local server's events say it). `to`: whose pages hear it (everyone's when unset). */
+  publish(topics: string[], synced?: number, to?: Audience): void {
+    const k = audienceKey(to);
     const now = Date.now();
-    if (!this.held && now - this.sentAt >= this.changeGap) return this.change(topics, synced);
-    if (this.held) {
-      for (const t of topics) this.held.topics.add(t);
-      if (synced !== undefined) this.held.synced = Math.max(this.held.synced ?? 0, synced);
+    const held = this.held.get(k);
+    if (held) {
+      for (const t of topics) held.topics.add(t);
+      if (synced !== undefined) held.synced = Math.max(held.synced ?? 0, synced);
       return;
     }
+    const last = this.sentAt.get(k) ?? 0;
+    if (now - last >= this.changeGap) return this.change(topics, synced, to);
     const timer = setTimeout(() => {
-      const h = this.held!;
-      this.held = undefined;
-      this.change([...h.topics], h.synced);
-    }, this.changeGap - (now - this.sentAt));
-    this.held = { topics: new Set(topics), synced, timer };
+      const h = this.held.get(k)!;
+      this.held.delete(k);
+      this.change([...h.topics], h.synced, to);
+    }, this.changeGap - (now - last));
+    this.held.set(k, { topics: new Set(topics), synced, timer });
   }
 
-  /** One change, out to every page now. */
-  private change(topics: string[], synced?: number): void {
-    this.sentAt = Date.now();
-    const data = JSON.stringify({ topics, at: this.sentAt, synced });
+  /** One change, out now to every page it's for. */
+  private change(topics: string[], synced?: number, to?: Audience): void {
+    const at = Date.now();
+    // One entry per person who ever gathered would only grow: those whose gap has passed say nothing a missing one doesn't.
+    if (this.sentAt.size > 256) for (const [k, t] of this.sentAt) if (at - t >= this.changeGap) this.sentAt.delete(k);
+    this.sentAt.set(audienceKey(to), at);
+    const data = JSON.stringify({ topics, at, synced });
     const line = enc.encode(`event: change\ndata: ${data}\n\n`);
-    for (const w of this.subs) this.write(w, line);
-    for (const ws of this.pages()) {
+    for (const [w, v] of this.subs) if (hears(v, to)) this.write(w, line);
+    for (const ws of this.pagesFor(to)) {
       try {
         ws.send(data);
       } catch {}
@@ -332,6 +374,26 @@ export class DovreHub {
   private pages(): HubSocket[] {
     return this.state.getWebSockets?.(PAGE) ?? [];
   }
+  private static viewer(ws: HubSocket): Viewer {
+    return (ws.deserializeAttachment() as PageAttached | null) ?? {};
+  }
+  /** The sockets a change is for: a person's by their tag, the rest by what each page said it reads. */
+  private pagesFor(to?: Audience): HubSocket[] {
+    if (!to?.for && !to?.shared) return this.pages();
+    const among = to.for ? (this.state.getWebSockets?.(whoTag(to.for)) ?? []) : this.pages();
+    return among.filter((ws) => hears(DovreHub.viewer(ws), to));
+  }
+  /** How many listen, and for how many people (Settings → About). */
+  pagesView(): PagesView {
+    const pages = this.pages();
+    const people = new Set<string>();
+    for (const ws of pages) {
+      const who = DovreHub.viewer(ws).who;
+      if (who) people.add(who);
+    }
+    for (const v of this.subs.values()) if (v.who) people.add(v.who);
+    return { sockets: pages.length, streams: this.subs.size, people: people.size, max: MAX_PAGES, mine: MAX_MINE };
+  }
   /** Whether a page is watching: a socket or a stream. */
   private watching(): boolean {
     return this.subs.size > 0 || this.pages().length > 0;
@@ -340,18 +402,36 @@ export class DovreHub {
   private liveUpgrade(req: Request): Response {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !this.state.acceptWebSocket) return new Response("Not found", { status: 404 });
     const Pair = (globalThis as { WebSocketPair?: new () => Record<0 | 1, HubSocket> }).WebSocketPair;
-    if (!Pair || this.pages().length >= MAX_PAGES) return new Response("Not found", { status: 404 });
+    if (!Pair) return new Response("Not found", { status: 404 });
     const pair = new Pair();
-    this.acceptPage(pair[1]);
+    this.acceptPage(pair[1], viewerOf(req.headers));
     return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit);
   }
 
-  /** Takes a page's end of a new socket: it only listens (and pings, which the runtime answers). */
-  acceptPage(ws: HubSocket): void {
+  /** No room for one more page: over all, or of this person's. */
+  private full(v: Viewer): boolean {
+    if (this.pages().length >= MAX_PAGES) return true;
+    return !!v.who && (this.state.getWebSockets?.(whoTag(v.who)) ?? []).length >= MAX_MINE;
+  }
+
+  /**
+   * Takes a page's end of a new socket: it only listens (and pings, which the runtime answers).
+   * With no room it's taken and closed at once with FULL, which a page can tell from a socket that
+   * never opened. Returns whether it stayed.
+   */
+  acceptPage(ws: HubSocket, v: Viewer = {}): boolean {
+    if (this.full(v)) {
+      // Untagged, so it's never counted among the pages while it closes.
+      this.state.acceptWebSocket!(ws, []);
+      ws.serializeAttachment({ page: true } satisfies PageAttached);
+      ws.close(FULL, "full");
+      return false;
+    }
     const first = !this.watching();
-    this.state.acceptWebSocket!(ws, [PAGE]);
-    ws.serializeAttachment({ page: true });
+    this.state.acceptWebSocket!(ws, v.who ? [PAGE, whoTag(v.who)] : [PAGE]);
+    ws.serializeAttachment({ page: true, ...(v.who ? { who: v.who } : {}), ...(v.own ? { own: true } : {}) } satisfies PageAttached);
     if (first) void this.tell({ t: "watch", on: true });
+    return true;
   }
 
   private write(w: WritableStreamDefaultWriter<Uint8Array>, chunk: Uint8Array) {
@@ -362,11 +442,11 @@ export class DovreHub {
     });
   }
 
-  private events(): Response {
+  private events(v: Viewer = {}): Response {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const w = writable.getWriter();
     const first = !this.watching();
-    this.subs.add(w);
+    this.subs.set(w, v);
     if (first) void this.tell({ t: "watch", on: true });
     this.write(w, enc.encode(": open\n\n"));
     const ping = enc.encode("event: ping\ndata: \n\n");
@@ -649,7 +729,7 @@ export class DovreHub {
       } catch {}
       return;
     }
-    const a = ws.deserializeAttachment() as (Attached & { page?: undefined }) | { page: true } | null;
+    const a = ws.deserializeAttachment() as (Attached & { page?: undefined }) | PageAttached | null;
     // A page says nothing but its keep-alive.
     if (a?.page) return;
     if (!a || typeof message !== "string") return ws.close(4002, "bad frame");
@@ -700,7 +780,7 @@ export class DovreHub {
     try {
       ws.close(1000, "bye");
     } catch {}
-    const a = ws.deserializeAttachment() as (Attached & { page?: undefined }) | { page: true } | null;
+    const a = ws.deserializeAttachment() as (Attached & { page?: undefined }) | PageAttached | null;
     if (a?.page) {
       // The runtime may still count the closing socket.
       if (!this.subs.size && !this.pages().some((p) => p !== ws)) void this.tell({ t: "watch", on: false });

@@ -331,7 +331,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       panes: v && deps.config ? { ...v, stored: deps.config.stored as Record<string, string | undefined> } : undefined,
       packs: packSettings(),
       agents: !hosted && deps.agentTools ? deps.agentTools.view().rows : undefined,
-      setup: deps.setup?.() ?? setupNow(frame.operator),
+      setup: (await deps.setup?.()) ?? setupNow(frame.operator),
       canRestart: !!deps.restart,
     });
   };
@@ -372,7 +372,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       case "sent":
         return sentPanels(await sentNow());
       case "about":
-        return html`${appPanel(deps.info, !!deps.restart, frame.tz)}${setupPanel(deps.setup?.() ?? setupNow(frame.operator))}`;
+        return html`${appPanel(deps.info, !!deps.restart, frame.tz)}${setupPanel((await deps.setup?.()) ?? setupNow(frame.operator))}`;
     }
   };
   /** Settings → Packs → one pack: its own panel (and ingest tokens), its manifest's settings, and where else it has some. */

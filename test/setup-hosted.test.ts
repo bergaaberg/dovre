@@ -41,6 +41,18 @@ test("setupPage: only what's needed and missing, each with how; hostile text ine
   assert.match(page, /<code>/);
 });
 
+test("hostedSetup: the pages listening on the hub: how many, for whom, and worth watching near the room or on the fallback (#539)", () => {
+  const line = (pages?: { sockets: number; streams: number; people: number }) => hostedSetup({}, { pages: pages && { ...pages, max: 1024, mine: 32 } }).find((l) => l.name === "Live pages");
+  assert.equal(line(), undefined, "without a hub there's nothing to say");
+  assert.deepEqual([line({ sockets: 12, streams: 0, people: 4 })!.warn, line({ sockets: 12, streams: 0, people: 4 })!.what], [undefined, "12 listening for 4 people, of 1024 at once (32 a person)"]);
+  assert.equal(line({ sockets: 1, streams: 0, people: 1 })!.what, "1 listening for 1 person, of 1024 at once (32 a person)");
+  assert.equal(line({ sockets: 0, streams: 0, people: 0 })!.what, "0 listening, of 1024 at once (32 a person)");
+  assert.equal(line({ sockets: 900, streams: 0, people: 60 })!.warn, true);
+  const fallen = line({ sockets: 3, streams: 2, people: 2 })!;
+  assert.deepEqual([fallen.on, fallen.warn], [true, true]);
+  assert.match(fallen.what, /2 on the fallback stream, which keeps the hub awake$/);
+});
+
 test("hostedSetup: the kept snapshot's size, once there's one: on, worth watching near the limit, off past it (#540)", () => {
   const line = (snapshotBytes?: number) => hostedSetup({}, { snapshotBytes }).find((l) => l.name === "Kept snapshot");
   assert.equal(line(), undefined, "before the first gather there's nothing to say");

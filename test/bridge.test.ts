@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { channel, hello, helloOk, HELLO_SKEW_MS, keyOk, machineKey, parseDown, parseUp, sessionKey } from "../src/bridge/wire.ts";
-import { CHANGE_GAP_MS, DovreHub, type HubSocket, type HubState } from "../src/hosted/hub.ts";
+import { CHANGE_GAP_MS, DovreHub, FULL, type HubSocket, type HubState, MAX_MINE, MAX_PAGES, OWN_HEADER, VIEWER_HEADER } from "../src/hosted/hub.ts";
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -598,6 +598,111 @@ test("hub: a page's live socket (H5) hears changes, tells the Mac it's watched, 
   assert.deepEqual(await m.got(), [{ t: "watch", on: false }]);
   assert.equal(hub.mac().watching, false);
   assert.equal(one(hub).online, true, "a page closing isn't the Mac going offline");
+});
+
+test("hub: a person's gather reaches only their pages, and the instance's skips pages drawn from a person's own (#539)", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never });
+  hub.changeGap = 0;
+  const page = (who?: string, own?: boolean) => {
+    const ws = new FakeSocket();
+    assert.equal(hub.acceptPage(ws, { who, own }), true);
+    return ws;
+  };
+  const ola = page("ola@x.dev", true); // drawn from her own snapshot
+  const olaShared = page("ola@x.dev"); // hers, but drawn from the instance's (her own wasn't found in time)
+  const kari = page("kari@x.dev"); // no token of her own: the instance's
+  const nobody = page(); // a socket taken before this (no person named)
+  const heard = (ws: FakeSocket) => ws.out.map((l) => (JSON.parse(l) as { topics: string[]; synced?: number }).topics.join("+") || "synced");
+  const post = (body: unknown) => hub.fetch(new Request("https://hub.internal/publish", { method: "POST", body: JSON.stringify(body) }));
+
+  // Ola's own gather: her pages alone, whichever snapshot they drew.
+  assert.equal((await post({ topics: ["snapshot"], synced: 1, for: " Ola@X.dev " })).status, 200);
+  assert.deepEqual([ola, olaShared, kari, nobody].map(heard), [["snapshot"], ["snapshot"], [], []]);
+  // The instance's: everyone but the page drawn from a person's own.
+  await post({ topics: ["snapshot"], synced: 2, shared: true });
+  assert.deepEqual([ola, olaShared, kari, nobody].map(heard), [["snapshot"], ["snapshot", "snapshot"], ["snapshot"], ["snapshot"]]);
+  // Its "Synced" alone, the same.
+  await post({ topics: [], synced: 3, shared: true });
+  assert.deepEqual([heard(ola).length, heard(kari).at(-1)], [1, "synced"]);
+  // Anything else (a pack's topic, Bino): everyone, as before.
+  await post({ topics: ["packs"] });
+  assert.deepEqual([ola, olaShared, kari, nobody].map((ws) => heard(ws).at(-1)), ["packs", "packs", "packs", "packs"]);
+  // A change named for nobody is dropped, never widened to everyone.
+  const before = kari.out.length;
+  for (const bad of ["", "   ", 7, null]) assert.equal((await post({ topics: ["snapshot"], for: bad })).status, 400, String(bad));
+  assert.equal(kari.out.length, before);
+
+  // Streams, the fallback, are their person's too.
+  const stream = async (headers: Record<string, string>) => {
+    const res = await hub.fetch(new Request("https://hub.internal/events", { headers }));
+    const reader = res.body!.getReader();
+    let text = "";
+    void (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        text += new TextDecoder().decode(value);
+      }
+    })();
+    return { got: () => [...text.matchAll(/data: (\{.*\})/g)].map((m) => (JSON.parse(m[1]!) as { topics: string[] }).topics.join("+")), end: () => reader.cancel() };
+  };
+  const olaStream = await stream({ [VIEWER_HEADER]: "ola@x.dev", [OWN_HEADER]: "1" });
+  const kariStream = await stream({ [VIEWER_HEADER]: "kari@x.dev" });
+  await post({ topics: ["snapshot"], for: "ola@x.dev" });
+  await post({ topics: ["mac"], shared: true });
+  await post({ topics: ["agents"] });
+  await until(() => olaStream.got().length >= 2 && kariStream.got().length >= 2);
+  assert.deepEqual([olaStream.got(), kariStream.got()], [["snapshot", "agents"], ["mac", "agents"]]);
+
+  // What Settings shows: who listens, counted by person.
+  assert.deepEqual(await (await hub.fetch(new Request("https://hub.internal/pages"))).json(), { sockets: 4, streams: 2, people: 2, max: MAX_PAGES, mine: MAX_MINE });
+  await Promise.all([olaStream.end(), kariStream.end()]);
+});
+
+test("hub: each audience has its own gap: one person's burst is merged for them and holds nobody else's change back (#539)", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never });
+  const ola = new FakeSocket();
+  const kari = new FakeSocket();
+  hub.acceptPage(ola, { who: "ola@x.dev", own: true });
+  hub.acceptPage(kari, { who: "kari@x.dev" });
+  const topics = (ws: FakeSocket) => ws.out.map((l) => (JSON.parse(l) as { topics: string[] }).topics);
+  hub.publish(["snapshot"], 1, { for: "ola@x.dev" });
+  for (let i = 0; i < 5; i++) hub.publish(["snapshot"], 2 + i, { for: "ola@x.dev" });
+  hub.publish(["snapshot"], 9, { shared: true });
+  hub.publish(["packs"]);
+  assert.deepEqual(topics(ola), [["snapshot"], ["packs"]], "her first at once, the burst held; everyone's at once");
+  assert.deepEqual(topics(kari), [["snapshot"], ["packs"]], "the instance's and everyone's, at once");
+  await new Promise((r) => setTimeout(r, CHANGE_GAP_MS + 50));
+  assert.deepEqual(topics(ola), [["snapshot"], ["packs"], ["snapshot"]], "the burst, as one");
+  assert.equal((JSON.parse(ola.out.at(-1)!) as { synced: number }).synced, 6);
+  assert.equal(kari.out.length, 2);
+});
+
+test("hub: no room, over all or of one person's: the socket is closed with FULL, never counted, and the rest stay (#539)", async () => {
+  const { state } = fakeState();
+  const hub = new DovreHub(state, { DB: undefined as never });
+  hub.changeGap = 0;
+  const mine = Array.from({ length: MAX_MINE }, () => new FakeSocket());
+  for (const ws of mine) assert.equal(hub.acceptPage(ws, { who: "ola@x.dev" }), true);
+  const extra = new FakeSocket();
+  assert.equal(hub.acceptPage(extra, { who: "ola@x.dev" }), false, "one person's tabs don't take the team's room");
+  assert.deepEqual(extra.closed, { code: FULL, reason: "full" });
+  await hub.webSocketClose(extra);
+  const kari = new FakeSocket();
+  assert.equal(hub.acceptPage(kari, { who: "kari@x.dev" }), true, "someone else still gets in");
+  assert.equal(hub.pagesView().sockets, MAX_MINE + 1);
+  assert.equal(hub.mac().watching, true, "the turned-away socket closing isn't the last page going");
+
+  // Over all: people enough to fill it.
+  for (let i = hub.pagesView().sockets; i < MAX_PAGES; i++) hub.acceptPage(new FakeSocket(), { who: `p${i}@x.dev` });
+  assert.equal(hub.pagesView().sockets, MAX_PAGES);
+  const late = new FakeSocket();
+  assert.equal(hub.acceptPage(late, { who: "late@x.dev" }), false);
+  assert.equal(late.closed?.code, FULL);
+  hub.publish(["snapshot"]);
+  assert.deepEqual([kari.out.length, late.out.length, extra.out.length], [1, 0, 0]);
 });
 
 test("hub: /live without an upgrade is a 404", async () => {
