@@ -18,7 +18,8 @@ import { CORE_CARDS, packOrder } from "../pages/home.ts";
 import { keysPanel } from "../pages/keys.ts";
 import { layoutPanel, type LayoutView, LOOK_KEYS, lookPanel } from "../pages/layout.ts";
 import { aiAskOf, grantOf } from "../packs/ai.ts";
-import { aiPanel, manifestPanel, manifestSettings, packsPage } from "../pages/packs.ts";
+import { aiPanel, manifestPanel, manifestSettings, packsPage, settingState } from "../pages/packs.ts";
+import { wholeIn } from "../packs/env.ts";
 import { sentPanels, type SentView } from "../pages/sent.ts";
 import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
 import { speedPanels } from "../pages/speed.ts";
@@ -253,6 +254,8 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       const raw = typeof val === "string" ? val.replace(/[\r\n]+/g, " ").trim().slice(0, 2000) : "";
       // A setting with choices keeps only one of them (API 1.15); anything else leaves it as it was.
       if (s.choices && raw && !s.choices.some((x) => x.value === raw)) continue;
+      // A number keeps only a whole one within its bounds (API 2.5).
+      if (s.kind === "number" && raw && !wholeIn(s, raw)) continue;
       if (s.secret) {
         // A reference is kept and read; a pasted key goes to the Keychain on a Mac (#416).
         if (body[`clear.${s.key}`] === "1") {
@@ -303,7 +306,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
   };
   /** The packs with settings: their manifest's, their own panel, or ingest tokens. Off ones too: one may be off for want of a setting. */
   const packSettings = (): PackSettings[] => {
-    const set = (m: PackManifest | undefined) => manifestSettings(m).map((x) => ({ key: x.key, label: x.label, set: !!packs.env[x.key]?.trim() }));
+    const set = (m: PackManifest | undefined) => manifestSettings(m).map((x) => settingState(x, packs.env));
     // A pack's own panel counts when it draws something (an empty answer or a throw: none).
     const own = new Set(settingsFrom(shown(), ctxOf, (id, line) => packLog(id)(line)).map((x) => x.id));
     return [

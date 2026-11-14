@@ -1720,3 +1720,45 @@ test("themes (API 2.4): a pack's theme is checked, written by core and picked on
   await post("/settings/layout", { part: "look", theme: "nobody-here" });
   assert.match(await (await get("/actions")).text(), /<html lang="en">/);
 });
+
+test("typed settings (API 2.5): a number field within its bounds, the default beside each field, and the overview's value now and what's changed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-pack-typed-"));
+  const varsFile = join(dir, ".dev.vars");
+  const queue = pack(
+    {
+      id: "queue",
+      name: "Queue",
+      settings: [
+        { key: "QUEUE_LAG", label: "Lag to warn at", kind: "number", min: 1, max: 5000, default: "1000", help: H },
+        { key: "QUEUE_VIEW", label: "View", choices: [{ value: "wide", label: "Wide" }, { value: "tight", label: `Tight ${H}` }], default: "wide" },
+        { key: "QUEUE_NAME", label: "Name", default: H },
+        { key: "QUEUE_KEY", label: "Key", secret: true, default: "never-shown", kind: "number" } as never,
+      ],
+    },
+    { routes: (app, ctx) => app.get("/queue", (c) => ctx.page(c, { title: "Queue", body: html`<p>warn at ${ctx.env.QUEUE_LAG}, ${ctx.env.QUEUE_VIEW}</p>` })) },
+  );
+  const { get, post } = signedIn(snapshot(), {}, { packs: [queue], varsFile });
+  assert.match(await (await get("/queue")).text(), /warn at 1000, wide/, "unset reads as the default");
+  const form = await (await get("/settings/packs/queue")).text();
+  assertInert("typed settings form", form);
+  assert.match(form, /<input type="number" name="QUEUE_LAG" value="" step="1" min="1" max="5000" placeholder="1000">/);
+  assert.match(form, /<option value="" selected>Its default \(Wide\)<\/option>/);
+  assert.match(form, /unset, so <code>1000<\/code>/);
+  assert.match(form, /unset, so Wide/);
+  assert.match(form, /<input type="password" name="QUEUE_KEY"/, "a secret stays a secret");
+  assert.doesNotMatch(form, /never-shown/, "and has no default");
+  const rows = async () => (await (await get("/settings?q=queue")).text()).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(await rows(), /Queue: Lag to warn at[^:]*1000/);
+  assert.doesNotMatch(await (await get("/settings")).text(), /Queue: Lag to warn at/, "nothing is changed from its default");
+
+  await post("/packs/queue/settings", { QUEUE_LAG: "250", QUEUE_VIEW: "tight" });
+  assert.match(readFileSync(varsFile, "utf8"), /QUEUE_LAG=250/);
+  assert.match(await (await get("/queue")).text(), /warn at 250, tight/);
+  assert.match(await (await get("/settings")).text(), /Queue: Lag to warn at/, "changed from its default: on the overview");
+  // Outside its bounds, or not a whole number: left as it was. The default itself, saved: set, but not changed.
+  for (const bad of ["9000", "0", "12.5", "ten"]) await post("/packs/queue/settings", { QUEUE_LAG: bad, QUEUE_VIEW: "tight" });
+  assert.match(await (await get("/queue")).text(), /warn at 250, tight/);
+  await post("/packs/queue/settings", { QUEUE_LAG: "1000", QUEUE_VIEW: "wide" });
+  const home = await (await get("/settings")).text();
+  assert.doesNotMatch(home, /Queue: Lag to warn at|Queue: View/, "set to its default isn't a change");
+});
