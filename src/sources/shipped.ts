@@ -22,6 +22,12 @@ const WEEK = 7 * DAY;
 const REPOS = 100;
 const RELEASES = 20;
 const TAGS = 100;
+/** Pages of tags read of a repo, at most, while they still fall on or after the day. */
+const TAG_PAGES = 10;
+/** Repos whose tags are paged at once. */
+const TAGS_AT_ONCE = 4;
+/** The most tags read of a repo. */
+export const MAX_SHIPPED_TAGS = TAGS * TAG_PAGES;
 
 const str = (v: unknown, max = 255) => (typeof v === "string" ? v.slice(0, max) : "");
 const nodes = (x: any): Node[] => (Array.isArray(x?.nodes) ? x.nodes.filter((n: unknown) => n && typeof n === "object") : []);
@@ -32,12 +38,14 @@ const utc = (v: unknown): string => {
 };
 /** A UTC time on or after the day. */
 const sinceDay = (at: string, since: string) => !!at && at.slice(0, 10) >= since;
+/** owner/name, of the owners. */
+const mineOf = (owners: string) => (repo: string) => /^[\w.-]+\/[\w.-]+$/.test(repo) && owns(owners, repo.split("/")[0]!);
 const newest = <T>(list: T[], at: (x: T) => string) => list.sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0));
 
 export async function loadShipped(ghe: Ghe, owners: string, since: string, now: number = Date.now()): Promise<ForgeShipped> {
   const scope = ownerQuery(owners);
   if (!scope) return { prs: [], releases: [], tags: [] };
-  const [merged, repos] = await Promise.all([mergedSince(ghe, owners, since, now), reposShipped(ghe, owners)]);
+  const [merged, repos] = await Promise.all([mergedSince(ghe, owners, since, now), reposShipped(ghe, owners).then((r) => olderTags(ghe, owners, since, r))]);
   return shippedOf(merged, repos, { owners, since, host: ghe.host });
 }
 
@@ -74,17 +82,50 @@ async function mergedIn(ghe: Ghe, query: string): Promise<{ nodes: Node[]; more:
   return { nodes: out, more: true };
 }
 
+const TAG_FIELDS = `pageInfo { hasNextPage endCursor } nodes { name target { ... on Commit { committedDate } ... on Tag { tagger { date } target { ... on Commit { committedDate } } } } }`;
+const tagRefs = (after?: string) => `refs(refPrefix: "refs/tags/", first: ${TAGS}${after ? `, after: ${q(after)}` : ""}, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) { ${TAG_FIELDS} }`;
+/** Where a repo's tags go on, when the page ended inside the window. They come by commit time, so that's what says. */
+const tagsGoOn = (refs: any, since: string): string | undefined => {
+  const last = nodes(refs).at(-1);
+  const on = refs?.pageInfo?.hasNextPage === true && typeof refs.pageInfo.endCursor === "string" && sinceDay(utc(last?.target?.target?.committedDate) || utc(last?.target?.committedDate), since);
+  return on ? refs.pageInfo.endCursor : undefined;
+};
+
+/**
+ * A repo that tags often (a tag per pack per release) has more than a page of them in the window:
+ * its tags are read on, a page at a time, until one falls before the day.
+ */
+async function olderTags(ghe: Ghe, owners: string, since: string, repos: Node): Promise<Node> {
+  const mine = mineOf(owners);
+  const todo = Object.values(repos ?? {}).flatMap((owner: any) => nodes(owner?.repositories)).filter((r) => mine(str(r.nameWithOwner)) && tagsGoOn(r.refs, since));
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < todo.length; i = next++) {
+      const r = todo[i]!;
+      const [owner, name] = str(r.nameWithOwner).split("/") as [string, string];
+      let after = tagsGoOn(r.refs, since);
+      for (let page = 1; after && page < TAG_PAGES; page++) {
+        const d = await ghe.graphql<Node>(`{ tags: repository(owner: ${q(owner)}, name: ${q(name)}) { ${tagRefs(after)} } }`);
+        r.refs.nodes.push(...nodes(d.tags?.refs));
+        after = tagsGoOn(d.tags?.refs, since);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(TAGS_AT_ONCE, todo.length) }, worker));
+  return repos;
+}
+
 // repositoryOwner, not organization: an owner may be a user. One alias per owner.
 const reposShipped = (ghe: Ghe, owners: string): Promise<Node> =>
   ghe.graphql<Node>(`{
 ${ownersOf(owners).map((owner, i) => `  shipped${i}: repositoryOwner(login: ${q(owner)}) { repositories(first: ${REPOS}, isArchived: false, orderBy: { field: PUSHED_AT, direction: DESC }) { nodes { nameWithOwner
     releases(first: ${RELEASES}, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { tagName name url publishedAt createdAt isDraft isPrerelease } }
-    refs(refPrefix: "refs/tags/", first: ${TAGS}, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) { nodes { name target { ... on Commit { committedDate } ... on Tag { tagger { date } target { ... on Commit { committedDate } } } } } } } } }`).join("\n")}
+    ${tagRefs()} } } }`).join("\n")}
 }`);
 
 /** GitHub's answers, read narrowly: anything missing, odd or outside the owners is left out. */
 export function shippedOf(merged: { nodes: Node[]; more?: boolean }, repos: Node, o: { owners: string; since: string; host: string }): ForgeShipped {
-  const mine = (repo: string) => /^[\w.-]+\/[\w.-]+$/.test(repo) && owns(o.owners, repo.split("/")[0]!);
+  const mine = mineOf(o.owners);
   const prs = merged.nodes.flatMap((p) => {
     const repo = str(p.repository?.nameWithOwner);
     const mergedAt = utc(p.mergedAt);
