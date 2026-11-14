@@ -8,6 +8,7 @@
 import { FIELDS_CSS } from "./fields.ts";
 import { SPLASH_CSS } from "./splash.ts";
 import { CLIMB_CSS } from "./climb.ts";
+import { MORNING_CSS, SWATCH_CSS, THEME_CSS } from "./themes.ts";
 
 /** Reading settings (#183): code keeps --mono whatever the font. */
 const READING_CSS = String.raw`
@@ -148,88 +149,6 @@ ul.hbars .num { text-align: right; font-variant-numeric: tabular-nums; white-spa
 .swatch.div-l { background: var(--s2); } .swatch.div-r { background: var(--s1); }
 `;
 
-/** Night's tokens: under the system's dark, and under a picked dark. */
-const DARK = String.raw`    /* night in the mountains: blue-black sky, moonlit snow */
-    --bg: #0a1117; --sky: #0e1922; --surface: #111c25; --surface-2: #15222c; --hover: #1a2833;
-    --ink: #e6ecf0; --ink-2: #b2bec7; --ink-3: #8c9aa5;
-    --line: #1f2e39; --line-2: #2c3d4a; --control: #667581;
-    --accent: #84b9df; --accent-ink: #07131c; --accent-soft: #15293a; --accent-line: #2a4a63;
-    --hint: #f4cc3f; --hint-ink: #1a1300; --hint-line: #8a6d00;
-    --ok: #8cc37a; --ok-soft: #15261a;
-    --warn: #e5b65c; --warn-soft: #2a2113;
-    --bad: #f2828f; --bad-soft: #2f161c;
-    --c1: #3987e5; --c2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
-    --h1: #103b73; --h2: #184f95; --h3: #256abf; --h4: #3987e5; --h5: #6da7ec; --h6: #9ec5f4;
-    --ridge-farthest: #101c26; --ridge-far: #172633; --ridge-near: #253a4a; --ridge-deep: #162533; --ridge-edge: #5a7a90;
-    --snow: #c9d7e1; --night: #060d14; --star: #dce7ef; --flag-bot: #4f6576; --sun: #c9d7e1;
-    --shadow: 0 1px 0 rgb(255 255 255 / .02) inset, 0 14px 40px -24px rgb(0 0 0 / .8);`;
-
-/** An accent's four tokens: its own colour, the ink on it, and its soft fill and line mixed from the surface. */
-const accent = (c: string, ink: string, surface: string, soft: number, line: number) =>
-  `--accent: ${c}; --accent-ink: ${ink}; --accent-soft: color-mix(in srgb, ${c} ${soft}%, ${surface}); --accent-line: color-mix(in srgb, ${c} ${line}%, ${surface});`;
-/** fjord is the default (the tokens above); these are the others. Values from the check in PLAN WP-N5. */
-const ACCENT_LIGHT = { heather: accent("#6a4c9c", "#ffffff", "#fffdfa", 13, 32), glacier: accent("#0e6a8f", "#ffffff", "#fffdfa", 12, 30) };
-const ACCENT_DARK = { heather: accent("#a99cf0", "#07131c", "#111c25", 16, 34), glacier: accent("#5fc0e8", "#07131c", "#111c25", 16, 34) };
-
-/**
- * The themes besides light and dark (Settings → Layout, #95): each a full palette on top of its
- * scheme's tokens. Text, accents and status pass WCAG AA on every surface (ink and ink-2 7:1), and
- * --c1/--c2 pass the dataviz validator on each --surface. ok, warn and bad still mean status only.
- */
-const THEMES: Record<string, { scheme: "light" | "dark"; surface: string; tokens: string }> = {
-  /* birch bark: cool white and grey, slate ink */
-  birch: {
-    scheme: "light",
-    surface: "#ffffff",
-    tokens: String.raw`--bg: #f2f4f7; --sky: #e6ebf0; --surface: #ffffff; --surface-2: #f6f8fa; --hover: #eceff3;
-    --ink: #16202a; --ink-2: #3b4753; --ink-3: #56626e;
-    --line: #e1e6eb; --line-2: #c9d1d9; --control: #7a848f;
-    --accent: #1d5c88; --accent-ink: #ffffff; --accent-soft: #e3edf5; --accent-line: #b9cfe0;
-    --ok: #2f6b29; --ok-soft: #e4efe0; --warn: #8a5200; --warn-soft: #f8eedb; --bad: #ab1d39; --bad-soft: #f8e2e6;
-    --ridge-farthest: #e4e9ee; --ridge-far: #ccd5dd; --ridge-near: #94a3b0; --ridge-deep: #758593; --ridge-edge: #5a6976;
-    --snow: #ffffff; --night: #dbe2e8; --star: #ffffff; --flag-bot: #9aa6b1;
-    --shadow: 0 1px 2px rgb(22 32 42 / .05), 0 10px 30px -18px rgb(22 32 42 / .2);`,
-  },
-  /* polar night: true black for OLED screens, the night's ink */
-  polar: {
-    scheme: "dark",
-    surface: "#0b0f13",
-    tokens: String.raw`${DARK}
-    --bg: #000000; --sky: #05080b; --surface: #0b0f13; --surface-2: #10161b; --hover: #161d23;
-    --ink: #eef2f5; --ink-2: #b8c2ca; --ink-3: #8e9aa4;
-    --line: #1b2229; --line-2: #29323a; --control: #626c75;
-    --accent-soft: #10202d; --accent-line: #24425a;
-    --ok-soft: #122015; --warn-soft: #241c10; --bad-soft: #2a1318;
-    --ridge-farthest: #070b0f; --ridge-far: #0d151c; --ridge-near: #1a2833; --ridge-deep: #0e1820; --ridge-edge: #4a6578;
-    --night: #000000;`,
-  },
-  /* ember: the stove at night, warm brown-black and firelit ink */
-  ember: {
-    scheme: "dark",
-    surface: "#1f1712",
-    tokens: String.raw`${DARK}
-    --bg: #15100c; --sky: #1b140f; --surface: #1f1712; --surface-2: #251c16; --hover: #2c221b;
-    --ink: #f2e9e0; --ink-2: #cdbdae; --ink-3: #a89786;
-    --line: #33271f; --line-2: #45362b; --control: #7e6e60;
-    --accent: #8fc0e2; --accent-ink: #0b141b; --accent-soft: color-mix(in srgb, #8fc0e2 16%, #1f1712); --accent-line: color-mix(in srgb, #8fc0e2 34%, #1f1712);
-    --ok: #93c781; --ok-soft: #1c2617; --warn: #e8bb62; --warn-soft: #2e2213; --bad: #f4899a; --bad-soft: #33181c;
-    --ridge-farthest: #1d1611; --ridge-far: #2a1f17; --ridge-near: #3f2f23; --ridge-deep: #261c15; --ridge-edge: #8a6e57;
-    --snow: #e9d9c8; --night: #0e0a07; --star: #f2e2cf; --flag-bot: #6d5847; --sun: #e9d9c8;
-    --shadow: 0 1px 0 rgb(255 240 220 / .02) inset, 0 14px 40px -24px rgb(0 0 0 / .8);`,
-  },
-};
-/** Each theme's block, and the accents on its own surface (the same colours as light's or dark's). */
-const themeCss = () =>
-  Object.entries(THEMES)
-    .map(([name, t]) => {
-      const a = t.scheme === "light" ? { heather: ["#6a4c9c", "#ffffff", 13, 32], glacier: ["#0e6a8f", "#ffffff", 12, 30] } : { heather: ["#a99cf0", "#07131c", 16, 34], glacier: ["#5fc0e8", "#07131c", 16, 34] };
-      const accents = Object.entries(a)
-        .map(([id, [c, ink, soft, line]]) => `:root[data-theme="${name}"][data-accent="${id}"] { ${accent(c as string, ink as string, t.surface, soft as number, line as number)} }`)
-        .join("\n");
-      return `:root[data-theme="${name}"] {\n  color-scheme: ${t.scheme};\n    ${t.tokens}\n}\n${accents}`;
-    })
-    .join("\n");
-
 export const STYLE = String.raw`
 /* ── Type: Nordwand Mono for code, and for everything when picked (assets/fonts, SIL OFL 1.1; tywr/Nordwand-Mono 1.3.3) ── */
 @font-face { font-family: "Nordwand Mono"; src: url("/assets/fonts/NordwandMono-Light.woff2") format("woff2"); font-weight: 300; font-style: normal; font-display: swap; }
@@ -258,57 +177,20 @@ export const STYLE = String.raw`
   --fs-xs: calc(12px * var(--zoom)); --fs-s: calc(13px * var(--zoom)); --fs-m: calc(15px * var(--zoom)); --fs-l: calc(18px * var(--zoom)); --fs-xl: calc(23px * var(--zoom)); --fs-hero: calc(50px * var(--zoom));
   --r: 16px; --r-s: 9px;
 
-  /* morning in the cabin: oat and cream, espresso ink, warm stone (PLAN WP-M2) */
-  --bg: #f8f4ee; --sky: #efe7db; --surface: #fffdfa; --surface-2: #f8f3ed; --hover: #f1ebe2;
-  --ink: #2a1d14; --ink-2: #54453a; --ink-3: #65564a;
-  --line: #e9e1d5; --line-2: #d6cabb;
-  /* a control's own edge (inputs, selects, checkboxes, radio cards): 3:1 on every surface, WCAG 1.4.11.
-     --line-2 stays for dividers and for buttons, which their label identifies. */
-  --control: #8d7f72;
-  --accent: #1d5c88; --accent-ink: #ffffff; --accent-soft: #e3edf5; --accent-line: #b9cfe0;
-  /* the f / F hint letters: an overlay, not a status, so a colour of their own (Vimium's yellow) */
-  --hint: #ffd84a; --hint-ink: #1f1700; --hint-line: #b8930c;
-  --ok: #3d7230; --ok-soft: #e6efdf;
-  --warn: #965800; --warn-soft: #faf0db;
-  --bad: #ad1f3b; --bad-soft: #f9e3e7;
-  /* Chart series (src/ui/chart.ts), checked with the dataviz validator on --surface: identity, not status. */
-  --c1: #2a78d6; --c2: #eb6834;
-  --ridge-farthest: #ebe2d5; --ridge-far: #d8cbb9; --ridge-near: #ab9883; --ridge-deep: #8c7864; --ridge-edge: #6e5c4b;
-  --snow: #fffdfa; --night: #e3d8c8; --star: #fffdfa; --flag-bot: #ab9c8e; --sun: var(--accent);
-  --shadow: 0 1px 2px rgb(42 29 20 / .05), 0 10px 30px -18px rgb(42 29 20 / .2);
+  /* the palette: morning in the cabin (src/ui/themes.ts) */
+  ${MORNING_CSS}
 
   /* the kit's token aliases, on these values */
   --text: var(--ink); --text-2: var(--ink-2); --text-3: var(--ink-3); --border: var(--line); --border-2: var(--line-2);
   --fs-sm: var(--fs-s); --fs: calc(14px * var(--zoom)); --fs-md: var(--fs-m); --fs-lg: var(--fs-l); --r-lg: var(--r); --r-sm: 6px; --font: var(--sans);
   /* the charts' (src/ui/charts.view.ts): series are identity, not status */
-  --s1: var(--c1); --s2: var(--c2); --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --grid: var(--line); --axis: var(--line-2);
-  /* the blue ramp (heatmaps, ordered outcomes): h1 faintest, h6 strongest on this surface */
-  --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #256abf; --h6: #184f95;
+  --s1: var(--c1); --s2: var(--c2); --grid: var(--line); --axis: var(--line-2);
   /* each agent harness's hue (#239): identity, not status. Mixed with the theme's ink and surface
      where used (.harness), so one value reads in every theme. */
   --hn-claude: #c8693f; --hn-codex: #7277dc; --hn-omp: #9d62c8; --hn-copilot: #9d62c8; --hn-agy: #c4508f;
 }
-/* The accents (Settings → Layout), each checked against ok, warn and bad with the dataviz validator
-   in both themes (colour blind and not) and for text contrast; green, amber and red stay status. */
-:root[data-accent="heather"] { ${ACCENT_LIGHT.heather} }
-:root[data-accent="glacier"] { ${ACCENT_LIGHT.glacier} }
-/* Night: the system's dark unless I've picked a theme, or dark whatever the system says (Settings → Layout). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-${DARK}
-  }
-  :root:not([data-theme])[data-accent="heather"] { ${ACCENT_DARK.heather} }
-  :root:not([data-theme])[data-accent="glacier"] { ${ACCENT_DARK.glacier} }
-}
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] {
-  color-scheme: dark;
-${DARK}
-}
-:root[data-theme="dark"][data-accent="heather"] { ${ACCENT_DARK.heather} }
-:root[data-theme="dark"][data-accent="glacier"] { ${ACCENT_DARK.glacier} }
-/* The other themes (THEMES above). */
-${themeCss()}
+/* The accents, night under the system's dark unless I've picked a theme, and each theme (src/ui/themes.ts). */
+${THEME_CSS}
 ${READING_CSS}
 
 /* ── Base ───────────────────────────────────────────────────────────────── */
@@ -636,16 +518,7 @@ form.look { display: grid; gap: 16px; }
 .sw-theme { width: 34px; height: 24px; border-radius: 6px; background: var(--sw-bg); position: relative; overflow: hidden; }
 .sw-theme::before { content: ""; position: absolute; left: 5px; top: 5px; right: 5px; height: 6px; border-radius: 2px; background: var(--sw-ink); opacity: .85; }
 .sw-theme::after { content: ""; position: absolute; left: 5px; bottom: 5px; width: 12px; height: 5px; border-radius: 2px; background: var(--sw-accent); }
-.sw-system { --sw-ink: #2a1d14; --sw-accent: #1d5c88; background: linear-gradient(135deg, #f8f4ee 50%, #0a1117 50%); }
-.sw-light { --sw-bg: #f8f4ee; --sw-ink: #2a1d14; --sw-accent: #1d5c88; }
-.sw-dark { --sw-bg: #0a1117; --sw-ink: #e6ecf0; --sw-accent: #84b9df; }
-.sw-birch { --sw-bg: #f2f4f7; --sw-ink: #16202a; --sw-accent: #1d5c88; }
-.sw-polar { --sw-bg: #000000; --sw-ink: #eef2f5; --sw-accent: #84b9df; }
-.sw-ember { --sw-bg: #15100c; --sw-ink: #f2e9e0; --sw-accent: #8fc0e2; }
-.sw-accent { width: 20px; height: 20px; border-radius: 50%; background: var(--sw-accent); }
-.sw-fjord { --sw-accent: #1d5c88; }
-.sw-heather { --sw-accent: #6a4c9c; }
-.sw-glacier { --sw-accent: #0e6a8f; }
+${SWATCH_CSS}
 .sample { flex: none; color: var(--ink); line-height: 1; }
 .font-mono { font-family: var(--nordwand); font-size: 18px; }
 .font-sans { font-family: var(--sans-system); font-size: 18px; }

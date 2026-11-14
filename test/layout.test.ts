@@ -173,6 +173,29 @@ test("themes (#95): each has its block, its accents and its scheme; the browser'
   assert.deepEqual(layoutOf({ theme: "polar" }), { theme: "polar" });
 });
 
+test("themes and accents are written once (src/ui/themes.ts): the picker, the swatches, the saved ids and the bar all read the registry", async () => {
+  const { STYLE } = await import("../src/ui/style.ts");
+  const { SKY } = await import("../src/html.ts");
+  const { THEMES: ids } = await import("../src/layout.ts");
+  const { ACCENTS, THEMES, paletteOf } = await import("../src/ui/themes.ts");
+  assert.deepEqual([...ids], THEMES.map((t) => t.id));
+  const { get } = signedIn(snapshot());
+  const look = await (await get("/settings/look")).text();
+  for (const t of THEMES) {
+    assert.match(t.id, /^[a-z]+$/);
+    assert.ok(look.includes(`name="theme" value="${t.id}"`), `${t.id} can be picked`);
+    assert.ok(look.includes(`${t.label} <span class="t3">${t.about}</span>`), `${t.id} is named`);
+    assert.ok(STYLE.includes(`.sw-${t.id} { --sw-bg: ${paletteOf(t)["--bg"]};`), `${t.id} has a swatch of its own page`);
+    assert.equal(SKY[t.id], paletteOf(t)["--sky"]);
+    assert.deepEqual(layoutOf({ theme: t.id }), { theme: t.id });
+  }
+  for (const a of ACCENTS) {
+    assert.ok(look.includes(`name="accent" value="${a.id}"`), `${a.id} can be picked`);
+    assert.ok(STYLE.includes(`.sw-${a.id} {`), `${a.id} has a swatch`);
+    assert.deepEqual(layoutOf({ accent: a.id }), { accent: a.id });
+  }
+});
+
 test("Bino's button: the assistant icon without an avatar; with one, the avatar unless Settings → Layout says the icon", async () => {
   const { createApp } = await import("../src/app.ts");
   const { noMemory } = await import("../src/packs/core/assistant/bino/memory.ts");

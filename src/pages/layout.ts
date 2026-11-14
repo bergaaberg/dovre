@@ -6,6 +6,7 @@
 import { html } from "hono/html";
 import type { Layout } from "../layout.ts";
 import { type Html, Panel } from "../ui/kit.ts";
+import { ACCENTS, FJORD, THEMES } from "../ui/themes.ts";
 
 export type LayoutView = {
   layout: Layout;
@@ -25,10 +26,12 @@ export type LayoutView = {
 };
 
 type Opt = { value: string; label: string };
+/** "Birch (cool light)": the name, then what it's like (the picker shows that part quieter). */
+const named = (x: { id?: string; label: string; about: string }): Opt => ({ value: x.id ?? "", label: `${x.label} (${x.about})` });
 /** Look's choices: the key in Layout, its label, and its options (the default's value is ""). */
 export const LOOK: { key: "theme" | "accent" | "font" | "textSize" | "lineHeight" | "binoButton" | "motion"; label: string; choices: Opt[] }[] = [
-  { key: "theme", label: "Theme", choices: [{ value: "", label: "As the system" }, { value: "light", label: "Light (cabin)" }, { value: "dark", label: "Dark (night)" }, { value: "birch", label: "Birch (cool light)" }, { value: "polar", label: "Polar (black)" }, { value: "ember", label: "Ember (warm dark)" }] },
-  { key: "accent", label: "Accent", choices: [{ value: "", label: "Fjord (blue)" }, { value: "heather", label: "Heather (violet)" }, { value: "glacier", label: "Glacier (ice blue)" }] },
+  { key: "theme", label: "Theme", choices: [{ value: "", label: "As the system" }, ...THEMES.map(named)] },
+  { key: "accent", label: "Accent", choices: [{ value: "", label: named(FJORD).label }, ...ACCENTS.map(named)] },
   { key: "font", label: "Font", choices: [{ value: "", label: "Sans (system)" }, { value: "mono", label: "Nordwand Mono" }, { value: "serif", label: "Serif (system)" }] },
   { key: "textSize", label: "Text size", choices: [{ value: "small", label: "Small" }, { value: "", label: "Default" }, { value: "large", label: "Large" }, { value: "larger", label: "Larger" }] },
   { key: "lineHeight", label: "Line height", choices: [{ value: "tight", label: "Tight" }, { value: "", label: "Default" }, { value: "loose", label: "Loose" }] },

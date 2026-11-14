@@ -9,6 +9,7 @@ import type { IconName } from "./ui/icons.ts";
 import { SPRITE } from "./ui/icons.ts";
 import type { Html } from "./ui/kit.ts";
 import { STYLE_PATH } from "./ui/style.ts";
+import { SKY } from "./ui/themes.ts";
 import { SCRIPT_PATH } from "./ui/app.js.ts";
 import type { AskView } from "./relay/asks.ts";
 import type { DockView } from "./packs/registry.ts";
@@ -39,8 +40,8 @@ const groupRank = (g: string) => (NAV_GROUPS.includes(g) ? NAV_GROUPS.indexOf(g)
 
 /** What every page knows: who's signed in, the sections (app.ts), when the data was gathered. */
 /** The browser's bar in the page's colour (--sky): the picked theme's, else both, by the system's setting. */
-/** Each theme's --sky (src/ui/style.ts; test/layout.test.ts holds them equal). */
-export const SKY: Record<string, string> = { light: "#efe7db", dark: "#0e1922", birch: "#e6ebf0", polar: "#05080b", ember: "#1b140f" };
+/** Each theme's --sky (src/ui/themes.ts). */
+export { SKY };
 function themeColor(theme?: string) {
   if (theme && Object.hasOwn(SKY, theme)) return html`<meta name="theme-color" content="${SKY[theme]}">`;
   return html`<meta name="theme-color" content="${SKY.light}" media="(prefers-color-scheme: light)">

@@ -352,6 +352,10 @@ Also:
   bypass; how its stream reads) and a `HarnessDef`; its filter `launcher/keep_<id>.go`, which
   `Keep` dispatches to; and an entry in `HARNESS_DEFS` (`src/agents/harnesses/index.ts`).
   `test/harnesses.test.ts` checks the pairs line up.
+- **A new theme or accent** (core only, for now): one entry in `src/ui/themes.ts`, the tokens it
+  changes on top of its scheme's. The picker, its swatch, the stylesheet's block, the ids a saved
+  Layout may hold and the browser bar's colour are read from there, and `test/contrast.test.ts`
+  checks it against WCAG AA without listing it.
 - **A new place on a core page:** add a slot to `SlotMap` (`arg` in, `out` back); the page calls
   `fill(name, arg)`. Prefer slots.
 - **A new hook**, only when no slot fits, is three edits:

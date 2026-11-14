@@ -7,6 +7,7 @@
 import { sharedRead } from "./shared-read.ts";
 import type { D1 } from "./db.ts";
 import type { NavItem } from "./html.ts";
+import { ACCENT_IDS, type AccentId, THEME_IDS, type ThemeId } from "./ui/themes.ts";
 
 export type Column = "left" | "right";
 type CardPlace = { col: Column | "off"; order: number };
@@ -47,10 +48,11 @@ const STATS_WEEKS = [4, 12, 26] as const;
 type StatsWeeks = (typeof STATS_WEEKS)[number];
 const STATS_DAYS = [14, 28] as const;
 type StatsDays = (typeof STATS_DAYS)[number];
-export const THEMES = ["light", "dark", "birch", "polar", "ember"] as const;
-export type Theme = (typeof THEMES)[number];
-const ACCENTS = ["heather", "glacier"] as const;
-export type Accent = (typeof ACCENTS)[number];
+/** The themes and accents a Layout may name: the registry's (src/ui/themes.ts). */
+export const THEMES: readonly Theme[] = THEME_IDS;
+export type Theme = ThemeId;
+const ACCENTS: readonly Accent[] = ACCENT_IDS;
+export type Accent = AccentId;
 /** Sans is the default (unset); a layout saved before #419 that says "sans" reads as unset. */
 const FONTS = ["mono", "serif"] as const;
 export type Font = (typeof FONTS)[number];
