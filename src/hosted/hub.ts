@@ -24,6 +24,11 @@
  *   revoked (POST /mac/revoke) is shut out until its tokens run out. Each keeps who paired it, when
  *   its token said (Team T4); the agents desk shows a machine only to them (src/bridge/remote.ts).
  *
+ * - Rings (#551): what each stream of needs has rung already (POST /ring), kept here so a need
+ *   rings once whichever isolate gathered it, and its notes sent to the pages they're for. A pack's
+ *   ring and Settings' test go out as they come (POST /notes). The last few rung are kept for
+ *   Settings (GET /rung).
+ *
  * - Export (GET /export): every table it keeps, for a hosted cockpit's export of its data.
  *
  * Only the Worker reaches it, through its binding, after Cloudflare Access let the request in
@@ -37,6 +42,7 @@ import { type LookupsBinding, lookupsVia } from "./lookups.ts";
 import type { D1 } from "../db.ts";
 import { type CheckJob, runCheck } from "../reviews/check.ts";
 import { DAY_MS, frameKind, KEEP_DAYS } from "../sent.ts";
+import { bundle, type Note, type Rung } from "../notify.ts";
 import { type Call, type Channel, channel, type Down, helloOk, keyOk, LEGACY_MACHINE, machineKey, machineOk, type MacState, nonce, parseUp, sessionKey } from "../bridge/wire.ts";
 
 /** A hibernatable WebSocket, as much of one as this uses. */
@@ -111,6 +117,39 @@ const viewerOf = (h: Headers): Viewer => {
   const who = h.get(VIEWER_HEADER)?.trim().toLowerCase().slice(0, 320) || undefined;
   return who ? { who, ...(h.get(OWN_HEADER) === "1" ? { own: true } : {}) } : {};
 };
+/** Whom a /publish, /ring or /notes body names: undefined is everyone, null a name that isn't one (never widened). */
+const audienceOf = (b: { for?: unknown; shared?: unknown }): Audience | undefined | null => {
+  if (b.for === undefined) return b.shared === true ? { shared: true } : undefined;
+  const who = typeof b.for === "string" ? b.for.trim().toLowerCase().slice(0, 320) : "";
+  return who ? { for: who } : null;
+};
+
+/**
+ * One stream of needs, as a gather found them (#551): every key it has now, and a note for each
+ * that rings under the policy. `held`: quiet hours, so what's new is kept in the log, not sent.
+ * `bundle`: several new at once go as one.
+ */
+export type RingCall = Audience & { stream: string; keys: string[]; notes: (Note & { key: string })[]; held?: boolean; bundle?: boolean };
+/** A key stays rung this long after a gather last had it: an isolate whose packs read late, or not yet, doesn't ring it again. */
+export const SEEN_MS = 24 * 3600_000;
+/** At most this many keys kept per stream, the newest. */
+const MAX_SEEN = 500;
+/** How many rung notes Settings shows. */
+const RUNG_KEPT = 30;
+const pathOnly = (u: unknown) => (typeof u === "string" && /^\/(?![\/\\])/.test(u) && u.length <= 500 ? u : undefined);
+const text = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : undefined);
+/** A note as a body said it, cut to size, its link a path here or none; not a note, undefined. */
+export const noteIn = (v: unknown): (Note & { key?: string }) | undefined => {
+  if (!v || typeof v !== "object") return undefined;
+  const n = v as Record<string, unknown>;
+  const title = text(n.title, 120)?.trim();
+  if (!title) return undefined;
+  const body = text(n.body, 200);
+  const kind = typeof n.kind === "string" && /^[a-z][a-z0-9-]{0,39}$/.test(n.kind) ? n.kind : undefined;
+  const key = text(n.key, 260);
+  return { title, ...(body ? { body } : {}), ...(pathOnly(n.url) ? { url: pathOnly(n.url) } : {}), tag: text(n.tag, 80) || "dovre", ...(kind ? { kind } : {}), ...(key ? { key } : {}) };
+};
+
 /** What Settings shows of the pages listening (GET /pages). */
 export type PagesView = { sockets: number; streams: number; people: number; max: number; mine: number };
 type PageAttached = { page: true } & Viewer;
@@ -272,12 +311,36 @@ export class DovreHub {
       const b = (await req.json().catch(() => ({}))) as { topics?: unknown; synced?: unknown; for?: unknown; shared?: unknown };
       const topics = Array.isArray(b.topics) ? b.topics.filter((t): t is string => typeof t === "string" && t.length <= 120).slice(0, 20) : [];
       const synced = typeof b.synced === "number" && Number.isFinite(b.synced) ? b.synced : undefined;
-      const who = typeof b.for === "string" ? b.for.trim().toLowerCase().slice(0, 320) : "";
+      const to = audienceOf(b);
       // A change named for someone never widens to everyone: without a name it's dropped.
-      if (b.for !== undefined && !who) return json({ ok: false }, 400);
-      if (topics.length || synced) this.publish(topics, synced, who ? { for: who } : b.shared === true ? { shared: true } : undefined);
+      if (to === null) return json({ ok: false }, 400);
+      if (topics.length || synced) this.publish(topics, synced, to);
       return json({ ok: true, listeners: this.subs.size + this.pages().length });
     }
+    if (req.method === "POST" && path === "/ring") {
+      const b = (await req.json().catch(() => ({}))) as { calls?: unknown };
+      const calls = Array.isArray(b.calls) ? b.calls.slice(0, 64) : [];
+      let rang = 0;
+      for (const c of calls) {
+        const r = c && typeof c === "object" ? (c as Record<string, unknown>) : {};
+        const to = audienceOf(r);
+        if (to === null || typeof r.stream !== "string" || !/^[a-z]+(:[^\s]{1,320})?$/.test(r.stream) || !Array.isArray(r.keys) || !Array.isArray(r.notes)) continue;
+        const keys = r.keys.filter((k): k is string => typeof k === "string").map((k) => k.slice(0, 260));
+        const notes = r.notes.slice(0, 50).map(noteIn).filter((n): n is Note & { key: string } => !!n?.key);
+        rang += this.ring({ stream: r.stream, ...to, keys, notes, held: r.held === true, bundle: r.bundle === true });
+      }
+      return json({ ok: true, rang });
+    }
+    if (req.method === "POST" && path === "/notes") {
+      const b = (await req.json().catch(() => ({}))) as { notes?: unknown; for?: unknown; shared?: unknown };
+      const to = audienceOf(b);
+      const notes = (Array.isArray(b.notes) ? b.notes.slice(0, 10) : []).map(noteIn).filter((n): n is Note => !!n).map(({ key: _k, ...n }: Note & { key?: string }) => n);
+      if (to === null || !notes.length) return json({ ok: false }, 400);
+      this.remember(notes);
+      this.notesOut(notes, to);
+      return json({ ok: true });
+    }
+    if (req.method === "GET" && path === "/rung") return json(this.rung());
     if (req.method === "POST" && path === "/bino") return json(await this.binoOp((await req.json()) as BinoOp));
     if (req.method === "POST" && path === "/review/check") {
       const b = (await req.json().catch(() => ({}))) as { job?: CheckJob; topic?: unknown };
@@ -361,6 +424,86 @@ export class DovreHub {
     if (this.sentAt.size > 256) for (const [k, t] of this.sentAt) if (at - t >= this.changeGap) this.sentAt.delete(k);
     this.sentAt.set(audienceKey(to), at);
     const data = JSON.stringify({ topics, at, synced });
+    const line = enc.encode(`event: change\ndata: ${data}\n\n`);
+    for (const [w, v] of this.subs) if (hears(v, to)) this.write(w, line);
+    for (const ws of this.pagesFor(to)) {
+      try {
+        ws.send(data);
+      } catch {}
+    }
+  }
+
+  private ringSql = false;
+  private ringTables() {
+    if (this.ringSql) return;
+    const sql = this.state.storage.sql;
+    sql.exec("CREATE TABLE IF NOT EXISTS rung_seen (stream TEXT PRIMARY KEY, keys TEXT NOT NULL, at INTEGER NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS rung_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, note TEXT NOT NULL, held INTEGER NOT NULL DEFAULT 0)");
+    this.ringSql = true;
+  }
+
+  /**
+   * A stream's needs now (#551): those whose key it hasn't had within SEEN_MS ring, to the pages
+   * they're for. The stream's first call ever only learns what's there. Returns how many notes went.
+   */
+  ring(c: RingCall): number {
+    this.ringTables();
+    const sql = this.state.storage.sql;
+    const now = this.now();
+    const row = sql.exec("SELECT keys FROM rung_seen WHERE stream = ?", c.stream).toArray()[0];
+    let had: Record<string, number> | undefined;
+    if (row) {
+      try {
+        const v = JSON.parse(String(row.keys)) as unknown;
+        had = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, number>) : {};
+      } catch {
+        had = {};
+      }
+    }
+    const kept: Record<string, number> = {};
+    for (const [k, at] of Object.entries(had ?? {})) if (typeof at === "number" && now - at < SEEN_MS) kept[k] = at;
+    for (const k of c.keys) kept[k] = now;
+    const newest = Object.entries(kept).sort((a, b) => b[1] - a[1]).slice(0, MAX_SEEN);
+    sql.exec("INSERT OR REPLACE INTO rung_seen (stream, keys, at) VALUES (?, ?, ?)", c.stream, JSON.stringify(Object.fromEntries(newest)), now);
+    // A stream no gather has sent in a month (someone who left the team) goes.
+    sql.exec("DELETE FROM rung_seen WHERE at < ?", now - 30 * DAY_MS);
+    if (!had) return 0;
+    const fresh = c.notes.filter((n) => !(n.key in had!) || now - had![n.key]! >= SEEN_MS).map(({ key: _k, ...n }) => n as Note);
+    if (!fresh.length) return 0;
+    const out = c.bundle && fresh.length > 1 ? [bundle(fresh)] : fresh;
+    this.remember(out, c.held);
+    if (!c.held) this.notesOut(out, c.for ? { for: c.for } : c.shared ? { shared: true } : undefined);
+    return c.held ? 0 : out.length;
+  }
+
+  /** Notes rung (or held back for quiet hours), the newest few kept for Settings. */
+  private remember(notes: Note[], held?: boolean) {
+    this.ringTables();
+    const sql = this.state.storage.sql;
+    const at = this.now();
+    for (const n of notes) sql.exec("INSERT INTO rung_log (at, note, held) VALUES (?, ?, ?)", at, JSON.stringify(n), held ? 1 : 0);
+    sql.exec("DELETE FROM rung_log WHERE id NOT IN (SELECT id FROM rung_log ORDER BY id DESC LIMIT ?)", RUNG_KEPT);
+  }
+
+  /** What rang lately, newest first (Settings → Notifications). */
+  rung(): Rung[] {
+    this.ringTables();
+    return this.state.storage.sql
+      .exec("SELECT at, note, held FROM rung_log ORDER BY id DESC LIMIT ?", RUNG_KEPT)
+      .toArray()
+      .flatMap((r) => {
+        try {
+          const n = noteIn(JSON.parse(String(r.note)));
+          return n ? [{ ...n, at: Number(r.at), ...(Number(r.held) ? { held: "quiet" as const } : {}) }] : [];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  /** Notes, out now to every page they're for (a page shows them only when it may, and isn't looked at). */
+  private notesOut(notes: Note[], to?: Audience): void {
+    const data = JSON.stringify({ topics: [], at: Date.now(), notes });
     const line = enc.encode(`event: change\ndata: ${data}\n\n`);
     for (const [w, v] of this.subs) if (hears(v, to)) this.write(w, line);
     for (const ws of this.pagesFor(to)) {

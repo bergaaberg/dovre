@@ -20,6 +20,8 @@ import type { D1 } from "./db.ts";
 import type { App, Env } from "./env.ts";
 import { createGatherer, type Gatherer, type Snapshot, type SnapshotStore, shownOf } from "./gather.ts";
 import { d1SnapshotStore, personKey } from "./hosted/snapshot.ts";
+import { hostedRings, teamOf } from "./hosted/rings.ts";
+import { currentTz, validZone } from "./when.ts";
 import { type Found, type People, perPerson } from "./hosted/people.ts";
 import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
 import { d1Reads, type SharedReads } from "./sources/files.ts";
@@ -264,7 +266,7 @@ const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) 
  * the instance's owners. Its kept reads and kept snapshot are theirs alone. Rejects when the
  * provider has no token for them.
  */
-export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void }): (email: string) => Promise<Found> {
+export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void; /** And what's new in it rings for them (#551). */ rang?: (who: string, s: Snapshot) => void }): (email: string) => Promise<Found> {
   const host = hostOf(bindings);
   const reads = bindings.DB ? d1Reads(bindings.DB) : undefined;
   const owners = ownersOfBindings(bindings, o.instanceLogin);
@@ -285,7 +287,10 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
           linked: o.linked,
           maxGatherMs: STUCK_MS,
           store: { load: () => undefined, save: (s) => kept.save(s) },
-          onGathered: (s) => sync.gathered(s.at, shownOf(s)),
+          onGathered: (s) => {
+            sync.gathered(s.at, shownOf(s));
+            o.rang?.(who, s);
+          },
         });
         const last = await kept.load();
         // One kept under another login isn't theirs to see again: they signed in to GitHub as someone else since.
@@ -391,11 +396,13 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     const sync = syncTeller((at, changed) => hub?.gathered(at, changed));
     // The PRs the packs' pages link (the Mac's agents' sessions): set once the app is built.
     let linked = (): string[] => [];
-    const plain = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => sync.gathered(s.at, shownOf(s)), () => linked());
+    // What's new in a gather rings (#551): set once the hub and the app are there.
+    let rang = (_s: Snapshot, _who?: string) => {};
+    const plain = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => (sync.gathered(s.at, shownOf(s)), rang(s)), () => linked());
     // A Refresh or an action waits on the next gather's "Synced", changed or not.
     const instance: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
     // Where GitHub tokens tell people apart, a person with their own gets their own snapshot (#538).
-    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (who, at, changed) => hub?.gathered(at, changed, who) }) }) : undefined;
+    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (who, at, changed) => hub?.gathered(at, changed, who), rang: (who, s) => rang(s, who) }) }) : undefined;
     // A page says which login its snapshot was gathered as (the shell's u-as): any but the instance's is a person's own (#539).
     const own = (as: string | null | undefined) => !!people && !!as?.trim() && as.trim().toLowerCase() !== login.toLowerCase();
     const gatherer: Gatherer = people?.gatherer ?? instance;
@@ -436,6 +443,8 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     const verify = builtIn?.verify ?? (access ? createAccessVerifier(access) : undefined);
     // The hub, when the instance binds it: live pages, and Bino answering in the object.
     const hub = bindings.HUB ? hubClient(bindings.HUB) : undefined;
+    // Needs ring through the hub, under the cockpit's policy (#551).
+    const ringer = hub && bindings.DB ? hostedRings({ db: bindings.DB, hub, team: teamOf(bindings.ALLOWED_EMAILS), tz: () => (bindings.TZ_NAME ? validZone(bindings.TZ_NAME) : currentTz()) }) : undefined;
     const memory = memoryLater(loadMemory(bindings.DB));
     // The agents desk is the machines', over the bridge (PLAN D24, H7), when it's set up (a BRIDGE_KEY).
     // Without the bridge, a desk with nothing to run: the pages say so.
@@ -451,6 +460,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
+      notify: ringer?.notify,
       machines: hub ? async () => (await hub.mac()).machines : undefined,
       events: hub ? (as) => hub.events({ who: currentViewer(), own: own(as) }) : undefined,
       live: !!hub,
@@ -466,12 +476,16 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     });
     const mounted = packsOf(app)!;
     linked = mounted.linked;
+    if (ringer) {
+      ringer.mount(mounted);
+      rang = (s, who) => ringer.gathered(s, who);
+    }
     const seeded = kept.load().then((s) => {
       if (!s) return;
       gatherer.seed?.(s);
       sync.seed(shownOf(s));
     });
-    const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS)]).then(() => mounted.keysRead());
+    const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS), ringer ? capped(ringer.load()) : undefined]).then(() => mounted.keysRead());
     const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, instance, people, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider, own };
     void ready.then(() => (built.started = true));
     hosted = built;

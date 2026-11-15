@@ -206,7 +206,7 @@ export function longTurnPanel(p: Policy) {
   });
 }
 
-export function notifyPanels(p: Policy, log: Rung[], rings: { kind: string; label: string; hint?: string; off?: boolean }[] = []) {
+export function notifyPanels(p: Policy, log: Rung[], rings: { kind: string; label: string; hint?: string; off?: boolean }[] = [], o: { hosted?: boolean } = {}) {
   const form = html`<form method="post" action="/settings/notify">
 <div class="field" id="ring-for"><span class="label">Ring for</span><fieldset>${[...RING_KINDS, ...rings].map(
     (k) => html`<label class="check"><input type="checkbox" name="kind" value="${k.kind}"${ringOn(p, k) ? html` checked` : ""}> ${k.label}${k.hint ? html` <span class="t3">· ${k.hint}</span>` : ""}</label><br>`,
@@ -229,8 +229,8 @@ ${quietFields(p.quiet, "Nothing rings then; Dovre still shows it. Auto runs star
           }),
         ),
       )
-    : Empty({ title: "Nothing has rung since Dovre started" });
-  return html`${Panel({ title: "Notifications", id: "notifications", children: html`<p class="notes">They come as Windows toasts. Allow them in this window instead and it shows them itself, only when you're not looking at it. <span id="bell-note"></span></p><p><button id="bell" class="sm" type="button" hidden>Show them from this window</button></p>${form}` })}
+    : Empty({ title: o.hosted ? "Nothing has rung yet" : "Nothing has rung since Dovre started" });
+  return html`${Panel({ title: "Notifications", id: "notifications", children: html`<p class="notes">${o.hosted ? "An open Dovre page shows them, in a browser that allows them, only when you're not looking at it. With no Dovre page open, nothing rings." : "They come as Windows toasts. Allow them in this window instead and it shows them itself, only when you're not looking at it."} <span id="bell-note"></span></p><p><button id="bell" class="sm" type="button" hidden>${o.hosted ? "Allow them in this browser" : "Show them from this window"}</button></p>${form}` })}
 ${Panel({
   title: "Rang lately",
   id: "rang-lately",
