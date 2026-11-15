@@ -659,7 +659,11 @@ function bellState(asked) {
   const p = "Notification" in window ? Notification.permission : "denied";
   bell.hidden = p === "granted";
   const note = $("bell-note");
-  if (note) note.textContent =
+  // Hosted (its pages listen on the hub's socket) there's no toast to fall back on.
+  if (note && document.querySelector('meta[name="u-live"]')?.content === "ws") note.textContent =
+    p === "granted" ? "This browser shows them." :
+    p === "denied" ? "Blocked in this browser: allow notifications for this site in its settings to get them." : "";
+  else if (note) note.textContent =
     p === "granted" ? "This window shows them." :
     asked ? "Edge held the request back (an app window has no address bar to ask in). Windows toasts carry on; to allow it here, open the window's … menu → App info → Permissions." :
     p === "denied" ? "Blocked for this window. Windows toasts carry on." : "Windows toasts for now.";
@@ -736,7 +740,8 @@ function socket() {
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(wsFails, 5)) + Math.random() * 500);
   });
 }
-// The socket carries no notes, so a change of notifying keeps it; a stream reopens with ?notify=1.
+// The socket carries every note (the page decides whether to show it), so a change of notifying
+// keeps it; a stream reopens with ?notify=1.
 function reconnect() { if (WS && !wsOff) return; es?.close(); connect(); }
 function connect() {
   if (WS && !wsOff) { if (!ws) socket(); return; }

@@ -9,7 +9,8 @@ import type { Route } from "../packs/core/assistant/bino/route.ts";
 import type { Hub } from "../live.ts";
 import type { Call } from "../bridge/wire.ts";
 import type { CheckJob } from "../reviews/check.ts";
-import { type BinoOp, type MacAnswer, type MacView, OWN_HEADER, type PagesView, type ReceivedDay, VIEWER_HEADER, type Viewer } from "./hub.ts";
+import type { Note, Rung } from "../notify.ts";
+import { type Audience, type BinoOp, type MacAnswer, type MacView, OWN_HEADER, type PagesView, type ReceivedDay, type RingCall, VIEWER_HEADER, type Viewer } from "./hub.ts";
 
 type Stub = { fetch(input: Request | string, init?: RequestInit): Promise<Response> };
 /** A Durable Object namespace binding, as much of it as this uses. */
@@ -27,6 +28,12 @@ export type HubClient = Hub & {
    * instance's, which the pages drawn from a person's own don't hear (#539).
    */
   gathered(at: number, changed: boolean, who?: string): void;
+  /** Streams of needs a gather found (#551), once they're worked out: the object rings what's new in each. */
+  ring(calls: Promise<RingCall[]>): void;
+  /** Notes to ring now, as they are (a pack's ring, Settings' test). */
+  notes(notes: Note[], to?: Audience): void;
+  /** What rang lately (Settings → Notifications). */
+  rung(): Promise<Rung[]>;
   /** Publishes still on their way (worker.ts waits for them after answering). */
   drain(): Promise<void>;
   /** A page's live socket (H5): its upgrade, handed to the object as it came, named for this person. */
@@ -74,6 +81,20 @@ export function hubClient(ns: HubNamespace): HubClient {
     gathered(at, changed, who) {
       const to = who?.trim() ? { for: who.trim().toLowerCase() } : { shared: true };
       keep(stub().fetch(`${BASE}/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topics: changed ? ["snapshot"] : [], synced: at, ...to }) }));
+    },
+    ring(calls) {
+      keep(
+        calls.then((c) => {
+          if (c.length) return stub().fetch(`${BASE}/ring`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ calls: c }) });
+        }),
+      );
+    },
+    notes(notes, to) {
+      if (notes.length) keep(stub().fetch(`${BASE}/notes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ notes, ...to }) }));
+    },
+    async rung() {
+      const r = await stub().fetch(`${BASE}/rung`);
+      return r.ok ? ((await r.json()) as Rung[]) : [];
     },
     // Pages subscribe to the object, never to an isolate.
     subscribe: () => () => {},

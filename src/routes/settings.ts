@@ -320,6 +320,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     AREAS.map((a) => a.id).filter((id) => (id === "work" ? !!deps.config : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
   /** Every setting as it is now, to find and to mark what was changed. */
   const rowsNow = async (frame: Frame) => {
+    await deps.notify?.fresh?.();
     const v = panesView();
     return settingRows({
       layout: layout.get(),
@@ -350,7 +351,8 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       case "layout":
         return layoutPanel(await layoutView(frame));
       case "notifications":
-        return notifyPanels(deps.notify?.policy() ?? policyOf(undefined), deps.notify?.log() ?? [], packRings);
+        await deps.notify?.fresh?.();
+        return notifyPanels(deps.notify?.policy() ?? policyOf(undefined), deps.notify?.log() ?? [], packRings, { hosted });
       case "writes":
         return writesPanel(await clicks.get().catch(() => new Map()), writeKinds(packs.on));
       case "keys":
@@ -503,6 +505,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     const form = await c.req.parseBody({ all: true });
     const kinds = new Set([form.kind ?? []].flat().map(String));
     const num = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? Number(v) : undefined);
+    await deps.notify?.fresh?.();
     const was = deps.notify?.policy() ?? policyOf(undefined);
     const next = policyOf({
       // The kinds on the form: the core's and the shown packs'; any other keeps what it was.
@@ -520,6 +523,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
   app.post("/settings/agents/long-turn", async (c) => {
     if (!deps.notify) return c.notFound();
     const v = (await c.req.parseBody()).longTurnMin;
+    await deps.notify.fresh?.();
     await deps.notify.setPolicy(policyOf({ ...deps.notify.policy(), longTurnMin: typeof v === "string" && v.trim() !== "" ? Number(v) : undefined }));
     saved = true;
     return c.redirect("/settings/agents#long-turn", 303);
