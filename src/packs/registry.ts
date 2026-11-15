@@ -12,6 +12,7 @@ import type { Note } from "../notify.ts";
 import type { ActSpec } from "./core/assistant/bino/acts.ts";
 import { type LookupSpec, resultOf } from "./core/assistant/bino/lookups.ts";
 import { appsOf, defaultBinoOf } from "./core/assistant/bino/context.ts";
+import { currentViewer, sees } from "../viewer.ts";
 import { apiGap } from "./api.ts";
 import { migratePack, migrationsGap } from "./migrations.ts";
 import { type ActDone, type ActKind, type LookupKind, type Bit, type Pack, type PackAgentRun, type PackContext, type PackManifest, type PackNote, type PackShares, type PackStat, type Pulse, type StatUnit, type Dock, type Glance, type Lane, type RingDecl, type SlotMap, type SlotName, type TodayCard } from "./types.ts";
@@ -345,17 +346,40 @@ export function statsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, weeks: nu
   });
 }
 
+/** Whom a need names (`PackNeed.person`): undefined for no one, null when it's there but isn't an address. */
+const personOf = (n: { person?: unknown }): string | undefined | null => {
+  if (n.person === undefined) return undefined;
+  const p = typeof n.person === "string" ? n.person.trim().toLowerCase() : "";
+  return p && p.length <= 254 ? p : null;
+};
+
+/**
+ * What a pack's `needs` gave, without the needs that name someone other than whoever this is read
+ * for (`PackNeed.person`, API 2.7; `sees` in src/viewer.ts). Read for no one (local, a hub's
+ * listener), a need that names anyone is left out; so is one whose `person` isn't an address,
+ * which is never widened to everyone. Every reader of a pack's needs goes through here.
+ */
+export function needsSeen<T>(got: T, viewer: string | undefined = currentViewer()): T {
+  if (!Array.isArray(got)) return got;
+  return got.filter((n) => {
+    if (!n || typeof n !== "object" || (n as { person?: unknown }).person === undefined) return true;
+    const p = personOf(n);
+    return !!p && sees(viewer, p);
+  }) as T;
+}
+
 /**
  * What every pack says needs me, as the core's needs: keys under the pack's id, text cut to size,
  * an href that isn't a path here or http(s) made harmless, a ring only when it's one the pack
- * declared (and `rings` kept). A pack that throws adds nothing and is logged.
+ * declared (and `rings` kept), and only the needs for whoever this is read for (`needsSeen`). A
+ * pack that throws adds nothing and is logged.
  */
 export function needsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, rings: { pack: string; kind: string }[], log: (id: string, line: string) => void): Need[] {
   return on.flatMap((c) => {
     if (!c.needs) return [];
     const id = c.manifest.id;
     const mine = new Set(rings.filter((r) => r.pack === id).map((r) => r.kind));
-    const got = safely(() => c.needs!(ctxOf(c)), [], (e) => log(id, `needs: ${(e as Error)?.message ?? e}`));
+    const got = needsSeen(safely(() => c.needs!(ctxOf(c)), [], (e) => log(id, `needs: ${(e as Error)?.message ?? e}`)));
     if (!Array.isArray(got)) return [];
     return got.slice(0, 50).flatMap((n): Need[] => {
       if (!n || typeof n.key !== "string" || typeof n.title !== "string" || !n.title.trim()) return [];
@@ -373,6 +397,7 @@ export function needsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, rings: { 
           line: cut(n.line, 300) || undefined,
           href: safeUrl(n.href),
           tone: TONES.has(n.tone) ? n.tone : "neutral",
+          ...(personOf(n) ? { person: personOf(n)! } : {}),
         },
       ];
     });
@@ -988,7 +1013,7 @@ export function binoFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: 
       const pulse = c.pulse;
       const text = defaultBinoOf({
         glance: c.glance ? tried(c, "glance", () => c.glance!(ctx), []) : [],
-        needs: c.needs ? tried(c, "needs", () => c.needs!(ctx), []) : [],
+        needs: c.needs ? needsSeen(tried(c, "needs", () => c.needs!(ctx), [])) : [],
         pulse: pulse ? tried(c, "pulse", () => pulse.call(c, ctx), undefined) : undefined,
         feed: c.feed ? tried(c, "feed", () => c.feed!(ctx), []) : [],
       });
@@ -1019,7 +1044,7 @@ export function aboutFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id:
           }
         }
       : undefined,
-    needs: c.needs ? () => safely(() => c.needs!(ctxOf(c)), [], (e) => log(c.manifest.id, `needs: ${(e as Error)?.message ?? e}`)) : undefined,
+    needs: c.needs ? () => needsSeen(safely(() => c.needs!(ctxOf(c)), [], (e) => log(c.manifest.id, `needs: ${(e as Error)?.message ?? e}`))) : undefined,
   }));
 }
 

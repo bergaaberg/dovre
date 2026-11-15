@@ -24,7 +24,7 @@ import type { ReviewDraft } from "../reviews/draft.ts";
  * until updated), an additive one (a hook, slot, field or markup contract) bumps minor. A pack
  * needing a newer minor is off, saying so. docs/ARCHITECTURE.md lists each minor.
  */
-export const PACK_API = "2.6";
+export const PACK_API = "2.7";
 
 /** "fun": for the fun of it, nothing Dovre needs (the avatar); the Packs page lists them apart. */
 export type PackDomain = "general" | "personal" | "work" | "fun";
@@ -282,6 +282,14 @@ export type PackNeed = {
   ring?: string;
   /** Its label in a list (default the pack's name). */
   label?: string;
+  /**
+   * The one person it's for, by the email they sign in with (API 2.7): only they are told of it
+   * (what needs me, its ring, what Bino hears of it). Without it, the need is everyone's on the
+   * cockpit. Where nobody is signed in (local), a need that names someone is left out, and so is
+   * one whose `person` isn't text: it's never widened to everyone. A pack that sets it declares
+   * `api: "2.7"`, or an older core would show the need to all.
+   */
+  person?: string;
 };
 
 export type TodayCard = {

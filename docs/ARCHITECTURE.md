@@ -16,7 +16,7 @@ PLAN.md. Each hook is documented in `src/packs/types.ts`.
    shell + kit, hub (live.ts), gather + snapshot, agent runner, search,
    My list, Bino, notifications, actions log, Settings
    src/pack.ts            the contract, as packs import it (`dovre/pack.ts`)
-   src/packs/types.ts     its types (PACK_API = "2.6")
+   src/packs/types.ts     its types (PACK_API = "2.7")
    src/packs/registry.ts  core's side of every hook
    src/packs/hooks.ts     every hook, as one table
    src/packs/mount.ts     each pack's ctx, and where its hooks and routes are mounted
@@ -399,6 +399,7 @@ Also:
   | 2.4 | `Pack.themes`: themes as palette tokens (`PackTheme`, `THEME_TOKENS`), checked for contrast and written into the stylesheet by core, picked on Settings → Look; in tests, `assertThemes`. |
   | 2.5 | A setting's `default` (what `ctx.env[key]` reads while it's unset, shown on Settings, and what "changed" is measured against) and `kind: "number"` with `min` and `max` (a number field; a value that isn't a whole number within them isn't saved, and reads as unset). |
   | 2.6 | `forge().shipped(since)`: what shipped in the owners' repos since a day (`YYYY-MM-DD`, 92 days back at most), as a `ForgeShipped`: the PRs merged (repo, number, title, url, mergedAt, author; the 3000 newest at most, `more` when there were more), the releases published (drafts left out) and the tags with no release, each newest first and kept a few minutes. Optional like the other reads: a forge that doesn't say has none. |
+  | 2.7 | A need's `person` (`PackNeed.person`): the one person it's for, by the email they sign in with. Only they are told of it: its row in what needs me, its ring and what Bino hears of it. Without it a need is everyone's on the cockpit, as before. Read for no one (local), a need that names someone is left out, and one whose `person` isn't text is dropped, never widened. A pack that sets it declares `api: "2.7"`, or an older core would show the need to all. |
 
 ## Open questions
 
