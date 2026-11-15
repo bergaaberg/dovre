@@ -372,9 +372,11 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     return undefined;
   };
 
-  const build = (bindings: WorkerBindings): Hosted => {
-    // Its start (D1 reads) belongs to the request that built it: if that one was cancelled, they never
-    // settle. Past STUCK_MS unstarted, it's built again rather than leaving every page waiting.
+  const build = (bindings: WorkerBindings, ctx?: Ctx): Hosted => {
+    // Its start (D1 reads) belongs to the request that built it, which keeps it in waitUntil() (#553):
+    // a page waits on it only READY_MS, and once that request ended, reads still out never settled.
+    // Past STUCK_MS unstarted all the same (a request cancelled outright), it's built again rather
+    // than leaving every page waiting.
     if (hosted && !hosted.started && Date.now() - hosted.builtAt > STUCK_MS) {
       console.error("dovre: start stuck; building again");
       hosted = undefined;
@@ -488,6 +490,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     const ready = Promise.all([initAll(mounted, mounted.ctxOf, (l) => console.log(l)), memory.ready, seeded, capped(keys.read(), KEYS_MS), ringer ? capped(ringer.load()) : undefined]).then(() => mounted.keysRead());
     const built: Hosted = { builtAt: Date.now(), started: false, app, ghe, gatherer, instance, people, kept, packs: mounted.on, ready, hub, verify, login: builtIn, refresh: mounted.refresh, byPerson: !!provider, own };
     void ready.then(() => (built.started = true));
+    ctx?.waitUntil(capped(ready));
     hosted = built;
     return hosted;
   };
@@ -513,7 +516,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
   };
   const scheduledAs = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {
     if (await notSetUp(bindings)) return console.error("dovre: not set up yet (D1, its tables or Access): the cron waits");
-    const h = build(bindings);
+    const h = build(bindings, ctx);
     await capped(h.ready);
     const mounted = packsOf(h.app)!;
     const defer: Defer = (p) => ctx.waitUntil(p);
@@ -566,7 +569,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       const page = await notSetUp(bindings);
       if (page && url.pathname === "/healthz") return Response.json({ ok: false, setUp: false, version: `${version}-cf` }, { status: 503, headers: { "cache-control": "no-store" } });
       if (page) return new Response(page, { status: 503, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-      const h = build(bindings);
+      const h = build(bindings, ctx);
       // The built-in login: its own pages, and anyone without a session is sent to them (pages) or
       // turned away (anything else). With Access, Cloudflare did this before the Worker.
       if (h.login) {
@@ -620,7 +623,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
 
     /** Email Routing: the first pack that takes the message handles it; nobody taking it is an error (the sender hears of it). */
     async email(message: { setReject?(reason: string): void }, bindings: WorkerBindings, ctx: Ctx): Promise<void> {
-      const h = build(bindings);
+      const h = build(bindings, ctx);
       await capped(h.ready);
       const mounted = packsOf(h.app)!;
       const defer: Defer = (p) => ctx.waitUntil(p);

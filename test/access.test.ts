@@ -408,6 +408,42 @@ test("worker: a route's c.executionCtx.waitUntil() reaches the Worker's, so a jo
   }
 });
 
+test("worker: the request that builds the app keeps its start in waitUntil(), past the page's short wait (#553)", async () => {
+  const k = await keyPair("k1");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${ISS}/cdn-cgi/access/certs` ? new Response(JSON.stringify({ keys: [k.jwk] })) : new Response("{}")) as typeof fetch;
+  let release = () => {};
+  const slow: Pack = {
+    manifest: { api: PACK_API, id: "slow", name: "Slow", description: "", domain: "personal", execution: "any" },
+    init: () => new Promise<void>((res) => (release = res)),
+    routes: (app) => app.get("/slow/ping", (c) => c.text("ok")),
+  };
+  const w = createWorker({ packs: [slow] });
+  const bindings = { DB: mockD1(), IS_HOSTED: "1", CF_ACCESS_TEAM: TEAM, CF_ACCESS_AUD: AUD };
+  const jwt = await k.sign({ ...good, exp: Math.floor(Date.now() / 1000) + 3600 });
+  const later: Promise<unknown>[] = [];
+  try {
+    w.reset();
+    const res = await w.fetch(new Request("https://dovre.example.dev/slow/ping", { headers: { "cf-access-jwt-assertion": jwt } }), bindings, { waitUntil: (p) => void later.push(p) });
+    assert.equal(await res.text(), "ok", "the page drew without waiting for the start");
+    let settled = false;
+    const all = Promise.allSettled(later).then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(settled, false, "the Worker is still holding the unfinished start");
+    release();
+    await all;
+    // Started now: the next request doesn't wait at all.
+    const t0 = performance.now();
+    const again = await w.fetch(new Request("https://dovre.example.dev/slow/ping", { headers: { "cf-access-jwt-assertion": jwt } }), bindings);
+    assert.equal(await again.text(), "ok");
+    assert.ok(performance.now() - t0 < 1000, "the second request didn't wait on the start");
+  } finally {
+    globalThis.fetch = realFetch;
+    w.reset();
+  }
+});
+
 test("a service token is never a person: pages refuse it, /bridge takes only the bridge's, and only as a socket", async () => {
   const k = await keyPair("k1");
   const { fetchFn } = certsServer(() => [k.jwk]);
