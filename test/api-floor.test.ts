@@ -111,3 +111,11 @@ test("a scaffolded pack declares what it uses", () => {
   assert.match(files["packs/fresh/test/fresh.test.ts"]!, /assertApi\(freshPack, join\(import\.meta\.dirname, "\.\."\)\)/);
   assert.ok(apiOver(packOf("1.0"), dir, API_1).includes("uses assertApi (1.37), declares 1.0"));
 });
+
+test("a need's person is seen as 2.7; the word in a sentence isn't", () => {
+  const uses = (source: string) => apiUses(packOf("2.0"), folder({ "index.ts": source })).map((u) => `${u.name} (${u.api})`);
+  assert.deepEqual(uses(`needs: () => [{ key: "k", title: "Yours", href: "/", tone: "ok", at: 1, person: t.assignee }]`), ["a need's person (2.7)"]);
+  assert.deepEqual(uses(`needs: () => [{\n  key: "k",\n  person : who,\n}]`), ["a need's person (2.7)"]);
+  assert.deepEqual(uses(`/** Far worse than a person: compare them. */\nconst note = "for one person: yes";`), []);
+  assert.deepEqual(apiOver(packOf("2.6"), folder({ "index.ts": `const n = { person: "a@b.c" };` })), ["uses a need's person (2.7), declares 2.6"]);
+});

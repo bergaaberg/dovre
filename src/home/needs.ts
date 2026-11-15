@@ -26,6 +26,8 @@ export type Need = {
   /** A pack's need: which pack, and its label in a list. */
   pack?: string;
   label?: string;
+  /** A pack's need for one person only (their email, lowercased): it's read only as them (`PackNeed.person`). */
+  person?: string;
   /** Lower comes first. */
   rank: number;
   at: number;

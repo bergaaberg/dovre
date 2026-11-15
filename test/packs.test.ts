@@ -13,7 +13,7 @@ import { html } from "hono/html";
 import { loadPacks } from "../src/packs/load.ts";
 import { buildAssets, uploadBig } from "../src/packs/assets.ts";
 import { sha16 } from "../src/packs/wasm.ts";
-import { activePacks, binoOf, fillOwnOf, fillsOf, hostsOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, SOON_CHAIN_MS, SOON_MIN_MS, SOON_MS, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
+import { aboutFrom, activePacks, binoFrom, binoOf, fillOwnOf, fillsOf, hostsOf, heldOff, initAll, pulseFrom, actsFrom, briefingFrom, docksFrom, fillOf, linkedFrom, needsFrom, refreshLog, refresher, ringsOf, settleRequires, SOON_CHAIN_MS, SOON_MIN_MS, SOON_MS, TAKEN_KEYS, whatFrom, within } from "../src/packs/registry.ts";
 import { createApp, packsOf } from "../src/app.ts";
 import { noMemory } from "../src/packs/core/assistant/bino/memory.ts";
 import type { Route } from "../src/packs/core/assistant/bino/route.ts";
@@ -28,7 +28,7 @@ import { DEFAULT_POLICY, type Note } from "../src/notify.ts";
 import { openDb } from "../src/db.ts";
 import { H, appWithAgents, assertInert, deploy, fakeGhe, fixedGatherer, signedIn, snapshot } from "./helpers.ts";
 import { logAction } from "../src/actions/deploys.ts";
-import { currentViewer } from "../src/viewer.ts";
+import { currentViewer, viewingAs } from "../src/viewer.ts";
 
 const m = (o: Partial<PackManifest> & { id: string }): PackManifest => ({ api: PACK_API, name: o.id, description: "", domain: "personal", ...o });
 const pack = (o: Partial<PackManifest> & { id: string }, hooks: Partial<Pack> = {}): Pack => ({ manifest: m(o), ...hooks });
@@ -948,6 +948,40 @@ test("needs: each pack's, keyed under its id, cut to size, an unsafe link made h
     ["shop:slow", undefined, 2, "/shop", "neutral", "shop"],
   ], "an empty title dropped; a ring the pack didn't declare dropped");
   assert.deepEqual(logged, ["boom: needs: no needs"]);
+});
+
+test("a need that names a person is only theirs: its row, its ring and what Bino hears (API 2.7, #542)", async () => {
+  const rings = ringsOf([pack({ id: "desk", rings: [{ kind: "desk-given", label: "Given" }] })], [], () => {});
+  const desk = pack(
+    { id: "desk", paths: ["desk"] },
+    {
+      needs: () => [
+        { key: "all", title: "The desk is on fire", href: "/desk", tone: "bad", at: 9 },
+        { key: "kari", title: `T-4 is yours ${H}`, href: "/desk/4", tone: "neutral", at: 8, ring: "desk-given", person: " Kari@Example.dev " },
+        { key: "ola", title: "T-5 is yours", href: "/desk/5", tone: "neutral", at: 7, person: "ola@example.dev" },
+        { key: "blank", title: "Nobody's by mistake", href: "/desk", tone: "neutral", at: 6, person: "" },
+        { key: "odd", title: "Not an address", href: "/desk", tone: "neutral", at: 5, person: 7 as never },
+        { key: "null", title: "No one", href: "/desk", tone: "neutral", at: 4, person: null as never },
+      ],
+    },
+  );
+  const read = () => needsFrom([desk], () => ({}) as never, rings, () => {}).map((n) => [n.key, n.person, n.ring]);
+  assert.deepEqual(read(), [["desk:all", undefined, undefined]], "read for no one (local, a hub's listener): a need that names anyone is left out");
+  assert.deepEqual(viewingAs("kari@example.dev", read), [["desk:all", undefined, undefined], ["desk:kari", "kari@example.dev", "desk-given"]], "hers, matched whatever its case, with its ring");
+  assert.deepEqual(viewingAs("OLA@example.dev", read), [["desk:all", undefined, undefined], ["desk:ola", "ola@example.dev", undefined]]);
+  assert.deepEqual(viewingAs("eva@example.dev", read), [["desk:all", undefined, undefined]], "a person that isn't an address is no one's, never everyone's");
+
+  // What Bino hears of a pack with no `bino`, and of a page of it, goes by the same person.
+  const heard = () => JSON.stringify(binoFrom([desk], () => ({}) as never, () => {}));
+  assert.match(viewingAs("kari@example.dev", heard), /T-4 is yours/);
+  assert.doesNotMatch(viewingAs("kari@example.dev", heard), /T-5 is yours|Nobody's by mistake|Not an address|No one/);
+  assert.doesNotMatch(viewingAs("ola@example.dev", heard), /T-4 is yours/);
+  assert.match(viewingAs("ola@example.dev", heard), /T-5 is yours/);
+  assert.match(heard(), /The desk is on fire/);
+  assert.doesNotMatch(heard(), /is yours|Nobody's by mistake/);
+  const here = () => aboutFrom([desk], () => ({}) as never, () => {})[0]!.needs!().map((n) => n.key);
+  assert.deepEqual(viewingAs("ola@example.dev", here), ["all", "ola"]);
+  assert.deepEqual(here(), ["all"]);
 });
 
 test("a pack's ring that starts off shows unchecked on Settings → Notifications; the others checked", async () => {
