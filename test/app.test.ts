@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { recentActions } from "../src/actions/deploys.ts";
 import { H, assertInert, deploy, move, note, pr, session, signedIn, snapshot } from "./helpers.ts";
 import { investigateHref } from "../src/ui/kit.ts";
+import { FORGE_CAN } from "../src/forge/types.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
 import type { Run } from "../src/agents/runner.ts";
 import type { Pack } from "../src/packs/types.ts";
@@ -155,6 +156,12 @@ test("Today tells a guest of the instance's snapshot whose work it is, and where
   const out = await (await get("/")).text();
   assertInert("Today for a guest", out);
   assert.match(out, /<p class="t2 sm guest">This is [^<]*'s work\. <a href="\/_auth\/github">Sign in with GitHub<\/a> to see your own\.<\/p>/);
+});
+
+test("No code host (#421): Settings → Work, the Packs page and Today keep a hostile forge name inert", async () => {
+  const { get, post } = signedIn(snapshot({ name: H }), {}, { forge: { id: "github", name: H, can: [...FORGE_CAN] } });
+  assert.equal((await post("/settings/work/code-host", { host: "none" })).status, 303);
+  for (const path of ["/settings/work", "/packs", "/", "/settings?q=code"]) assertInert(path, await (await get(path)).text());
 });
 
 test("setup pages (#418) keep a pack's name, step title, body, wait and error inert", async () => {

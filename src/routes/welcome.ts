@@ -170,6 +170,8 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     const forge = FORGES.find(([x]) => x === f.forge)?.[0] ?? "github";
     // A new role asks new questions: the old answers and picks no longer fit.
     await onboarding.update((was) => (was.role === role ? { ...was, forge } : { answers: {}, role, forge, done: was.done }));
+    // "None" stops the forge's gather, and another choice starts it again (#421).
+    deps.gatherer.stale();
     if (askGeneral(f, "REPO_OWNERS") === false) return c.redirect("/welcome?at=role", 303);
     return c.redirect(nextOf("role"), 303);
   });

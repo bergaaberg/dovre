@@ -89,6 +89,22 @@ export function restartingNote(started: number, then: string, text: string) {
   return html`<div data-restarting="${started}" data-then="${then}">${Notice({ tone: "ok", children: text })}</div>`;
 }
 
+/**
+ * Settings → Work's "Code lives on" (#421): the instance's forge, or None. None stops the forge's
+ * gather, holds the packs that go through it, and leaves its cards off Today. The climb asks it too.
+ */
+export function codeHostPanel(v: { forge: string; none: boolean }) {
+  return Panel({
+    title: "Code lives on",
+    id: "code-host",
+    children: html`<form method="post" action="/settings/work/code-host">
+<p class="t2">With None, Dovre doesn't ask ${v.forge} for anything: Today leaves out pull requests and releases, and the packs that work through ${v.forge} are off.</p>
+<div class="fields aligned"><label class="field"><span class="label">Code lives on</span><select name="host"><option value="forge"${v.none ? "" : html` selected`}>${v.forge}</option><option value="none"${v.none ? html` selected` : ""}>None</option></select></label></div>
+<div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save</button></div>
+</form>`,
+  });
+}
+
 export function workPanel(v: PanesView, canRestart: boolean) {
   return Panel({
     title: "Work",
@@ -249,7 +265,7 @@ export const AREAS = [
   { id: "notifications", title: "Notifications", about: "What rings, when, and what rang lately", also: ["ring", "toast", "alert", "quiet"] },
   { id: "writes", title: "Writes", about: "Which writes take one click instead of asking twice", also: ["confirm", "one click", "twice"] },
   { id: "keys", title: "Keys", about: "Shortcuts without Ctrl, and how far j/k scroll", also: ["keyboard", "shortcuts", "vim"] },
-  { id: "work", title: "Work", about: "The owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
+  { id: "work", title: "Work", about: "Where code lives, the owners to track, the code folder, your team", also: ["org", "repos", "checkouts", "team"] },
   { id: "agents", title: "Agents", about: "Which agent CLIs get the packs' tools, when a long turn rings, and auto runs' limits", also: ["mcp", "tools", "omp", "agy", "claude", "auto", "sandbox", "budget", "long turn"] },
   { id: "packs", title: "Packs", about: "Each pack's own settings", also: ["apps", "integrations", "tokens", "ingest"] },
   { id: "calls", title: "GitHub calls", about: "How much of GitHub's API quota is left, and what in Dovre used it", also: ["rate limit", "quota", "api", "usage", "403"] },
@@ -327,6 +343,8 @@ type RowsState = {
   agents?: AgentToolsView["rows"];
   setup?: SetupLine[];
   canRestart?: boolean;
+  /** Where code lives (#421): the forge's name, or none. */
+  codeHost?: { forge: string; none: boolean };
 };
 
 const LOOK_ALSO: Record<string, string[]> = { theme: ["dark", "light", "mode", "colour", "color"], accent: ["colour", "color"], font: ["typeface", "sans", "serif", "mono"], textSize: ["font size", "zoom", "bigger", "smaller"], lineHeight: ["spacing", "leading"], binoButton: ["assistant", "avatar", "face"], motion: ["animation", "animations", "reduced motion", "movement"] };
@@ -394,6 +412,7 @@ export function settingRows(s: RowsState): SettingRow[] {
     const on = !s.keys.off.includes(g.id);
     rows.push({ id: `keys.${g.id}`, area: "keys", label: `Keys: ${g.label}`, href: "/settings/keys", now: `${onOff(on)} · ${g.keys}`, changed: !on, also: ["shortcut"], change: { kind: "switch", value: on ? "1" : "0", post: (to) => ({ action: "/settings/keys", fields: keysForm({ group: g.id, on: to === "1" }) }) } });
   }
+  if (s.codeHost) rows.push({ id: "work.codeHost", area: "work", label: "Code lives on", href: "/settings/work#code-host", now: s.codeHost.none ? "None" : s.codeHost.forge, changed: s.codeHost.none, also: ["forge", "code host", "github", "gitlab", "repos", "none"] });
   if (s.panes) {
     const v = s.panes;
     const set = (key: string) => v.fixed.has(key) || (v.stored[key] ?? "") !== "";

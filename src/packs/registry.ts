@@ -128,7 +128,10 @@ export function settleRequires(active: Active): Pack[] {
  * Switched off on the Packs page (Settings → Layout's list), with what requires it: for each
  * pack that's off this way, the id of the switched-off pack that holds it (itself when it's switched off).
  */
-export function heldOff(on: Pack[], switchedOff: string[]): Map<string, string> {
+/** What holds a pack `via: "forge"` off while there's no code host (#421): not a pack id, which starts with a letter. */
+export const NO_CODE_HOST = "-code-host";
+
+export function heldOff(on: Pack[], switchedOff: string[], o: { /** No code host (#421): the packs `via: "forge"` are held, by NO_CODE_HOST. */ noForge?: boolean } = {}): Map<string, string> {
   const held = new Map<string, string>();
   // Taken over by a pack that replaces it (`replaces`, API 2.3): held, but what requires it isn't.
   const replaced = new Set<string>();
@@ -138,9 +141,9 @@ export function heldOff(on: Pack[], switchedOff: string[]): Map<string, string> 
       for (const c of on) {
         const id = c.manifest.id;
         if (held.has(id)) continue;
-        const by = switchedOff.includes(id) ? id : requiresOf(c.manifest).find((r) => held.has(r) && !replaced.has(r));
+        const by = switchedOff.includes(id) ? id : o.noForge && c.manifest.via === "forge" ? NO_CODE_HOST : requiresOf(c.manifest).find((r) => held.has(r) && !replaced.has(r));
         if (by) {
-          held.set(id, by === id ? id : held.get(by)!);
+          held.set(id, by === id || by === NO_CODE_HOST ? by : held.get(by)!);
           changed = true;
         }
       }

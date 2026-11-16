@@ -8,7 +8,7 @@ import { html } from "hono/html";
 import { AGENT_MINUTES, type AiGrant, MAX_DAY_USD, MAX_RUN_USD, MAX_TURNS } from "../packs/ai.ts";
 import { type Frame, shell } from "../html.ts";
 import { hooksOf } from "../packs/hooks.ts";
-import { binoOf, hostsOf, type Off, type Refreshes, type RefreshState, replacesOf, requiresOf } from "../packs/registry.ts";
+import { binoOf, hostsOf, NO_CODE_HOST, type Off, type Refreshes, type RefreshState, replacesOf, requiresOf } from "../packs/registry.ts";
 import type { Copy, ToAdd } from "../packs/copies.ts";
 import type { Available } from "../packs/releases.ts";
 import type { Pack, PackAgentWhere, PackAiAsk, PackManifest, PackSetting } from "../packs/types.ts";
@@ -192,7 +192,8 @@ function packPanel(m: PackManifest | undefined, id: string, name: string, o: { p
   const on = !!o.pack && !hidden;
   if (o.why) pairs.push(["Off", o.why]);
   const taken = !!heldBy && replacesOf(v.on.find((c) => c.manifest.id === by)?.manifest).includes(id);
-  if (taken) pairs.push(["Off", `${heldBy} takes its place; switch that off to have this back`]);
+  if (by === NO_CODE_HOST && o.pack) pairs.push(["Off", html`needs a code host, and code lives on None here (<a href="/settings/work#code-host">Settings → Work</a>)`]);
+  else if (taken) pairs.push(["Off", `${heldBy} takes its place; switch that off to have this back`]);
   else if (heldBy) pairs.push(["Off", `needs ${heldBy}, which is switched off here`]);
   else if (hidden) pairs.push(["Off", "switched off here"]);
   if (typeof m?.version === "string" && SEMVER.test(m.version)) pairs.push(["Version", `${m.version} · needs core API ${apiText(parseApi(m.api) ?? { major: 0, minor: 0 })}`]);

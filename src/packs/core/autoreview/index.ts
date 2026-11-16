@@ -92,6 +92,8 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
       answers: ["agents:many", "catch:agents"],
       execution: "any",
       requires: ["agents"],
+      // It reviews and merges PRs on the forge: listed with the forge's packs, and held without a code host (#421).
+      via: "forge",
       settings: [{ key: "AUTOREVIEW_MODEL", label: "Reviewer model", help: "The model that reviews auto PRs (opus, sonnet, haiku or a full id). Never the one that wrote the PR: when it's the same, another reviews. Empty: the assistant's." }],
       rings: [{ kind: "autoreview-yours", label: "An auto PR is handed to me", hint: "Auto review stopped on it: a limit, nothing left to fix, or level 5 where it doesn't merge on its own" }],
       // After the agents pack's auto pass, on the same beat.

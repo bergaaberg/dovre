@@ -146,7 +146,8 @@ export type PackManifest = {
   paths?: string[];
   /**
    * "forge" (API 1.18): it reads and writes through the instance's forge (`src/forge/`), so the
-   * Packs page shows it with the others that do, under the forge's name ("GitHub").
+   * Packs page shows it with the others that do, under the forge's name ("GitHub"). Without a code
+   * host (#421: the climb's or Settings → Work's "None") it's held off, saying so.
    */
   via?: "forge";
   /**
