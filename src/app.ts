@@ -572,7 +572,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
   const { keep, settleSettings, settingsAreas, restarting, settings } = settingsRoutes(app, { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
-  const { setUp } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
+  const { setUp, setup: packSetups } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──
   const packHomeOf = (seg: string) => {
@@ -591,6 +591,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       bino,
       list: sharedList,
       settings,
+      setup: packSetups,
       frame: async () => (await page()).frame,
       org: env.GHE_ORG,
       packAct: (kind) => packActs().find((k) => k.kind === kind),

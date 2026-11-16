@@ -35,7 +35,7 @@
  * (src/worker.ts, src/app.ts): it has no route of its own. The instance's worker.ts exports it
  * (`export { DovreHub } from "dovre/hosted/hub.ts"`) and binds it as HUB.
  */
-import { createBino, type ConvStore, type Conv, type Engine } from "../packs/core/assistant/bino/bino.ts";
+import { createBino, type ConvStore, type Conv, type Engine, SETUP_PACK } from "../packs/core/assistant/bino/bino.ts";
 import { apiKeyRouteOf, gatewayRouteOf, openRouterRouteOf } from "../packs/core/assistant/bino/gateway.ts";
 import { loadMemory, noMemory } from "../packs/core/assistant/bino/memory.ts";
 import { type LookupsBinding, lookupsVia } from "./lookups.ts";
@@ -235,7 +235,7 @@ export function sqlConvStore(sql: HubState["storage"]["sql"]): ConvStore {
 export type BinoOp =
   | { op: "list" }
   | { op: "get"; id: string }
-  | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string }
+  | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string; setup?: { pack: string; title: string } }
   | { op: "say"; id: string; text: string; view?: string; context: string }
   | { op: "stop"; id: string }
   | { op: "retry"; id: string; context: string }
@@ -636,7 +636,8 @@ export class DovreHub {
       case "get":
         return b.get(o.id) ?? null;
       case "start": {
-        const c = b.start(String(o.text ?? ""), { todo: o.todo, view: o.view, app: o.app, context: String(o.context ?? "") });
+        const setup = o.setup && typeof o.setup.pack === "string" && SETUP_PACK.test(o.setup.pack) ? { pack: o.setup.pack, title: String(o.setup.title ?? "").slice(0, 200) } : undefined;
+        const c = b.start(String(o.text ?? ""), { todo: o.todo, view: o.view, app: o.app, context: String(o.context ?? ""), ...(setup ? { setup } : {}) });
         await this.awake(b);
         return c;
       }
