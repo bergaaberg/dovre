@@ -15,7 +15,7 @@ import { fillsOf, missingWhy, settingsFrom, settleRequires, startPack } from "..
 import type { Listed } from "../packs/releases.ts";
 import type { Pack, PackManifest } from "../packs/types.ts";
 import { callsPanels } from "../pages/calls.ts";
-import { CORE_CARDS, packOrder } from "../pages/home.ts";
+import { CORE_CARDS, packPlace } from "../pages/home.ts";
 import { keysPanel } from "../pages/keys.ts";
 import { layoutPanel, type LayoutView, LOOK_KEYS, lookPanel } from "../pages/layout.ts";
 import { aiAskOf, grantOf } from "../packs/ai.ts";
@@ -113,14 +113,15 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       const n = packNow.filter((x) => x.id.startsWith(`${pack.manifest.id}-`)).length;
       return n > 1 ? `${pack.manifest.name} · ${id.slice(pack.manifest.id.length + 1)}` : pack.manifest.name;
     };
+    const none = codeHostNow().none;
     const placed = (id: string, col: "left" | "right", order: number) => ({ col: l.cards?.[id]?.col ?? col, order: l.cards?.[id]?.order ?? order });
     return {
       layout: l,
       pages: frame.nav.filter((p) => p.href !== "/" && p.place !== "action").map((p) => ({ href: p.href, title: p.title })),
       tabs: tabsOf(frame.nav).map((p) => p.href).filter((h) => h !== "/"),
       cards: [
-        ...CORE_CARDS.map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
-        ...packNow.map((c) => ({ id: c.id, label: packLabel(c.id), ...placed(c.id, c.column === "left" ? "left" : "right", packOrder(c.order)) })),
+        ...CORE_CARDS.filter((c) => !(none && (c.id === "prs" || c.id === "ship"))).map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
+        ...packNow.map((c) => { const at = packPlace(c, { own: (packs.core ?? []).some((p) => c.id.startsWith(`${p}-`)), noForge: none }); return { id: c.id, label: packLabel(c.id), ...placed(c.id, at.col, at.order) }; }),
       ],
       feeds: packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
       packs: packs.on.map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
