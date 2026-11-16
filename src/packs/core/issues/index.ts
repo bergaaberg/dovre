@@ -40,6 +40,12 @@ type IssuesDeps = {
   owners: () => string;
   /** Who I am, once the gather knows; else the forge is asked. */
   login?: () => string | undefined;
+  /**
+   * Whose issues are read, where that isn't whoever asks (#544). Hosted, `login` is each person's
+   * own, but there's one kept copy for the cockpit: it's read for the instance's login, whoever's
+   * click starts the read. Without it, `login`.
+   */
+  reads?: () => string | undefined;
   /** Where "New issue" goes; none on hosted. */
   newHref?: string;
   /** Rows offer "Start a task" (the dev-task flow, local only). */
@@ -81,7 +87,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     if (!issues) return;
     await loadPicked(ctx);
     try {
-      const login = o.login?.() || (await o.forge.viewer()).login;
+      const login = (o.reads ?? o.login)?.() || (await o.forge.viewer()).login;
       const sets = await issues(login, o.owners(), { triage: triageOf(ctx) });
       recent = recent.filter((r) => now() - r.at < ACT_SHOWN_MS);
       const shown = withActs(sets, recent.map((r) => r.act));

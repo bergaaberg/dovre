@@ -5,7 +5,8 @@
  * gatherer here: gathered as them, with their token, and kept apart.
  *
  * Who gets one, by the request's viewer (src/viewer.ts):
- * - No viewer (cron, Bino's lookups, a pack session): the instance's snapshot, as before.
+ * - No viewer (Bino's lookups, a pack session), and the cron whoever it runs as: the instance's
+ *   snapshot, as before.
  * - A person with no token of their own, or whose login is the instance's own (the operator):
  *   the instance's snapshot, as before. A cockpit with one person gathers exactly as it did.
  * - Anyone else: their own.

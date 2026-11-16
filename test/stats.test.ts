@@ -13,7 +13,7 @@ import { PACK_API, type Pack, type PackContext, type PackStat, type StatUnit } f
 import { packApp } from "../src/packs/testing.ts";
 import { daysOf, gatherHistory, type History, historyOf, isBot, median, weekly, weeksOf } from "../src/packs/core/history/history.ts";
 import { historyPack } from "../src/packs/core/history/index.ts";
-import { createHistory as createStats, d1HistoryKept, type HistoryView } from "../src/packs/core/history/store.ts";
+import { createHistory as createStats, d1HistoryKept, HISTORIES_MAX, historyPerPerson, type HistoryView } from "../src/packs/core/history/store.ts";
 import { historyStats } from "../src/packs/core/history/view.ts";
 import { claudeCostDays, createSpend, ompCostDays, type SpendDay, spendStats } from "../src/packs/core/agents/spend.ts";
 import { columns, niceTicks } from "../src/ui/chart.ts";
@@ -152,6 +152,64 @@ test("hosted: kept in D1, so a fresh isolate draws the last one; refresh resolve
   await b.refresh();
   assert.equal(calls, 3, "gathered again");
   assert.equal(b.view().gathering, false);
+});
+
+test("hosted, per person (#544): someone with a snapshot of their own gets their own weeks, kept apart; nobody is shown another's", async () => {
+  const { DB } = openDb();
+  let now = NOW;
+  const gathered: string[] = [];
+  const gather = async (_g: unknown, _org: string, login: string) => (gathered.push(login), { ...historyOf(people, repos, { login, weeks: weeksOf(NOW), now: NOW }), at: now });
+  // Whose page this is: undefined for the cron and for anyone on the instance's snapshot.
+  let asking: string | undefined;
+  const make = () => {
+    const one = (who: () => string | undefined, mine?: string) => createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: who, kept: d1HistoryKept(DB, mine), now: () => now, gather, log: () => {} });
+    return historyPerPerson({ shared: one(() => "op"), own: () => asking, make: (as) => one(() => as, as) });
+  };
+  const a = make();
+  await a.refresh();
+  asking = "Two";
+  assert.equal(a.view().history, undefined, "not the instance's while theirs isn't gathered yet");
+  await a.refresh();
+  assert.equal(a.view().history?.login, "Two");
+  asking = undefined;
+  assert.equal(a.view().history?.login, "op", "and the instance's is still the instance's");
+  await a.refresh();
+  asking = "two";
+  await a.refresh();
+  assert.deepEqual(gathered, ["op", "Two"], "each gathered once: looking in turn doesn't gather again");
+  const keys = async () => (await DB.prepare("SELECT key FROM settings WHERE key LIKE 'history%' ORDER BY key").all<{ key: string }>()).results.map((r) => r.key);
+  assert.deepEqual(await keys(), ["history", "history:two"]);
+
+  // A fresh isolate draws each from its own row.
+  const b = make();
+  await b.refresh();
+  assert.equal(b.view().history?.login, "Two");
+  asking = undefined;
+  await b.refresh();
+  assert.equal(b.view().history?.login, "op");
+  assert.equal(gathered.length, 2);
+
+  // A row written for someone else (the one row there was before) isn't shown as mine.
+  await DB.prepare("UPDATE settings SET value = (SELECT value FROM settings WHERE key = 'history:two') WHERE key = 'history'").run();
+  const c = make();
+  const loading = c.refresh();
+  assert.equal(c.view().history, undefined);
+  await loading;
+  assert.equal(c.view().history?.login, "op", "gathered again as the instance");
+
+  // A person's row not gathered for a month goes with the next person's write; the instance's stays.
+  now += 31 * 86_400_000;
+  asking = "three";
+  await c.refresh();
+  assert.deepEqual(await keys(), ["history", "history:three"]);
+
+  // An isolate keeps a bounded number of people's.
+  let made = 0;
+  const many = historyPerPerson({ shared: c, own: () => asking, make: () => (made++, c) });
+  for (let i = 0; i <= HISTORIES_MAX; i++) (asking = `p${i}`), many.view();
+  asking = "p0";
+  many.view();
+  assert.equal(made, HISTORIES_MAX + 2, "the oldest was dropped and is made again");
 });
 
 test("kept and gathered when due: once at a time, again after six hours or when asked; a failure keeps what was there", async () => {

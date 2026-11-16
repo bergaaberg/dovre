@@ -67,6 +67,24 @@ test("refresh reads the sets once, with the triage repos, and publishes", async 
   assert.equal(s.pack.kept()?.sets?.assigned.length, 1);
 });
 
+test("hosted (#544): the one kept copy is read for the instance's login, whoever's click starts the read; a write is still mine", async () => {
+  const asked: string[] = [];
+  let me = "two";
+  const pack = issuesPack({
+    forge: { host: "github.com", can: ["issues"] as never, viewer: async () => ({ login: "kari", name: null }), issues: async (login) => (asked.push(login), sets()) },
+    owners: () => "bergaaberg",
+    login: () => me,
+    reads: () => "op",
+    now: () => NOW,
+  });
+  const ctx = testContext({ env: {} });
+  await pack.refresh!(ctx);
+  me = "three";
+  await pack.refresh!(ctx);
+  assert.deepEqual(asked, ["op", "op"]);
+  assert.equal(pack.kept()?.login, "op");
+});
+
 test("the page: tabs with counts, rows with labels, PR, sub-issues, stale; triage only when set", async () => {
   const s = setup({ issues: async () => sets({ mentioned: [issue({ number: 9, title: "Old one", updatedAt: "2026-10-01T00:00:00Z", prs: [], subIssues: undefined, labels: [] })] }) });
   assert.match(await s.get("/tracker"), /Reading your issues/);

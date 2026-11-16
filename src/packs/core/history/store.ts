@@ -78,7 +78,7 @@ export function createHistory(o: { ghe: Ghe; org: () => string; login: () => str
     if (!login || (!force && o.ghe.calls?.low())) return Promise.resolve();
     if (gathering && now() - gathering.since < LOST) return gathering.done;
     if (!force && historyError && now() - failedAt < AFTER_FAIL) return Promise.resolve();
-    if (!force && history && history.login === login && (history.weeks ?? WEEKS) >= want && (history.days ?? 0) >= wantDays && now() - history.at <= EVERY) return Promise.resolve();
+    if (!force && history && history.login.toLowerCase() === login.toLowerCase() && (history.weeks ?? WEEKS) >= want && (history.days ?? 0) >= wantDays && now() - history.at <= EVERY) return Promise.resolve();
     const mine: { since: number; done: Promise<void> } = { since: now(), done: Promise.resolve() };
     gathering = mine;
     mine.done = gather(o.ghe, o.org(), login, now(), want, wantDays)
@@ -101,7 +101,12 @@ export function createHistory(o: { ghe: Ghe; org: () => string; login: () => str
     return mine.done;
   };
   return {
-    view: () => ({ history, historyError, gathering: !!gathering && now() - gathering.since < LOST }),
+    view: () => {
+      // One kept under another login (GITHUB_USER changed, or a row written before #544) isn't this one's to show.
+      const login = o.login();
+      const mine = history && login && history.login.toLowerCase() !== login.toLowerCase() ? undefined : history;
+      return { history: mine, historyError, gathering: !!gathering && now() - gathering.since < LOST };
+    },
     refresh(force = false, reach?: { weeks?: number; days?: number }) {
       if (reach) {
         want = GATHER_WEEKS(reach.weeks);
@@ -112,9 +117,44 @@ export function createHistory(o: { ghe: Ghe; org: () => string; login: () => str
   };
 }
 
-/** A history kept in D1 (the `settings` row "history"), for hosted: a fresh isolate draws the last one. */
-export function d1HistoryKept(db: D1): HistoryKept {
-  const KEY = "history";
+/** People with a history of their own in one isolate: the oldest goes first. */
+export const HISTORIES_MAX = 20;
+
+/**
+ * A history per person (#544). Hosted, a person with a snapshot of their own (src/hosted/people.ts)
+ * sees their own weeks on Stats, gathered when they look and kept apart; everyone else, and the
+ * cron, the instance's. One store for all showed each person whoever had looked last, and
+ * gathered again every time someone else did.
+ */
+export function historyPerPerson(o: { /** The instance's. */ shared: HistoryStore; /** The login of the person asking, when their snapshot is their own. */ own: () => string | undefined; make: (login: string) => HistoryStore }): HistoryStore {
+  const mine = new Map<string, HistoryStore>();
+  const pick = (): HistoryStore => {
+    const login = o.own()?.trim();
+    if (!login) return o.shared;
+    const key = login.toLowerCase();
+    const s = mine.get(key) ?? o.make(login);
+    mine.delete(key);
+    mine.set(key, s);
+    for (const old of mine.keys()) {
+      if (mine.size <= HISTORIES_MAX) break;
+      mine.delete(old);
+    }
+    return s;
+  };
+  return { view: () => pick().view(), refresh: (force, reach) => pick().refresh(force, reach) };
+}
+
+/** A person's kept history goes this long after it was last gathered. */
+const PERSON_KEPT_MS = 30 * 86_400_000;
+
+/**
+ * A history kept in D1, for hosted: a fresh isolate draws the last one. The instance's is the
+ * `settings` row "history"; a person's own (`login`) is "history:<login>", and each write of one
+ * drops people's rows not gathered for a month.
+ */
+export function d1HistoryKept(db: D1, login?: string): HistoryKept {
+  const ALL = "history";
+  const KEY = login?.trim() ? `${ALL}:${login.trim().toLowerCase()}` : ALL;
   return {
     async load() {
       const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(KEY).first<{ value: string }>();
@@ -125,6 +165,7 @@ export function d1HistoryKept(db: D1): HistoryKept {
       // D1 rows top out at 2 MB; one bigger isn't kept (the next isolate gathers).
       if (text.length > 1_500_000) throw new Error(`${text.length} bytes, too big to keep`);
       await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES (?, ?, ?)").bind(KEY, text, new Date(h.at).toISOString()).run();
+      if (KEY !== ALL) await db.prepare("DELETE FROM settings WHERE key LIKE ? AND at < ?").bind(`${ALL}:%`, new Date(h.at - PERSON_KEPT_MS).toISOString()).run();
     },
   };
 }

@@ -5,6 +5,7 @@
  * request (src/access.ts); without it configured nobody gets in.
  */
 import { hostedKeys } from "./hostedkeys.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { type Actor, actingAs, currentActor } from "./actor.ts";
 import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
@@ -36,7 +37,7 @@ import { remoteDesk } from "./bridge/remote.ts";
 import { useFoundModels } from "./agents/harnesses/index.ts";
 import { agentsPack } from "./packs/core/agents/index.ts";
 import { historyPack } from "./packs/core/history/index.ts";
-import { createHistory, d1HistoryKept } from "./packs/core/history/store.ts";
+import { createHistory, d1HistoryKept, historyPerPerson, type HistoryStore } from "./packs/core/history/store.ts";
 import { autoreviewPack } from "./packs/core/autoreview/index.ts";
 import { assistantPack } from "./packs/core/assistant/index.ts";
 import { todoPack } from "./packs/core/todo/index.ts";
@@ -166,6 +167,13 @@ export function appTokenProvider(bindings: WorkerBindings): GithubTokenProvider 
     return t;
   };
 }
+
+/**
+ * Set around the cron (#544). It runs as the instance's owner, so its packs see that person's
+ * machines, but it reads the instance's snapshot: a person's own is gathered only while they have
+ * pages open, and an isolate that never drew the owner a page knows no snapshot of theirs at all.
+ */
+const inCron = new AsyncLocalStorage<true>();
 
 /** Runs `fn` as nobody in particular: what it starts (a gather) uses the instance's own token. */
 const asInstance = <T>(fn: () => T): T => actingAs(undefined, fn);
@@ -404,7 +412,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     // A Refresh or an action waits on the next gather's "Synced", changed or not.
     const instance: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
     // Where GitHub tokens tell people apart, a person with their own gets their own snapshot (#538).
-    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: currentViewer, find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (who, at, changed) => hub?.gathered(at, changed, who), rang: (who, s) => rang(s, who) }) }) : undefined;
+    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: () => (inCron.getStore() ? undefined : currentViewer()), find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (who, at, changed) => hub?.gathered(at, changed, who), rang: (who, s) => rang(s, who) }) }) : undefined;
     // A page says which login its snapshot was gathered as (the shell's u-as): any but the instance's is a person's own (#539).
     const own = (as: string | null | undefined) => !!people && !!as?.trim() && as.trim().toLowerCase() !== login.toLowerCase();
     const gatherer: Gatherer = people?.gatherer ?? instance;
@@ -455,10 +463,26 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     // The pickers offer what the machines found in their CLIs' configs (#238), never this server's own home.
     if (remote) useFoundModels((id) => remote.foundModels(id));
     const dismissed = createDismissed(bindings.DB);
-    // My open issues from the forge (/tracker), where the forge has them.
-    const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login });
+    // The login the instance's snapshot is gathered as: what one copy for the whole cockpit is read for (#544).
+    const instanceLogin = () => instance.peek()?.login || bindings.GITHUB_USER?.trim() || undefined;
+    // Stats' weeks: the instance's, and their own for a person with a snapshot of their own (gathered when they look).
+    const historyOf = (changed: () => void): HistoryStore => {
+      const make = (who: () => string | undefined, mine?: string) => createHistory({ ghe, org: () => ownersIn(env), login: who, kept: d1HistoryKept(bindings.DB, mine), onChange: changed });
+      const shared = make(instanceLogin);
+      if (!people) return shared;
+      return historyPerPerson({
+        shared,
+        own: () => {
+          const as = gatherer.peek()?.login;
+          return own(as) ? as : undefined;
+        },
+        make: (as) => make(() => as, as),
+      });
+    };
+    // My open issues from the forge (/tracker), where the forge has them: one copy, the instance's, whoever asks for a read.
+    const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login, reads: instanceLogin });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
-    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => createHistory({ ghe, org: () => ownersIn(env), login: () => gatherer.peek()?.login, kept: d1HistoryKept(bindings.DB), onChange: changed }) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, unread: keys.unread(), bindings, hosted: true });
+    const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => historyOf(changed) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, unread: keys.unread(), bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
     const app = createApp(env, {
       hub,
@@ -512,7 +536,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
    */
   const runScheduled = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {
     const owner = (bindings.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim()).find(Boolean);
-    return viewingAs(owner, () => scheduledAs(event, bindings, ctx));
+    return inCron.run(true, () => viewingAs(owner, () => scheduledAs(event, bindings, ctx)));
   };
   const scheduledAs = async (event: ScheduledEvent, bindings: WorkerBindings, ctx: Ctx): Promise<void> => {
     if (await notSetUp(bindings)) return console.error("dovre: not set up yet (D1, its tables or Access): the cron waits");
