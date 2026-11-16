@@ -1,6 +1,8 @@
 /**
- * One review pass (#326): every auto PR being reviewed whose head the reviewer hasn't read gets one
- * review of that exact commit once its CI has settled, posted as a Comment review
+ * One review pass (#326): every auto PR being reviewed whose head the reviewers haven't read gets one
+ * review of that exact commit once its CI has settled: a panel (#555; code quality always, a
+ * specialist when the diff calls for one), each a model call with the diff and the changed files,
+ * their findings folded into one list. It's posted as a Comment review
  * (`autoreview.review`), its findings kept as records (findings.ts; one an earlier review raised
  * stays that finding) and its level kept. Then the
  * decide step: critical and high findings start a fix round (fix.ts), within the limits; medium
@@ -14,7 +16,9 @@ import { postReview } from "../../../actions/reviews.ts";
 import type { Complete } from "../../../ai/llm.ts";
 import type { D1 } from "../../../db.ts";
 import { owns } from "../../../owners.ts";
-import { foldFound, gates, raisedAgain } from "../../../reviews/finding.ts";
+import { loadContext } from "../../../reviews/context.ts";
+import { foldFound, type Found, gates, raisedAgain } from "../../../reviews/finding.ts";
+import { panelFor, type Seat, type Specialist, TOPIC } from "../../../reviews/panel.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { loadPrFiles } from "../../../sources/prview.ts";
 import type { Clicks } from "../../../writes.ts";
@@ -23,9 +27,9 @@ import { AUTO_CONFIG, loadAutoConfig } from "./config.ts";
 import { findingsStore, newFindingId, postsOf } from "./findings.ts";
 import { type Heard, heardLine, heardOpen, ownerSays } from "./owner.ts";
 import { type PrRow, prsStore } from "./store.ts";
-import { AUTOREVIEW_SYSTEM, capLevel, ciOf, findingCounts, reviewDraft, reviewerModel, reviewPrompt, verdictOf } from "./reviewer.ts";
+import { capLevel, ciOf, findingCounts, MAX_FINDINGS, opinionOf, reviewDraft, reviewerModel, reviewPrompt, reviewSystem, type Sat, unreviewedOf, verdictOf } from "./reviewer.ts";
 
-/** How long the reviewer may take. */
+/** How long a reviewer may take; a panel's reviewers answer side by side. */
 const REVIEW_MS = 180_000;
 /** A claim older than this was a pass that went away: another may take the PR. */
 export const CLAIM_MS = REVIEW_MS + 120_000;
@@ -35,7 +39,10 @@ const PER_PASS = 3;
 export const CI_WAIT_MS = 30 * 60_000;
 /** Fix rounds per PR; then it's handed to me. */
 export const MAX_ROUNDS = 3;
-/** What one PR may cost in all, in fix rounds' budgets (`runUsd`). */
+/**
+ * What one PR may cost in all, in fix rounds' budgets (`runUsd`). Reviews count towards it: past
+ * it no fix round starts, and only code quality reviews (one call, not a panel's).
+ */
 export const PR_ROUNDS_USD = 3;
 /** A PR handed to me is looked at again this often: merged or closed since, or an owner's comment to act on. */
 const SETTLE_MS = 10 * 60_000;
@@ -151,34 +158,57 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   if (!(await store.claim(row.pr, "reviewing", CLAIM_MS))) return undefined;
   const model = reviewerModel(author ?? "", { set: d.model, route: d.ask.model });
   const issueAt = issueOf(row.issue);
-  const [files, issue, config, heard] = await Promise.all([
+  const [files, issue, config, heard, limits] = await Promise.all([
     loadPrFiles(d.ghe as Ghe, row.repo, row.number),
     issueAt ? d.ghe.rest<{ title?: string; body?: string | null }>(`/repos/${issueAt.repo}/issues/${issueAt.number}`) : Promise.resolve(undefined),
     loadAutoConfig(d.ghe, row.repo, pr.base?.sha ?? ""),
     ownerSays(d, row, row.heard),
+    d.auto.limits(row.repo).catch(() => undefined),
   ]);
   const user = reviewPrompt(
     { repo: issueAt?.repo ?? row.repo, number: issueAt?.number ?? 0, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" },
     { repo: row.repo, number: row.number, title: pr.title ?? "", body: pr.body ?? "" },
     files,
+    await loadContext(d.ghe, row.repo, head, files),
   );
-  let reply: { text: string; cost: number };
-  try {
-    reply = await d.ask.ask({ system: AUTOREVIEW_SYSTEM, user, model, signal: AbortSignal.timeout(REVIEW_MS) });
-  } catch (e) {
-    await store.release(row.pr, { why: `The reviewer didn't answer: ${String((e as Error)?.message ?? e).slice(0, 200)}. It tries again on the next pass.` });
+  // Who reviews: code quality, and the specialists this diff calls for while the PR is inside what it may cost.
+  const called = panelFor(files).filter((s): s is Seat & { who: Specialist } => s.who !== "quality");
+  const cap = limits ? PR_ROUNDS_USD * limits.runUsd : Infinity;
+  const spent = called.length > 0 && row.cost >= cap;
+  const sitting = spent ? [] : called;
+  const panel = ["quality" as const, ...sitting.map((s) => s.who)];
+  const ask = (who: (typeof panel)[number]) =>
+    d.ask!.ask({ system: reviewSystem(who, panel), user, model, signal: AbortSignal.timeout(REVIEW_MS) }).then(
+      (r) => ({ ...r, failed: "" }),
+      (e) => ({ text: "", cost: 0, failed: String((e as Error)?.message ?? e).slice(0, 200) || "no answer" }),
+    );
+  const [main, ...others] = await Promise.all(panel.map(ask));
+  const cost = [main!, ...others].reduce((n, r) => n + r.cost, 0);
+  if (main!.failed) {
+    await store.release(row.pr, { cost, why: `The reviewer didn't answer: ${main!.failed}. It tries again on the next pass.` });
     return "moved";
   }
-  const v = verdictOf(reply.text, files);
+  const v = verdictOf(main!.text, files);
   // An answer Dovre can't read isn't tried again on its own: that would spend on every pass.
   if (!v) {
-    await store.release(row.pr, { cost: reply.cost });
+    await store.release(row.pr, { cost });
     return (await store.move(row.pr, "reviewing", "yours", { why: "The reviewer answered, but not with a level Dovre could read." })) ? "moved" : undefined;
   }
+  // Each specialist: what it made of the diff, or why this commit went without it.
+  const theirs: Found[][] = [];
+  const sat: Sat[] = called.map((seat, i) => {
+    if (spent) return { ...seat, missing: `this PR has cost $${row.cost.toFixed(2)}, the cap for one PR` };
+    const r = others[i]!;
+    if (r.failed) return { ...seat, missing: "its reviewer didn't answer" };
+    const o = opinionOf(r.text, files, seat.who);
+    if (!o) return { ...seat, missing: "its reviewer's answer couldn't be read" };
+    theirs.push(o.findings);
+    return { ...seat, summary: o.summary };
+  });
   const open = heardOpen(heard);
   // A problem an earlier review raised stays the finding it was, with what the owner said about it.
   const kept = findingsStore(d.db, d.now);
-  const found = foldFound([v.findings]);
+  const found = foldFound([v.findings, ...theirs]).slice(0, MAX_FINDINGS);
   const again = raisedAgain(found, await kept.of(row.pr));
   const all = found.map((f, i) => {
     const was = again.get(i);
@@ -187,14 +217,15 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   // One the owner said to ignore isn't posted again, and doesn't hold the PR back.
   const findings = all.filter((f) => f.status !== "force-ignore");
   const gating = all.filter(gates).length;
-  const facts = { ci, files, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) };
+  const unreviewed = unreviewedOf(sat);
+  const facts = { ci, files, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}), ...(unreviewed.length ? { unreviewed } : {}) };
   const capped = capLevel(v.level, { ...facts, gating });
   // What it would be with no finding holding it back: the level once the owner says to ignore those (decide.ts).
   const base = capLevel(v.level, { ...facts, gating: 0 }).level;
-  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head, ignored: all.length - findings.length }), verdict: "comment", by: "auto", kind: "autoreview.review" });
+  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head, ignored: all.length - findings.length, panel: sat }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
-    await store.release(row.pr, { cost: reply.cost, why: posted.message });
+    await store.release(row.pr, { cost, why: posted.message });
     return "moved";
   }
   await kept.reported(
@@ -208,9 +239,10 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
       .rest<unknown>(`/repos/${row.repo}/pulls/${row.number}/reviews/${posted.id}/comments?per_page=100`)
       .then((comments) => kept.posted(row.pr, postsOf(comments)))
       .catch(() => {});
-  await store.level(row.pr, "reviewing", { head, level: capped.level, base, cost: reply.cost, ...(posted.id ? { review: posted.id } : {}) });
-  const said = `Level ${capped.level} from ${model}: ${findingCounts(findings).toLowerCase()}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
-  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: gating, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
+  await store.level(row.pr, "reviewing", { head, level: capped.level, base, cost, ...(posted.id ? { review: posted.id } : {}) });
+  const too = sat.filter((p) => !p.missing).map((p) => TOPIC[p.who]);
+  const said = `Level ${capped.level} from ${model}${too.length ? ` (reviewed for ${too.join(", ")} too)` : ""}: ${findingCounts(findings).toLowerCase()}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
+  await decide(d, { ...row, cost: row.cost + cost }, { level: capped.level, fixable: gating, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
   return "reviewed";
 }
 

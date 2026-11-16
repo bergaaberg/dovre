@@ -107,4 +107,4 @@ pnpm dev       # local server, watch mode
 pnpm check     # typecheck, tests, Go launcher tests
 ```
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). One text in the repo isn't Dovre's: the security reviewer's playbook (`src/reviews/playbook/`) is from the [OWASP Secure Agent Playbook](https://github.com/OWASP/secure-agent-playbook), under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its source is in `SOURCE.md` beside it.
