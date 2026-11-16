@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { createGatherer } from "../src/gather.ts";
 import type { Forge } from "../src/forge/types.ts";
 import { firstNameOf } from "../src/onboarding.ts";
-import { heldOff, NO_CODE_HOST } from "../src/packs/registry.ts";
+import { appsFrom, heldOff, NO_CODE_HOST } from "../src/packs/registry.ts";
+import { testContext } from "../src/packs/testing.ts";
 import type { Pack } from "../src/packs/types.ts";
 import { html } from "hono/html";
 import { homePage, packPlace } from "../src/pages/home.ts";
@@ -99,4 +100,30 @@ test("without a code host My list takes the top right by default; my layout stil
   assert.deepEqual(packPlace({ id: "todo-list", column: "left", order: 30 }, { own: true }), { col: "left", order: 30 });
   assert.deepEqual(packPlace({ id: "todo-list", column: "left", order: 30 }, { own: true, noForge: true }), { col: "right", order: 10 });
   assert.deepEqual(packPlace({ id: "weather-now", column: "left", order: 30 }, { own: false, noForge: true }), { col: "left", order: 130 });
+});
+
+test("Your apps lists the shown packs but Dovre's own, checked: their page, two numbers, what's wrong and what waits", () => {
+  const logged: string[] = [];
+  const p = (id: string, m: Partial<Pack> = {}) => ({ manifest: { id, name: `${id} app` }, ...m }) as Pack;
+  const on = [
+    p("todo", { glance: () => [{ label: "Open", value: 3 }] }),
+    p("shop", { nav: () => [{ href: "/shop", title: "Shop", icon: "box" }], glance: () => [{ label: "Orders", value: 4 }, { label: "Sent", value: 2 }, { label: "More", value: 9 }], pulse: () => ({ asking: 2, trouble: { level: "fire", why: "  3   failed\npayments ", href: "//evil.example" } }) }),
+    p("broken", { glance: () => { throw new Error("nope"); }, pulse: () => ({ working: 1 }) }),
+  ];
+  const rows = appsFrom(on, () => testContext(), (id, line) => logged.push(`${id}: ${line}`), ["todo"]);
+  assert.deepEqual(rows.map((r) => r.id), ["shop", "broken"], "Dovre's own packs aren't my apps");
+  assert.deepEqual(rows[0], { id: "shop", name: "shop app", href: "/shop", glance: [{ label: "Orders", value: 4 }, { label: "Sent", value: 2 }], working: 0, asking: 2, trouble: { level: "fire", why: "3 failed payments" } });
+  assert.deepEqual(rows[1], { id: "broken", name: "broken app", href: undefined, glance: [], working: 1, asking: 0 });
+  assert.match(logged.join("\n"), /broken: glance: nope/);
+
+  const frame = { operator: "me", nav: [] };
+  const out = String(homePage(frame, snapshot(), () => undefined, { noForge: true, yourApps: rows }));
+  assert.match(out, /id="apps"/);
+  assert.match(out, /<a class="item" href="\/shop">.*shop app.*Orders 4 · Sent 2.*3 failed payments.*2 waiting/s);
+  assert.match(out, /broken app.*1 working/s);
+  const left = out.split('<div class="today-col">')[1] ?? "";
+  assert.ok(left.includes('id="apps"'), "on the left, where What ships was");
+  assert.doesNotMatch(String(homePage(frame, snapshot(), () => undefined, { yourApps: rows })), /id="apps"/, "with a code host, What ships is there instead");
+  assert.doesNotMatch(String(homePage(frame, snapshot(), () => undefined, { noForge: true, yourApps: [] })), /id="apps"/, "no apps, no card");
+  assertInert("Your apps, hostile", String(homePage(frame, snapshot(), () => undefined, { noForge: true, yourApps: [{ id: "x", name: H, href: "javascript:alert(1)", glance: [{ label: H, value: H }], working: 0, asking: 0, trouble: { level: "storm", why: H } }] })));
 });

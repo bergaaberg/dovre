@@ -424,20 +424,39 @@ const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Mat
 export function pulseFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): Omit<Pulse, "busy"> {
   const out: Omit<Pulse, "busy"> = { working: 0, asking: 0, trouble: [] };
   for (const c of on) {
-    const f = c.pulse;
-    if (!f) continue;
-    const a = safely(() => f.call(c, ctxOf(c)), undefined, (e) => log(c.manifest.id, `pulse: ${(e as Error)?.message ?? e}`));
-    if (!a || typeof a !== "object") continue;
-    out.working += count(a.working);
-    out.asking += count(a.asking);
-    if (a.onDuty === true) out.onDuty = true;
-    const t = a.trouble;
-    if (t && (t.level === "storm" || t.level === "fire") && typeof t.why === "string" && t.why.trim()) {
-      const href = typeof t.href === "string" && t.href.startsWith("/") && !t.href.startsWith("//") && !t.href.includes("\\") ? t.href.slice(0, 200) : undefined;
-      if (out.trouble.length < 5) out.trouble.push({ level: t.level, why: t.why.trim().replace(/\s+/g, " ").slice(0, 80), ...(href ? { href } : {}) });
-    }
+    const a = pulseOf(c, ctxOf, log);
+    if (!a) continue;
+    out.working += a.working;
+    out.asking += a.asking;
+    if (a.onDuty) out.onDuty = true;
+    if (a.trouble && out.trouble.length < 5) out.trouble.push(a.trouble);
   }
   return out;
+}
+
+/** One pack's pulse, checked: its counts, and its trouble with a line of 80 and an href of its own. */
+function pulseOf(c: Pack, ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): { working: number; asking: number; onDuty: boolean; trouble?: Pulse["trouble"][number] } | undefined {
+  const f = c.pulse;
+  if (!f) return undefined;
+  const a = safely(() => f.call(c, ctxOf(c)), undefined, (e) => log(c.manifest.id, `pulse: ${(e as Error)?.message ?? e}`));
+  if (!a || typeof a !== "object") return undefined;
+  const t = a.trouble;
+  const href = t && typeof t.href === "string" && t.href.startsWith("/") && !t.href.startsWith("//") && !t.href.includes("\\") ? t.href.slice(0, 200) : undefined;
+  const trouble = t && (t.level === "storm" || t.level === "fire") && typeof t.why === "string" && t.why.trim() ? { level: t.level, why: t.why.trim().replace(/\s+/g, " ").slice(0, 80), ...(href ? { href } : {}) } : undefined;
+  return { working: count(a.working), asking: count(a.asking), onDuty: a.onDuty === true, ...(trouble ? { trouble } : {}) };
+}
+
+/** A pack on Today's "Your apps" (#421): its name, its first page, its two numbers, and its pulse. */
+export type AppRow = { id: string; name: string; href?: string; glance: Glance[]; working: number; asking: number; trouble?: Pulse["trouble"][number] };
+
+/** Every shown pack but Dovre's own, as "Your apps" lists it, with the checks the briefing, the pulse and the menu make. */
+export function appsFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void, core: string[] = []): AppRow[] {
+  return on
+    .filter((c) => !core.includes(c.manifest.id))
+    .map((c) => {
+      const p = pulseOf(c, ctxOf, log);
+      return { id: c.manifest.id, name: c.manifest.name, href: navFrom([c], ctxOf, log)[0]?.href, glance: glanceOf(c, ctxOf, log), working: p?.working ?? 0, asking: p?.asking ?? 0, ...(p?.trouble ? { trouble: p.trouble } : {}) };
+    });
 }
 
 /** The PR links the packs' pages show (`linked`), for the gather to look up: links only, 200 at most. */
@@ -676,6 +695,17 @@ function bitOf(b: unknown): Bit | undefined {
   return { text, href: safeUrl(typeof o.href === "string" ? o.href : ""), ...(o.tone === "bad" || o.tone === "warn" ? { tone: o.tone } : {}) };
 }
 
+/** One pack's `glance`, checked: two numbers at most, a label of 24 and a value of 16. */
+function glanceOf(c: Pack, ctxOf: (c: Pack) => PackContext, log: (id: string, line: string) => void): Glance[] {
+  const g = c.glance ? safely(() => c.glance!(ctxOf(c)), undefined, (e) => log(c.manifest.id, `glance: ${(e as Error)?.message ?? e}`)) : undefined;
+  if (!Array.isArray(g)) return [];
+  return g.slice(0, 2).flatMap((x) => {
+    const label = cut(x?.label, 24).trim();
+    const value = num(x?.value) ?? cut(x?.value, 16);
+    return label && value !== "" ? [{ label, value }] : [];
+  });
+}
+
 /**
  * Every pack's answer to `glance`, `brief` and `lane`, cut to size: two numbers, one sentence of
  * twelve bits and one row of 200 marks each at most. A pack that throws adds nothing and is logged.
@@ -684,13 +714,7 @@ export function briefingFrom(on: Pack[], ctxOf: (c: Pack) => PackContext, log: (
   const out: Briefing = { glance: [], brief: [], lanes: [] };
   const ask = <T>(c: Pack, name: string, run: () => T): T | undefined => safely(run, undefined, (e) => log(c.manifest.id, `${name}: ${(e as Error)?.message ?? e}`));
   for (const c of on) {
-    const g = c.glance ? ask(c, "glance", () => c.glance!(ctxOf(c))) : undefined;
-    if (Array.isArray(g))
-      for (const x of g.slice(0, 2)) {
-        const label = cut(x?.label, 24).trim();
-        const value = num(x?.value) ?? cut(x?.value, 16);
-        if (label && value !== "") out.glance.push({ label, value });
-      }
+    out.glance.push(...glanceOf(c, ctxOf, log));
     const b = c.brief ? ask(c, "brief", () => c.brief!(ctxOf(c))) : undefined;
     if (Array.isArray(b)) {
       const sentence = b.slice(0, 12).flatMap((x) => bitOf(x) ?? []);

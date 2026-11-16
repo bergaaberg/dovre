@@ -35,7 +35,7 @@ import type { ThemeDef } from "../ui/themes.ts";
 import { loggedFor } from "./logged.ts";
 import { packDirOf, programsFor } from "./programs.ts";
 import { boundServer, localServer, serverBinding, serverWhy, type ServerCall } from "./server.ts";
-import { aboutFrom, actsFrom, binoFrom, feedFrom, fillOf, fillOwnOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, replacesOf, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
+import { aboutFrom, actsFrom, appsFrom, binoFrom, feedFrom, fillOf, fillOwnOf, findsFrom, framesFrom, heldOff, linkedFrom, lookupsFrom, navFrom, needsFrom, noteFrom, pagesFrom, pulseFrom, refresher, refreshLog, refsFrom, replacesOf, requiresOf, ringsOf, safely, settleRequires, sharedFrom, shareOf, statsFrom, TODAY_MS, todayCards, usesOf, whatFrom, whereFrom, type Off } from "./registry.ts";
 import { createReleases, type GetJson } from "./releases.ts";
 import { kvFor, kvInMemory } from "./store.ts";
 import { onboardOf } from "./suggest.ts";
@@ -335,6 +335,8 @@ export function mountPacks(app: App, o: MountOpts) {
   const packBino = () => binoFrom(shown(), ctxOf, log, own);
   /** The packs as Bino's pages know them, and what each says a page of its is (`about`). */
   const packApps = () => aboutFrom(packs.on, ctxOf, log, own);
+  /** Today's "Your apps" (#421): the shown packs but Dovre's own, each with its page, numbers and pulse. */
+  const packAppRows = () => appsFrom(shown(), ctxOf, log, packs.core);
   /** The origins a pack's own page may frame (`frames`), for that page's policy. */
   const packFrames = (path: string) => framesFrom(packs.on, ctxOf, path, log);
   /** Whether a path is the own page of a pack that's `isolated` (API 2.2): its response gets COEP. */
@@ -618,7 +620,7 @@ export function mountPacks(app: App, o: MountOpts) {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm,
     styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, packThemes,
     packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
-    packCards, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
+    packCards, packAppRows, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
     refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen,
     mountCallbacks, mountAssets, mountRoutes,

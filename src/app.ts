@@ -232,7 +232,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   // ── Packs (src/packs/mount.ts, PLAN D23): each pack's ctx and core's call of every hook, made here; their routes mount below, after every core route ──
   const {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts, packThemes,
-    packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
+    packNav, packFeed, packBino, packApps, packAppRows, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen, mountCallbacks, mountAssets, mountRoutes,
   } = mountPacks(app, { env, deps, hosted, ghe, forge, asks, layout, onboarding, publicOrigin, page: (o) => page(o), thinking: () => !!engine?.list().some((x) => x.thinking), settle: (id) => settleSettings(id), pending: (err) => err instanceof Pending, bugHref });
@@ -466,7 +466,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const left = setupLeft(x);
       return ob && left.length ? [{ id: x.manifest.id, name: x.manifest.name, what: left[0]!.title, left: left.length, steps: ob.steps.length, required: ob.required }] : [];
     });
-    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups, { bino: binoOn() }), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions, guest: deps.guest?.(), ...(noForge() ? { noForge: true, name: signedInName() } : {}) }));
+    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups, { bino: binoOn() }), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions, guest: deps.guest?.(), ...(noForge() ? { noForge: true, name: signedInName(), yourApps: packAppRows() } : {}) }));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
