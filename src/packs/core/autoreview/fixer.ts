@@ -1,43 +1,37 @@
 /**
- * A fix session's words (#326): the prompt (the issue, the review's open comments, CI's failing
- * checks) and, from its last message, its reply on each comment's thread. Pure: fix.ts does the
+ * A fix session's words (#326, #555): the prompt (the issue, the findings it must fix, CI's failing
+ * checks) and, from its last message, its reply on each finding's thread. Pure: fix.ts does the
  * forge and the run.
  */
 import type { Reply } from "../../../reviews/draft.ts";
-import { MARK, type OwnerSaid } from "./owner.ts";
-import type { Tag } from "./reviewer.ts";
+import type { Severity } from "../../../reviews/finding.ts";
+import type { OwnerSaid } from "./owner.ts";
 
 /** The fence a fix session answers the comments in. */
 const REPLIES_FENCE = "auto-replies";
 
-/** A review comment as the forge has it, with the tag the reviewer put in front. */
-export type OpenComment = { id: number; path: string; line: number | null; tag: Tag; text: string };
+/** A finding to fix, by its line comment on the PR (`id`): the thread the session answers on. Null: its comment isn't known, so it's fixed without an answer. */
+export type OpenComment = { id: number | null; path: string; line: number | null; startLine?: number; severity: Severity; title: string; text: string; fix: string };
 
-/** The tag a comment body starts with (reviewer.ts `reviewDraft`), and the text after it. */
-export function taggedOf(raw: string): { tag: Tag; text: string } {
-  const body = raw.replaceAll(MARK, "").trim();
-  const m = /^(\*\*Blocker:\*\*|\*\*Should fix:\*\*|nit:)\s*/.exec(body);
-  const tag: Tag = m?.[1] === "**Blocker:**" ? "blocker" : m?.[1] === "**Should fix:**" ? "should-fix" : "nit";
-  return { tag, text: body.slice(m?.[0].length ?? 0).trim() };
-}
-
-const TAG_LABEL: Record<Tag, string> = { blocker: "blocker", "should-fix": "should fix", nit: "nit" };
+const linesOf = (c: OpenComment) => (c.line ? (c.startLine ? ` lines ${c.startLine}-${c.line}` : ` line ${c.line}`) : "");
 
 const ownerHead = (s: OwnerSaid) =>
   s.kind === "line" ? `## Comment ${s.id} from ${s.by} on ${s.path}${s.line ? ` line ${s.line}` : ""}` : s.requested ? `## ${s.by} requested changes` : `## ${s.by} said, on the PR`;
 
 /**
- * The prompt: what was asked, what the owners and the reviewer raised and what CI says. Comments
- * are bounded; the rest is data, not instructions. An owner's comment weighs most: it's what the
+ * The prompt: what was asked, what the owners said, the reviewer's findings that must be fixed
+ * and what CI says. Comments are bounded; the rest is data, not instructions. An owner's comment weighs most: it's what the
  * person the PR is for asked.
  */
 export function fixPrompt(o: { repo: string; number: number; issue: { ref: string; title: string; body: string }; comments: OpenComment[]; owner?: OwnerSaid[]; failing: string[]; round: number }): string {
-  const comments = o.comments.slice(0, 30).map((c) => [`## Comment ${c.id} (${TAG_LABEL[c.tag]}) on ${c.path}${c.line ? ` line ${c.line}` : ""}`, "", c.text.slice(0, 3000)].join("\n"));
+  const comments = o.comments
+    .slice(0, 30)
+    .map((c) => [`## ${c.id === null ? "A finding" : `Comment ${c.id}`} (${c.severity}) on ${c.path}${linesOf(c)}: ${c.title.slice(0, 200)}`, "", c.text.slice(0, 3000), ...(c.fix ? ["", `Suggested fix: ${c.fix.slice(0, 2000)}`] : [])].join("\n"));
   const owner = (o.owner ?? []).slice(0, 30).map((s) => [ownerHead(s), "", s.text.slice(0, 3000)].join("\n"));
   return [
     `You are fixing pull request ${o.repo}#${o.number} on your own: round ${o.round} of review fixes. An agent wrote it for issue ${o.issue.ref}; ${owner.length ? "the repo's owner and a reviewer" : "a reviewer"} read it and left the comments below. Nobody is watching, and nobody can answer questions.`,
     "",
-    "- The checkout is at the PR's head commit. Fix every blocker and should-fix, and failing CI if it's listed. A nit only when it's quick and clearly right.",
+    "- The checkout is at the PR's head commit. Fix every finding below, and failing CI if it's listed. A finding's suggested fix is a suggestion: fix the problem the way that's right for this code.",
     ...(owner.length ? ["- Do what the owner's comments ask: they come first. Where the owner and the reviewer disagree, follow the owner."] : []),
     "- Change only what the comments and CI need. Follow the repo's own instructions (CLAUDE.md and the like).",
     "- Don't change CI config, release or deploy settings, or anything about secrets.",
@@ -57,7 +51,7 @@ export function fixPrompt(o: { repo: string; number: number; issue: { ref: strin
     ...(o.failing.length ? ["", "# CI", "", `Failing on the head commit: ${o.failing.slice(0, 10).join(", ")}.`] : []),
     ...(owner.length ? ["", "# The owner's comments", "", owner.join("\n\n")] : []),
     "",
-    "# Review comments",
+    "# The reviewer's findings",
     "",
     comments.length ? comments.join("\n\n") : owner.length ? "(None from the reviewer.)" : "(None: fix what CI says.)",
   ].join("\n");

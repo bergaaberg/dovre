@@ -1,11 +1,12 @@
 /**
  * Auto review, a core pack (#326): the review half of auto runs. Each auto run's draft PR gets
- * review rounds: a reviewer's level from 1 to 5, fix sessions on the PR's branch from its comments,
- * and a merge at 5, within hard limits. It requires the agents pack, and reads its auto runs only
+ * review rounds: a reviewer's findings and its level from 1 to 5, fix sessions on the PR's branch
+ * for the critical and high findings, and a merge at 5, within hard limits. It requires the agents pack, and reads its auto runs only
  * through what that pack shares (its `auto` share, read with `autoOf`), importing only the
  * share's type and reader (../agents/share.ts).
- * It keeps the PRs (store.ts), reviews each new head commit (round.ts, reviewer.ts), starts fix
- * sessions from the comments (fix.ts, fixer.ts) and shows the levels on the PR's page (view.ts).
+ * It keeps the PRs (store.ts) and each review's findings as records (findings.ts, #555), reviews
+ * each new head commit (round.ts, reviewer.ts), starts fix sessions from the findings that must be
+ * fixed (fix.ts, fixer.ts) and shows the levels on the PR's page (view.ts).
  * Level 5 merges where the repo's `.dovre/auto.json` allows it (merge.ts, config.ts). A PR handed
  * to me is a need, rung once per PR and round.
  */
@@ -72,7 +73,7 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
       api: PACK_API,
       id: "autoreview",
       name: "Auto review",
-      description: "Review rounds on auto runs' PRs: a level from 1 to 5, fix sessions from the comments, a merge at 5",
+      description: "Review rounds on auto runs' PRs: findings and a level from 1 to 5, fix sessions for the critical and high ones, a merge at 5",
       domain: "general",
       answers: ["agents:many", "catch:agents"],
       execution: "any",
@@ -85,7 +86,7 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
       crons: ["*/5 * * * *"],
     },
     writes: [
-      { kind: "review", label: "Post the reviewer's comments on an auto PR, as a Comment review" },
+      { kind: "review", label: "Post the reviewer's findings on an auto PR, as a Comment review" },
       { kind: "fix", label: "Push a fix session's commits onto an auto PR's branch" },
       { kind: "reply", label: "Reply on an auto PR's review threads from a fix session" },
       { kind: "merge", label: "Merge an auto PR once its review reaches level 5 and CI is green, where the repo's .dovre/auto.json allows it" },

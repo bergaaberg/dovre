@@ -1,8 +1,9 @@
 /**
  * One review pass (#326): every auto PR being reviewed whose head the reviewer hasn't read gets one
  * review of that exact commit once its CI has settled, posted as a Comment review
- * (`autoreview.review`), and its level kept. Then the decide step: comments to fix start a fix
- * round (fix.ts), within the limits; otherwise, or past a limit, the PR is handed to me. What an
+ * (`autoreview.review`), its findings kept as records (findings.ts) and its level kept. Then the
+ * decide step: critical and high findings start a fix round (fix.ts), within the limits; medium
+ * and low are only reported; otherwise, or past a limit, the PR is handed to me. What an
  * owner says on the PR (owner.ts) caps the level at 2 and starts a round, even on a PR handed to
  * me: that's me asking. A PR
  * merged or closed meanwhile, or outside my owners, leaves the loop. A model call takes a while,
@@ -12,14 +13,16 @@ import { postReview } from "../../../actions/reviews.ts";
 import type { Complete } from "../../../ai/llm.ts";
 import type { D1 } from "../../../db.ts";
 import { owns } from "../../../owners.ts";
+import { gates } from "../../../reviews/finding.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { loadPrFiles } from "../../../sources/prview.ts";
 import type { Clicks } from "../../../writes.ts";
 import type { AutoShare } from "../agents/share.ts";
 import { AUTO_CONFIG, loadAutoConfig } from "./config.ts";
+import { findingsStore, newFindingId, postsOf } from "./findings.ts";
 import { type Heard, heardLine, heardOpen, ownerSays } from "./owner.ts";
 import { type PrRow, prsStore } from "./store.ts";
-import { AUTOREVIEW_SYSTEM, capLevel, ciOf, reviewDraft, reviewerModel, reviewPrompt, tagCounts, verdictOf } from "./reviewer.ts";
+import { AUTOREVIEW_SYSTEM, capLevel, ciOf, findingCounts, reviewDraft, reviewerModel, reviewPrompt, verdictOf } from "./reviewer.ts";
 
 /** How long the reviewer may take. */
 const REVIEW_MS = 180_000;
@@ -172,22 +175,32 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     return (await store.move(row.pr, "reviewing", "yours", { why: "The reviewer answered, but not with a level Dovre could read." })) ? "moved" : undefined;
   }
   const open = heardOpen(heard);
-  const capped = capLevel(v.level, { ci, files, blockers: v.comments.filter((c) => c.tag === "blocker").length, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) });
-  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft(v, capped, { model, head }), verdict: "comment", by: "auto", kind: "autoreview.review" });
+  const findings = v.findings.map((f) => ({ ...f, id: newFindingId() }));
+  const gating = findings.filter((f) => gates({ severity: f.severity, status: "open" })).length;
+  const capped = capLevel(v.level, { ci, files, gating, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) });
+  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
     await store.release(row.pr, { cost: reply.cost, why: posted.message });
     return "moved";
   }
+  const kept = findingsStore(d.db, d.now);
+  await kept.reported(row.pr, { round: row.round, head, ...(posted.id ? { review: posted.id } : {}) }, findings);
+  // Which line comment posts each finding. Not known now: a fix round asks again (fix.ts).
+  if (posted.id && findings.length)
+    await d.ghe
+      .rest<unknown>(`/repos/${row.repo}/pulls/${row.number}/reviews/${posted.id}/comments?per_page=100`)
+      .then((comments) => kept.posted(row.pr, postsOf(comments)))
+      .catch(() => {});
   await store.level(row.pr, "reviewing", { head, level: capped.level, cost: reply.cost, ...(posted.id ? { review: posted.id } : {}) });
-  const said = `Level ${capped.level} from ${model}: ${tagCounts(v.comments) || "no comments"}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
-  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: v.comments.filter((c) => c.tag !== "nit").length, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
+  const said = `Level ${capped.level} from ${model}: ${findingCounts(findings).toLowerCase()}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
+  await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: gating, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
   return "reviewed";
 }
 
 /**
  * After a review, on that exact commit: level 5 merges (merge.ts) when the repo's `.dovre/auto.json`
- * says so; a fix round when there's something to fix and the limits allow one; else the PR is
+ * says so; a fix round when a finding must be fixed (`fixable`) and the limits allow one; else the PR is
  * handed to me, saying why. An owner's comment is something to fix, and past the rounds' limit
  * or without progress it still gets its round: I asked. What one PR may cost still caps it.
  */
@@ -209,6 +222,6 @@ async function decide(d: ReviewDeps, row: PrRow, r: { level: number; fixable: nu
   const limits = await d.auto.limits(row.repo);
   const cap = PR_ROUNDS_USD * limits.runUsd;
   if (row.cost >= cap) return void (await hand(`It has cost $${row.cost.toFixed(2)}, the cap for one PR ($${cap.toFixed(2)}).`));
-  const what = [mine ? heardLine(r.heard) : "", r.fixable ? `${r.fixable} review comment${r.fixable === 1 ? "" : "s"}` : "", red ? "CI failing" : ""].filter(Boolean).join(", ");
+  const what = [mine ? heardLine(r.heard) : "", r.fixable ? `${r.fixable} finding${r.fixable === 1 ? "" : "s"}` : "", red ? "CI failing" : ""].filter(Boolean).join(", ");
   await store.move(row.pr, "reviewing", "fixing", { round: row.round + 1, why: `${r.said} Round ${row.round + 1}: a fix session for ${what}.` });
 }
