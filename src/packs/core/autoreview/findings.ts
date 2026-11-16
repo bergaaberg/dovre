@@ -131,6 +131,21 @@ export function findingsStore(db: D1, now: () => number = Date.now) {
         ),
       ]);
     },
+    /** The findings of late, newest first: what the PRs' pages show from memory. */
+    async recent(): Promise<Finding[]> {
+      await ensureSchema(db);
+      const { results } = await db.prepare("SELECT * FROM autoreview_findings ORDER BY updated DESC, rowid DESC LIMIT 2000").all<Raw>();
+      return results.map(findingOf);
+    },
+    /**
+     * The owner's word on a finding: fix it, ignore it, or neither after all (open). Only one a
+     * review still stands by takes it; false for one that's fixed, folded away, or not this PR's.
+     */
+    async decide(pr: string, id: string, to: "open" | "force-fix" | "force-ignore"): Promise<boolean> {
+      await ensureSchema(db);
+      const res = await db.prepare("UPDATE autoreview_findings SET status = ?, updated = ? WHERE pr = ? AND id = ? AND status IN ('open', 'force-fix', 'force-ignore') AND status != ?").bind(to, now(), pr, id, to).run();
+      return Number(res.meta?.changes ?? 0) === 1;
+    },
     /** Each finding's line comment, once the forge says which: only this PR's, and only where none is kept. */
     async posted(pr: string, posts: Map<string, number>): Promise<void> {
       if (!posts.size) return;

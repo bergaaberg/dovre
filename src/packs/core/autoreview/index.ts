@@ -8,18 +8,22 @@
  * each new head commit (round.ts, reviewer.ts), starts fix sessions from the findings that must be
  * fixed (fix.ts, fixer.ts) and shows the levels on the PR's page (view.ts).
  * Level 5 merges where the repo's `.dovre/auto.json` allows it (merge.ts, config.ts). A PR handed
- * to me is a need, rung once per PR and round.
+ * to me is a need, rung once per PR and round. On the PR's page I say of a finding to fix it or
+ * to ignore it (decide.ts, #555 step 3).
  */
+import { repoIn, runId } from "../../../actions/deploys.ts";
 import type { Complete } from "../../../ai/llm.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { writeClicksStore } from "../../../writes.ts";
 import { type Pack, type PackContext, PACK_API } from "../../types.ts";
 import { autoOf } from "../agents/share.ts";
+import { DECISIONS, type Decision, decideFinding } from "./decide.ts";
+import { type Finding, findingsStore } from "./findings.ts";
 import { fixPass } from "./fix.ts";
 import { mergePass } from "./merge.ts";
 import { reviewPass } from "./round.ts";
 import { type PrRow, prsStore } from "./store.ts";
-import { levelFact } from "./view.ts";
+import { DECIDE_HREF, findingsFact, levelFact } from "./view.ts";
 
 type AutoreviewDeps = {
   /** The forge, to read PRs and post reviews: without it, PRs are kept but not reviewed. */
@@ -33,10 +37,20 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
   let rows: PrRow[] = [];
   const key = (repo: string, number: number) => `${repo.toLowerCase()}#${number}`;
   let byPr = new Map<string, PrRow>();
-  const keep = (next: PrRow[]) => {
+  /** Each kept PR's findings, as the last refresh read them, by the PR's address. */
+  let found = new Map<string, Finding[]>();
+  /** What my last word on a finding did, by PR: on its page for a little while (the page redraws itself when it's told, so not just once). */
+  const flash = new Map<string, { ok: boolean; message: string; at: number }>();
+  const FLASH_MS = 30_000;
+  const keep = (next: PrRow[], findings: Finding[]) => {
     rows = next;
     byPr = new Map(rows.map((r) => [key(r.repo, r.number), r]));
+    found = new Map();
+    for (const f of findings) found.set(f.pr, [...(found.get(f.pr) ?? []), f]);
+    // As reported: the oldest first.
+    for (const list of found.values()) list.sort((a, b) => a.at - b.at);
   };
+  const read = async (ctx: PackContext) => keep(await prsStore(ctx.db).all(), await findingsStore(ctx.db).recent());
   /** Keeps what's new from the agents pack's share, then (`review`) reviews what's due; tells the page once if anything changed. */
   const pass = async (ctx: PackContext, review: boolean) => {
     const auto = autoOf(ctx);
@@ -64,9 +78,9 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
     if (review && deps.github && login)
       changed =
         (await mergePass({ db: ctx.db, ghe: deps.github.ghe, owners: deps.github.owners(), login, clicks: () => writeClicksStore(ctx.db).get(), log: (l) => ctx.log(l) })) || changed;
-    const before = JSON.stringify(rows);
-    keep(await store.all());
-    if (changed || JSON.stringify(rows) !== before) ctx.publish(["autoreview"]);
+    const before = JSON.stringify([rows, [...found]]);
+    await read(ctx);
+    if (changed || JSON.stringify([rows, [...found]]) !== before) ctx.publish(["autoreview"]);
   };
   return {
     manifest: {
@@ -90,10 +104,9 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
       { kind: "fix", label: "Push a fix session's commits onto an auto PR's branch" },
       { kind: "reply", label: "Reply on an auto PR's review threads from a fix session" },
       { kind: "merge", label: "Merge an auto PR once its review reaches level 5 and CI is green, where the repo's .dovre/auto.json allows it" },
+      { kind: "decide", label: "Say of a finding on an auto PR to fix it or to ignore it" },
     ],
-    async init(ctx) {
-      keep(await prsStore(ctx.db).all());
-    },
+    init: read,
     refresh: (ctx) => pass(ctx, !ctx.hosted),
     scheduled: (_e, ctx) => pass(ctx, true),
     needs: (ctx) =>
@@ -111,8 +124,31 @@ export function autoreviewPack(deps: AutoreviewDeps = {}): Pack {
     slots: () => ({
       "pr.facts": ({ repo, number }) => {
         const r = byPr.get(key(repo, number));
-        return r ? [levelFact(r)] : [];
+        if (!r) return [];
+        const told = flash.get(r.pr);
+        const said = told && Date.now() - told.at < FLASH_MS ? told : undefined;
+        if (told && !said) flash.delete(r.pr);
+        const findings = findingsFact(found.get(r.pr) ?? [], { repo: r.repo, number: r.number, live: r.state !== "merged" && r.state !== "closed", ...(said ? { flash: { ok: said.ok, message: said.message } } : {}) });
+        return findings ? [levelFact(r), findings] : [levelFact(r)];
       },
     }),
+    routes(app, ctx) {
+      // My word on a finding, from the PR's page: checked against the PRs and findings kept, never the form's say-so.
+      app.post(DECIDE_HREF, async (c) => {
+        const form = await c.req.parseBody();
+        const repo = repoIn(deps.github?.owners() ?? "", form.repo);
+        const number = runId(form.number);
+        const id = typeof form.id === "string" && /^[0-9a-f]{12}$/.test(form.id) ? form.id : "";
+        const to = (DECISIONS as readonly unknown[]).includes(form.to) ? (form.to as Decision) : undefined;
+        const row = repo && number ? byPr.get(key(repo, number)) ?? (await prsStore(ctx.db).all()).find((r) => key(r.repo, r.number) === key(repo, number)) : undefined;
+        if (!row || !id || !to) return c.text("That isn't a finding on a PR Auto review follows.", 400);
+        const r = await decideFinding({ db: ctx.db }, { pr: row.pr, id, to });
+        if (r.detail) await ctx.logged({ kind: "decide", target: `${row.repo}#${row.number}`, detail: r.detail, ok: r.ok });
+        flash.set(row.pr, { ok: r.ok, message: r.message, at: Date.now() });
+        await read(ctx);
+        ctx.publish(["autoreview"]);
+        return c.redirect(ctx.pageOn("/prs") ? `/prs/${row.repo}/${row.number}` : "/", 303);
+      });
+    },
   };
 }

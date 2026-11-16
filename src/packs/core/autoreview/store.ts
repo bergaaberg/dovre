@@ -28,6 +28,8 @@ export type PrRow = {
   fix: string | null;
   /** The level now, 1 to 5; null before the first review. */
   level: number | null;
+  /** The last review's level with every cap but the findings' (#555): what it is once none holds the PR back. Null before one says. */
+  base: number | null;
   /** Every round's level, oldest first. */
   levels: LevelAt[];
   /** What review and fix rounds have cost, in dollars. */
@@ -56,6 +58,8 @@ export async function ensureSchema(db: D1): Promise<void> {
   await db.batch(SCHEMA.map((s) => db.prepare(s)));
   // A table made before `heard` (#326 step 6) gains it; one that has it says so, and that's fine.
   await db.prepare("ALTER TABLE autoreview_prs ADD COLUMN heard INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
+  // And `base` (#555 step 3).
+  await db.prepare("ALTER TABLE autoreview_prs ADD COLUMN base INTEGER").run().catch(() => {});
   made.add(db);
 }
 
@@ -96,15 +100,15 @@ export function prsStore(db: D1, now: () => number = Date.now) {
       return Number(res.meta?.changes ?? 0) === 1;
     },
     /** A round's level on `head`: kept as the level now and added to the history, only from the state it was seen in. */
-    async level(pr: string, from: PrState, l: { head: string; level: number; cost?: number; review?: number }): Promise<boolean> {
+    async level(pr: string, from: PrState, l: { head: string; level: number; base?: number; cost?: number; review?: number }): Promise<boolean> {
       await ensureSchema(db);
       const row = await db.prepare("SELECT round, levels FROM autoreview_prs WHERE pr = ? AND state = ?").bind(pr, from).first<{ round: number; levels: string }>();
       if (!row) return false;
       const level = Math.min(5, Math.max(1, Math.trunc(l.level)));
       const levels = [...levelsOf(row.levels), { round: row.round, head: l.head, level, at: now() }];
       const res = await db
-        .prepare("UPDATE autoreview_prs SET head = ?, review = ?, level = ?, levels = ?, cost = cost + ?, claim = NULL, updated = ? WHERE pr = ? AND state = ? AND round = ?")
-        .bind(l.head, l.review ?? null, level, JSON.stringify(levels), l.cost ?? 0, now(), pr, from, row.round)
+        .prepare("UPDATE autoreview_prs SET head = ?, review = ?, level = ?, base = ?, levels = ?, cost = cost + ?, claim = NULL, updated = ? WHERE pr = ? AND state = ? AND round = ?")
+        .bind(l.head, l.review ?? null, level, l.base ?? null, JSON.stringify(levels), l.cost ?? 0, now(), pr, from, row.round)
         .run();
       return Number(res.meta?.changes ?? 0) === 1;
     },
@@ -122,6 +126,20 @@ export function prsStore(db: D1, now: () => number = Date.now) {
     async release(pr: string, o: { cost?: number; why?: string | null } = {}): Promise<void> {
       await ensureSchema(db);
       await db.prepare("UPDATE autoreview_prs SET claim = NULL, cost = cost + ?, why = COALESCE(?, why), updated = ? WHERE pr = ?").bind(o.cost ?? 0, o.why ?? null, now(), pr).run();
+    },
+    /**
+     * The level now that what holds the PR back changed (a finding decided on), on the same commit:
+     * that commit's entry in the rounds' history follows, so a merge says the level it merged at.
+     */
+    async relevel(pr: string, to: number): Promise<void> {
+      await ensureSchema(db);
+      const row = await db.prepare("SELECT head, levels FROM autoreview_prs WHERE pr = ?").bind(pr).first<{ head: string | null; levels: string }>();
+      if (!row) return;
+      const level = Math.min(5, Math.max(1, Math.trunc(to)));
+      const levels = levelsOf(row.levels);
+      const last = levels[levels.length - 1];
+      if (last && last.head === row.head) last.level = level;
+      await db.prepare("UPDATE autoreview_prs SET level = ?, levels = ?, updated = ? WHERE pr = ?").bind(level, JSON.stringify(levels), now(), pr).run();
     },
     /** Owners' words up to `at` are in a fix round now; never moves back. */
     async heard(pr: string, at: number): Promise<void> {

@@ -187,7 +187,10 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   // One the owner said to ignore isn't posted again, and doesn't hold the PR back.
   const findings = all.filter((f) => f.status !== "force-ignore");
   const gating = all.filter(gates).length;
-  const capped = capLevel(v.level, { ci, files, gating, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) });
+  const facts = { ci, files, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) };
+  const capped = capLevel(v.level, { ...facts, gating });
+  // What it would be with no finding holding it back: the level once the owner says to ignore those (decide.ts).
+  const base = capLevel(v.level, { ...facts, gating: 0 }).level;
   const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head, ignored: all.length - findings.length }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
@@ -205,7 +208,7 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
       .rest<unknown>(`/repos/${row.repo}/pulls/${row.number}/reviews/${posted.id}/comments?per_page=100`)
       .then((comments) => kept.posted(row.pr, postsOf(comments)))
       .catch(() => {});
-  await store.level(row.pr, "reviewing", { head, level: capped.level, cost: reply.cost, ...(posted.id ? { review: posted.id } : {}) });
+  await store.level(row.pr, "reviewing", { head, level: capped.level, base, cost: reply.cost, ...(posted.id ? { review: posted.id } : {}) });
   const said = `Level ${capped.level} from ${model}: ${findingCounts(findings).toLowerCase()}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
   await decide(d, { ...row, cost: row.cost + reply.cost }, { level: capped.level, fixable: gating, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
   return "reviewed";
