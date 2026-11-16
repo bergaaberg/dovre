@@ -150,6 +150,7 @@ ${FROM}
 .su-body .item .title > strong { font-size: 17px; font-weight: 400; }
 .su-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--ink-3); font-size: 13px; }
 .su-head .climb-link { padding: 0; }
+.su-head .su-bino { margin: 0 0 0 auto; }
 .su-body { display: grid; gap: 14px; min-width: 0; }
 /* A long list of ticks (#447): filtered in place, with None and "All with issues". Script shows it. */
 .su-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }

@@ -197,3 +197,22 @@ test("hosted: the object opens a setup conversation without asking the model, an
   const bad = await op({ op: "start", text: "hi", context: "", setup: { pack: "../x", title: "t" } });
   assert.equal(bad.setup, undefined);
 });
+
+test("where it starts: Today's row and the setup page offer Bino while it's on; the row's name still opens the page", async () => {
+  const s = setup([kitPack().pack]);
+  const today = await (await s.req("/")).text();
+  assert.match(today, /<a href="\/setup\/kit"><strong>Kit<\/strong><\/a>/);
+  assert.match(today, /<form method="post" action="\/bino\/new" class="su-bino" data-in-dock><input type="hidden" name="setup" value="kit"><button type="submit" class="sm ghost" data-busy="Starting">With Bino<\/button><\/form>/);
+  const page = await (await s.req("/setup/kit")).text();
+  assert.match(page, /<div class="su-head">.*name="setup" value="kit"><button type="submit" class="climb-link" data-busy="Starting">Ask Bino<\/button><\/form><a class="climb-link" href="\/">Later<\/a>/s);
+  await s.req("/setup/kit/next", { step: "pick", repo: "a/web" });
+  await s.req("/setup/kit/next", { step: "read" });
+  await s.req("/setup/kit/next", { step: "job" });
+  assert.doesNotMatch(await (await s.req("/setup/kit?at=done")).text(), /Ask Bino/, "nothing to walk through once it's done");
+
+  const off = createApp({ ...ENV, DB: openDb().DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, packs: withAssistant([kitPack().pack]) });
+  const get = async (p: string) => (await off.request(`http://localhost${p}`, { headers: { cookie: "u_tk=test-token" } })).text();
+  assert.doesNotMatch(await get("/"), /With Bino|data-in-dock/, "no Bino, no offer");
+  assert.match(await get("/"), /<a class="item" href="\/setup\/kit">/, "the whole row is the link again");
+  assert.doesNotMatch(await get("/setup/kit"), /Ask Bino/);
+});

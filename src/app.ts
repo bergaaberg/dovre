@@ -462,7 +462,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const left = setupLeft(x);
       return ob && left.length ? [{ id: x.manifest.id, name: x.manifest.name, what: left[0]!.title, left: left.length, steps: ob.steps.length, required: ob.required }] : [];
     });
-    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions, guest: deps.guest?.() }));
+    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups, { bino: binoOn() }), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions, guest: deps.guest?.() }));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {
@@ -572,7 +572,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
   const { keep, settleSettings, settingsAreas, restarting, settings } = settingsRoutes(app, { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
-  const { setUp, setup: packSetups } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
+  const { setUp, setup: packSetups } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft, binoOn });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──
   const packHomeOf = (seg: string) => {
