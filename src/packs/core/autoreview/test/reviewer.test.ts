@@ -280,7 +280,7 @@ test("decide: a critical or high finding caps the level at 2 and starts fix roun
   assert.match(r!.why!, /findings: 1 medium, 1 low\. Nothing for a fix session to do/);
 });
 
-test("findings are records: each kept with the round, the commit and its line comment; a later review closes what was open before it", async () => {
+test("findings are records: each kept with the round, the commit and its line comment; a later review closes what it doesn't raise again", async () => {
   const s = setup({ reply: at(3, HIGH, { ...HIGH, severity: "low", line: 3, start: 2, tags: ["clarity", "tests"], title: "Vague", fix: "" }) });
   await s.add();
   await reviewPass(s.deps);
@@ -295,10 +295,10 @@ test("findings are records: each kept with the round, the commit and its line co
   assert.ok(s.gh.posted[0].comments[0].body.includes(`<!-- dovre:finding ${kept[0]!.id} -->`), "the comment says which finding it posts");
   assert.deepEqual([s.gh.posted[0].comments[1].start_line, s.gh.posted[0].comments[1].line], [2, 3]);
 
-  // The fix round pushed; the next review raises one thing, and what was open before is fixed.
+  // The fix round pushed; the next review raises another thing, and what was open before is fixed.
   await s.store.move(PR, "fixing", "reviewing");
   s.gh.head = "sha2";
-  s.setReply(at(4, { ...HIGH, severity: "medium", title: "Still loose" }));
+  s.setReply(at(4, { ...HIGH, severity: "medium", tags: ["performance"], title: "Still loose" }));
   await reviewPass(s.deps);
   kept = await s.findings.of(PR);
   assert.deepEqual(kept.map((f) => [f.title, f.status, f.round, f.head]), [["Token unchecked", "fixed", 0, "sha1"], ["Vague", "fixed", 0, "sha1"], ["Still loose", "open", 1, "sha2"]]);
@@ -407,6 +407,60 @@ test("capLevel: a repo's size limit replaces the default", () => {
   const c = capLevel(5, { ci: "green", files, gating: 0, sizeLimit: 20 });
   assert.equal(c.level, 3);
   assert.match(c.why[0]!, /over the limit of 20/);
+});
+
+// ── A problem raised again (#555 step 2) ──
+
+test("a problem a later review raises again stays the finding it was: its row takes the new report and comment, and the comment says so", async () => {
+  const s = setup({ reply: at(3, HIGH) });
+  await s.add();
+  await reviewPass(s.deps);
+  const [first] = await s.findings.of(PR);
+  await s.store.move(PR, "fixing", "reviewing");
+  s.gh.head = "sha2";
+  // The same problem two lines down, in other words but a similar title; and a new one.
+  s.setReply(at(3, { ...HIGH, line: 3, title: "The token is still unchecked", text: "Still not checked.", tags: ["security"] }, { ...HIGH, severity: "low", line: 1, tags: ["clarity"], title: "Vague name" }));
+  await reviewPass(s.deps);
+  const kept = await s.findings.of(PR);
+  assert.deepEqual(
+    kept.map((f) => [f.id === first!.id, f.title, f.status, f.raised, f.round, f.head, f.line, f.comment, f.body]),
+    [
+      [true, "The token is still unchecked", "open", 2, 1, "sha2", 3, 501, "Still not checked."],
+      [false, "Vague name", "open", 1, 1, "sha2", 1, 502, "Check the token first."],
+    ],
+  );
+  const again = s.gh.posted[1].comments[0].body as string;
+  assert.match(again, /Raised again: an earlier review reported it, and it's still there\./);
+  assert.ok(again.includes(`<!-- dovre:finding ${first!.id} -->`), "its new comment posts the same finding");
+  assert.doesNotMatch(s.gh.posted[1].comments[1].body, /Raised again/);
+  assert.equal((await s.store.all())[0]!.state, "fixing", "still open and high: another round");
+});
+
+test("a finding the owner said to ignore, raised again: not posted, it doesn't hold the PR back, and it stays ignored; a new problem beside it with only a tag in common is its own", async () => {
+  const s = setup({ reply: at(3, HIGH) });
+  await s.add();
+  await reviewPass(s.deps);
+  const [first] = await s.findings.of(PR);
+  await s.DB.prepare("UPDATE autoreview_findings SET status = 'force-ignore' WHERE id = ?").bind(first!.id).run();
+  await s.store.move(PR, "fixing", "reviewing");
+  s.gh.head = "sha2";
+  s.setReply(at(5, HIGH));
+  await reviewPass(s.deps);
+  assert.deepEqual(s.gh.posted[1].comments, []);
+  assert.match(s.gh.posted[1].body, /No findings\. One you said to ignore was raised again and left out\./);
+  assert.doesNotMatch(s.gh.posted[1].body, /capped/);
+  let kept = await s.findings.of(PR);
+  assert.deepEqual(kept.map((f) => [f.status, f.raised, f.head, f.comment]), [["force-ignore", 2, "sha1", 501]]);
+  const [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state], [5, "yours"]);
+
+  await s.store.move(PR, "yours", "reviewing");
+  s.gh.head = "sha3";
+  s.setReply(at(3, { ...HIGH, title: "Password logged in the clear" }));
+  await reviewPass(s.deps);
+  kept = await s.findings.of(PR);
+  assert.deepEqual(kept.map((f) => [f.title, f.status, f.raised]), [["Token unchecked", "force-ignore", 2], ["Password logged in the clear", "open", 1]]);
+  assert.equal((await s.store.all())[0]!.level, 2);
 });
 
 // ── What owners say (#326 step 6) ──

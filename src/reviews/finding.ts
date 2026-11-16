@@ -80,3 +80,89 @@ export function severityCounts(list: { severity: Severity }[]): string {
 
 /** Most severe first, in the order reported within a severity. */
 export const bySeverity = <T extends { severity: Severity }>(list: T[]): T[] => [...list].sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity));
+
+// ── The same problem, reported twice (#555 step 2) ──
+
+/** Lines apart two findings may be and still point at the same code. */
+const SLACK = 3;
+/** How alike two titles must be beside nearby lines, and by themselves once the code has moved. */
+const ALIKE = 0.25;
+const ALIKE_MOVED = 0.6;
+const SMALL = new Set(["the", "and", "for", "not", "with", "that", "this", "from", "when", "are", "was", "but", "its", "into", "can", "may", "does"]);
+
+const wordsOf = (title: string) => new Set(title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && !SMALL.has(w)));
+
+/** How alike two titles are, 0 to 1: the words they share over the words either has. */
+export function titlesAlike(a: string, b: string): number {
+  const x = wordsOf(a);
+  const y = wordsOf(b);
+  if (!x.size || !y.size) return 0;
+  const both = [...x].filter((w) => y.has(w)).length;
+  return both / (x.size + y.size - both);
+}
+
+type Where = Pick<Found, "path" | "line" | "startLine" | "side" | "title" | "tags">;
+const near = (a: Where, b: Where) => a.side === b.side && (a.startLine ?? a.line) <= b.line + SLACK && (b.startLine ?? b.line) <= a.line + SLACK;
+
+/**
+ * Whether two findings report the same problem: the same file, nearby lines, and a similar title
+ * or a shared tag. `moved`: they're from different commits, where lines shift, so clearly similar
+ * titles are enough. `titled`: a shared tag isn't enough (for folding into a finding the owner
+ * said to ignore: a new problem beside it mustn't vanish with it).
+ */
+export function sameProblem(a: Where, b: Where, o: { moved?: boolean; titled?: boolean } = {}): boolean {
+  if (a.path !== b.path) return false;
+  const alike = titlesAlike(a.title, b.title);
+  if (near(a, b)) return alike >= ALIKE || (!o.titled && a.tags.some((t) => b.tags.includes(t)));
+  return !!o.moved && alike >= ALIKE_MOVED;
+}
+
+/**
+ * Several reviewers' findings on one commit as one list, the most severe first: those reporting
+ * the same problem become one finding, in the words of the most severe, with every tag, the
+ * widest lines and what the others called it. One reviewer's own findings never fold: listing
+ * two, it meant two problems.
+ */
+export function foldFound(byReviewer: Found[][]): Found[] {
+  const groups: { first: Found; from: Set<number>; rest: Found[] }[] = [];
+  const all = bySeverity(byReviewer.flatMap((list, who) => list.map((f) => ({ f, who }))).map((x) => ({ ...x, severity: x.f.severity })));
+  for (const { f, who } of all) {
+    const g = groups.find((g) => !g.from.has(who) && sameProblem(g.first, f));
+    if (g) {
+      g.from.add(who);
+      g.rest.push(f);
+    } else groups.push({ first: f, from: new Set([who]), rest: [] });
+  }
+  return groups.map(({ first, rest }) => {
+    if (!rest.length) return first;
+    const start = Math.min(...[first, ...rest].map((f) => f.startLine ?? f.line));
+    const line = Math.max(...[first, ...rest].map((f) => f.line));
+    const also = [...new Set(rest.map((f) => f.title))].filter((t) => t !== first.title);
+    const { startLine: _s, ...one } = first;
+    return {
+      ...one,
+      tags: [...new Set([first, ...rest].flatMap((f) => f.tags))],
+      line,
+      ...(start < line ? { startLine: start } : {}),
+      body: also.length ? `${first.body}\n\nAlso reported as: ${also.map((t) => `"${t}"`).join("; ")}.` : first.body,
+    };
+  });
+}
+
+/** Statuses an earlier finding can have and still take a problem raised again. */
+const ACTIVE: readonly FindingStatus[] = ["open", "force-fix", "force-ignore"];
+
+/**
+ * Which earlier finding each of `found` raises again, by its place in `found`: the problem was
+ * reported on an older commit and is still there. Each earlier finding takes one, and one the
+ * owner decided on comes before one that's merely open, so what they said about it stands.
+ */
+export function raisedAgain<T extends Where & { status: FindingStatus }>(found: Found[], earlier: T[]): Map<number, T> {
+  const left = earlier.filter((e) => ACTIVE.includes(e.status)).sort((a, b) => Number(a.status === "open") - Number(b.status === "open"));
+  const out = new Map<number, T>();
+  found.forEach((f, i) => {
+    const at = left.findIndex((e) => sameProblem(e, f, { moved: true, titled: e.status === "force-ignore" }));
+    if (at >= 0) out.set(i, left.splice(at, 1)[0]!);
+  });
+  return out;
+}

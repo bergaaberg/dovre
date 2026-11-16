@@ -1,7 +1,8 @@
 /**
  * One review pass (#326): every auto PR being reviewed whose head the reviewer hasn't read gets one
  * review of that exact commit once its CI has settled, posted as a Comment review
- * (`autoreview.review`), its findings kept as records (findings.ts) and its level kept. Then the
+ * (`autoreview.review`), its findings kept as records (findings.ts; one an earlier review raised
+ * stays that finding) and its level kept. Then the
  * decide step: critical and high findings start a fix round (fix.ts), within the limits; medium
  * and low are only reported; otherwise, or past a limit, the PR is handed to me. What an
  * owner says on the PR (owner.ts) caps the level at 2 and starts a round, even on a PR handed to
@@ -13,7 +14,7 @@ import { postReview } from "../../../actions/reviews.ts";
 import type { Complete } from "../../../ai/llm.ts";
 import type { D1 } from "../../../db.ts";
 import { owns } from "../../../owners.ts";
-import { gates } from "../../../reviews/finding.ts";
+import { foldFound, gates, raisedAgain } from "../../../reviews/finding.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { loadPrFiles } from "../../../sources/prview.ts";
 import type { Clicks } from "../../../writes.ts";
@@ -175,17 +176,29 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     return (await store.move(row.pr, "reviewing", "yours", { why: "The reviewer answered, but not with a level Dovre could read." })) ? "moved" : undefined;
   }
   const open = heardOpen(heard);
-  const findings = v.findings.map((f) => ({ ...f, id: newFindingId() }));
-  const gating = findings.filter((f) => gates({ severity: f.severity, status: "open" })).length;
+  // A problem an earlier review raised stays the finding it was, with what the owner said about it.
+  const kept = findingsStore(d.db, d.now);
+  const found = foldFound([v.findings]);
+  const again = raisedAgain(found, await kept.of(row.pr));
+  const all = found.map((f, i) => {
+    const was = again.get(i);
+    return was ? { ...f, id: was.id, status: was.status, raised: was.raised + 1 } : { ...f, id: newFindingId(), status: "open" as const, raised: 1 };
+  });
+  // One the owner said to ignore isn't posted again, and doesn't hold the PR back.
+  const findings = all.filter((f) => f.status !== "force-ignore");
+  const gating = all.filter(gates).length;
   const capped = capLevel(v.level, { ci, files, gating, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}) });
-  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head }), verdict: "comment", by: "auto", kind: "autoreview.review" });
+  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head, ignored: all.length - findings.length }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
     await store.release(row.pr, { cost: reply.cost, why: posted.message });
     return "moved";
   }
-  const kept = findingsStore(d.db, d.now);
-  await kept.reported(row.pr, { round: row.round, head, ...(posted.id ? { review: posted.id } : {}) }, findings);
+  await kept.reported(
+    row.pr,
+    { round: row.round, head, ...(posted.id ? { review: posted.id } : {}) },
+    all.map(({ status, raised, ...f }) => ({ ...f, ...(raised > 1 ? { again: status === "force-ignore" ? ("left" as const) : ("posted" as const) } : {}) })),
+  );
   // Which line comment posts each finding. Not known now: a fix round asks again (fix.ts).
   if (posted.id && findings.length)
     await d.ghe
