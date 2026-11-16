@@ -164,6 +164,6 @@ export function remoteBino(hub: HubClient, o: { route: Route; memory: BinoMemory
     remove: async (id) => (await hub.bino({ op: "remove", id })) === true,
     added: async (id, index, todo) => void (await hub.bino({ op: "added", id, index, todo })),
     act: async (id, index, n) => ((await hub.bino({ op: "get", id })) as Conv | null)?.msgs[index]?.acts?.[n],
-    setAct: async (id, index, n, patch) => void (await hub.bino({ op: "setAct", id, index, n, patch: { error: patch.error } })),
+    setAct: async (id, index, n, patch) => void (await hub.bino({ op: "setAct", id, index, n, patch: { ...("error" in patch ? { error: patch.error ?? null } : {}), ...("done" in patch ? { done: patch.done ?? null } : {}), ...("was" in patch ? { was: patch.was ?? null } : {}) } })),
   };
 }

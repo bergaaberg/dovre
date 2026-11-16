@@ -1,23 +1,32 @@
 /**
- * What Bino may propose to do: a dev task, or an act a pack offers (Teams: a message). Bino acts
- * on nothing; a proposal is a card I change, then press (src/packs/core/assistant/bino/routes.ts).
- * A task opens the normal preview, whose Create is the confirm; a pack's act goes through its
- * `run`. What I change before pressing stays out of Bino's conversation: Bino's transcript holds
- * the block as Bino wrote it, and that it was done.
+ * What Bino may propose to do: a dev task, a setting of Dovre's, or an act a pack offers (Teams: a
+ * message). Bino acts on nothing; a proposal is a card I change, then press
+ * (src/packs/core/assistant/bino/routes.ts). A task opens the normal preview, whose Create is the
+ * confirm; a setting goes through its own Settings route; a pack's act goes through its `run`.
+ * What I change before pressing stays out of Bino's conversation: Bino's transcript holds the
+ * block as Bino wrote it, and that it was done.
  */
 
 export const ACT_FENCE = "bino-act";
 export const MAX_ACTS = 3;
 export const MAX_TITLE = 255;
 export const MAX_BODY = 8000;
+/** The lookup that finds one of Dovre's settings (src/packs/core/assistant/bino/settings.ts): where it's offered, Bino may propose a `setting`. */
+export const SETTINGS_KIND = "dovre.settings";
 
 type TaskAct = { kind: "task"; parent: string; repo: string; title: string; body: string };
 /** A bug in Dovre itself (#384): its card opens /bug filled in; nothing is filed from the card. */
 type BugAct = { kind: "bug"; title: string; body: string; page: string };
+/**
+ * A setting of Dovre's (#185): its id in the settings catalogue (src/pages/settings.ts) and the
+ * value proposed. Only its shape is checked here; the catalogue says whether there is such a
+ * setting and whether it takes that value, when the card is drawn and again when it's pressed.
+ */
+export type SettingAct = { kind: "setting"; id: string; to: string; /** What it was before its card changed it: what Undo puts back. Never told to Bino. */ was?: string };
 /** A pack's (src/packs/types.ts ActKind): kind `<pack>.<kind>`, its fields as checked. */
 export type PackAct = { kind: `${string}.${string}`; fields: Record<string, string> };
-export type Act = (TaskAct | BugAct | PackAct) & {
-  /** Done (a pack's): when, what the card says, and where to see it. */
+export type Act = (TaskAct | BugAct | SettingAct | PackAct) & {
+  /** Done (a pack's, a setting's): when, what the card says, and where to see it. */
   done?: { at: number; text: string; href?: string };
   sending?: boolean;
   error?: string;
@@ -55,6 +64,12 @@ export function actOf(raw: unknown, kinds: ActSpec[] = []): Act | null {
     const page = line(r.page, 300);
     return title ? { kind: "bug", title, body: para(r.body, 6000), page: page.startsWith("/") && !page.startsWith("//") ? page : "" } : null;
   }
+  if (r.kind === "setting") {
+    const id = line(r.id, 120);
+    // A switch may come as true or false, a number as one.
+    const to = typeof r.to === "boolean" ? (r.to ? "on" : "off") : typeof r.to === "number" && Number.isFinite(r.to) ? String(r.to) : line(r.to, 200);
+    return /^[a-z][\w.:-]*$/i.test(id) ? { kind: "setting", id, to } : null;
+  }
   return null;
 }
 
@@ -73,7 +88,7 @@ export function splitActs(reply: string, kinds: ActSpec[] = []): { text: string;
 
 /** An act as Bino wrote it, for Bino's own transcript (never what I changed or sent). */
 export function fenceOf(a: Act): string {
-  const { done: _d, sending: _g, error: _e, ...rest } = a;
+  const { done: _d, sending: _g, error: _e, was: _w, ...rest } = a as Act & { was?: string };
   const plain = isPackAct(a) ? { kind: a.kind, ...a.fields } : rest;
   return `\`\`\`${ACT_FENCE}\n${JSON.stringify(plain)}\n\`\`\`${a.done ? " (done)" : ""}`;
 }

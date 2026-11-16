@@ -578,7 +578,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
    * one value, sent as the page sends it, so the same checks answer. No second way to write a setting.
    */
   const change: SettingsApi["change"] = async (from, id, to, by, o = {}) => {
-    const rowNow = async () => (await rowsNow((await page()).frame)).find((r) => r.id === id);
+    const rowNow = async () => (await api.rows()).find((r) => r.id === id);
     const row = await rowNow();
     if (!row) return { ok: false, why: "Dovre has no setting by that name here." };
     if (!row.change) return { ok: false, why: "That one is only changed on its own page.", href: row.href };
@@ -599,7 +599,14 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     if (!mark.logged) await logAction(env.DB, { kind: "settings.change", target: id, detail: `${changeLabel(row.change, row.change.value)} → ${changeLabel(after.change, v)} · proposed by ${by}`.slice(0, 300), ok: true }).catch(() => {});
     return { ok: true, label: row.label, was: row.change.value, now: v, text, href: row.href };
   };
-  const api: SettingsApi = { rows: async () => rowsNow((await page()).frame), change };
+  // Only the areas this instance has, as Settings' own search shows them.
+  const api: SettingsApi = {
+    rows: async () => {
+      const areas = settingsAreas();
+      return (await rowsNow((await page()).frame)).filter((r) => areas.includes(r.area));
+    },
+    change,
+  };
   apis.set(app, api);
   return { keep, settleSettings, settingsAreas, restarting: () => restarting, settings: api };
 }

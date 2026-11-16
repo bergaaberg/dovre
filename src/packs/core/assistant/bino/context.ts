@@ -10,7 +10,7 @@
  */
 import type { Snapshot } from "../../../../gather.ts";
 import type { ListItem as Todo, ListState as State } from "../../../types.ts";
-import { ACT_FENCE, type ActSpec, MAX_ACTS } from "./acts.ts";
+import { ACT_FENCE, type ActSpec, MAX_ACTS, SETTINGS_KIND } from "./acts.ts";
 
 const STATES: readonly State[] = ["doing", "next", "waiting", "done"];
 
@@ -48,6 +48,15 @@ const BUG_ACT = `When the user describes something broken in Dovre itself (this 
 \`\`\`
 
 Its card opens Dovre's bug form filled in; the user checks it there and sends it. Only for bugs in Dovre, not in the user's own apps.`;
+
+/** A setting of Dovre's (#185): offered wherever its lookup is, since its card posts to the app like the bug card. */
+const SETTING_ACT = `When the user asks you to change how Dovre itself looks, what it shows or when it rings (the theme, text size, a pack on or off, what rings, a group of shortcuts, whether a write asks twice), propose it as a setting: a fenced block at the end of your reply, counted in the same ${MAX_ACTS}:
+
+\`\`\`${ACT_FENCE}
+{"kind": "setting", "id": "the setting's id, exactly as the ${SETTINGS_KIND} lookup gave it", "to": "one of the values it takes"}
+\`\`\`
+
+Look the setting up first: never guess an id or a value. The user sees a card with what it is now and what it would become, can pick another value there, and nothing changes until they press it. You can't change secrets, who gets in, which repos Dovre tracks, what agents and packs may do or spend, or restart Dovre: the lookup says which those are, and then the card is only a link to that setting's page.`;
 
 /** Hosted, nothing sends a message or files an issue: Bino says so instead of proposing one. */
 const NO_ACTS = "You can't propose sending messages or filing issues here: if the user asks for that, write the text for them to copy.";
@@ -167,10 +176,12 @@ function packActsPrompt(kinds: ActSpec[]): string {
 
 /**
  * The whole system prompt: who Bino is, what's on now, what it remembers. `kinds`: the packs' acts
- * (only where Bino may propose); `lookups`: what it may look up (lookupsPrompt), when it may.
+ * (only where Bino may propose); `lookups`: what it may look up (lookupsPrompt), when it may;
+ * `settings`: Dovre's settings can be looked up here, so one may be proposed.
  */
-export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[]; lookups?: string } = {}): string {
-  const acts = o.acts === false ? `${NO_ACTS}\n\n${BUG_ACT}` : [ACTS, BUG_ACT, packActsPrompt(o.kinds ?? [])].filter(Boolean).join("\n\n");
+export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[]; lookups?: string; settings?: boolean } = {}): string {
+  const setting = o.settings ? SETTING_ACT : "";
+  const acts = o.acts === false ? [NO_ACTS, BUG_ACT, setting].filter(Boolean).join("\n\n") : [ACTS, BUG_ACT, setting, packActsPrompt(o.kinds ?? [])].filter(Boolean).join("\n\n");
   return [BASE, acts, o.lookups ?? "", `# What the user has on right now\n\n${context}`, memories ? `# ${memories}` : ""].filter(Boolean).join("\n\n");
 }
 

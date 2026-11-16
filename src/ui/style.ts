@@ -1137,6 +1137,11 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 .bino-plan { margin: 12px 0 0; padding: 12px 14px; border: 1px dashed var(--accent-line); border-radius: var(--r-s); background: var(--accent-soft); }
 .bino-plan.done { border-style: solid; }
 .bino-plan-h { margin: 0 0 8px; font: 600 var(--fs-s)/1.4 var(--sans); color: var(--accent); }
+/* A setting's card (#185): what it is now, an arrow, what it would become (a picker, or said). */
+.bino-set { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 10px; }
+.bino-set > select, .bino-set > input { width: auto; min-width: 0; max-width: 100%; flex: 0 1 16rem; }
+.bino-plan.done > p { margin: 0; }
+.bino-plan.done > .buttons { margin-top: 8px; }
 .bino-steps { margin: 8px 0; padding-left: 1.4em; display: grid; gap: 6px; }
 .bino-step { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
 .bino-target { margin: 8px 0; border: 0; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; }

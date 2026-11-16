@@ -407,7 +407,9 @@ Teams and Data moved to instance packs (2026-10-26), the avatar to dovre-packs (
 2026-10-27); `test/boundary.test.ts` keeps them out of core. Pack options live in manifest
 `settings`; `src/config.ts` `KEYS` is core's only.
 
-1. **Hosted Bino proposes nothing.** It runs in the Durable Object, which has no packs, so
-   `acts` are local only. It does get packs' `bino` lines through the page context, and it
+1. **Hosted Bino proposes only cards that are forms to the app.** It runs in the Durable Object,
+   which has no packs, so packs' `acts` and dev tasks are local only. A bug report (its card
+   opens `/bug`) and a setting of Dovre's (#185: its card posts to the Worker, which sends the
+   setting's own Settings route its form) work in both. It does get packs' `bino` lines through the page context, and it
    looks up through the Worker: the instance exports a `BinoLookups` entrypoint and binds it to
    itself as `BINO_LOOKUPS` (`src/hosted/lookups.ts`).
