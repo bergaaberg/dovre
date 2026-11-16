@@ -623,7 +623,10 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       const who = h.byPerson && request.method === "POST" && h.verify ? await h.verify(request).catch(() => undefined) : undefined;
       // The request's context goes along: a route's c.executionCtx.waitUntil() keeps its job past the
       // response. Without it that throws, and a job started in the request dies when it answers.
-      const call = () => h.app.fetch(request, {}, ctx as Parameters<typeof h.app.fetch>[2]);
+      // Its jobs are kept here as well: what one publishes at its end is on its way only after it.
+      const jobs: Promise<unknown>[] = [];
+      const own: Ctx | undefined = ctx && { waitUntil: (p) => (jobs.push(p), ctx.waitUntil(p)) };
+      const call = () => h.app.fetch(request, {}, own as Parameters<typeof h.app.fetch>[2]);
       const res = who?.email ? await actingAs({ email: who.email }, call) : await call();
       if (ctx) {
         // A page answered from memory and started a gather, or a pack is due: finish after the response.
@@ -635,7 +638,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
         const hub = h.hub;
         // The calls that work made are counted too (#253): the request's own flush went out before it.
         const counted = () => capped(h.ghe.calls?.flush(bindings.DB, true) ?? Promise.resolve());
-        ctx.waitUntil(Promise.all(work).then(() => Promise.all([hub && capped(hub.drain(), DRAIN_MS), counted()])));
+        ctx.waitUntil(Promise.all([...work, ...jobs.map((j) => capped(j))]).then(() => Promise.all([hub && capped(hub.drain(), DRAIN_MS), counted()])));
       }
       return res;
     },
