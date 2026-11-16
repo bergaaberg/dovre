@@ -617,3 +617,49 @@ test("worker: with no TZ_NAME, times follow the browser's zone (its u-tz cookie)
     resetWhen();
   }
 });
+
+test("worker: what a route's own job publishes at its end, after the response, still reaches the hub", async () => {
+  resetHostedApp();
+  const iss = "https://login.example.dev";
+  const k = await keyPair("d2");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url) === `${iss}/.well-known/jwks.json` ? new Response(JSON.stringify({ keys: [k.jwk] })) : realFetch(url)) as typeof fetch;
+  const heard: string[] = [];
+  // A slow hub: each publish lands 30 ms after it's sent.
+  const HUB = {
+    idFromName: () => "hub",
+    get: () => ({
+      fetch: async (input: Request | string, init?: RequestInit) => {
+        await new Promise((r) => setTimeout(r, 30));
+        if (String(input).endsWith("/publish")) heard.push(...(JSON.parse(String(init?.body)) as { topics: string[] }).topics);
+        return new Response("{}");
+      },
+    }),
+  };
+  // A page that answers at once and reads on: the read ends 60 ms later, long after the request's other work, and says so.
+  const late: Pack = {
+    manifest: { api: PACK_API, id: "late", name: "Late", description: "Answers first, reads after", domain: "work", execution: "any" },
+    routes(app, ctx) {
+      app.get("/late", (c) => {
+        c.executionCtx.waitUntil(new Promise((r) => setTimeout(r, 60)).then(() => ctx.publish(["late"])));
+        return c.text("reading");
+      });
+    },
+  };
+  try {
+    const w = createWorker({ packs: [late] });
+    const bindings = { DB: mockD1(), GITHUB_USER: "dovre-user", IS_HOSTED: "1", AUTH_ISSUER: iss, AUTH_AUD: "t-alice", ALLOWED_EMAILS: "me@example.dev", HUB };
+    const jwt = await k.sign({ iss, aud: "t-alice", email: "me@example.dev", exp: Math.floor(Date.now() / 1000) + 60 });
+    const pending: Promise<unknown>[] = [];
+    const res = await w.fetch(new Request("https://alice.example.dev/late", { headers: { "cf-access-jwt-assertion": jwt } }), bindings, { waitUntil: (p: Promise<unknown>) => void pending.push(p) });
+    assert.equal(await res.text(), "reading");
+    assert.ok(!heard.includes("late"), "the page answered before its read was in");
+    // What a Worker is kept alive for: everything handed to waitUntil, and nothing after.
+    await Promise.all(pending);
+    assert.ok(heard.includes("late"), "the job's publish landed before the Worker was let go");
+  } finally {
+    globalThis.fetch = realFetch;
+    resetHostedApp();
+  }
+});
