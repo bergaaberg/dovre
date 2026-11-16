@@ -61,6 +61,11 @@ export type Gatherer = {
   seed?(s: Snapshot): void;
 };
 
+/** What a gather is without a code host (#421): nothing asked, nothing to show, every read fine. */
+export function emptySnapshot(o: Pick<Snapshot, "at" | "login" | "org" | "name"> & { began?: number }): Snapshot {
+  return { ...o, prs: { ok: true, value: { mine: [], review: [] } }, notes: { ok: true, value: [] }, moves: { ok: true, value: [] }, deploys: { ok: true, value: [] }, refs: new Map(), changelogs: new Map(), red: [] };
+}
+
 /**
  * The Snapshot type's version: bump it when its shape changes, so a snapshot kept by older code is
  * dropped instead of drawn wrong. (Not a hash of the code: any change there threw the kept one
@@ -142,6 +147,8 @@ export function createGatherer(deps: {
    * request that was cancelled takes its fetches with it, and its gather never settles).
    */
   maxGatherMs?: number;
+  /** No code host (#421, src/onboarding.ts noCodeHost): each gather is empty, and the forge isn't asked. Read at each gather. */
+  none?: () => boolean;
 }): Gatherer {
   const { env, forge, login } = deps;
   const ttl = deps.ttlMs ?? 45_000;
@@ -155,6 +162,7 @@ export function createGatherer(deps: {
 
   async function gather(): Promise<Snapshot> {
     const began = now();
+    if (deps.none?.()) return emptySnapshot({ at: now(), began, login, org: env.GHE_ORG, name: deps.name ?? login });
     const [prs, notes, moves] = await Promise.all([
       settle(forge.prs(login, ownersIn(env))),
       settle(forge.notes()),

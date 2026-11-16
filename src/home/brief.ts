@@ -54,7 +54,7 @@ export function isoWeek(at: number, tz: string = currentTz()): number {
  * What needs me, as sentences made of bits: deploys waiting, then what the packs say (`briefs`,
  * one sentence each), then red builds. Empty days say so.
  */
-export function lede(s: Snapshot, briefs: Bit[][] = []): Bit[][] {
+export function lede(s: Snapshot, briefs: Bit[][] = [], o: { /** The closing line on reviews; false without a code host (#421). */ reviews?: boolean } = {}): Bit[][] {
   const deploys = s.deploys.ok ? s.deploys.value.filter((d) => {
     const log = s.changelogs.get(d.id);
     return !(log?.ok && log.value.prodSha && !log.value.changes.length);
@@ -78,7 +78,7 @@ export function lede(s: Snapshot, briefs: Bit[][] = []): Bit[][] {
   if (second.length) sentences.push(second);
 
   if (!sentences.length) sentences.push(["Nothing needs you."]);
-  sentences.push(reviews ? [{ text: `${cap(word(reviews))} ${reviews === 1 ? "review waits" : "reviews wait"}`, href: "/prs" }, " on you."] : ["No reviews waiting."]);
+  if (o.reviews !== false) sentences.push(reviews ? [{ text: `${cap(word(reviews))} ${reviews === 1 ? "review waits" : "reviews wait"}`, href: "/prs" }, " on you."] : ["No reviews waiting."]);
   // Each sentence starts with a capital, even when it starts with a link.
   for (const sentence of sentences) {
     const i = sentence.findIndex((b) => (typeof b === "string" ? b.length > 0 : true));

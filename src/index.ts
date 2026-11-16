@@ -1,7 +1,8 @@
 /** Runs Dovre: open the database, find out who I am on GHE, keep the view fresh, bind to localhost. */
 import { ownersIn } from "./owners.ts";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
+import { firstNameOf, noCodeHost, onboardingStore } from "./onboarding.ts";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSent, sentFiles } from "./bridge/sentfile.ts";
@@ -241,8 +242,11 @@ const sumVia = summariesVia(env.AI_VIA ?? env.SUMMARIES, !!claude, !!omp, !!copi
 const packModel = sumVia === "claude" && claude ? claudeCli({ bin: claude.bin, pre: claude.pre }) : sumVia === "omp" && copilot && !copilot.why() ? copilotComplete(copilot) : sumVia === "copilot" ? copilotAsk : sumVia === "agy" && agy ? agyCli({ bin: agy.bin, pre: agy.pre }) : sumVia === "codex" && codex ? codexCli({ bin: codex.bin, pre: codex.pre }) : undefined;
 // The refresher keeps the snapshot fresh; pages only read it, and never wait for GHE when there's one to show.
 let gathered = (_s: Snapshot) => {};
+// What the climb was told: the gather reads where code lives from it (#421), the app the rest.
+const onboarding = onboardingStore(db.DB);
 const gatherer = createGatherer({
   env, forge, login, name, ttlMs: 10 * 60_000,
+  none: () => noCodeHost(onboarding.get()),
   // The PRs the agents' sessions link: their state and title come with the gather.
   linked: () => packLinked(),
   store: snapshotStore(join(dataDir, "snapshot.json"), SNAPSHOT_SHAPE),
@@ -453,6 +457,9 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   ghe,
   forge,
   // A pack's picture for the starting page (written next to it, read at the next start).
+  onboarding,
+  // The greeting's name without a forge (#421): this machine's user.
+  localName: firstNameOf(userInfo().username),
   startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
   // What packs ask once I allow them (#466); through Claude Code, small is Haiku and large Sonnet.
   ...(packModel ? { ai: { complete: packModel, via: AI_ROUTE_NAMES[sumVia], ...(sumVia === "claude" ? { models: { small: "haiku", large: "sonnet" } } : {}) } } : {}),

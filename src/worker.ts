@@ -28,6 +28,7 @@ import { createGhe, type Ghe, missingGhe } from "./sources/ghe.ts";
 import { d1Reads, type SharedReads } from "./sources/files.ts";
 import { createPruner } from "./prune.ts";
 import { startWaited } from "./speed.ts";
+import { noCodeHost, onboardingStore } from "./onboarding.ts";
 import { githubForge } from "./forge/github.ts";
 import { forgeIdOf, pickForge } from "./forge/pick.ts";
 import { type Forge, forgeCan } from "./forge/types.ts";
@@ -257,8 +258,9 @@ export function syncTeller(tell: (at: number, changed: boolean) => void, everyMs
   };
 }
 
-function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Forge, store?: SnapshotStore, onGathered?: (s: Snapshot) => void, linked?: () => string[]): Gatherer {
+function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Forge, store?: SnapshotStore, onGathered?: (s: Snapshot) => void, linked?: () => string[], none?: () => boolean): Gatherer {
   const g = createGatherer({
+    none,
     env: { GHE_ORG: primaryOf(ownersOfBindings(bindings, login)), OWNERS: ownersOfBindings(bindings, login) },
     forge,
     login,
@@ -280,7 +282,7 @@ const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) 
  * the instance's owners. Its kept reads and kept snapshot are theirs alone. Undefined when the
  * provider has no token for them (`NoOwnToken`); rejects when it or GitHub couldn't be asked.
  */
-export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void; /** And what's new in it rings for them (#551). */ rang?: (who: string, s: Snapshot) => void }): (email: string) => Promise<Found | undefined> {
+export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void; /** No code host (#421): their gathers are empty too. */ none?: () => boolean; /** And what's new in it rings for them (#551). */ rang?: (who: string, s: Snapshot) => void }): (email: string) => Promise<Found | undefined> {
   const host = hostOf(bindings);
   const reads = bindings.DB ? d1Reads(bindings.DB) : undefined;
   const owners = ownersOfBindings(bindings, o.instanceLogin);
@@ -311,6 +313,7 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
         const kept = d1SnapshotStore(bindings.DB, o.version, { key: personKey(who) });
         const sync = syncTeller((at, changed) => o.told(who, at, changed));
         const g = createGatherer({
+          none: o.none,
           env: { GHE_ORG: primaryOf(owners), OWNERS: owners },
           forge: githubForge(ghe),
           login,
@@ -430,11 +433,14 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     let linked = (): string[] => [];
     // What's new in a gather rings (#551): set once the hub and the app are there.
     let rang = (_s: Snapshot, _who?: string) => {};
-    const plain = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => (sync.gathered(s.at, shownOf(s)), rang(s)), () => linked());
+    // What the climb was told: the gathers read where code lives from it (#421), the app the rest.
+    const onboarding = onboardingStore(bindings.DB);
+    const none = () => noCodeHost(onboarding.get());
+    const plain = createHostedGatherer(bindings, login, forge, { load: () => undefined, save: (s) => kept.save(s) }, (s) => (sync.gathered(s.at, shownOf(s)), rang(s)), () => linked(), none);
     // A Refresh or an action waits on the next gather's "Synced", changed or not.
     const instance: Gatherer = { ...plain, stale: () => (sync.asked(), plain.stale()) };
     // Where GitHub tokens tell people apart, a person with their own gets their own snapshot (#538).
-    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: () => (inCron.getStore() ? undefined : currentViewer()), find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), told: (who, at, changed) => hub?.gathered(at, changed, who), rang: (who, s) => rang(s, who) }) }) : undefined;
+    const people = forgeId === "github" && provider ? perPerson({ shared: instance, login, viewer: () => (inCron.getStore() ? undefined : currentViewer()), find: personFinder(bindings, provider, { version, instanceLogin: login, linked: () => linked(), none, told: (who, at, changed) => hub?.gathered(at, changed, who), rang: (who, s) => rang(s, who) }) }) : undefined;
     // A page says which login its snapshot was gathered as (the shell's u-as): any but the instance's is a person's own (#539).
     const own = (as: string | null | undefined) => !!people && !!as?.trim() && as.trim().toLowerCase() !== login.toLowerCase();
     const gatherer: Gatherer = people?.gatherer ?? instance;
@@ -530,6 +536,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       gatherer,
       ghe,
       forge,
+      onboarding,
       access: verify,
       info: { version: `${version}-cf`, startedAt: Date.now() },
       packs: { on, off, env: strings, keys, bindings, core: [...CORE_PACKS] },

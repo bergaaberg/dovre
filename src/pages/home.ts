@@ -162,11 +162,11 @@ ${on("/movement") ? html`<div class="card-f"><span>People and bots, by person</s
 </aside>`;
 }
 
-const legend = (lanes: Lane[]) => html`<ul class="legend">
-<li><svg viewBox="0 0 12 12" aria-hidden="true"><line class="lg-mine" x1="2" y1="11" x2="2" y2="1" stroke-width="1.3"/><path class="lg-mine" d="M2 1 9 3.6 2 6.2Z"/></svg>Your merges</li>
+const legend = (lanes: Lane[], forge = true) => html`<ul class="legend">
+${forge ? html`<li><svg viewBox="0 0 12 12" aria-hidden="true"><line class="lg-mine" x1="2" y1="11" x2="2" y2="1" stroke-width="1.3"/><path class="lg-mine" d="M2 1 9 3.6 2 6.2Z"/></svg>Your merges</li>
 <li><svg viewBox="0 0 12 12" aria-hidden="true"><line class="lg-team" x1="2" y1="11" x2="2" y2="1" stroke-width="1.3"/><path class="lg-team" d="M2 1 9 3.6 2 6.2Z"/></svg>Team merges</li>
 <li><svg viewBox="0 0 12 12" aria-hidden="true"><path class="lg-rel" d="M6 1 11 6 6 11 1 6Z"/></svg>Released</li>
-<li><svg viewBox="0 0 12 12" aria-hidden="true"><path class="lg-wait" d="M6 1.5 10.5 6 6 10.5 1.5 6Z"/></svg>Waiting for prod</li>
+<li><svg viewBox="0 0 12 12" aria-hidden="true"><path class="lg-wait" d="M6 1.5 10.5 6 6 10.5 1.5 6Z"/></svg>Waiting for prod</li>` : ""}
 ${lanes.filter((l) => l.legend).slice(0, 3).map((l) => html`<li><svg viewBox="0 0 12 12" aria-hidden="true"><circle class="lg-mark" cx="6" cy="6" r="4.5"/></svg>${l.legend}</li>`)}
 </ul>`;
 
@@ -185,7 +185,7 @@ type CoreCard = (typeof CORE_CARDS)[number]["id"];
 /** A pack card's place by default: after the core's, in the packs' own order. */
 export const packOrder = (order: number | undefined) => Math.min(999, 100 + Math.max(0, order ?? 100));
 
-export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean; /** Hosted: the person asking is a guest of the instance's snapshot (#544). */ guest?: Guest } = {}) {
+export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean; /** Hosted: the person asking is a guest of the instance's snapshot (#544). */ guest?: Guest; /** No code host (#421): no PR or ship cards, no Merged and Released, the packs' feed alone, the horizon only with their lanes. */ noForge?: boolean; /** The greeting's name when it isn't the forge's (#421: the sign-in's); "" greets without one. */ name?: string } = {}) {
   const now = opts.now ?? Date.now();
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
@@ -193,11 +193,13 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const on = opts.on ?? (() => true);
   // Without the prs pack, a PR opens on the forge, as where the forge has no viewer.
   const prForge = (f: ForgeView = GITHUB_VIEW): ForgeView => (on("/prs") ? f : { ...f, can: f.can.filter((c) => c !== "viewer") });
+  const noForge = !!opts.noForge;
   const core: Record<CoreCard, Html | "" | undefined> = {
-    ship: shipCard(s, summary, opts.ghe ?? "github.com", opts.rules, forgeCan(opts.forge ?? GITHUB_VIEW, "deployApproval")),
+    ship: noForge ? undefined : shipCard(s, summary, opts.ghe ?? "github.com", opts.rules, forgeCan(opts.forge ?? GITHUB_VIEW, "deployApproval")),
     actions: opts.actions,
-    prs: prsCard(s, summary, opts.agent, prForge(opts.forge), on("/prs")),
+    prs: noForge ? undefined : prsCard(s, summary, opts.agent, prForge(opts.forge), on("/prs")),
   };
+  const name = opts.name ?? s.name;
   const slots: Slot<Html>[] = [
     ...CORE_CARDS.flatMap((c) => (core[c.id] ? [{ ...c, render: core[c.id] as Html }] : [])),
     ...(opts.packs?.cards ?? []).map((c) => ({ id: c.id, label: c.id, col: c.column === "left" ? ("left" as const) : ("right" as const), order: own(c.id) ? Math.max(0, Math.min(999, c.order ?? 100)) : packOrder(c.order), render: c.render })),
@@ -207,13 +209,13 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const lang = frame.greeting ?? currentGreeting();
   const body = html`<div data-live id="today">
 <section class="brief" aria-labelledby="greet">
-<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence, on)}`)}</p>${guestLine({ guest: opts.guest, whose: s.login, forge: opts.forge?.name })}</div>
-${opts.hero ?? ""}<dl class="glance" aria-label="Last 24 hours"><div><dt>Merged</dt><dd>${g.merged}</dd></div><div><dt>Released</dt><dd>${g.released}</dd></div>${apps.glance.slice(0, 4).map((x) => html`<div><dt>${x.label}</dt><dd>${x.value}</dd></div>`)}</dl>
+<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}${name ? html`, ${name}` : ""}.</h1><p class="lede">${lede(s, apps.brief, { reviews: !noForge }).map((sentence, i) => html`${i ? " " : ""}${bits(sentence, on)}`)}</p>${noForge ? "" : guestLine({ guest: opts.guest, whose: s.login, forge: opts.forge?.name })}</div>
+${opts.hero ?? ""}${noForge && !apps.glance.length ? "" : html`<dl class="glance" aria-label="Last 24 hours">${noForge ? "" : html`<div><dt>Merged</dt><dd>${g.merged}</dd></div><div><dt>Released</dt><dd>${g.released}</dd></div>`}${apps.glance.slice(0, 4).map((x) => html`<div><dt>${x.label}</dt><dd>${x.value}</dd></div>`)}</dl>`}
 </section>
 ${opts.setup ?? ""}
-<section class="horizon" aria-labelledby="hz-h"><div class="hz-head"><h2 id="hz-h">The last 24 hours</h2>${legend(apps.lanes)}</div>
+${noForge && !apps.lanes.length ? "" : html`<section class="horizon" aria-labelledby="hz-h"><div class="hz-head"><h2 id="hz-h">The last 24 hours</h2>${legend(apps.lanes, !noForge)}</div>
 ${horizon({ moves: s.moves.ok ? s.moves.value : [], deploys: s.deploys.ok ? s.deploys.value : [], lanes: apps.lanes, me: s.login, now, tz })}
-</section>
+</section>`}
 <div class="today-main">
 <div class="today-cols">
 <div class="today-col">
@@ -224,7 +226,7 @@ ${cols.right.map((c) => c.render)}
 ${opts.packs?.failed.length ? packsFailed(opts.packs.failed) : ""}
 </div>
 </div>
-${feedPanel(s, now, opts.feed, opts.on)}
+${feedPanel(s, now, opts.feed && noForge ? { ...opts.feed, only: true } : opts.feed, opts.on)}
 </div>
 </div>`;
   const topics = ["snapshot", ...(opts.topics ?? [])].join(" ");

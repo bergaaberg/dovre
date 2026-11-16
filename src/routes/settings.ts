@@ -8,6 +8,7 @@ import { type Frame, html, tabsOf } from "../html.ts";
 import { DEFAULT_KEYS, KEY_GROUPS } from "../keys.ts";
 import { type Layout, layoutFromForm } from "../layout.ts";
 import { policyOf, RING_KINDS } from "../notify.ts";
+import { noCodeHost } from "../onboarding.ts";
 import type { ToAdd } from "../packs/copies.ts";
 import { createToken, listTokens, revokeToken, sourceOk, tokensPanel } from "../packs/ingest.ts";
 import { fillsOf, missingWhy, settingsFrom, settleRequires, startPack } from "../packs/registry.ts";
@@ -21,7 +22,7 @@ import { aiAskOf, grantOf } from "../packs/ai.ts";
 import { aiPanel, manifestPanel, manifestSettings, packsPage, settingState } from "../pages/packs.ts";
 import { wholeIn } from "../packs/env.ts";
 import { sentPanels, type SentView } from "../pages/sent.ts";
-import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, changeLabel, changeTo, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, type SettingRow, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
+import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, changeLabel, codeHostPanel, changeTo, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, type SettingRow, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
 import { speedPanels } from "../pages/speed.ts";
 import { statOffers } from "../pages/stats.ts";
 import { writesPanel } from "../pages/writes.ts";
@@ -92,6 +93,8 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     return true;
   };
   /** What the Work form shows: what Settings keeps, and what .dev.vars or the environment fixes. */
+  /** Where code lives (#421), as Settings → Work shows it. */
+  const codeHostNow = () => ({ forge: forge.name, none: noCodeHost(onboarding.get()) });
   const panesView = () => {
     if (!deps.config) return undefined;
     const fixed = fixedKeys();
@@ -346,9 +349,9 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       ...packs.off.map((o) => ({ id: o.id, name: o.name, on: false, settings: set(o.manifest), panel: false })),
     ].filter((k) => k.settings.length || k.panel);
   };
-  /** The areas this instance has: Work only where Settings keeps config, Agents only on a machine. */
+  /** The areas this instance has: Agents only on a machine. Work everywhere (where code lives, #421); its config form only where Settings keeps config. */
   const settingsAreas = (): AreaId[] =>
-    AREAS.map((a) => a.id).filter((id) => (id === "work" ? !!deps.config : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
+    AREAS.map((a) => a.id).filter((id) => (id === "work" ? true : id === "agents" ? (!hosted && !!deps.agentTools) || !!deps.notify || settingsFrom(shown().filter((p) => p.manifest.id === "agents"), ctxOf, () => {}).length > 0 : id === "packs" ? packSettings().length > 0 : true));
   /** Every setting as it is now, to find and to mark what was changed. */
   const rowsNow = async (frame: Frame) => {
     await deps.notify?.fresh?.();
@@ -367,6 +370,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       agents: !hosted && deps.agentTools ? deps.agentTools.view().rows : undefined,
       setup: (await deps.setup?.()) ?? setupNow(frame.operator),
       canRestart: !!deps.restart,
+      codeHost: codeHostNow(),
     });
   };
   /** Saved, starting again, or refused: shown once, on the next Settings page. */
@@ -391,7 +395,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       case "keys":
         return keysPanel(frame.keys ?? DEFAULT_KEYS, !!currentViewer());
       case "work":
-        return workPanel(panesView()!, !!deps.restart);
+        return html`${codeHostPanel(codeHostNow())}${deps.config ? workPanel(panesView()!, !!deps.restart) : ""}`;
       case "agents": {
         // One area for agents (#272): their tools here, the long-turn ring, and the auto runs' limits.
         const agents = shown().find((p) => p.manifest.id === "agents");
@@ -522,6 +526,21 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     const notes = takeNotes(`/settings/${area}`);
     const body = await areaBody(area, frame);
     return c.html(settingsArea(frame, area, { areas: settingsAreas(), rows: await rowsNow(frame), notes, body }));
+  });
+  /** Where code lives (#421): the forge, or none; changing it gathers again (empty without one). */
+  app.post("/settings/work/code-host", strictOrigin, async (c) => {
+    const host = (await c.req.parseBody()).host;
+    if (host !== "none" && host !== "forge") return c.redirect("/settings/work#code-host", 303);
+    await onboarding.ready;
+    await onboarding.update((was) => {
+      const { forge: f, ...rest } = was;
+      // Back from None: what the climb was told before, if it named one; else the instance's forge.
+      return host === "none" ? { ...rest, forge: "none" } : f && f !== "none" ? was : rest;
+    });
+    await logAction(env.DB, { kind: "settings.codeHost", target: "work", detail: host === "none" ? "Code lives on: None" : `Code lives on: ${forge.name}`, ok: true }).catch(() => {});
+    deps.gatherer.stale();
+    saved = true;
+    return c.redirect("/settings/work#code-host", 303);
   });
   /** The Work form: kept, then Dovre starts again with it (under the supervisor). */
   for (const path of ["/settings/work"])

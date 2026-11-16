@@ -10,6 +10,7 @@ import { logAction, repoIn } from "../actions/deploys.ts";
 import { packProposals } from "../actions/propose.ts";
 import type { App, AppEnv } from "../env.ts";
 import { packFeedOf } from "../home/feed.ts";
+import { noCodeHost } from "../onboarding.ts";
 import { dockShell, html, shell } from "../html.ts";
 import { RING_KINDS, rings } from "../notify.ts";
 import { ownersIn, owns } from "../owners.ts";
@@ -277,8 +278,8 @@ export function mountPacks(app: App, o: MountOpts) {
   }
   // What requires a pack that just went off goes off with it (#326).
   settleRequires(packs);
-  /** Switched off on the Packs page, or requires a pack that is (#326). */
-  const held = () => heldOff(packs.on, layout.get().packsOff ?? []);
+  /** Switched off on the Packs page, needs a code host there isn't (#421), or requires a pack that is (#326). */
+  const held = () => heldOff(packs.on, layout.get().packsOff ?? [], { noForge: noCodeHost(onboarding.get()) });
   const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
   /**

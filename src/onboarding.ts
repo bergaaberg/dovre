@@ -16,6 +16,19 @@ export const FORGES = [
 ] as const;
 export type ForgeChoice = (typeof FORGES)[number][0];
 
+/** The climb's "None" (#421), or Settings → Work's "Code lives on: None": no forge gather, its packs held, Today without its cards. */
+export const noCodeHost = (o: Pick<Onboarding, "forge">): boolean => o.forge === "none";
+
+/**
+ * A first name from a sign-in's email (#421: without a forge, the greeting's name comes from the
+ * sign-in): the first word of its local part, capitalised ("kari.nordmann@…" → "Kari"). Undefined
+ * when there's no word to take.
+ */
+export function firstNameOf(email: string | undefined): string | undefined {
+  const word = email?.split("@")[0]?.split(/[._+\-\s]+/).find((w) => /\p{L}/u.test(w));
+  return word ? word.slice(0, 1).toLocaleUpperCase() + word.slice(1, 40) : undefined;
+}
+
 export type Onboarding = {
   role?: Role;
   forge?: ForgeChoice;
