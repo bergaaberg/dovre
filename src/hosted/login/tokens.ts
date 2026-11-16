@@ -65,6 +65,8 @@ export type AppTokens = {
   forEmail(email: string): Promise<string | undefined>;
   /** The operator's (GITHUB_USER's row, else ALLOWED_EMAILS in order), or undefined. */
   operator(): Promise<string | undefined>;
+  /** This person just signed in: a "no token" remembered for them is dropped, so the next call reads theirs. */
+  signedIn(email: string): void;
 };
 
 export function appTokens(o: { db: D1; secret: string; app: GithubApp; allowedEmails: string[]; operatorLogin?: string; fetch?: typeof fetch; now?: () => number }): AppTokens {
@@ -181,5 +183,5 @@ export function appTokens(o: { db: D1; secret: string; app: GithubApp; allowedEm
     return undefined;
   };
 
-  return { forEmail, operator };
+  return { forEmail, operator, signedIn: (email) => void miss.delete(email.trim().toLowerCase()) };
 }

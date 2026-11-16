@@ -89,7 +89,7 @@ export type Login = {
   handle(req: Request): Promise<Response | undefined>;
 };
 
-export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => number; /** Sign in with GitHub (#523). */ github?: GithubApp; /** Keeps a GitHub sign-in's tokens, sealed with this (GITHUB_TOKEN_SEAL, ./tokens.ts). */ seal?: string; fetch?: typeof fetch }): Login {
+export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => number; /** Sign in with GitHub (#523). */ github?: GithubApp; /** Keeps a GitHub sign-in's tokens, sealed with this (GITHUB_TOKEN_SEAL, ./tokens.ts). */ seal?: string; /** Told once a GitHub sign-in's token is kept: what remembered them as having none forgets it (#544). */ signedIn?: (email: string) => void; fetch?: typeof fetch }): Login {
   const { db, github } = o;
   const f = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const now = o.now ?? Date.now;
@@ -203,7 +203,11 @@ export function createLogin(o: { db: D1; allowedEmails?: string[]; now?: () => n
     const email = allowed.length ? who.emails.find((e) => allowed.includes(e)) : undefined;
     if (!email) return fail("notListed");
     // Kept for calling GitHub as them; a failure here doesn't stop the sign-in (GITHUB_TOKEN still works).
-    if (o.seal && who.grant) await keepGrant(db, o.seal, email, who.login, who.grant, now()).catch((e) => console.error(`login: keeping the GitHub token failed: ${(e as Error)?.message ?? e}`));
+    if (o.seal && who.grant) {
+      await keepGrant(db, o.seal, email, who.login, who.grant, now())
+        .then(() => o.signedIn?.(email))
+        .catch((e) => console.error(`login: keeping the GitHub token failed: ${(e as Error)?.message ?? e}`));
+    }
     return new Response(null, { status: 303, headers: await sessionCookies(email, GITHUB_SESSION + email, new Headers({ location: "/", "cache-control": "no-store" })) });
   };
 

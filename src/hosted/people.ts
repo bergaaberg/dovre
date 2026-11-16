@@ -9,6 +9,8 @@
  *   snapshot, as before.
  * - A person with no token of their own, or whose login is the instance's own (the operator):
  *   the instance's snapshot, as before. A cockpit with one person gathers exactly as it did.
+ *   The first is a guest of that snapshot (`guest`, #544): pages say whose work it is, and where
+ *   to sign in for their own.
  * - Anyone else: their own.
  *
  * The cron still gathers the instance's snapshot only. A person's own is gathered while they have
@@ -32,7 +34,7 @@ export type Own = { gatherer: Gatherer; drain(): Promise<void> };
 /** Who a person is on the forge, and how to start their gatherer. */
 export type Found = { login: string; start(): Promise<Own> };
 
-type Mine = ({ kind: "own" } & Own) | { kind: "shared"; until: number };
+type Mine = ({ kind: "own" } & Own) | { kind: "shared"; until: number; /** They have no token of their own (not: they're the instance's login, or asking failed). */ guest?: true };
 
 export type People = {
   /** The gatherer every page and pack reads: it answers for whoever the request is for. */
@@ -41,6 +43,10 @@ export type People = {
   settle(): Promise<void>;
   /** How many people have a gatherer of their own here. */
   size(): number;
+  /** The current request's viewer is on the instance's snapshot for want of a token of their own. */
+  guest(): boolean;
+  /** This person just got a token (they signed in with the forge): asked about again on their next page. */
+  forget(email: string): void;
 };
 
 export function perPerson(o: {
@@ -50,8 +56,8 @@ export function perPerson(o: {
   login: string;
   /** Whom the current request is for. */
   viewer: () => string | undefined;
-  /** That person on the forge, asked with their own token. Rejects when they have none. */
-  find: (email: string) => Promise<Found>;
+  /** That person on the forge, asked with their own token. Undefined when they have none; rejects when asking failed. */
+  find: (email: string) => Promise<Found | undefined>;
   now?: () => number;
   log?: (line: string) => void;
   findMs?: number;
@@ -72,13 +78,15 @@ export function perPerson(o: {
   };
 
   async function ask(email: string): Promise<Mine> {
-    let found: Found;
+    let found: Found | undefined;
     try {
       found = await o.find(email);
     } catch {
-      // No token of their own, or it couldn't be asked just now: the instance's snapshot, as before.
+      // It couldn't be asked just now: the instance's snapshot, as before.
       return remember(email, { kind: "shared", until: now() + MISS_MS });
     }
+    // No token of their own: the instance's snapshot, as its guest.
+    if (!found) return remember(email, { kind: "shared", until: now() + MISS_MS, guest: true });
     if (!found.login || found.login.toLowerCase() === o.login.toLowerCase()) return remember(email, { kind: "shared", until: now() + SAME_MS });
     try {
       return remember(email, { kind: "own", ...(await found.start()) });
@@ -156,5 +164,16 @@ export function perPerson(o: {
       );
     },
     size: () => owns().length,
+    guest() {
+      const v = o.viewer();
+      const m = v ? known.get(v) : undefined;
+      return m?.kind === "shared" && !!m.guest;
+    },
+    forget(email) {
+      const who = email.trim().toLowerCase();
+      // Only someone on the instance's snapshot: a person with their own keeps it.
+      if (known.get(who)?.kind === "shared") known.delete(who);
+      asking.delete(who);
+    },
   };
 }

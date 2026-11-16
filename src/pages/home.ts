@@ -18,7 +18,7 @@ import type { Off } from "../packs/registry.ts";
 import { type Column, type Layout, type Slot, placeCards } from "../layout.ts";
 import type { Bit, Glance, Lane, RefRule, TodayCard } from "../packs/types.ts";
 import { type AgentOf, changelogBlock, prAnchor, prBody, type SummaryOf } from "./inline.ts";
-import { Ago, Chev, harnessTag, Link, mineByKey, safeUrl, st, trunc } from "./parts.ts";
+import { Ago, Chev, type Guest, guestLine, harnessTag, Link, mineByKey, safeUrl, st, trunc } from "./parts.ts";
 import { currentGreeting, currentTz, dtf } from "../when.ts";
 
 const hm = (at: number | string, tz = currentTz()) => dtf("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(typeof at === "string" ? Date.parse(at) : at);
@@ -185,7 +185,7 @@ type CoreCard = (typeof CORE_CARDS)[number]["id"];
 /** A pack card's place by default: after the core's, in the packs' own order. */
 export const packOrder = (order: number | undefined) => Math.min(999, 100 + Math.max(0, order ?? 100));
 
-export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean } = {}) {
+export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean; /** Hosted: the person asking is a guest of the instance's snapshot (#544). */ guest?: Guest } = {}) {
   const now = opts.now ?? Date.now();
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
@@ -207,7 +207,7 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const lang = frame.greeting ?? currentGreeting();
   const body = html`<div data-live id="today">
 <section class="brief" aria-labelledby="greet">
-<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence, on)}`)}</p></div>
+<div><p class="eyebrow">${eyebrow(now, tz)}</p><h1 id="greet">${greeting(now, { tz, lang })}, ${s.name}.</h1><p class="lede">${lede(s, apps.brief).map((sentence, i) => html`${i ? " " : ""}${bits(sentence, on)}`)}</p>${guestLine({ guest: opts.guest, whose: s.login, forge: opts.forge?.name })}</div>
 ${opts.hero ?? ""}<dl class="glance" aria-label="Last 24 hours"><div><dt>Merged</dt><dd>${g.merged}</dd></div><div><dt>Released</dt><dd>${g.released}</dd></div>${apps.glance.slice(0, 4).map((x) => html`<div><dt>${x.label}</dt><dd>${x.value}</dd></div>`)}</dl>
 </section>
 ${opts.setup ?? ""}

@@ -311,6 +311,11 @@ test("worker: two people signed in with GitHub each see their own PRs; one witho
     assert.doesNotMatch(await prs(me), /Change by two/);
     const kept = (await DB.prepare("SELECT key FROM settings WHERE key LIKE 'snapshot%' ORDER BY key").all<{ key: string }>()).results.map((r) => r.key);
     assert.ok(!kept.includes("snapshot:me@x.dev") && !kept.includes("snapshot:three@x.dev"), "only someone with a gatherer of their own has a row");
+
+    // The one without a token is the instance's guest (#544): Issues says whose they are and where to sign in; nobody else is told.
+    const tracker = async (cookie: string) => (await w.fetch(new Request(`${ORIGIN}/tracker`, { headers: { accept: "text/html", cookie } }), bindings as never)).text();
+    assert.match(await tracker(three), /me's issues, from github\.com[^<]*\. <a href="\/_auth\/github">Sign in with GitHub<\/a> to see your own\./);
+    for (const who of [me, two]) assert.doesNotMatch(await tracker(who), /Sign in with GitHub|'s issues, from/);
   } finally {
     globalThis.fetch = realFetch;
     w.reset();
@@ -458,9 +463,11 @@ test("login with GitHub and GITHUB_TOKEN_SEAL: the user token is kept sealed, an
   const { DB } = openDb();
   const t = Date.parse("2026-11-13T12:00:00Z");
   const seal = "s".repeat(40);
-  const login = createLogin({ db: DB, allowedEmails: ["me@x.dev"], now: () => t, github: APP, seal, fetch: fakeGithub({ refresh: true }).f });
+  const told: string[] = [];
+  const login = createLogin({ db: DB, allowedEmails: ["me@x.dev"], now: () => t, github: APP, seal, signedIn: (email) => void told.push(email), fetch: fakeGithub({ refresh: true }).f });
   const { back } = await githubTrip(client(login));
   assert.equal(back.status, 303);
+  assert.deepEqual(told, ["me@x.dev"], "what remembered them as having no token is told, once it's kept (#544)");
   const rows = (await DB.prepare("SELECT * FROM github_tokens").all<Record<string, unknown>>()).results;
   assert.deepEqual(rows.map((r) => [r.email, r.login, r.status, r.access_expires_at]), [["me@x.dev", "me-gh", "ok", t + 28_800_000]]);
   assert.equal(JSON.stringify(rows).includes("ghu_user") || JSON.stringify(rows).includes("ghr_user"), false, "sealed, never plain");
@@ -472,9 +479,10 @@ test("login with GitHub and GITHUB_TOKEN_SEAL: the user token is kept sealed, an
 
   // Without a seal (or with an app whose tokens don't expire), nothing is kept.
   const { DB: db2 } = openDb();
-  await githubTrip(client(createLogin({ db: db2, allowedEmails: ["me@x.dev"], now: () => t, github: APP, fetch: fakeGithub({ refresh: true }).f })));
-  await githubTrip(client(createLogin({ db: db2, allowedEmails: ["me@x.dev"], now: () => t, github: APP, seal, fetch: fakeGithub().f })));
+  await githubTrip(client(createLogin({ db: db2, allowedEmails: ["me@x.dev"], now: () => t, github: APP, signedIn: (email) => void told.push(email), fetch: fakeGithub({ refresh: true }).f })));
+  await githubTrip(client(createLogin({ db: db2, allowedEmails: ["me@x.dev"], now: () => t, github: APP, seal, signedIn: (email) => void told.push(email), fetch: fakeGithub().f })));
   assert.equal((await db2.prepare("SELECT * FROM github_tokens").all()).results.length, 0);
+  assert.equal(told.length, 1, "and nobody is told of a token that wasn't");
 });
 
 test("login with GitHub: another state, another browser, a cancel, a bad code, an unlisted or unverified email, and no allow list are refused", async () => {

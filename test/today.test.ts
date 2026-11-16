@@ -261,6 +261,15 @@ test("what's moving: people's work, releases and waiting deploys in one log, new
   assert.equal(new Set(f.map((e) => e.key)).size, f.length, "keys are unique");
   const page = String(homePage({ operator: "me", nav: [] }, s, () => undefined, { now }));
   assertInert("today with the feed", page);
+  assert.doesNotMatch(page, /class="t2 sm guest"/, "nobody's guest: nothing said");
+
+  // A guest of the instance's snapshot (#544): whose work this is, and where to sign in. Hostile text stays text.
+  const guest = String(homePage({ operator: "me", nav: [] }, snapshot({ login: H }), () => undefined, { now, guest: { connect: "/_auth/github" }, forge: { name: "GitHub", can: [] } }));
+  assertInert("today for a guest", guest);
+  assert.match(guest, /<p class="t2 sm guest">This is [^<]*'s work\. <a href="\/_auth\/github">Sign in with GitHub<\/a> to see your own\.<\/p>/);
+  const nowhere = String(homePage({ operator: "me", nav: [] }, snapshot({ login: "op" }), () => undefined, { now, guest: {} }));
+  assert.match(nowhere, /<p class="t2 sm guest">This is op's work\.<\/p>/);
+  assert.match(String(homePage({ operator: "me", nav: [] }, snapshot({ login: "op" }), () => undefined, { now, guest: { connect: "javascript:alert(1)" } })), /<a href="#">Sign in with GitHub<\/a>/);
   assert.match(page, /<li class="fe" data-key="m:2026-10-22T07:30:00Z:per-hansen:/);
 });
 

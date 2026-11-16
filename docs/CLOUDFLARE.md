@@ -37,11 +37,15 @@ secret. Dovre then calls GitHub with them:
 - A person who has signed in with GitHub gets a snapshot of their own (`src/hosted/people.ts`):
   their PRs, review requests and mentions, gathered with their token while they have pages open.
   The last one is kept in D1 (the `settings` row `snapshot:<email>`) for a week. Stats' weeks are
-  theirs too, gathered when they look (the row `history:<login>`, kept a month).
+  theirs too, gathered when they look (the row `history:<login>`, kept a month). So are the
+  issues on Issues: theirs, read when they open the page and kept in memory only.
 - The cron, the other pages' reads, and the snapshot of anyone who hasn't signed in with GitHub go
   as the operator: `GITHUB_USER`'s row, else the first `ALLOWED_EMAILS` entry that has one. So
   everyone you let in reads the owners' repos as the operator does, and what packs gather in the
-  background (Issues, say) is the operator's.
+  background is the operator's (Issues' needs, say: nothing is gathered for a person while they're
+  away).
+- Someone who hasn't signed in with GitHub is the operator's guest: Today and Issues say whose work
+  they show, with a link to sign in with GitHub for their own. Signing in is never required.
 - When nobody has signed in with GitHub yet, it's `GITHUB_TOKEN` if the Worker has one, else GitHub
   calls fail and say so.
 

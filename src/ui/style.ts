@@ -345,6 +345,8 @@ main.page { padding: 26px 0 0; min-width: 0; }
 .lede a { color: var(--ink); text-decoration-thickness: 1px; }
 .lede code { font-size: .78em; vertical-align: .08em; background: transparent; }
 .lede a.bad { text-decoration-color: var(--bad); } .lede a.warn { text-decoration-color: var(--warn); }
+/* A guest of the instance's snapshot: whose work this is, and where to sign in for their own (#544). */
+.guest { margin: 10px 0 0; }
 .glance { display: flex; flex-wrap: wrap; gap: 30px; margin: 0 0 4px; padding: 0; }
 .glance div { display: flex; flex-direction: column-reverse; gap: 3px; }
 .glance dt { font: 600 11px/1.2 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }

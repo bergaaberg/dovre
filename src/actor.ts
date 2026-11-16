@@ -13,6 +13,17 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 export type Actor = { email: string; own?: true };
 
+/**
+ * What a token provider throws for an `own` actor who has no token of their own: told apart from
+ * a failure, so a page can offer them the sign-in (#544, src/hosted/people.ts `guest`).
+ */
+export class NoOwnToken extends Error {
+  constructor() {
+    super("No GitHub token of your own: sign in with GitHub.");
+    this.name = "NoOwnToken";
+  }
+}
+
 const acting = new AsyncLocalStorage<Actor | undefined>();
 
 /** The person the current call is for, if any. */
