@@ -141,7 +141,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
         return ob ? [{ id: x.m.id, name: x.m.name, steps: ob.steps.map((s) => s.title) }] : [];
       });
       const online = hosted ? (await deps.machines?.().catch(() => []))?.some((m) => m.online) : true;
-      view.summit = { on: k.map((x) => x.m.name), later, waits: hosted && !online, restarts: !!deps.restart && Object.keys(pending).length > 0 };
+      view.summit = { on: k.map((x) => x.m.name), later, waits: hosted && !online, restarts: !!deps.restart && Object.keys(pending).length > 0, bino: s.binoOn?.() === true };
     }
     return noStore(await c.html(climbPage(view, steps, { refresh })));
   });
@@ -209,22 +209,25 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     if (deps.session) return c.notFound();
     await onboarding.ready;
     // The summit's "Set up X": straight on to that pack's setup (#445).
-    const asked = (await c.req.parseBody())["setup"];
+    const f = await c.req.parseBody();
+    const asked = f["setup"];
     const then = typeof asked === "string" && setupPack(asked) ? `/setup/${asked}` : "/";
+    // …or "Carry on with Bino" (#94): the same post goes on to start Bino's setup chat (a 307 keeps it a POST, with its carry=1).
+    const go = f["carry"] === "1" && s.binoOn?.() ? (res: typeof c) => res.redirect("/bino/new", 307) : (res: typeof c) => res.redirect(then, 303);
     const on = new Set(pickedNow(scanNow().found));
     const ids = packs.on.map((p) => p.manifest.id);
     await layout.update((l) => ({ ...l, packsOff: [...new Set([...(l.packsOff ?? []).filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] }));
     await onboarding.update((o) => ({ ...o, picked: [...on], done: true }));
     deps.hub?.publish(["snapshot", "packs"]);
-    if (!deps.config) return c.redirect(then, 303);
+    if (!deps.config) return go(c);
     const config: Config = { ...deps.config.stored, ...pending, SETUP_DONE: "1" };
     for (const [k, v] of Object.entries(pending)) if (v === "") delete config[k];
     const changed = Object.keys(pending).length > 0;
     pending = {};
-    if (changed) return c.redirect((await keep(config)) ? "/welcome?started=1" : then, 303);
+    if (changed) return (await keep(config)) ? c.redirect("/welcome?started=1", 303) : go(c);
     await saveConfig(env.DB, config);
     deps.config.stored = config;
-    return c.redirect(then, 303);
+    return go(c);
   });
   // ── A pack's own setup (src/pages/setup.ts, #418): the pack draws each step, core draws the frame ──
   /** A shown pack with a setup page, by id. */

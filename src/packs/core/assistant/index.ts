@@ -46,6 +46,7 @@ export function assistantPack(): Pack {
             list: host.list,
             settings: host.settings,
             setup: host.setup,
+            carry: host.carry,
             assets: host.assets,
             context: host.context,
             apps: () => host.apps(),

@@ -1,6 +1,5 @@
 /** Settings (what's here, the panes, notifications, keys, writes, ingest tokens) and the Packs page (switch, update, add, a pack's settings and keys). */
-import { proposeAdd } from "../actions/addpack.ts";
-import { actionsOf, logAction } from "../actions/deploys.ts";
+import { logAction } from "../actions/deploys.ts";
 import { TOOLS_HARNESSES, type ToolsHarness } from "../agents/mcpsetup.ts";
 import { type Config, configFromForm, saveConfig } from "../config.ts";
 import { type App, type AppEnv, fixedKeys } from "../env.ts";
@@ -9,10 +8,8 @@ import { DEFAULT_KEYS, KEY_GROUPS } from "../keys.ts";
 import { type Layout, layoutFromForm } from "../layout.ts";
 import { policyOf, RING_KINDS } from "../notify.ts";
 import { noCodeHost } from "../onboarding.ts";
-import type { ToAdd } from "../packs/copies.ts";
 import { createToken, listTokens, revokeToken, sourceOk, tokensPanel } from "../packs/ingest.ts";
 import { fillsOf, missingWhy, settingsFrom, settleRequires, startPack } from "../packs/registry.ts";
-import type { Listed } from "../packs/releases.ts";
 import type { Pack, PackManifest } from "../packs/types.ts";
 import { callsPanels } from "../pages/calls.ts";
 import { CORE_CARDS, packPlace } from "../pages/home.ts";
@@ -22,7 +19,7 @@ import { aiAskOf, grantOf } from "../packs/ai.ts";
 import { aiPanel, manifestPanel, manifestSettings, packsPage, settingState } from "../pages/packs.ts";
 import { wholeIn } from "../packs/env.ts";
 import { sentPanels, type SentView } from "../pages/sent.ts";
-import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, changeLabel, codeHostPanel, changeTo, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, type SettingRow, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
+import { agentToolsPanel, type AgentToolsView, appPanel, carryPanel, type AreaId, AREAS, changeLabel, codeHostPanel, changeTo, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, type SettingRow, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
 import { speedPanels } from "../pages/speed.ts";
 import { statOffers } from "../pages/stats.ts";
 import { writesPanel } from "../pages/writes.ts";
@@ -36,6 +33,7 @@ import { type Html, Notice, Panel } from "../ui/kit.ts";
 import { currentViewer } from "../viewer.ts";
 import { writeKinds } from "../writes.ts";
 import type { Context } from "hono";
+import { addPack, hostedAdds } from "./carry.ts";
 import type { AppScope } from "./scope.ts";
 
 /** What changing one setting by itself came to (#185): what it was and is, or why not (`ask`: it loosens a guard, so it's asked again). */
@@ -50,7 +48,7 @@ const apis = new WeakMap<App, SettingsApi>();
 /** A built app's settings, for what proposes a change (Bino's card) and for tests. */
 export const settingsOf = (app: App) => apis.get(app);
 
-export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
+export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet"> & { /** Bino answers here: About offers "Set up with Bino" (#94). */ binoOn?: () => boolean }) {
   const { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
   let saved = false;
@@ -169,7 +167,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
         c.executionCtx.waitUntil(reading);
       } catch {}
     const here = packIds();
-    const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
+    const toAdd = local ? { packs: local.listed().filter((p) => !here.includes(p.id)), into: local.target() } : releases?.get() ? { packs: await hostedAdds(s, releases.get()!.listed), into: instanceRepo() ?? undefined } : undefined;
     const setups = new Map(packs.on.flatMap((x) => (setupOf(x) ? [[x.manifest.id, setupLeft(x).length > 0] as const] : [])));
     return c.html(packsPage(frame, { forge: forge.name, setups, on: packs.on, off: packs.off, env: packs.env, alsoReads: envSeen.of, bindingsAsked: bindingsSeen.of, fills: (p) => fillsOf(p, ctxOf, (id, line) => packLog(id)(line)), keys: packs.keys?.state, hosted, refreshes, core: packs.core, copies, releases: releases?.get(), canRestart: !!deps.restart, hidden: layout.get().packsOff ?? [], held: held(), toAdd }));
   });
@@ -196,47 +194,19 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     deps.hub?.publish(["packs"]);
     return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
   });
-  /** Hosted: each pack to add, with its newest Add from the log (the PR it opened, or why not) or one opening now. */
-  async function hostedAdds(listed: Listed[]): Promise<ToAdd[]> {
-    const log = await actionsOf(env.DB, "packs.add").catch(() => []);
-    return listed.map((l) => {
-      if (opening.has(l.id)) return { ...l, job: { at: Date.now(), state: "running" as const, step: "opening a PR" } };
-      const a = log.find((x) => x.target === l.id);
-      if (!a) return l;
-      const at = Date.parse(a.at);
-      return { ...l, job: a.ok ? { at, state: "done" as const, step: "PR opened; merge it, then deploy", url: a.detail ?? undefined } : { at, state: "failed" as const, step: a.error ?? "failed" } };
-    });
-  }
   /** Add (#88): a pack from dovre-packs this instance doesn't list; locally a job on the copies, hosted a PR on the instance repo. */
   app.post("/packs/:id/add", strictOrigin, async (c) => {
     const id = c.req.param("id");
     if (packIds().includes(id)) return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
-    if (hosted) {
-      const repo = instanceRepo();
-      const l = releases?.get()?.listed.find((x) => x.id === id);
-      if (!repo || !l) return c.notFound();
-      if (opening.has(id)) return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
-      opening.add(id);
-      const work = proposeAdd(ghe, packsGet, { repo, id })
-        .then(
-          (pr) => logAction(env.DB, { kind: "packs.add", target: id, detail: pr.url, ok: true }),
-          (e: unknown) => logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: String((e as Error)?.message ?? e).slice(0, 300) }),
-        )
-        .catch(() => {})
-        .finally(() => {
-          opening.delete(id);
-          deps.hub?.publish(["packs"]);
-        });
-      try {
-        c.executionCtx.waitUntil(work);
-      } catch {}
-      deps.hub?.publish(["packs"]);
-      return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
-    }
-    const copies = deps.packs?.copies;
-    if (!copies) return c.notFound();
-    const r = copies.add(id, (ok, detail) => void logAction(env.DB, { kind: "packs.add", target: id, detail, ok }).catch(() => {}));
-    if (!r.ok) await logAction(env.DB, { kind: "packs.add", target: id, ok: false, error: r.why }).catch(() => {});
+    const r = await addPack(s, id, {
+      waitUntil: (p) => {
+        try {
+          c.executionCtx.waitUntil(p);
+        } catch {}
+      },
+      publish: () => deps.hub?.publish(["packs"]),
+    });
+    if (!r.ok && r.missing) return c.notFound();
     deps.hub?.publish(["packs"]);
     return c.redirect(`/packs#add-${encodeURIComponent(id)}`, 303);
   });
@@ -412,7 +382,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       case "sent":
         return sentPanels(await sentNow());
       case "about":
-        return html`${appPanel(deps.info, !!deps.restart, frame.tz)}${setupPanel((await deps.setup?.()) ?? setupNow(frame.operator))}`;
+        return html`${appPanel(deps.info, !!deps.restart, frame.tz)}${s.binoOn?.() ? carryPanel() : ""}${setupPanel((await deps.setup?.()) ?? setupNow(frame.operator))}`;
     }
   };
   /** Settings → Packs → one pack: its own panel (and ingest tokens), its manifest's settings, and where else it has some. */

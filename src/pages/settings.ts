@@ -122,6 +122,15 @@ export function edgePath(): string | undefined {
   return [process.env["ProgramFiles(x86)"], process.env.ProgramFiles].filter((b): b is string => !!b).map((b) => join(b, "Microsoft", "Edge", "Application", "msedge.exe")).find((p) => existsSync(p));
 }
 
+/** Settings → About (#94): Bino's setup chat, started again whenever: what else I work with, and what's left. */
+export function carryPanel(): Html {
+  return Panel({
+    title: "Set up with Bino",
+    id: "carry",
+    children: html`<p class="notes">Tell Bino what else you work with. It finds the packs for it, a card each, and keeps a list of what's set up and what's left. Nothing changes before you press.</p><form method="post" action="/bino/new"><input type="hidden" name="carry" value="1"><button type="submit" class="primary" data-busy="Starting">Set up with Bino</button></form>`,
+  });
+}
+
 export function setupPanel(lines: SetupLine[], title = "Setup") {
   return Panel({
     title,

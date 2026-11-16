@@ -14,7 +14,7 @@ import { type Found, foundPart, labelOf, type Lookups, lookupsPrompt, MAX_ROUNDS
 import type { Route } from "./route.ts";
 
 export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number; /** What Bino looked up for it ("Linear: issue ENG-12"), never what came back. */ looked?: string[] };
-export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; /** The pack whose own setup it walks through (#420): its live step is drawn below the messages, from what's saved. */ setup?: string; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string; /** The answer so far, while it's being written (not kept). */ draft?: string };
+export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; /** The pack whose own setup it walks through (#420): its live step is drawn below the messages, from what's saved. */ setup?: string; /** Bino carrying on after the climb (#94): what's set up and what's left is drawn below the messages, from state. */ carry?: true; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string; /** The answer so far, while it's being written (not kept). */ draft?: string };
 
 /** Where the last few conversations are kept between restarts. */
 export type ConvStore = { load(): Conv[]; save(keep: Conv[]): void };
@@ -28,7 +28,13 @@ export type StartOpts = {
   context?: string;
   /** A pack's setup (#420): the text is Bino's own opening line, nothing is asked, and the conversation is about that pack. */
   setup?: { pack: string; title: string };
+  /** Carrying on after the climb (#94): the text is Bino's own opening line, nothing is asked. */
+  carry?: { title: string };
 };
+/** What one answer is told besides (#94: the setup chat's prompt and the pack catalogue): in memory only, for that answer. */
+export type SayOpts = { view?: string; context?: string; brief?: string };
+/** Most a brief may say. */
+export const MAX_BRIEF = 12_000;
 /** A pack's id, as a setup conversation keeps it. */
 export const SETUP_PACK = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -53,11 +59,11 @@ export type Bino = {
   /** A new conversation, answered in the background. */
   start(text: string, o?: StartOpts): P<Conv>;
   /** Another message in one; false while Bino is still answering the last. */
-  say(id: string, text: string, o?: { view?: string; context?: string }): P<boolean>;
+  say(id: string, text: string, o?: SayOpts): P<boolean>;
   /** Stops the answer being written (its call is cancelled, a late reply dropped); false when none is. */
   stop(id: string): P<boolean>;
   /** Asks again for the last answer (or for one that was stopped or failed); false while one is being written, or when the last was acted on. */
-  retry(id: string, o?: { context?: string }): P<boolean>;
+  retry(id: string, o?: Omit<SayOpts, "view">): P<boolean>;
   /** A new title; false when it's empty or the conversation's gone. */
   rename(id: string, title: string): P<boolean>;
   /** Pins or unpins; false when MAX_PINNED are pinned already. */
@@ -76,9 +82,9 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
   list(): Conv[];
   get(id: string): Conv | undefined;
   start(text: string, o?: StartOpts): Conv;
-  say(id: string, text: string, o?: { view?: string; context?: string }): boolean;
+  say(id: string, text: string, o?: SayOpts): boolean;
   stop(id: string): boolean;
-  retry(id: string, o?: { context?: string }): boolean;
+  retry(id: string, o?: Omit<SayOpts, "view">): boolean;
   rename(id: string, title: string): boolean;
   pin(id: string, on: boolean): boolean;
   remove(id: string): boolean;
@@ -140,6 +146,13 @@ export function createBino(o: {
   const store = o.store ?? (o.file ? fileStore(o.file) : undefined);
   /** What the caller gathered for the answer it asked for: in memory only, for that one answer. */
   const given = new Map<string, string>();
+  /** What the caller told this one answer besides (a setup chat's brief): in memory only, for that answer. */
+  const briefs = new Map<string, string>();
+  const takeOpts = (id: string, opts: Omit<SayOpts, "view">) => {
+    if (opts.context !== undefined) given.set(id, opts.context);
+    if (opts.brief) briefs.set(id, opts.brief.slice(0, MAX_BRIEF));
+    else briefs.delete(id);
+  };
   /** The answer being written, by conversation: Stop aborts it. */
   const writing = new Map<string, AbortController>();
   /** What Bino looked up, by conversation: in memory only, for follow-ups. */
@@ -225,6 +238,8 @@ export function createBino(o: {
       try {
         const context = await o.context(c, given.get(c.id));
         given.delete(c.id);
+        const brief = briefs.get(c.id);
+        briefs.delete(c.id);
         const kinds = o.acts === false ? [] : (o.kinds?.() ?? []);
         const memories = await o.memory.prompt(c.app ? scopeOf(c.app) : undefined).catch(() => "");
         const specs = o.lookups ? await Promise.resolve(o.lookups.specs()).catch(() => []) : [];
@@ -235,7 +250,7 @@ export function createBino(o: {
         // Ask; when Bino asks to look something up, look it up and ask again, a few rounds at most.
         for (let round = 0; ; round++) {
           const spent = round >= MAX_ROUNDS;
-          const system = systemOf(context, memories, { acts: o.acts ?? true, kinds, lookups: lookupsPrompt(specs, spent), settings: specs.some((s) => s.kind === SETTINGS_KIND) });
+          const system = systemOf(context, memories, { acts: o.acts ?? true, kinds, lookups: lookupsPrompt(specs, spent), settings: specs.some((s) => s.kind === SETTINGS_KIND), brief });
           signal.throwIfAborted();
           const got = await ask({ system, user: transcriptOf(turns, undefined, foundPart(found.get(c.id) ?? [])), signal, onText });
           // Stopped while it was being written: what came anyway isn't shown.
@@ -305,6 +320,14 @@ export function createBino(o: {
     get: (id) => convs.get(id),
     start(text, opts = {}) {
       const said = clean(text);
+      if (opts.carry) {
+        // Bino's fixed opening, no model call: what's set up and what's left is drawn from state.
+        const c: Conv = { id: randomUUID(), title: opts.carry.title.trim().slice(0, MAX_TITLE) || "Setting up", at: now(), carry: true, msgs: [{ role: "assistant", text: said || "Here it is.", at: now() }], thinking: false };
+        convs.set(c.id, c);
+        trim();
+        changed(c);
+        return c;
+      }
       if (opts.setup && SETUP_PACK.test(opts.setup.pack)) {
         // Bino's fixed opening, no model call: the steps themselves are drawn from what the pack saved.
         const { pack, title } = opts.setup;
@@ -326,7 +349,7 @@ export function createBino(o: {
       const said = clean(text);
       if (!c || c.thinking || !said) return false;
       c.msgs.push({ role: "user", text: said, at: now(), ...(opts.view ? { view: opts.view } : {}) });
-      if (opts.context !== undefined) given.set(c.id, opts.context);
+      takeOpts(c.id, opts);
       answer(c);
       return true;
     },
@@ -336,6 +359,7 @@ export function createBino(o: {
       if (!c || !c.thinking || !ctl) return false;
       writing.delete(id);
       given.delete(id);
+      briefs.delete(id);
       ctl.abort();
       c.thinking = false;
       c.looking = undefined;
@@ -356,7 +380,7 @@ export function createBino(o: {
         c.msgs.pop();
       }
       if (c.msgs.at(-1)?.role !== "user") return false;
-      if (opts.context !== undefined) given.set(c.id, opts.context);
+      takeOpts(c.id, opts);
       answer(c);
       return true;
     },
@@ -383,6 +407,7 @@ export function createBino(o: {
       writing.get(id)?.abort();
       writing.delete(id);
       given.delete(id);
+      briefs.delete(id);
       found.delete(id);
       convs.delete(id);
       c.thinking = false;

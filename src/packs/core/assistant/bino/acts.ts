@@ -23,9 +23,14 @@ type BugAct = { kind: "bug"; title: string; body: string; page: string };
  * setting and whether it takes that value, when the card is drawn and again when it's pressed.
  */
 export type SettingAct = { kind: "setting"; id: string; to: string; /** What it was before its card changed it: what Undo puts back. Never told to Bino. */ was?: string };
+/**
+ * A pack to bring in (#94): its id, here or in dovre-packs. What its card offers (Add, switch it on,
+ * its settings, its setup) is read from where that pack stands when the card is drawn.
+ */
+export type PackInAct = { kind: "pack"; id: string };
 /** A pack's (src/packs/types.ts ActKind): kind `<pack>.<kind>`, its fields as checked. */
 export type PackAct = { kind: `${string}.${string}`; fields: Record<string, string> };
-export type Act = (TaskAct | BugAct | SettingAct | PackAct) & {
+export type Act = (TaskAct | BugAct | SettingAct | PackInAct | PackAct) & {
   /** Done (a pack's, a setting's): when, what the card says, and where to see it. */
   done?: { at: number; text: string; href?: string };
   sending?: boolean;
@@ -69,6 +74,10 @@ export function actOf(raw: unknown, kinds: ActSpec[] = []): Act | null {
     // A switch may come as true or false, a number as one.
     const to = typeof r.to === "boolean" ? (r.to ? "on" : "off") : typeof r.to === "number" && Number.isFinite(r.to) ? String(r.to) : line(r.to, 200);
     return /^[a-z][\w.:-]*$/i.test(id) ? { kind: "setting", id, to } : null;
+  }
+  if (r.kind === "pack") {
+    const id = line(r.id, 40).toLowerCase();
+    return /^[a-z][a-z0-9-]{0,31}$/.test(id) ? { kind: "pack", id } : null;
   }
   return null;
 }
