@@ -184,6 +184,14 @@ export const CORE_CARDS = [
 type CoreCard = (typeof CORE_CARDS)[number]["id"];
 /** A pack card's place by default: after the core's, in the packs' own order. */
 export const packOrder = (order: number | undefined) => Math.min(999, 100 + Math.max(0, order ?? 100));
+/** With no code host (#421), My list takes the place the PR card had: top right. Layout still wins. */
+const NO_FORGE_PLACE: Record<string, { col: Column; order: number }> = { "todo-list": { col: "right", order: 10 } };
+/** Where a pack's card sits by default: Dovre's own packs by their own order, the rest after the core's. */
+export function packPlace(c: Pick<TodayCard, "id" | "column" | "order">, o: { own: boolean; noForge?: boolean }): { col: Column; order: number } {
+  const moved = o.noForge ? NO_FORGE_PLACE[c.id] : undefined;
+  if (moved) return moved;
+  return { col: c.column === "left" ? "left" : "right", order: o.own ? Math.max(0, Math.min(999, c.order ?? 100)) : packOrder(c.order) };
+}
 
 export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean; /** Hosted: the person asking is a guest of the instance's snapshot (#544). */ guest?: Guest; /** No code host (#421): no PR or ship cards, no Merged and Released, the packs' feed alone, the horizon only with their lanes. */ noForge?: boolean; /** The greeting's name when it isn't the forge's (#421: the sign-in's); "" greets without one. */ name?: string } = {}) {
   const now = opts.now ?? Date.now();
@@ -202,7 +210,7 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const name = opts.name ?? s.name;
   const slots: Slot<Html>[] = [
     ...CORE_CARDS.flatMap((c) => (core[c.id] ? [{ ...c, render: core[c.id] as Html }] : [])),
-    ...(opts.packs?.cards ?? []).map((c) => ({ id: c.id, label: c.id, col: c.column === "left" ? ("left" as const) : ("right" as const), order: own(c.id) ? Math.max(0, Math.min(999, c.order ?? 100)) : packOrder(c.order), render: c.render })),
+    ...(opts.packs?.cards ?? []).map((c) => ({ id: c.id, label: c.id, ...packPlace(c, { own: own(c.id), noForge }), render: c.render })),
   ];
   const cols = placeCards(slots, opts.cards);
   const tz = frame.tz ?? currentTz();

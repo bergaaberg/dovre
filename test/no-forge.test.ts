@@ -6,7 +6,8 @@ import type { Forge } from "../src/forge/types.ts";
 import { firstNameOf } from "../src/onboarding.ts";
 import { heldOff, NO_CODE_HOST } from "../src/packs/registry.ts";
 import type { Pack } from "../src/packs/types.ts";
-import { homePage } from "../src/pages/home.ts";
+import { html } from "hono/html";
+import { homePage, packPlace } from "../src/pages/home.ts";
 import { assertInert, H, move, pr, signedIn, snapshot } from "./helpers.ts";
 
 test("the gather without a code host asks the forge nothing, and is empty; with one again, it asks", async () => {
@@ -82,4 +83,20 @@ test("Today without a code host greets with the name given, and keeps it text", 
   assert.match(String(homePage(frame, snapshot(), () => undefined, { noForge: true, name: "Kari" })), /<h1 id="greet">Good [a-z]+, Kari\.<\/h1>/);
   assertInert("Today's hostile name", String(homePage(frame, snapshot(), () => undefined, { noForge: true, name: H })));
   assert.doesNotMatch(String(homePage(frame, snapshot(), () => undefined, { noForge: true })), /id="hz-h"|class="glance"/, "no lanes and no numbers: no horizon, no glance");
+});
+
+test("without a code host My list takes the top right by default; my layout still wins", () => {
+  const frame = { operator: "me", nav: [] };
+  const card = (id: string, column: "left" | "right", order: number) => ({ id, column, order, render: html`<section id="${id}"></section>` });
+  const packs = { cards: [card("todo-list", "left", 30), card("weather-now", "right", 10)], failed: [] };
+  const right = (out: string) => out.split('<div class="today-col">')[2] ?? "";
+  const none = String(homePage(frame, snapshot(), () => undefined, { noForge: true, own: ["todo"], packs }));
+  assert.ok(right(none).indexOf('id="todo-list"') >= 0 && right(none).indexOf('id="todo-list"') < right(none).indexOf('id="weather-now"'), "first on the right, ahead of the packs'");
+  const forged = String(homePage(frame, snapshot(), () => undefined, { own: ["todo"], packs }));
+  assert.equal(right(forged).indexOf('id="todo-list"'), -1, "with a code host, on the left where its code puts it");
+  const mine = String(homePage(frame, snapshot(), () => undefined, { noForge: true, own: ["todo"], packs, cards: { "todo-list": { col: "left", order: 5 } } }));
+  assert.equal(right(mine).indexOf('id="todo-list"'), -1, "my layout's place wins");
+  assert.deepEqual(packPlace({ id: "todo-list", column: "left", order: 30 }, { own: true }), { col: "left", order: 30 });
+  assert.deepEqual(packPlace({ id: "todo-list", column: "left", order: 30 }, { own: true, noForge: true }), { col: "right", order: 10 });
+  assert.deepEqual(packPlace({ id: "weather-now", column: "left", order: 30 }, { own: false, noForge: true }), { col: "left", order: 130 });
 });
