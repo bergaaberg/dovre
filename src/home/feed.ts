@@ -21,6 +21,8 @@ export type FeedEvent = {
   repo?: string;
   /** I did it (my own moves are quieter: I know about them). */
   mine?: boolean;
+  /** A pack's event: that pack's id. */
+  pack?: string;
 };
 
 const DAY = 24 * 3600e3;
@@ -77,6 +79,7 @@ export function packFeedOf(items: { pack: { id: string; name: string }; item: un
       href: text(i.href, 2000),
       repo: text(i.repo, 200),
       mine: i.mine === true,
+      pack: pack.id,
     });
   }
   return out.sort((a, b) => b.at - a.at).slice(0, max);

@@ -64,6 +64,8 @@ test("Today without a code host: no PR, ship or Merged parts, the packs' feed, n
   assert.doesNotMatch(out, /No reviews waiting|reviews? waits? on you/);
   assert.doesNotMatch(out, /Your merges|Team merges|Waiting for prod/, "the horizon keeps the packs' lanes, not the forge's legend");
   assert.match(out, /What's happening<\/h2><p>in my apps, last 7 days/);
+  assert.match(out, /Since I last looked<\/h2><p>since yesterday [0-9:]+<\/p>.*Nothing new since yesterday/s, "a first visit: since a day ago; no packs, nothing new");
+  assert.match(await (await get("/settings/layout")).text(), /Since I last looked/);
   assert.match(out, /<h1 id="greet">Good [a-z]+\.<\/h1>/, "here, in a test, no machine user: no name");
   assert.equal((await get("/prs")).status, 404, "the PR pack is held");
 
@@ -76,6 +78,8 @@ test("Today without a code host: no PR, ship or Merged parts, the packs' feed, n
   assert.equal((await post("/settings/work/code-host", { host: "forge" })).status, 303);
   const back = await (await get("/")).text();
   assert.match(back, /id="prs"/, "back on GitHub: the cards are back");
+  assert.doesNotMatch(back, /id="since"/);
+  assert.doesNotMatch(await (await get("/settings/layout")).text(), /Since I last looked/, "nor in Layout");
   assert.equal((await get("/prs")).status, 200);
 });
 
