@@ -159,8 +159,19 @@ export function capLevel(level: number, f: Facts): Capped {
   return { level: Math.min(level, cap), was: level, why };
 }
 
-/** The review as it goes on the PR: the level and its reasons on top, each finding a line comment that says which finding it posts. */
-export function reviewDraft(v: Omit<Verdict, "findings"> & { findings: (Found & { id: string })[] }, c: Capped, o: { model: string; head: string }): ReviewDraft {
+/** A finding as a review posts it: `raised` is how many reviews have reported it, this one counted. */
+export type Posting = Found & { id: string; raised?: number };
+
+/** "Raised again: …", under a finding an earlier review reported too; empty the first time. */
+const againLine = (raised = 1) => (raised > 1 ? `\n\nRaised again: ${raised === 2 ? "an earlier review" : `${raised - 1} earlier reviews`} reported it, and it's still there.` : "");
+
+/**
+ * The review as it goes on the PR: the level and its reasons on top, each finding a line comment
+ * that says which finding it posts. `ignored`: findings raised again that the owner had said to
+ * ignore, which aren't posted again.
+ */
+export function reviewDraft(v: Omit<Verdict, "findings"> & { findings: Posting[] }, c: Capped, o: { model: string; head: string; ignored?: number }): ReviewDraft {
+  const left = o.ignored ? ` ${o.ignored === 1 ? "One you said to ignore was" : `${o.ignored} you said to ignore were`} raised again and left out.` : "";
   const lines = [
     `**Auto review: level ${c.level} of 5** (${LEVELS[c.level]}), on ${o.head.slice(0, 7)}.`,
     "",
@@ -169,12 +180,12 @@ export function reviewDraft(v: Omit<Verdict, "findings"> & { findings: (Found & 
     ...(v.reasons.length ? ["Why this level:", ...v.reasons.map((r) => `- ${r}`)] : []),
     ...(c.why.length ? ["", `The reviewer said ${c.was}; capped at ${c.level} because ${c.why.join("; ")}.`] : []),
     "",
-    `<sub>Reviewed by ${o.model}, which didn't write this PR. ${findingCounts(v.findings)}.</sub>`,
+    `<sub>Reviewed by ${o.model}, which didn't write this PR. ${findingCounts(v.findings)}.${left}</sub>`,
   ];
   return {
     kind: "review",
     summary: marked(lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()),
-    comments: v.findings.map((f) => findingPlace(f, marked(`${findingBody(f)}\n\n${postMark(f.id)}`))),
+    comments: v.findings.map((f) => findingPlace(f, marked(`${findingBody(f)}${againLine(f.raised)}\n\n${postMark(f.id)}`))),
   };
 }
 
