@@ -2213,6 +2213,19 @@ if (framed) {
     // Its own key from inside a dock closes it; another dock's opens that one.
     else if (e.data?.dock === "key" && DOCK_KEYS[e.data.key]) DOCK_KEYS[e.data.key] === from.id ? dockOpen(from, false, true) : dockKey(e.data.key);
   });
+  // "With Bino" (#420): a form that starts a conversation goes into Bino's pane, which opens for it; without the pane, the full page.
+  document.addEventListener("submit", (e) => {
+    const f = e.target;
+    if (!f.matches?.("form[data-in-dock]")) return;
+    const d = dockOf("bdock");
+    if (!d || !$(d.id + "-panel") || !$(d.id + "-btn")) return;
+    dockOpen(d, true, false);
+    const frame = dockFrame(d);
+    if (!frame) return;
+    frame.name = "bdock-frame";
+    f.target = frame.name;
+    if (!f.querySelector('input[name="dock"]')) f.insertAdjacentHTML("beforeend", '<input type="hidden" name="dock" value="1">');
+  }, true);
   dockSizeShow();
   dockRestore();
 }

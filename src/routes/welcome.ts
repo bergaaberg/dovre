@@ -39,7 +39,7 @@ const setupApis = new WeakMap<App, SetupApi>();
 /** A built app's pack setups, for Bino's card (#420) and tests. */
 export const setupApiOf = (app: App) => setupApis.get(app);
 
-export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "keep" | "restarting" | "setupOf" | "setupLeft">) {
+export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "keep" | "restarting" | "setupOf" | "setupLeft"> & { /** Bino answers here: the setup page offers it (#420). */ binoOn?: () => boolean }) {
   const { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft } = s;
   // ── The first run, the climb (src/pages/welcome.ts, #417): Today sends here until it's finished or skipped ──
   const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE || onboarding.get().done);
@@ -262,7 +262,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
   const setupView = async (p: Pack, at: number, error?: string, drawn?: DrawnStep): Promise<{ view: SetupView; status: 200 | 422 | 500 }> => {
     const { steps } = setupOf(p)!;
     const l = layout.get();
-    const view: SetupView = { look: { theme: coreTheme(l.theme), accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
+    const view: SetupView = { bino: s.binoOn?.() === true, look: { theme: coreTheme(l.theme), accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
     if (at >= steps.length) {
       // Done: the next pack whose setup isn't, in Today's order (#445).
       const next = shown().find((x) => x !== p && !!setupOf(x) && setupLeft(x).length > 0);

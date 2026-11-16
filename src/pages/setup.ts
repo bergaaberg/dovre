@@ -37,7 +37,17 @@ export type SetupView = {
   error?: string;
   /** At the end: the next pack whose setup isn't finished. */
   next?: { id: string; name: string };
+  /** Bino is on: "Ask Bino" walks through the same setup in a conversation (#420). */
+  bino?: boolean;
 };
+
+/**
+ * "With Bino" (#420): a conversation that walks through this pack's setup. Script sends it into
+ * Bino's pane on a page that has one (`data-in-dock`, src/ui/app.js.ts); otherwise it opens as a page.
+ */
+export function withBino(id: string, label: string, cls: string): Html {
+  return html`<form method="post" action="/bino/new" class="su-bino" data-in-dock><input type="hidden" name="setup" value="${id}"><button type="submit" class="${cls}" data-busy="Starting">${label}</button></form>`;
+}
 
 /**
  * A step's main button as the pack asked for it (`SetupStep.go`), or none: it posts to a path on
@@ -60,7 +70,7 @@ const later = html`<a class="climb-link" href="/">Later</a>`;
 export function setupPage(v: SetupView) {
   const n = v.steps.length;
   const href = (i: number) => `/setup/${v.pack.id}?at=${v.steps[i]!.id}`;
-  const head = html`<div class="su-head"><span class="climb-mark">${MARK}Setting up ${v.pack.name}</span>${v.at < n ? later : ""}</div>`;
+  const head = html`<div class="su-head"><span class="climb-mark">${MARK}Setting up ${v.pack.name}</span>${v.bino && v.at < n ? withBino(v.pack.id, "Ask Bino", "climb-link") : ""}${v.at < n ? later : ""}</div>`;
   const body =
     v.at >= n
       ? html`${head}<div class="climb-eyebrow">${v.pack.name} · set</div><h2>That's it.</h2><p class="climb-lede">${v.pack.name} is set up. Run this again from Packs if anything changes.</p>${
@@ -96,21 +106,21 @@ function stepBody(v: SetupView, head: Html, href: (i: number) => string) {
 /** A pack on Today's strip: its setup isn't finished. */
 export type SetupRow = { id: string; name: string; /** Its first step's title. */ what: string; left: number; steps: number; /** It doesn't work until it's done. */ required?: boolean };
 
-/** Today's strip: the packs whose own setup isn't finished, each to its page. */
-export function setupStrip(rows: SetupRow[]): Child {
+/** Today's strip: the packs whose own setup isn't finished, each to its page; with Bino on, or with Bino in a conversation. */
+export function setupStrip(rows: SetupRow[], o: { bino?: boolean } = {}): Child {
   if (!rows.length) return "";
   return Panel({
     id: "setup",
     title: rows.length === 1 ? "A pack wants a minute" : "A few packs want a minute each",
     children: List(
-      rows.map((r) =>
-        Item({
-          href: `/setup/${r.id}`,
-          title: html`<strong>${r.name}</strong>`,
-          line: r.required ? html`${r.what} · needs it to work` : r.what,
-          trail: Pill({ tone: r.required ? "warn" : "accent", children: r.left === r.steps ? `${r.steps} step${r.steps === 1 ? "" : "s"}` : `${r.left} of ${r.steps} left` }),
-        }),
-      ),
+      rows.map((r) => {
+        const pill = Pill({ tone: r.required ? "warn" : "accent", children: r.left === r.steps ? `${r.steps} step${r.steps === 1 ? "" : "s"}` : `${r.left} of ${r.steps} left` });
+        const line = r.required ? html`${r.what} · needs it to work` : r.what;
+        // With Bino on, the name opens the page and a second, smaller way sits at the end: a link can't hold a form.
+        return o.bino
+          ? Item({ title: html`<a href="/setup/${r.id}"><strong>${r.name}</strong></a>`, line, trail: html`${pill}${withBino(r.id, "With Bino", "sm ghost")}` })
+          : Item({ href: `/setup/${r.id}`, title: html`<strong>${r.name}</strong>`, line, trail: pill });
+      }),
     ),
   });
 }

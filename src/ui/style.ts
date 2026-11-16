@@ -1142,7 +1142,8 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 .bino-set > select, .bino-set > input { width: auto; min-width: 0; max-width: 100%; flex: 0 1 16rem; }
 .bino-plan.done > p { margin: 0; }
 .bino-plan.done > .buttons { margin-top: 8px; }
-/* A pack's setup in a conversation (#420): the finished steps as lines, the step to show as a card. */
+/* A pack's setup in a conversation (#420): the finished steps as lines, the step to show as a card; "With Bino" at a strip row's end. */
+.item > .trail .su-bino { margin: 0; }
 .bino-setup { margin: 14px 0 0; }
 .bino-setup > .bino-plan:first-child { margin-top: 0; }
 .bino-done { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--fs-s); color: var(--ink-2); }
