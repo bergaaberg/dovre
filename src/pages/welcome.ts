@@ -44,7 +44,7 @@ export type ClimbView = {
   machine?: { kind: "local"; dir?: string; checkouts: number; found: { marker: string; n: number; packs: string[] }[] } | { kind: "hosted"; handle: string; online?: string };
   question?: { q: Question; chosen: string[] };
   kit?: { suggested: KitTile[]; rest: KitTile[]; needs: { id: string; name: string; keys: string[] }[] };
-  summit?: { on: string[]; later: { id: string; name: string; steps: string[] }[]; waits: boolean; restarts: boolean };
+  summit?: { on: string[]; later: { id: string; name: string; steps: string[] }[]; waits: boolean; restarts: boolean; /** Bino answers here: "Carry on with Bino" (#94). */ bino?: boolean };
 };
 
 const arrow = html`<span aria-hidden="true">→</span>`;
@@ -151,7 +151,7 @@ ${s.later.length ? html`<div class="climb-card"><h3>A little more, when you get 
     s.later.length
       ? html`<button type="submit" class="climb-go" name="setup" value="${s.later[0]!.id}">Set up ${s.later[0]!.name} ${arrow}</button><button type="submit" class="climb-link">Open Today</button>`
       : html`<button type="submit" class="climb-go">Open Today ${arrow}</button>`
-  }</form><a class="climb-link" href="/welcome?at=role">Climb again</a></div>
+  }${s.bino && !s.restarts ? html`<button type="submit" class="climb-link" name="carry" value="1">Carry on with Bino</button>` : ""}</form><a class="climb-link" href="/welcome?at=role">Climb again</a></div>
 <p class="climb-small">Fonts, colours and the rest are under Settings → Look.</p>`;
 }
 

@@ -78,6 +78,7 @@ import { createCodeRoutes } from "./pages/code.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
 import { visitsStore } from "./home/since.ts";
 import { keyPrefsStore } from "./keys.ts";
+import { carryApi } from "./routes/carry.ts";
 import { welcomeRoutes } from "./routes/welcome.ts";
 import { relayRoutes } from "./routes/relay.ts";
 import { type SettingsApi, settingsRoutes } from "./routes/settings.ts";
@@ -583,7 +584,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
-  const { keep, settleSettings, settingsAreas, restarting, settings } = settingsRoutes(app, { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
+  const { keep, settleSettings, settingsAreas, restarting, settings } = settingsRoutes(app, { binoOn, packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
   const { setUp, setup: packSetups } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft, binoOn });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──
@@ -604,6 +605,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       list: sharedList,
       settings,
       setup: packSetups,
+      carry: carryApi({ env, deps, hosted, packs, hidden, onboarding, setupOf, setupLeft, packIds, instanceRepo, opening, releases, packsGet, ghe, publish: () => deps.hub?.publish(["packs"]) }),
       frame: async () => (await page()).frame,
       org: env.GHE_ORG,
       packAct: (kind) => packActs().find((k) => k.kind === kind),

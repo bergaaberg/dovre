@@ -177,12 +177,13 @@ function packActsPrompt(kinds: ActSpec[]): string {
 /**
  * The whole system prompt: who Bino is, what's on now, what it remembers. `kinds`: the packs' acts
  * (only where Bino may propose); `lookups`: what it may look up (lookupsPrompt), when it may;
- * `settings`: Dovre's settings can be looked up here, so one may be proposed.
+ * `settings`: Dovre's settings can be looked up here, so one may be proposed; `brief`: what this
+ * conversation is told besides.
  */
-export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[]; lookups?: string; settings?: boolean } = {}): string {
+export function systemOf(context: string, memories: string, o: { acts?: boolean; kinds?: ActSpec[]; lookups?: string; settings?: boolean; /** What this conversation is told besides (#94: the setup chat's prompt and the pack catalogue). */ brief?: string } = {}): string {
   const setting = o.settings ? SETTING_ACT : "";
   const acts = o.acts === false ? [NO_ACTS, BUG_ACT, setting].filter(Boolean).join("\n\n") : [ACTS, BUG_ACT, setting, packActsPrompt(o.kinds ?? [])].filter(Boolean).join("\n\n");
-  return [BASE, acts, o.lookups ?? "", `# What the user has on right now\n\n${context}`, memories ? `# ${memories}` : ""].filter(Boolean).join("\n\n");
+  return [BASE, acts, o.lookups ?? "", o.brief ?? "", `# What the user has on right now\n\n${context}`, memories ? `# ${memories}` : ""].filter(Boolean).join("\n\n");
 }
 
 // ── A plan Bino proposes ──────────────────────────────────────────────────────

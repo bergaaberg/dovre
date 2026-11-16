@@ -235,10 +235,10 @@ export function sqlConvStore(sql: HubState["storage"]["sql"]): ConvStore {
 export type BinoOp =
   | { op: "list" }
   | { op: "get"; id: string }
-  | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string; setup?: { pack: string; title: string } }
-  | { op: "say"; id: string; text: string; view?: string; context: string }
+  | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string; setup?: { pack: string; title: string }; carry?: { title: string } }
+  | { op: "say"; id: string; text: string; view?: string; context: string; brief?: string }
   | { op: "stop"; id: string }
-  | { op: "retry"; id: string; context: string }
+  | { op: "retry"; id: string; context: string; brief?: string }
   | { op: "rename"; id: string; title: string }
   | { op: "pin"; id: string; on: boolean }
   | { op: "remove"; id: string }
@@ -637,19 +637,20 @@ export class DovreHub {
         return b.get(o.id) ?? null;
       case "start": {
         const setup = o.setup && typeof o.setup.pack === "string" && SETUP_PACK.test(o.setup.pack) ? { pack: o.setup.pack, title: String(o.setup.title ?? "").slice(0, 200) } : undefined;
-        const c = b.start(String(o.text ?? ""), { todo: o.todo, view: o.view, app: o.app, context: String(o.context ?? ""), ...(setup ? { setup } : {}) });
+        const carry = o.carry && typeof o.carry === "object" ? { title: String(o.carry.title ?? "").slice(0, 200) } : undefined;
+        const c = b.start(String(o.text ?? ""), { todo: o.todo, view: o.view, app: o.app, context: String(o.context ?? ""), ...(setup ? { setup } : {}), ...(carry ? { carry } : {}) });
         await this.awake(b);
         return c;
       }
       case "say": {
-        const ok = b.say(o.id, String(o.text ?? ""), { view: o.view, context: String(o.context ?? "") });
+        const ok = b.say(o.id, String(o.text ?? ""), { view: o.view, context: String(o.context ?? ""), ...(typeof o.brief === "string" ? { brief: o.brief } : {}) });
         await this.awake(b);
         return ok;
       }
       case "stop":
         return b.stop(String(o.id ?? ""));
       case "retry": {
-        const ok = b.retry(String(o.id ?? ""), { context: String(o.context ?? "") });
+        const ok = b.retry(String(o.id ?? ""), { context: String(o.context ?? ""), ...(typeof o.brief === "string" ? { brief: o.brief } : {}) });
         await this.awake(b);
         return ok;
       }

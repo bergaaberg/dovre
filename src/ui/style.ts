@@ -1149,6 +1149,10 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 .bino-done { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--fs-s); color: var(--ink-2); }
 .bino-done span { color: var(--accent); }
 .bino-step-t { margin: 0 0 10px; font: 600 var(--fs-m)/1.35 var(--sans); }
+.bino-left-h { margin: 8px 0 4px; font-size: var(--fs-s); color: var(--ink-2); }
+.bino-left { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--fs-s); }
+.bino-left li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.bino-left form { margin: 0; }
 .bino-step-b { margin: 0 0 12px; }
 .bino-step .buttons { align-items: center; }
 .bino-steps { margin: 8px 0; padding-left: 1.4em; display: grid; gap: 6px; }

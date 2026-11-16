@@ -12,6 +12,7 @@ import type { ViewApp } from "./view.ts";
 import type { Frame } from "../../../../html.ts";
 import type { SettingsApi } from "../../../../routes/settings.ts";
 import type { SetupApi } from "../../../../routes/welcome.ts";
+import type { CarryApi } from "../../../../routes/carry.ts";
 
 type AssistantHost = {
   bino: Bino;
@@ -33,6 +34,8 @@ type AssistantHost = {
   settings?: SettingsApi;
   /** The packs' own setups (#420): what a setup conversation draws, and its Next. */
   setup?: SetupApi;
+  /** Carrying on after the climb (#94): the packs as they stand, Bino's opening line, and Add. */
+  carry?: CarryApi;
 };
 
 const hosts = new WeakMap<Pack, AssistantHost>();
