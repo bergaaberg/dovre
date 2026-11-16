@@ -21,7 +21,7 @@ import { aiAskOf, grantOf } from "../packs/ai.ts";
 import { aiPanel, manifestPanel, manifestSettings, packsPage, settingState } from "../pages/packs.ts";
 import { wholeIn } from "../packs/env.ts";
 import { sentPanels, type SentView } from "../pages/sent.ts";
-import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
+import { agentToolsPanel, type AgentToolsView, appPanel, type AreaId, AREAS, changeLabel, changeTo, edgePath, isArea, longTurnPanel, notifyPanels, type PackSettings, packsList, sessionSettings, type SettingRow, settingRows, settingsArea, settingsHome, type SettingsNotes, setupLines, setupPanel, workPanel } from "../pages/settings.ts";
 import { speedPanels } from "../pages/speed.ts";
 import { statOffers } from "../pages/stats.ts";
 import { writesPanel } from "../pages/writes.ts";
@@ -37,6 +37,18 @@ import { writeKinds } from "../writes.ts";
 import type { Context } from "hono";
 import type { AppScope } from "./scope.ts";
 
+/** What changing one setting by itself came to (#185): what it was and is, or why not (`ask`: it loosens a guard, so it's asked again). */
+export type Changed = { ok: true; label: string; was: string; now: string; /** "Theme: As the system → Ember (warm dark)". */ text: string; href: string } | { ok: false; why: string; href?: string; ask?: boolean };
+/** Every setting as it is now, and one of them changed through its own route. */
+export type SettingsApi = {
+  rows(): Promise<SettingRow[]>;
+  /** `from`: the request it was pressed in (its cookies and origin go with the post). `by`: who proposed it, for the log. `twice`: asked again already. */
+  change(from: Request, id: string, to: string, by: string, o?: { twice?: boolean; env?: unknown; ctx?: unknown }): Promise<Changed>;
+};
+const apis = new WeakMap<App, SettingsApi>();
+/** A built app's settings, for what proposes a change (Bino's card) and for tests. */
+export const settingsOf = (app: App) => apis.get(app);
+
 export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet">) {
   const { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
@@ -45,6 +57,19 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
   let restarting: number | undefined;
   let settingsBad: string[] | undefined;
   const startedAt = deps.info?.startedAt ?? Date.now();
+  /** The posts `change` sends: who proposed the change, and whether its route logged it. */
+  const proposed = new WeakMap<Request, { by: string; logged?: boolean }>();
+  /** A settings change in the log (#185): Writes and a pack's switch whoever made it, the rest only when it was proposed (`change`). */
+  const logSetting = async (c: Context, id: string, detail: string) => {
+    const from = proposed.get(c.req.raw);
+    if (from) from.logged = true;
+    await logAction(env.DB, { kind: "settings.change", target: id, detail: (from ? `${detail} · proposed by ${from.by}` : detail).slice(0, 300), ok: true }).catch(() => {});
+  };
+  /** The packs switched on or off since `was` (Layout's list, a reset, a pack's own switch). */
+  const logSwitches = async (c: Context, was: string[]) => {
+    const now = layout.get().packsOff ?? [];
+    for (const id of new Set([...was, ...now])) if (was.includes(id) !== now.includes(id)) await logSetting(c, `pack.${id}`, now.includes(id) ? "On → Off" : "Off → On");
+  };
   const setupNow = (login: string) =>
     setupLines({
       ghe: { host: env.GHE_HOST, org: env.GHE_ORG, login },
@@ -110,18 +135,22 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     const next = layoutFromForm(form, { hrefs: v.pages.map((p) => p.href), cards: v.cards.map((x) => x.id), feeds: v.feeds.map((f) => f.id), packs: v.packs.map((x) => x.id), stats: v.stats.map((x) => x.id) });
     // Cards not drawn and stats not offered just now (a pack hidden or slow) keep where I put them.
     const part = form.part;
+    const wasOff = layout.get().packsOff ?? [];
     await layout.update((l) => {
       const whole = { ...next, cards: { ...l.cards, ...next.cards }, stats: { ...l.stats, ...next.stats } };
       return part === "look" ? { ...partOf(l, false), ...partOf(next, true) } : part === "layout" ? { ...partOf(l, true), ...partOf(whole, false) } : whole;
     });
+    await logSwitches(c, wasOff);
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
     return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
   });
   app.post("/settings/layout/reset", async (c) => {
     const part = (await c.req.parseBody()).part;
+    const wasOff = layout.get().packsOff ?? [];
     if (part === "look" || part === "layout") await layout.update((l) => partOf(l, part === "layout"));
     else await layout.reset();
+    await logSwitches(c, wasOff);
     saved = true;
     deps.hub?.publish(["snapshot", "packs"]);
     return c.redirect(part === "look" ? "/settings/look" : "/settings/layout", 303);
@@ -145,10 +174,12 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     const id = c.req.param("id");
     if (!packs.on.some((p) => p.manifest.id === id)) return c.notFound();
     const on = (await c.req.parseBody()).on === "1";
+    const wasOff = layout.get().packsOff ?? [];
     await layout.update((l) => {
       const was = l.packsOff ?? [];
       return { ...l, packsOff: on ? was.filter((x) => x !== id) : [...new Set([...was, id])] };
     });
+    await logSwitches(c, wasOff);
     deps.hub?.publish(["snapshot", "packs"]);
     return c.redirect(`/packs#pack-${encodeURIComponent(id)}`, 303);
   });
@@ -326,11 +357,13 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       layout: layout.get(),
       themes: packThemes(),
       policy: deps.notify?.policy() ?? policyOf(undefined),
+      notifier: !!deps.notify,
       rings: packRings,
       writes: { chosen: await clicks.get().catch(() => new Map()), kinds: writeKinds(packs.on) },
       keys: frame.keys ?? DEFAULT_KEYS,
       panes: v && deps.config ? { ...v, stored: deps.config.stored as Record<string, string | undefined> } : undefined,
       packs: packSettings(),
+      switches: packs.on.map((p) => ({ id: p.manifest.id, name: p.manifest.name })),
       agents: !hosted && deps.agentTools ? deps.agentTools.view().rows : undefined,
       setup: (await deps.setup?.()) ?? setupNow(frame.operator),
       canRestart: !!deps.restart,
@@ -431,7 +464,10 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
   app.post("/settings/writes", async (c) => {
     const f = await c.req.parseBody({ all: true });
     const twice = ([] as unknown[]).concat(f.twice ?? []).filter((v): v is string => typeof v === "string");
+    const was = await clicks.get().catch(() => new Map<string, string>());
     await clicks.set(twice);
+    const now = await clicks.get().catch(() => new Map<string, string>());
+    for (const w of writeKinds(packs.on)) if (was.get(w.kind) !== now.get(w.kind)) await logSetting(c, `writes.${w.kind}`, now.get(w.kind) === "twice" ? "One click → Asks twice" : "Asks twice → One click");
     saved = true;
     return c.redirect("/settings/writes", 303);
   });
@@ -537,5 +573,33 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     deps.notify?.test();
     return c.redirect("/settings/notifications#rang-lately", 303);
   });
-  return { keep, settleSettings, settingsAreas, restarting: () => restarting };
+  /**
+   * One setting changed by itself (#185), through its own route: its page's whole form with this
+   * one value, sent as the page sends it, so the same checks answer. No second way to write a setting.
+   */
+  const change: SettingsApi["change"] = async (from, id, to, by, o = {}) => {
+    const rowNow = async () => (await rowsNow((await page()).frame)).find((r) => r.id === id);
+    const row = await rowNow();
+    if (!row) return { ok: false, why: "Dovre has no setting by that name here." };
+    if (!row.change) return { ok: false, why: "That one is only changed on its own page.", href: row.href };
+    const v = changeTo(row.change, to);
+    if (v === null) return { ok: false, why: "That isn't a value it takes.", href: row.href };
+    if (row.change.loosens?.(v) && !o.twice) return { ok: false, ask: true, why: "That lets a write through on one click.", href: row.href };
+    const { action, fields } = row.change.post(v);
+    const headers = new Headers(from.headers);
+    headers.set("content-type", "application/x-www-form-urlencoded");
+    headers.delete("content-length");
+    const req = new Request(new URL(action, from.url), { method: "POST", headers, body: new URLSearchParams(fields).toString() });
+    const mark: { by: string; logged?: boolean } = { by };
+    proposed.set(req, mark);
+    const res = await app.fetch(req, o.env as never, o.ctx as never);
+    const after = res.status >= 300 && res.status < 400 ? await rowNow() : undefined;
+    if (after?.change?.value !== v) return { ok: false, why: "Its page didn't take the change.", href: row.href };
+    const text = `${row.label}: ${changeLabel(row.change, row.change.value)} → ${changeLabel(after.change, v)}`;
+    if (!mark.logged) await logAction(env.DB, { kind: "settings.change", target: id, detail: `${changeLabel(row.change, row.change.value)} → ${changeLabel(after.change, v)} · proposed by ${by}`.slice(0, 300), ok: true }).catch(() => {});
+    return { ok: true, label: row.label, was: row.change.value, now: v, text, href: row.href };
+  };
+  const api: SettingsApi = { rows: async () => rowsNow((await page()).frame), change };
+  apis.set(app, api);
+  return { keep, settleSettings, settingsAreas, restarting: () => restarting, settings: api };
 }

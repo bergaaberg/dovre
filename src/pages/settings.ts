@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { html } from "hono/html";
 import { type Frame, shell } from "../html.ts";
 import { type Choice, type Field, GENERAL, ticked } from "../config.ts";
+import { wholeIn } from "../packs/env.ts";
 import { found } from "../tools.ts";
 import { currentTz } from "../when.ts";
 import { DEFAULT_POLICY, type Policy, RING_KINDS, type Rung } from "../notify.ts";
@@ -260,8 +261,51 @@ export type AreaId = (typeof AREAS)[number]["id"];
 export const isArea = (s: string): s is AreaId => AREAS.some((a) => a.id === s);
 const areaOf = (id: AreaId) => AREAS.find((a) => a.id === id)!;
 
-/** One setting, to find: where it lives, what it's set to now, and whether that's other than the default. */
-type SettingRow = { area: AreaId; label: string; href: string; now?: string; changed?: boolean; also?: string[] };
+/**
+ * How one setting is changed by itself (#185): the values it takes, and its own route's form with
+ * this one value changed. Every Settings route takes its page's whole form, so `post` writes the
+ * rest of that form as it is now.
+ */
+export type Change = {
+  kind: "switch" | "choice" | "number";
+  /** What it is now, as its form posts it. */
+  value: string;
+  /** A choice's values; a switch's are "1" and "0". */
+  choices?: Choice[];
+  min?: number;
+  max?: number;
+  post(to: string): { action: string; fields: [string, string][] };
+  /** Whether `to` loosens a guard (a write to one click): that's asked twice, whatever Settings says. */
+  loosens?(to: string): boolean;
+};
+const SWITCH: Choice[] = [{ value: "1", label: "On" }, { value: "0", label: "Off" }];
+export const choicesOf = (c: Change): Choice[] => (c.kind === "number" ? [] : (c.choices ?? SWITCH));
+
+/**
+ * `to` as this setting takes it, or null. A choice by its value, or by its label as it's shown
+ * ("Dark", for "Dark (cool dark)"); a switch also by on and off; a number whole and within its bounds.
+ */
+export function changeTo(c: Change, to: string): string | null {
+  const t = to.trim();
+  if (c.kind === "number") return wholeIn(c, t) ? String(Number(t)) : null;
+  const choices = choicesOf(c);
+  if (choices.some((x) => x.value === to)) return to;
+  const low = t.toLowerCase();
+  if (!low) return null;
+  const short = (l: string) => l.replace(/\s*\(.*$/, "").toLowerCase();
+  return (choices.find((x) => x.label.toLowerCase() === low) ?? choices.find((x) => short(x.label) === low))?.value ?? null;
+}
+
+/** A value of this setting as its page words it. */
+export const changeLabel = (c: Change, v: string) => (c.kind === "number" ? v : (choicesOf(c).find((x) => x.value === v)?.label ?? v));
+
+/**
+ * One setting, to find: where it lives, what it's set to now, and whether that's other than the
+ * default. `id` names it (`look.theme`); `change` is there only for a setting that may be changed
+ * by itself from a card (#185): how Dovre looks, what it shows and when it rings. Never who gets
+ * in, what leaves the machine, what agents and packs may do, or what's spent.
+ */
+export type SettingRow = { id: string; area: AreaId; label: string; href: string; now?: string; changed?: boolean; also?: string[]; change?: Change };
 
 /** A pack with settings: its manifest's (set or not), and whether it has its own panel or ingest tokens. */
 export type PackSettings = { id: string; name: string; on: boolean; settings: { key: string; label: string; set: boolean; /** A choice's or a number's value now, its default when unset (API 2.5). */ now?: string; /** Set to other than its default; unset: as `set`. */ changed?: boolean }[]; panel: boolean };
@@ -271,11 +315,15 @@ type RowsState = {
   /** The packs' themes (pack API 2.4), after core's in the picker. */
   themes?: ThemeDef[];
   policy: Policy;
+  /** Whether the policy is kept here (a notifier): without one its rows are only shown. */
+  notifier?: boolean;
   rings: { kind: string; label: string; off?: boolean }[];
   writes: { chosen: Map<string, Clicks>; kinds: WriteKind[] };
   keys: KeyPrefs;
   panes?: PanesView & { stored: Record<string, string | undefined> };
   packs: PackSettings[];
+  /** The packs on here, each with its one switch (#271). */
+  switches?: { id: string; name: string }[];
   agents?: AgentToolsView["rows"];
   setup?: SetupLine[];
   canRestart?: boolean;
@@ -287,54 +335,82 @@ const onOff = (on: boolean) => (on ? "On" : "Off");
 export function settingRows(s: RowsState): SettingRow[] {
   const rows: SettingRow[] = [];
   const l = s.layout;
-  for (const o of lookWith(s.themes ?? [])) {
+  const look = lookWith(s.themes ?? []);
+  for (const o of look) {
     const v = l[o.key] ?? "";
-    rows.push({ area: "look", label: o.label, href: "/settings/look", now: o.choices.find((c) => c.value === v)?.label, changed: v !== "", also: LOOK_ALSO[o.key] });
+    // Look posts all of Look: a key left out goes back to its default.
+    const post = (to: string) => ({ action: "/settings/layout", fields: [["part", "look"], ...look.map((x): [string, string] => [x.key, x.key === o.key ? to : (l[x.key] ?? "")])] as [string, string][] });
+    rows.push({ id: `look.${o.key}`, area: "look", label: o.label, href: "/settings/look", now: o.choices.find((c) => c.value === v)?.label, changed: v !== "", also: LOOK_ALSO[o.key], change: { kind: "choice", value: v, choices: o.choices, post } });
   }
   const range = statsRange(l);
   rows.push(
-    { area: "layout", label: "The phone's tabs", href: "/settings/layout#tabs", changed: l.tabs !== undefined, also: ["tab bar", "mobile", "bottom"] },
-    { area: "layout", label: "Today's cards", href: "/settings/layout#cards", changed: !!l.cards && Object.keys(l.cards).length > 0, also: ["home", "columns", "order"] },
-    { area: "layout", label: "What Stats shows", href: "/settings/layout#stats", changed: !!l.stats && Object.keys(l.stats).length > 0, also: ["charts", "panels"] },
-    { area: "layout", label: "Range on Stats", href: "/settings/layout#stats", now: STATS_RANGES.find((r) => r.value === range)?.label, changed: range !== "", also: ["weeks", "days"] },
-    { area: "layout", label: "What's happening: its sources", href: "/settings/layout#feed", now: l.feedOff?.length ? `${l.feedOff.length} left out` : undefined, changed: !!l.feedOff?.length, also: ["feed", "events"] },
-    { area: "layout", label: "Packs on", href: "/settings/layout#packs-shown", now: l.packsOff?.length ? `${l.packsOff.length} off` : undefined, changed: !!l.packsOff?.length, also: ["hide", "pack", "switch", "off", "Bino", "Terminal", "Docker"] },
+    { id: "layout.tabs", area: "layout", label: "The phone's tabs", href: "/settings/layout#tabs", changed: l.tabs !== undefined, also: ["tab bar", "mobile", "bottom"] },
+    { id: "layout.cards", area: "layout", label: "Today's cards", href: "/settings/layout#cards", changed: !!l.cards && Object.keys(l.cards).length > 0, also: ["home", "columns", "order"] },
+    { id: "layout.stats", area: "layout", label: "What Stats shows", href: "/settings/layout#stats", changed: !!l.stats && Object.keys(l.stats).length > 0, also: ["charts", "panels"] },
+    { id: "layout.statsRange", area: "layout", label: "Range on Stats", href: "/settings/layout#stats", now: STATS_RANGES.find((r) => r.value === range)?.label, changed: range !== "", also: ["weeks", "days"] },
+    { id: "layout.feed", area: "layout", label: "What's happening: its sources", href: "/settings/layout#feed", now: l.feedOff?.length ? `${l.feedOff.length} left out` : undefined, changed: !!l.feedOff?.length, also: ["feed", "events"] },
+    { id: "layout.packs", area: "layout", label: "Packs on", href: "/settings/layout#packs-shown", now: l.packsOff?.length ? `${l.packsOff.length} off` : undefined, changed: !!l.packsOff?.length, also: ["hide", "pack", "switch", "off", "Bino", "Terminal", "Docker"] },
   );
+  // Each pack's one switch: "Packs on" above says what was changed, so these don't say it again.
+  for (const k of s.switches ?? []) {
+    const on = !l.packsOff?.includes(k.id);
+    rows.push({ id: `pack.${k.id}`, area: "layout", label: `Pack on: ${k.name}`, href: "/settings/layout#packs-shown", now: onOff(on), also: ["hide", "switch", "show", k.id], change: { kind: "switch", value: on ? "1" : "0", post: (to) => ({ action: `/packs/${encodeURIComponent(k.id)}/switch`, fields: [["on", to]] }) } });
+  }
   const p = s.policy;
-  for (const k of [...RING_KINDS, ...s.rings]) {
+  const kinds = [...RING_KINDS, ...s.rings];
+  // Notifications posts every kind that rings, the bundle and the quiet hours.
+  const notifyForm = (o: { kind?: string; on?: boolean; bundleSec?: string }): [string, string][] => {
+    const hours = !!p.quiet && p.quiet.from !== p.quiet.to;
+    return [
+      ...kinds.filter((k) => (k.kind === o.kind ? !!o.on : ringOn(p, k))).map((k): [string, string] => ["kind", k.kind]),
+      ["bundleSec", o.bundleSec ?? String(p.bundleSec)],
+      ["quietFrom", hours ? String(p.quiet!.from) : ""],
+      ["quietTo", hours ? String(p.quiet!.to) : ""],
+      ...(p.quiet?.weekends ? [["quietWeekends", "on"] as [string, string]] : []),
+    ];
+  };
+  for (const k of kinds) {
     const on = ringOn(p, k);
-    rows.push({ area: "notifications", label: `Ring for: ${k.label}`, href: "/settings/notifications#ring-for", now: onOff(on), changed: on !== (DEFAULT_POLICY.kinds[k.kind] ?? !("off" in k && k.off === true)), also: ["ring", "notify"] });
+    rows.push({ id: `notify.ring.${k.kind}`, area: "notifications", label: `Ring for: ${k.label}`, href: "/settings/notifications#ring-for", now: onOff(on), changed: on !== (DEFAULT_POLICY.kinds[k.kind] ?? !("off" in k && k.off === true)), also: ["ring", "notify"], ...(s.notifier ? { change: { kind: "switch" as const, value: on ? "1" : "0", post: (to: string) => ({ action: "/settings/notify", fields: notifyForm({ kind: k.kind, on: to === "1" }) }) } } : {}) });
   }
   rows.push(
-    { area: "agents", label: "A long agent turn is at least", href: "/settings/agents#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes", "notification", "ring"] },
-    { area: "notifications", label: "Bundle what follows for", href: "/settings/notifications#bundle", now: `${p.bundleSec} s`, changed: p.bundleSec !== DEFAULT_POLICY.bundleSec, also: ["group", "seconds"] },
-    { area: "notifications", label: "Quiet hours", href: "/settings/notifications#quiet-hours", now: quietLabel(p.quiet), changed: !!p.quiet, also: ["quiet hours", "work hours", "weekend", "night", "auto runs"] },
-    { area: "notifications", label: "Send a test notification", href: "/settings/notifications#rang-lately", also: ["test", "rang lately"] },
+    { id: "agents.longTurn", area: "agents", label: "A long agent turn is at least", href: "/settings/agents#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes", "notification", "ring"], ...(s.notifier ? { change: { kind: "number" as const, value: String(p.longTurnMin), min: 0, max: 240, post: (to: string) => ({ action: "/settings/agents/long-turn", fields: [["longTurnMin", to]] }) } } : {}) },
+    { id: "notify.bundle", area: "notifications", label: "Bundle what follows for", href: "/settings/notifications#bundle", now: `${p.bundleSec} s`, changed: p.bundleSec !== DEFAULT_POLICY.bundleSec, also: ["group", "seconds"], ...(s.notifier ? { change: { kind: "number" as const, value: String(p.bundleSec), min: 0, max: 600, post: (to: string) => ({ action: "/settings/notify", fields: notifyForm({ bundleSec: to }) }) } } : {}) },
+    { id: "notify.quiet", area: "notifications", label: "Quiet hours", href: "/settings/notifications#quiet-hours", now: quietLabel(p.quiet), changed: !!p.quiet, also: ["quiet hours", "work hours", "weekend", "night", "auto runs"] },
+    { id: "notify.test", area: "notifications", label: "Send a test notification", href: "/settings/notifications#rang-lately", also: ["test", "rang lately"] },
   );
+  const CLICKS: Choice[] = [{ value: "once", label: "One click" }, { value: "twice", label: "Asks twice" }];
+  const asksTwice = (kind: string) => s.writes.chosen.get(kind) === "twice";
   for (const w of s.writes.kinds) {
-    const twice = s.writes.chosen.get(w.kind) === "twice";
-    rows.push({ area: "writes", label: w.label, href: "/settings/writes", now: twice ? "Asks twice" : "One click", changed: twice, also: [w.group, w.kind] });
+    const twice = asksTwice(w.kind);
+    // Writes posts the kinds that ask twice: every other kind takes one click.
+    const post = (to: string) => ({ action: "/settings/writes", fields: s.writes.kinds.filter((x) => (x.kind === w.kind ? to === "twice" : asksTwice(x.kind))).map((x): [string, string] => ["twice", x.kind]) });
+    rows.push({ id: `writes.${w.kind}`, area: "writes", label: w.label, href: "/settings/writes", now: twice ? "Asks twice" : "One click", changed: twice, also: [w.group, w.kind], change: { kind: "choice", value: twice ? "twice" : "once", choices: CLICKS, post, loosens: (to) => to === "once" } });
   }
-  rows.push({ area: "keys", label: "j / k scroll", href: "/settings/keys", now: SCROLL_STEPS.find((x) => x.px === s.keys.scroll)?.label, changed: s.keys.scroll !== DEFAULT_KEYS.scroll, also: ["speed", "scroll"] });
+  // Keys posts the scroll step and the groups that are on.
+  const keysForm = (o: { scroll?: string; group?: string; on?: boolean }): [string, string][] => [["scroll", o.scroll ?? String(s.keys.scroll)], ...KEY_GROUPS.filter((g) => (g.id === o.group ? !!o.on : !s.keys.off.includes(g.id))).map((g): [string, string] => ["on", g.id])];
+  rows.push({ id: "keys.scroll", area: "keys", label: "j / k scroll", href: "/settings/keys", now: SCROLL_STEPS.find((x) => x.px === s.keys.scroll)?.label, changed: s.keys.scroll !== DEFAULT_KEYS.scroll, also: ["speed", "scroll"], change: { kind: "choice", value: String(s.keys.scroll), choices: SCROLL_STEPS.map((x) => ({ value: String(x.px), label: x.label })), post: (to) => ({ action: "/settings/keys", fields: keysForm({ scroll: to }) }) } });
   for (const g of KEY_GROUPS) {
     const on = !s.keys.off.includes(g.id);
-    rows.push({ area: "keys", label: `Keys: ${g.label}`, href: "/settings/keys", now: `${onOff(on)} · ${g.keys}`, changed: !on, also: ["shortcut"] });
+    rows.push({ id: `keys.${g.id}`, area: "keys", label: `Keys: ${g.label}`, href: "/settings/keys", now: `${onOff(on)} · ${g.keys}`, changed: !on, also: ["shortcut"], change: { kind: "switch", value: on ? "1" : "0", post: (to) => ({ action: "/settings/keys", fields: keysForm({ group: g.id, on: to === "1" }) }) } });
   }
   if (s.panes) {
     const v = s.panes;
     const set = (key: string) => v.fixed.has(key) || (v.stored[key] ?? "") !== "";
     const shown = (key: string, now: string | undefined) => (v.fixed.has(key) ? `${now ?? ""} (.dev.vars)`.trim() : now);
-    for (const g of GENERAL) rows.push({ area: "work", label: g.label, href: "/settings/work", now: shown(g.key, v.values[g.key]), changed: set(g.key), also: [g.key, g.hint ?? ""] });
+    for (const g of GENERAL) rows.push({ id: `work.${g.key}`, area: "work", label: g.label, href: "/settings/work", now: shown(g.key, v.values[g.key]), changed: set(g.key), also: [g.key, g.hint ?? ""] });
   }
-  for (const r of s.agents ?? []) rows.push({ area: "agents", label: `Pack tools for ${TOOL_NAMES[r.id]}`, href: "/settings/agents", now: r.id === "claude" || r.id === "codex" || r.state === "yes" ? "Set up" : "Not set up", also: ["mcp", r.id] });
+  for (const r of s.agents ?? []) rows.push({ id: `agents.tools.${r.id}`, area: "agents", label: `Pack tools for ${TOOL_NAMES[r.id]}`, href: "/settings/agents", now: r.id === "claude" || r.id === "codex" || r.state === "yes" ? "Set up" : "Not set up", also: ["mcp", r.id] });
   for (const k of s.packs) {
     const n = k.settings.filter((x) => x.set).length;
-    rows.push({ area: "packs", label: k.name, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: k.settings.length ? `${n} of ${k.settings.length} set${k.on ? "" : " · off"}` : k.on ? undefined : "off", changed: k.settings.some((x) => x.changed ?? x.set), also: [k.id] });
-    for (const x of k.settings) rows.push({ area: "packs", label: `${k.name}: ${x.label}`, href: `/settings/packs/${encodeURIComponent(k.id)}`, now: x.now ?? (x.set ? "Set" : "Not set"), changed: x.changed ?? x.set, also: [x.key] });
+    const href = `/settings/packs/${encodeURIComponent(k.id)}`;
+    rows.push({ id: `packs.${k.id}`, area: "packs", label: k.name, href, now: k.settings.length ? `${n} of ${k.settings.length} set${k.on ? "" : " · off"}` : k.on ? undefined : "off", changed: k.settings.some((x) => x.changed ?? x.set), also: [k.id] });
+    // A pack's own settings have no `change`: core can't tell a harmless choice from the one that says where its pack sends things.
+    for (const x of k.settings) rows.push({ id: `packs.${k.id}.${x.key}`, area: "packs", label: `${k.name}: ${x.label}`, href, now: x.now ?? (x.set ? "Set" : "Not set"), changed: x.changed ?? x.set, also: [x.key] });
   }
-  rows.push({ area: "about", label: "Version", href: "/settings/about", also: ["release", "running since"] }, { area: "about", label: "Install Dovre as an app", href: "/settings/about", also: ["pwa", "window"] });
-  if (s.canRestart) rows.push({ area: "about", label: "Restart Dovre", href: "/settings/about", also: ["reload", "start again"] });
-  for (const x of s.setup ?? []) rows.push({ area: "about", label: `Setup: ${x.name}`, href: "/settings/about#setup", now: x.on ? "On" : "Off", also: [x.what] });
+  rows.push({ id: "about.version", area: "about", label: "Version", href: "/settings/about", also: ["release", "running since"] }, { id: "about.install", area: "about", label: "Install Dovre as an app", href: "/settings/about", also: ["pwa", "window"] });
+  if (s.canRestart) rows.push({ id: "about.restart", area: "about", label: "Restart Dovre", href: "/settings/about", also: ["reload", "start again"] });
+  (s.setup ?? []).forEach((x, i) => rows.push({ id: `about.setup.${i}`, area: "about", label: `Setup: ${x.name}`, href: "/settings/about#setup", now: x.on ? "On" : "Off", also: [x.what] }));
   return rows;
 }
 
