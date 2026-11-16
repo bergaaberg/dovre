@@ -5,6 +5,7 @@ import { openDb } from "../../../../db.ts";
 import type { PrFile } from "../../../../sources/prview.ts";
 import type { AutoShare } from "../../agents/share.ts";
 import { autoConfigOf } from "../config.ts";
+import { decideFinding } from "../decide.ts";
 import { findingsStore } from "../findings.ts";
 import { AUTOREVIEW_SYSTEM, capLevel, ciOf, MAX_FINDINGS, reviewDraft, reviewerModel, reviewPrompt, riskOf, verdictOf } from "../reviewer.ts";
 import { CI_WAIT_MS, MAX_ROUNDS, reviewPass, type ReviewDeps } from "../round.ts";
@@ -461,6 +462,55 @@ test("a finding the owner said to ignore, raised again: not posted, it doesn't h
   kept = await s.findings.of(PR);
   assert.deepEqual(kept.map((f) => [f.title, f.status, f.raised]), [["Token unchecked", "force-ignore", 2], ["Password logged in the clear", "open", 1]]);
   assert.equal((await s.store.all())[0]!.level, 2);
+});
+
+// ── My word on a finding (#555 step 3) ──
+
+test("ignore it: the finding stops holding the PR back, the level follows without a new review, and at 5 the PR goes on to the checks before a merge", async () => {
+  const s = setup({ reply: at(5, HIGH, { ...HIGH, severity: "critical", line: 1, tags: ["security"], title: "Secret in the log" }) });
+  await s.add();
+  await reviewPass(s.deps);
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.base, r!.state], [2, 5, "fixing"]);
+  const [critical, high] = await s.findings.of(PR);
+  let d = await decideFinding(s.deps, { pr: PR, id: high!.id, to: "force-ignore" });
+  assert.deepEqual([d.ok, d.message, d.detail], [true, "Finding ignored.", "ignored: the high finding on src/a.ts:2"]);
+  [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state], [2, "fixing"], "another still holds it back");
+  d = await decideFinding(s.deps, { pr: PR, id: critical!.id, to: "force-ignore" });
+  assert.match(d.message, /^Finding ignored\. It's at level 5 now, and goes on to the checks before a merge\.$/);
+  [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state, s.asked.length], [5, "merging", 1]);
+  assert.deepEqual(r!.levels.map((l) => [l.head, l.level]), [["sha1", 5]], "the commit's level in the history follows");
+  assert.match(r!.why!, /^Level 5 now that nothing holds it back/);
+  assert.equal((await decideFinding(s.deps, { pr: PR, id: critical!.id, to: "force-ignore" })).ok, false, "already as asked");
+
+  // Undone: it holds the PR back again; the PR stays where it is until the next pass looks.
+  d = await decideFinding(s.deps, { pr: PR, id: critical!.id, to: "open" });
+  assert.equal(d.message, "Finding open again. It's at level 2 now.");
+});
+
+test("fix it: a finding at any severity holds the PR back and starts a fix round on a PR handed to me, past the rounds' limit too; nothing is decided on a fixed finding or a PR that left the loop", async () => {
+  const s = setup({ reply: at(4, { ...HIGH, severity: "low", tags: ["clarity"], title: "Vague name" }) });
+  await s.add();
+  await s.store.move(PR, "reviewing", "fixing", { round: MAX_ROUNDS });
+  await s.store.move(PR, "fixing", "reviewing");
+  await reviewPass(s.deps);
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state], [4, "yours"]);
+  const [low] = await s.findings.of(PR);
+  const d = await decideFinding(s.deps, { pr: PR, id: low!.id, to: "force-fix" });
+  assert.equal(d.message, `Finding to be fixed. Fix round ${MAX_ROUNDS + 1} starts for it.`);
+  [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state, r!.round, r!.why], [2, "fixing", MAX_ROUNDS + 1, `Round ${MAX_ROUNDS + 1}: a fix session for a finding you said to fix.`]);
+  assert.equal((await s.findings.of(PR))[0]!.status, "force-fix");
+
+  assert.equal((await decideFinding(s.deps, { pr: PR, id: "ffffffffffff", to: "force-fix" })).ok, false, "not a finding of this PR");
+  assert.equal((await decideFinding(s.deps, { pr: "https://github.com/acme/web/pull/8", id: low!.id, to: "force-fix" })).ok, false, "not a PR it follows");
+  await s.DB.prepare("UPDATE autoreview_findings SET status = 'fixed'").run();
+  assert.equal((await decideFinding(s.deps, { pr: PR, id: low!.id, to: "force-ignore" })).ok, false, "fixed");
+  await s.store.move(PR, "fixing", "merged");
+  assert.match((await decideFinding(s.deps, { pr: PR, id: low!.id, to: "force-ignore" })).message, /acme\/web#7 is merged/);
 });
 
 // ── What owners say (#326 step 6) ──

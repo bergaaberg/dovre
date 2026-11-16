@@ -1,6 +1,7 @@
 /** Auto review (#326): its PRs kept from the agents pack's share, their levels, and the PR page's row. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Hono } from "hono";
 import { openDb } from "../../../../db.ts";
 import { autoStore } from "../../../../agents/auto.ts";
 import type { Desk } from "../../../../agents/desk.ts";
@@ -10,7 +11,8 @@ import type { AutoPr, AutoShare } from "../../agents/share.ts";
 import { autoOf, autoShare } from "../../agents/share.ts";
 import { autoreviewPack } from "../index.ts";
 import { prOf, prsStore } from "../store.ts";
-import { levelFact } from "../view.ts";
+import { type Finding, findingsStore } from "../findings.ts";
+import { DECIDE_HREF, findingsFact, levelFact } from "../view.ts";
 import { H, assertInert } from "../../../../../test/helpers.ts";
 
 const PR = "https://github.com/acme/web/pull/7";
@@ -31,7 +33,7 @@ test("the store: a PR added once, levels kept round by round and clamped, and a 
   assert.equal(await s.add({ pr: PR, issue: "acme/web#3" }), false, "kept already");
   assert.equal(await s.add({ pr: "not a pr", issue: "x" }), false);
   let [r] = await s.all();
-  assert.deepEqual({ ...r, levels: r!.levels }, { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, round: 0, head: null, review: null, fix: null, level: null, levels: [], cost: 0, state: "reviewing", why: null, claim: null, heard: 100, at: 100, updated: 100 });
+  assert.deepEqual({ ...r, levels: r!.levels }, { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, round: 0, head: null, review: null, fix: null, level: null, levels: [], cost: 0, state: "reviewing", why: null, claim: null, heard: 100, at: 100, updated: 100, base: null });
   t = 200;
   assert.equal(await s.level(PR, "fixing", { head: "abc", level: 3 }), false, "not in that state");
   assert.equal(await s.level(PR, "reviewing", { head: "abc", level: 9, cost: 0.5 }), true);
@@ -65,7 +67,7 @@ test("the pack: off without the agents pack's share, else keeps each new auto PR
   const { DB } = openDb();
   const p = autoreviewPack();
   assert.deepEqual(p.manifest.requires, ["agents"]);
-  assert.deepEqual(p.writes!.map((w) => w.kind), ["review", "fix", "reply", "merge"]);
+  assert.deepEqual(p.writes!.map((w) => w.kind), ["review", "fix", "reply", "merge", "decide"]);
   const published: string[][] = [];
   let share: AutoShare | undefined;
   const ctx = testContext({ db: DB, publish: (t) => published.push(t), required: ((id: string, name: string) => (id === "agents" && name === "auto" ? share : undefined)) as PackContext["required"] }) as PackContext;
@@ -82,7 +84,7 @@ test("the pack: off without the agents pack's share, else keeps each new auto PR
 });
 
 test("the PR page's row: waiting for a first review, then the level, the round and the levels so far; hostile text inert", () => {
-  const base = { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, claim: null, head: null, review: null, fix: null, cost: 0, heard: 1, at: 1, updated: 1 };
+  const base = { pr: PR, repo: "acme/web", number: 7, issue: "acme/web#3", run: null, author: null, claim: null, head: null, review: null, fix: null, base: null, cost: 0, heard: 1, at: 1, updated: 1 };
   assert.equal(String(levelFact({ ...base, round: 0, level: null, levels: [], state: "reviewing", why: null })[1]), "Waiting for its first review · being reviewed");
   const out = String(levelFact({ ...base, round: 2, level: 4, levels: [1, 3, 4].map((level, round) => ({ round, head: "h", level, at: 1 })), state: "yours", why: H })[1]);
   assert.match(out, /^Level 4 of 5 · round 2 · handed to you: /);
@@ -97,4 +99,52 @@ test("autoOf: the agents pack's own share, narrowed; anything else under that na
   assert.equal(autoOf(ctxWith(share)), share);
   assert.deepEqual(asked, ["agents/auto"]);
   for (const off of [undefined, null, "auto", 5, {}, { ...share, land: "soon" }, { prs: share.prs }]) assert.equal(autoOf(ctxWith(off)), undefined);
+});
+
+test("the PR page's findings: the ones holding the PR back first, what I can say about each, how many are fixed; no buttons once the PR has left the loop; hostile text inert", () => {
+  const f = (o: Partial<Finding>): Finding => ({ id: "0123456789ab", pr: PR, round: 0, head: "h", severity: "low", tags: ["clarity"], path: "src/a.ts", line: 2, side: "RIGHT", title: "Vague name", body: "b", fix: "", status: "open", review: 99, comment: 501, raised: 1, at: 1, updated: 1, ...o });
+  const list = [f({}), f({ id: "aaaaaaaaaaaa", severity: "high", title: H, path: H, line: 9, startLine: 4, raised: 2 }), f({ id: "bbbbbbbbbbbb", status: "force-ignore", title: "Ignored one" }), f({ id: "cccccccccccc", status: "fixed" }), f({ id: "dddddddddddd", status: "force-fix", title: "Asked for" })];
+  const [label, body] = findingsFact(list, { repo: "acme/web", number: 7, live: true, flash: { ok: true, message: H } })!;
+  const out = String(body);
+  assert.equal(label, "Findings");
+  assertInert("findings row", out);
+  assert.ok(out.indexOf("holds the PR back") < out.indexOf("Vague name"), "what holds it back comes first");
+  assert.match(out, /:4-9 · open, holds the PR back · raised by 2 reviews/);
+  assert.match(out, /you said fix it, holds the PR back/);
+  assert.match(out, /1 fixed\./);
+  const posts = [...out.matchAll(/name="id" value="([0-9a-f]{12})"><input type="hidden" name="to" value="([a-z-]+)"/g)].map((m) => `${m[1]!.slice(0, 2)}:${m[2]}`);
+  assert.deepEqual(posts.sort(), ["01:force-fix", "01:force-ignore", "aa:force-ignore", "bb:open", "dd:open"], "a finding already holding it back needs no Fix it; a decided one can be undone; a fixed one takes nothing");
+  assert.ok(out.includes(`action="${DECIDE_HREF}"`));
+  assert.doesNotMatch(String(findingsFact(list, { repo: "acme/web", number: 7, live: false })![1]), /<form/);
+  assert.equal(findingsFact([], { repo: "acme/web", number: 7, live: true }), undefined);
+  assert.equal(String(findingsFact([f({ status: "fixed" })], { repo: "acme/web", number: 7, live: true })![1]), "1 fixed, none standing.");
+});
+
+test("the pack's route: my word on a finding of a kept PR is taken, logged and shown on its page; anything else is refused", async () => {
+  const { DB } = openDb();
+  const p = autoreviewPack({ github: { ghe: {} as never, owners: () => "acme" } });
+  const ctx = testContext({ db: DB, required: (() => undefined) as PackContext["required"] }, { id: "autoreview" }) as PackContext;
+  const store = prsStore(DB);
+  await store.add({ pr: PR, issue: "acme/web#3", run: "r1" });
+  await store.level(PR, "reviewing", { head: "sha1", level: 4, base: 4, review: 99 });
+  await store.move(PR, "reviewing", "yours");
+  await findingsStore(DB).reported(PR, { round: 0, head: "sha1", review: 99 }, [{ id: "0123456789ab", severity: "low", tags: ["clarity"], path: "src/a.ts", line: 2, side: "RIGHT", title: "Vague name", body: "b", fix: "" }]);
+  await p.init!(ctx);
+  const app = new Hono();
+  p.routes!(app as never, ctx);
+  const post = (fields: Record<string, string>) => app.request(DECIDE_HREF, { method: "POST", body: new URLSearchParams(fields), headers: { "content-type": "application/x-www-form-urlencoded" } });
+  for (const bad of [{ repo: "evil/web", number: "7", id: "0123456789ab", to: "force-fix" }, { repo: "acme/web", number: "8", id: "0123456789ab", to: "force-fix" }, { repo: "acme/web", number: "7", id: "nope", to: "force-fix" }, { repo: "acme/web", number: "7", id: "0123456789ab", to: "fixed" }])
+    assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await findingsStore(DB).of(PR))[0]!.status, "open");
+
+  const res = await post({ repo: "acme/web", number: "7", id: "0123456789ab", to: "force-fix" });
+  assert.deepEqual([res.status, res.headers.get("location")], [303, "/prs/acme/web/7"]);
+  assert.equal((await findingsStore(DB).of(PR))[0]!.status, "force-fix");
+  assert.equal((await store.all())[0]!.state, "fixing");
+  const log = await DB.prepare("SELECT kind, target, detail, ok FROM actions").all<Record<string, unknown>>();
+  assert.deepEqual(log.results.map((x) => ({ ...x })), [{ kind: "autoreview.decide", target: "acme/web#7", detail: "to be fixed: the low finding on src/a.ts:2", ok: 1 }]);
+  const facts = p.slots!(ctx)["pr.facts"]!({ repo: "acme/web", number: 7, branch: "b", title: "t", url: PR });
+  assert.deepEqual(facts.map(([k]) => k), ["Auto review", "Findings"]);
+  assert.match(String(facts[1]![1]), /Finding to be fixed\. Fix round 1 starts for it\./);
+  assert.match(String(facts[1]![1]), /you said fix it, holds the PR back/);
 });
