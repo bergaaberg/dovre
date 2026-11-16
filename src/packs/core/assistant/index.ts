@@ -44,6 +44,7 @@ export function assistantPack(): Pack {
             peek: () => ctx.snapshot(),
             packAct: (kind) => host.packAct(kind),
             list: host.list,
+            settings: host.settings,
             assets: host.assets,
             context: host.context,
             apps: () => host.apps(),

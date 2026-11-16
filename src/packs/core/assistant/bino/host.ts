@@ -10,6 +10,7 @@ import type { Bino } from "./bino.ts";
 import type { DockAssets } from "./routes.ts";
 import type { ViewApp } from "./view.ts";
 import type { Frame } from "../../../../html.ts";
+import type { SettingsApi } from "../../../../routes/settings.ts";
 
 type AssistantHost = {
   bino: Bino;
@@ -27,6 +28,8 @@ type AssistantHost = {
   assets: DockAssets;
   /** My list, while a pack shares it (`list`, #393): what to break down, and where plans go. */
   list?: () => ListShare | undefined;
+  /** Dovre's settings (#185): what a setting card shows, and the one way it changes one. */
+  settings?: SettingsApi;
 };
 
 const hosts = new WeakMap<Pack, AssistantHost>();

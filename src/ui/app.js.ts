@@ -77,8 +77,11 @@ function linkOut(e) {
 document.addEventListener("click", linkOut, true);
 document.addEventListener("auxclick", linkOut, true);
 // A dock's page has no frame of its own to say light or dark: it takes its page's (Settings → Layout).
+// One drawn with Look as it is now (Bino's, whose card may just have changed it) hands that to its page first.
 if (framed) try {
   const top = window.parent.document.documentElement;
+  const now = document.documentElement.dataset.look;
+  if (now) for (const [k, v] of Object.entries(JSON.parse(now))) { if (v) top.setAttribute("data-" + k, v); else top.removeAttribute("data-" + k); }
   for (const a of ["data-theme", "data-accent", "data-font"]) { const v = top.getAttribute(a); if (v) document.documentElement.setAttribute(a, v); }
 } catch {}
 

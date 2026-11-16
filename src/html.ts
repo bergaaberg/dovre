@@ -77,9 +77,11 @@ const dockBar = (title: string, full: string) =>
   html`<header class="dock-h"><h1 title="${title}">${title}</h1><button type="button" class="dock-i ghost" data-dock-wide title="Bigger or smaller" aria-label="Bigger or smaller">⤢</button><a class="dock-i" href="${full}" target="_top" title="Open as a page" aria-label="Open as a page">↗</a><button type="button" class="dock-i ghost" data-dock-close title="Minimise (Esc)" aria-label="Minimise">–</button></header>`;
 
 /** A page shown inside a dock (Bino's, a pack's): no top bar or footer, the same style and script. With `full`, core's header over a scrolling body. */
-export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[]; /** Scripts after the core's (the packs'). */ scripts?: string[]; /** A pack's: its full page, for the header core draws (Bino draws its own). */ full?: string }): Html {
+export function dockShell(opts: { title: string; body: Html | string; head?: Html | string; /** Stylesheets beside the core's (the packs'). */ styles?: string[]; /** Scripts after the core's (the packs'). */ scripts?: string[]; /** A pack's: its full page, for the header core draws (Bino draws its own). */ full?: string; /** Look as it is now, where the pane may just have changed it (Bino's setting card, #185): its page takes it on (src/ui/app.js.ts). */ look?: Frame["look"] }): Html {
+  const l = opts.look;
+  const look = l ? JSON.stringify({ theme: l.theme ?? "", accent: l.accent ?? "", font: l.font ?? "", size: l.textSize ?? "", lh: l.lineHeight ?? "", motion: l.motion ?? "" }) : undefined;
   return html`<!doctype html>
-<html lang="en">
+<html lang="en"${look ? html` data-look="${look}"` : ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -44,6 +44,7 @@ import { investigateOf, investigatePage } from "./pages/investigate.ts";
 import type { BinoMemory } from "./packs/core/assistant/bino/memory.ts";
 import type { Route } from "./packs/core/assistant/bino/route.ts";
 import { hostAssistant } from "./packs/core/assistant/bino/host.ts";
+import { findSettings, SETTINGS_LOOKUP } from "./packs/core/assistant/bino/settings.ts";
 import type { Kept } from "./kept.ts";
 import { AREAS, type AgentToolsView, type SetupLine } from "./pages/settings.ts";
 import { type SentView } from "./pages/sent.ts";
@@ -78,7 +79,7 @@ import { currentViewer, viewingAs } from "./viewer.ts";
 import { keyPrefsStore } from "./keys.ts";
 import { welcomeRoutes } from "./routes/welcome.ts";
 import { relayRoutes } from "./routes/relay.ts";
-import { settingsRoutes } from "./routes/settings.ts";
+import { type SettingsApi, settingsRoutes } from "./routes/settings.ts";
 
 /** Each pane's pages: 404 while it's switched off. */
 const PANE_PATHS: [PaneId, RegExp][] = [
@@ -203,7 +204,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
           onChange: (c) => deps.hub?.publish([`bino:${c.id}`, "bino"]),
           onDraft: (c) => deps.hub?.publish([`bino-draft:${c.id}`]),
           kinds: () => packActs(),
-          lookups: { specs: () => packLookups(), run: (l) => runLookup(l) },
+          lookups: { specs: () => lookups.specs(), run: (l) => lookups.run(l) },
         })
       : undefined;
   const bino: Bino | undefined = binoDeps && "remote" in binoDeps ? binoDeps.remote : engine;
@@ -393,7 +394,14 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   const listOf = async (l: ListShare | undefined) => (l ? { items: await l.items().catch(() => []), href: (id: number) => l.href(id) } : undefined);
   /** A PR's or deploy's summary, from the pack that writes them ("ai.summary"): only its own shape is drawn. */
   const summary = (key: string): AiSummary | undefined => fill("ai.summary", { key }).find((x): x is AiSummary => !!x && (x.state === "pending" || (x.state === "ready" && typeof x.text === "string") || (x.state === "failed" && typeof x.error === "string")));
-  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: packLinked, lookups: { specs: () => packLookups().map(({ run: _r, pack: _p, ...spec }) => spec), run: runLookup }, pageOn: (href) => pageOn(href), keysRead, keysAgain, refresh: runPackRefresh, agentChanged });
+  /** Dovre's own settings (#185), once their routes are up and Bino's pack is on: Bino looks them up beside the packs' apps. */
+  let ownSettings: SettingsApi | undefined;
+  /** What Bino may look up, here and hosted (the object asks through src/hosted/lookups.ts). */
+  const lookups: Lookups = {
+    specs: () => [...(ownSettings ? [SETTINGS_LOOKUP] : []), ...packLookups().map(({ run: _r, pack: _p, ...spec }) => spec)],
+    run: (l) => (ownSettings && l.kind === SETTINGS_LOOKUP.kind ? findSettings(ownSettings, l.args) : runLookup(l)),
+  };
+  appPacks.set(app, { on: packs.on, off: packs.off, ctxOf, refreshes, hidden, needs: packNeeds, startsOff, linked: packLinked, lookups, pageOn: (href) => pageOn(href), keysRead, keysAgain, refresh: runPackRefresh, agentChanged });
   mountAssets();
 
   /**
@@ -563,7 +571,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     const v = investigateOf({ prompt: c.req.query("prompt"), repo: c.req.query("repo"), from: c.req.query("from") });
     return c.html(investigatePage(frame, v, { bino: binoOn(), agent: shared("agent") }));
   });
-  const { keep, settleSettings, settingsAreas, restarting } = settingsRoutes(app, { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
+  const { keep, settleSettings, settingsAreas, restarting, settings } = settingsRoutes(app, { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet });
   const { setUp } = welcomeRoutes(app, { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft });
 
   // ── Report a bug (#384): to the repo behind the page it came from ──
@@ -577,10 +585,12 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   };
   app.route("/", createBugRoutes({ ghe, db: env.DB, owners: () => ownersIn(env), frame: async () => (await page()).frame, packOf: packHomeOf, instance: () => env.INSTANCE_REPO?.trim().match(/^[\w.-]+\/[\w.-]+$/)?.[0] ?? null, version: deps.info?.version ?? "dev", hosted }));
   // Bino's pages are its pack's (src/packs/core/assistant/): core hands that pack the engine and what its pages read.
-  if (bino && assistant)
+  if (bino && assistant) {
+    ownSettings = settings;
     hostAssistant(assistant, {
       bino,
       list: sharedList,
+      settings,
       frame: async () => (await page()).frame,
       org: env.GHE_ORG,
       packAct: (kind) => packActs().find((k) => k.kind === kind),
@@ -589,6 +599,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       context: engine ? undefined : binoContext,
       apps: packApps,
     });
+  }
 
   relayRoutes(app, { env, deps, asks, perfLog, speed });
 

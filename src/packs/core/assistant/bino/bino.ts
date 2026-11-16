@@ -7,7 +7,7 @@
  */
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { type Act, type ActSpec, fenceOf, splitActs } from "./acts.ts";
+import { type Act, type ActSpec, fenceOf, SETTINGS_KIND, splitActs } from "./acts.ts";
 import { type Plan, splitReply, systemOf, transcriptOf } from "./context.ts";
 import { type BinoMemory, scopeOf } from "./memory.ts";
 import { type Found, foundPart, labelOf, type Lookups, lookupsPrompt, MAX_ROUNDS, resultOf, splitLookups } from "./lookups.ts";
@@ -30,6 +30,9 @@ export const MAX_PINNED = 10;
 export const MAX_TITLE = 80;
 
 /** Bino as pages see it: the engine here, or hosted the Durable Object's, asked over a fetch. */
+/** What a card's press may change on its act: how it went, and (a setting's) what it was before. A key given as undefined is cleared. */
+export type ActPatch = Partial<Pick<Act, "done" | "sending" | "error"> & { was: string }>;
+
 export type Bino = {
   route: Route;
   memory: BinoMemory;
@@ -55,7 +58,7 @@ export type Bino = {
   added(id: string, index: number, todo: number): P<void>;
   /** An act Bino proposed: how it stands (sending, done, refused). */
   act(id: string, index: number, n: number): P<Act | undefined>;
-  setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): P<void>;
+  setAct(id: string, index: number, n: number, patch: ActPatch): P<void>;
 };
 
 /** The engine itself: answers at once from memory. */
@@ -71,7 +74,7 @@ export type Engine = Pick<Bino, "route" | "memory" | "sees"> & {
   remove(id: string): boolean;
   added(id: string, index: number, todo: number): void;
   act(id: string, index: number, n: number): Act | undefined;
-  setAct(id: string, index: number, n: number, patch: Partial<Pick<Act, "done" | "sending" | "error">>): void;
+  setAct(id: string, index: number, n: number, patch: ActPatch): void;
   /** Resolves when nothing is being answered (tests). */
   idle(): Promise<void>;
 };
@@ -222,7 +225,7 @@ export function createBino(o: {
         // Ask; when Bino asks to look something up, look it up and ask again, a few rounds at most.
         for (let round = 0; ; round++) {
           const spent = round >= MAX_ROUNDS;
-          const system = systemOf(context, memories, { acts: o.acts ?? true, kinds, lookups: lookupsPrompt(specs, spent) });
+          const system = systemOf(context, memories, { acts: o.acts ?? true, kinds, lookups: lookupsPrompt(specs, spent), settings: specs.some((s) => s.kind === SETTINGS_KIND) });
           signal.throwIfAborted();
           const got = await ask({ system, user: transcriptOf(turns, undefined, foundPart(found.get(c.id) ?? [])), signal, onText });
           // Stopped while it was being written: what came anyway isn't shown.

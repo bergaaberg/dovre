@@ -243,7 +243,7 @@ export type BinoOp =
   | { op: "pin"; id: string; on: boolean }
   | { op: "remove"; id: string }
   | { op: "added"; id: string; index: number; todo: number }
-  | { op: "setAct"; id: string; index: number; n: number; patch: { error?: string } };
+  | { op: "setAct"; id: string; index: number; n: number; /** null clears a key (JSON drops undefined). */ patch: { error?: string | null; done?: { at: number; text: string; href?: string } | null; was?: string | null } };
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v ?? null), { status, headers: { "content-type": "application/json" } });
 const enc = new TextEncoder();
@@ -660,8 +660,14 @@ export class DovreHub {
         return b.remove(String(o.id ?? ""));
       case "added":
         return b.added(o.id, o.index, o.todo);
-      case "setAct":
-        return b.setAct(o.id, o.index, o.n, { error: o.patch?.error });
+      case "setAct": {
+        // What a card's press said: how it went (a line and a path in this app), and what a setting was before.
+        const p = o.patch ?? {};
+        const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
+        const href = str(p.done?.href, 300);
+        const done = p.done && typeof p.done === "object" && Number.isFinite(p.done.at) ? { at: Number(p.done.at), text: str(p.done.text, 400) ?? "", ...(href?.startsWith("/") && !href.startsWith("//") ? { href } : {}) } : undefined;
+        return b.setAct(o.id, o.index, o.n, { ...("error" in p ? { error: str(p.error, 400) } : {}), ...("done" in p ? { done } : {}), ...("was" in p ? { was: str(p.was, 200) } : {}) });
+      }
     }
     return null;
   }

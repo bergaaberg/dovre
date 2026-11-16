@@ -15,6 +15,11 @@ import { type Pack, PACK_API } from "../../../types.ts";
 import { openDb } from "../../../../db.ts";
 import { hubClient, type HubNamespace, remoteBino } from "../../../../hosted/client.ts";
 import { DovreHub, type HubEnv, type HubState, hostedBinoRoute, sqlConvStore } from "../../../../hosted/hub.ts";
+import { findSettings, SETTINGS_LOOKUP } from "../bino/settings.ts";
+import { DEFAULT_KEYS } from "../../../../keys.ts";
+import { DEFAULT_POLICY } from "../../../../notify.ts";
+import { settingRows } from "../../../../pages/settings.ts";
+import { WRITES } from "../../../../writes.ts";
 import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
 
@@ -43,12 +48,12 @@ function fakeState() {
 type Call = { url: string; headers: Record<string, string>; body: { model: string; system: string; messages: { content: string }[] } };
 
 /** The gateway: a reply for talking, memlet's ops for Haiku keeping memory. */
-function fakeGateway(reply: string, calls: Call[] = [], hold?: Promise<void>) {
+function fakeGateway(reply: string | (() => string), calls: Call[] = [], hold?: Promise<void>) {
   return (async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body));
     calls.push({ url, headers: init.headers as Record<string, string>, body });
     if (hold) await hold;
-    const text = body.model === "claude-haiku-5-5" ? '{"ops":[{"op":"add","text":"Quill is for small schools.","kind":"fact"}]}' : reply;
+    const text = body.model === "claude-haiku-5-5" ? '{"ops":[{"op":"add","text":"Quill is for small schools.","kind":"fact"}]}' : typeof reply === "function" ? reply() : reply;
     if (body.stream) {
       // As the Messages API streams: the reply in two deltas.
       const ev = [
@@ -136,6 +141,41 @@ test("hosted Bino answers in the Durable Object: through the gateway, with what 
   const kept = (await ask({ op: "get", id: c.id }))!;
   assert.deepEqual([kept.msgs.length, kept.title, kept.pinned], [2, "Quill", true]);
   assert.equal(await ask({ op: "get", id: gone.id }), null, "deleted stays deleted");
+});
+
+test("hosted, Bino proposes a setting (#185): it looks it up through the Worker, and the card's done line and Undo are kept in the object", async () => {
+  const db = openDb();
+  const { state } = fakeState();
+  const rows = settingRows({ layout: {}, policy: DEFAULT_POLICY, rings: [], writes: { chosen: new Map(), kinds: WRITES }, keys: DEFAULT_KEYS, packs: [] });
+  // The Worker's entrypoint, as the object's binding reaches it.
+  const BINO_LOOKUPS = { specs: async () => [SETTINGS_LOOKUP], run: async (l: { args: Record<string, string> }) => findSettings({ rows: async () => rows }, l.args) };
+  const env: HubEnv = { DB: db.DB, CF_ACCOUNT_ID: "acc-1", CF_AIG_TOKEN: "aig-tok", BINO_LOOKUPS };
+  const hub = new DovreHub(state, env);
+  const calls: Call[] = [];
+  const replies = ["```bino-lookup\n" + JSON.stringify({ kind: "dovre.settings", q: "theme" }) + "\n```", "Dark it is.\n```bino-act\n" + JSON.stringify({ kind: "setting", id: "look.theme", to: "dark" }) + "\n```"];
+  let n = 0;
+  hub.fetchFn = fakeGateway(() => replies[Math.min(n++, replies.length - 1)]!, calls);
+  const bino = remoteBino(hubClient(nsOf(hub)), { route: hostedBinoRoute(env), memory: noMemory("no") });
+  const c = await bino.start("Make it dark", { context: "" });
+  await hub.idle();
+
+  const talks = calls.filter((x) => x.body.model !== "claude-haiku-5-5");
+  assert.equal(talks.length, 2, "one ask to look it up, one to answer");
+  assert.ok(talks[0]!.body.system.includes(`${ACT_FENCE}\n{"kind": "setting"`), "told how to propose a setting");
+  assert.ok(!/"kind": "task"/.test(talks[0]!.body.system), "still no dev tasks hosted");
+  assert.match(talks[1]!.body.messages[0]!.content, /- id "look\.theme": Theme \(Look\)\. Now "" \(As the system\)/, "what the Worker's lookup found");
+  assert.deepEqual((await bino.get(c.id))?.msgs.at(-1)?.acts, [{ kind: "setting", id: "look.theme", to: "dark" }]);
+
+  // The Worker's route says how the press went: the line, where its page is, and what it was before.
+  await bino.setAct(c.id, 1, 0, { error: undefined, was: "", done: { at: 5, text: "Theme: As the system → Dark (night)", href: "/settings/look" } });
+  assert.deepEqual(await bino.act(c.id, 1, 0), { kind: "setting", id: "look.theme", to: "dark", was: "", done: { at: 5, text: "Theme: As the system → Dark (night)", href: "/settings/look" } });
+  await bino.setAct(c.id, 1, 0, { done: { at: 6, text: "x", href: "//evil.example" } });
+  assert.deepEqual((await bino.act(c.id, 1, 0))?.done, { at: 6, text: "x" }, "a link out of this app is dropped");
+  // Undo: the card proposes again.
+  await bino.setAct(c.id, 1, 0, { error: undefined, done: undefined, was: undefined });
+  assert.deepEqual(await bino.act(c.id, 1, 0), { kind: "setting", id: "look.theme", to: "dark" });
+  await bino.setAct(c.id, 1, 0, { error: "That isn't a value it takes." });
+  assert.equal((await bino.act(c.id, 1, 0))?.error, "That isn't a value it takes.");
 });
 
 test("an answer cut off by the object going away says so, and the hub refuses what isn't its protocol", async () => {
