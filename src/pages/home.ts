@@ -10,6 +10,8 @@ import { type Snapshot, prSummaryKey } from "../gather.ts";
 import { eyebrow, glance, greeting, lede } from "../home/brief.ts";
 import { type FeedEvent, feedOf, mergeFeeds } from "../home/feed.ts";
 import { horizon } from "../home/horizon.ts";
+import { type SinceRow, sinceLabel } from "../home/since.ts";
+import { since as sinceAt } from "../format.ts";
 import { type Frame, shell } from "../html.ts";
 import { type Deploy, type MyPrs, type Pr, prKeyOfUrl, prNeeds, prsCount } from "../sources/ghe.ts";
 import { Card, type Child, Confirm, Dot, type Html, Item, List, Pill } from "../ui/kit.ts";
@@ -196,8 +198,34 @@ function appsCard(apps: AppRow[], on: (href: string) => boolean): Html {
   });
 }
 
+/** "Since I last looked" (#421): a line a pack, what its events said and what of it wants me, since then. */
+function sinceCard(o: { rows: SinceRow[]; since: number }, now: number, tz: string, on: (href: string) => boolean): Html {
+  const label = sinceLabel(o.since, now, tz);
+  return Card({
+    id: "since",
+    title: "Since I last looked",
+    meta: label,
+    children: o.rows.length
+      ? List(
+          o.rows.map((r) => {
+            const said = r.bits.map((b) => `${b.n} ${b.what}`);
+            if (r.more) said.push(`${r.more} more`);
+            return Item({
+              href: r.href && on(r.href) ? safeUrl(r.href) : undefined,
+              lead: r.tone ? Dot({ tone: r.tone, label: r.tone === "bad" ? "Something went wrong" : "Worth a look" }) : "",
+              title: r.name,
+              line: said.length ? said.join(" · ") : undefined,
+              trail: r.needs ? Pill({ children: `${r.needs} new for me` }) : sinceAt(r.at, now),
+            });
+          }),
+        )
+      : html`<p class="empty">Nothing new ${label}.</p>`,
+  });
+}
+
 /** Today's own cards, where they sit unless I move them (Settings → Layout); packs' cards come after. */
 export const CORE_CARDS = [
+  { id: "since", label: "Since I last looked", col: "left", order: 10 },
   { id: "ship", label: "What ships", col: "left", order: 20 },
   { id: "apps", label: "Your apps", col: "left", order: 20 },
   { id: "actions", label: "What Dovre did", col: "left", order: 40 },
@@ -215,7 +243,7 @@ export function packPlace(c: Pick<TodayCard, "id" | "column" | "order">, o: { ow
   return { col: c.column === "left" ? "left" : "right", order: o.own ? Math.max(0, Math.min(999, c.order ?? 100)) : packOrder(c.order) };
 }
 
-export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean; /** Hosted: the person asking is a guest of the instance's snapshot (#544). */ guest?: Guest; /** No code host (#421): no PR or ship cards, no Merged and Released, the packs' feed alone, the horizon only with their lanes. */ noForge?: boolean; /** The greeting's name when it isn't the forge's (#421: the sign-in's); "" greets without one. */ name?: string; /** No code host (#421): "Your apps", where What ships was. */ yourApps?: AppRow[] } = {}) {
+export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { /** The packs whose own setup isn't finished (src/pages/setup.ts setupStrip). */ setup?: Child; /** What the packs add to the briefing: numbers, sentences, horizon rows. */ apps?: { glance: Glance[]; brief: Bit[][]; lanes: Lane[] }; /** Dovre's own packs: their cards sit among the core's by their own order. */ own?: string[]; ghe?: string; /** The forge: what it can't do (approve deploys, Dovre's viewer) isn't offered. */ forge?: ForgeView; /** The packs' kinds of reference. */ rules?: RefRule[]; now?: number; agent?: AgentOf; /** What Dovre did for me (src/pages/actions.ts). */ actions?: Html; /** The packs' `today.hero` slot (a picture of how things are). */ hero?: Html | ""; /** The packs' cards, and the packs that didn't answer in time or failed (src/packs/). */ packs?: { cards: TodayCard[]; failed: Off[] }; /** Topics besides "snapshot" that change Today: each pack publishes under its id. */ topics?: string[]; /** The packs' events for the feed; `only` shows them alone (hosted). */ feed?: { events: FeedEvent[]; only: boolean }; /** Where I've put each card (src/layout.ts). */ cards?: Layout["cards"]; /** Whether a page answers here (its pack is on): links to others are left out. */ on?: (href: string) => boolean; /** Hosted: the person asking is a guest of the instance's snapshot (#544). */ guest?: Guest; /** No code host (#421): no PR or ship cards, no Merged and Released, the packs' feed alone, the horizon only with their lanes. */ noForge?: boolean; /** The greeting's name when it isn't the forge's (#421: the sign-in's); "" greets without one. */ name?: string; /** No code host (#421): "Your apps", where What ships was. */ yourApps?: AppRow[]; /** No code host (#421): what happened in my apps since I last looked, and since when. */ since?: { rows: SinceRow[]; since: number } } = {}) {
   const now = opts.now ?? Date.now();
   const g = glance(s);
   const apps = opts.apps ?? { glance: [], brief: [], lanes: [] };
@@ -227,6 +255,7 @@ export function homePage(frame: Frame, s: Snapshot, summary: SummaryOf, opts: { 
   const core: Record<CoreCard, Html | "" | undefined> = {
     ship: noForge ? undefined : shipCard(s, summary, opts.ghe ?? "github.com", opts.rules, forgeCan(opts.forge ?? GITHUB_VIEW, "deployApproval")),
     actions: opts.actions,
+    since: noForge && opts.since ? sinceCard(opts.since, now, frame.tz ?? currentTz(), on) : undefined,
     apps: noForge && opts.yourApps?.length ? appsCard(opts.yourApps, on) : undefined,
     prs: noForge ? undefined : prsCard(s, summary, opts.agent, prForge(opts.forge), on("/prs")),
   };

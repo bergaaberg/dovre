@@ -120,7 +120,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       pages: frame.nav.filter((p) => p.href !== "/" && p.place !== "action").map((p) => ({ href: p.href, title: p.title })),
       tabs: tabsOf(frame.nav).map((p) => p.href).filter((h) => h !== "/"),
       cards: [
-        ...CORE_CARDS.filter((c) => (none ? c.id !== "prs" && c.id !== "ship" : c.id !== "apps")).map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
+        ...CORE_CARDS.filter((c) => (none ? c.id !== "prs" && c.id !== "ship" : c.id !== "apps" && c.id !== "since")).map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
         ...packNow.map((c) => { const at = packPlace(c, { own: (packs.core ?? []).some((p) => c.id.startsWith(`${p}-`)), noForge: none }); return { id: c.id, label: packLabel(c.id), ...placed(c.id, at.col, at.order) }; }),
       ],
       feeds: packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name })),

@@ -76,6 +76,7 @@ import { SETUP_JS, SETUP_JS_PATH } from "./ui/setup.js.ts";
 import { STYLE, STYLE_PATH } from "./ui/style.ts";
 import { createCodeRoutes } from "./pages/code.ts";
 import { currentViewer, viewingAs } from "./viewer.ts";
+import { visitsStore } from "./home/since.ts";
 import { keyPrefsStore } from "./keys.ts";
 import { welcomeRoutes } from "./routes/welcome.ts";
 import { relayRoutes } from "./routes/relay.ts";
@@ -232,7 +233,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
   // ── Packs (src/packs/mount.ts, PLAN D23): each pack's ctx and core's call of every hook, made here; their routes mount below, after every core route ──
   const {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm, styles: packStyles, scripts: packScripts, packThemes,
-    packNav, packFeed, packBino, packApps, packAppRows, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
+    packNav, packFeed, packBino, packApps, packAppRows, packSince, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
     packCards, packRings, startsOff, packNeeds, packStats, packLinked, refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen, mountCallbacks, mountAssets, mountRoutes,
   } = mountPacks(app, { env, deps, hosted, ghe, forge, asks, layout, onboarding, publicOrigin, page: (o) => page(o), thinking: () => !!engine?.list().some((x) => x.thinking), settle: (id) => settleSettings(id), pending: (err) => err instanceof Pending, bugHref });
@@ -447,6 +448,13 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
     return { s: got, frame: { ...frameOf(got, o.path ?? tryGetContext()?.req.path), keys } };
   };
 
+  // "Since I last looked" (#421): when this person last had Today open, kept per person.
+  const visits = visitsStore(env.DB);
+  const sinceOf = async () => {
+    const since = await visits.open(currentViewer());
+    return { since, rows: packSince(since) };
+  };
+
   app.get("/", async (c) => {
     if (c.req.query("fresh") === "1") {
       gatherer.stale();
@@ -466,7 +474,7 @@ export function createApp(env: Env, deps: { gatherer: Gatherer; /** Local: where
       const left = setupLeft(x);
       return ob && left.length ? [{ id: x.manifest.id, name: x.manifest.name, what: left[0]!.title, left: left.length, steps: ob.steps.length, required: ob.required }] : [];
     });
-    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups, { bino: binoOn() }), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions, guest: deps.guest?.(), ...(noForge() ? { noForge: true, name: signedInName(), yourApps: packAppRows() } : {}) }));
+    return c.html(homePage(frame, s, summary, { setup: setupStrip(setups, { bino: binoOn() }), cards: layout.get().cards, packs: packToday, apps: briefingFrom(shown(), ctxOf, (id, line) => packLog(id)(line)), own: packs.core, on: pageOn, feed: { events: packFeed(), only: env.IS_HOSTED === "1" }, topics: shown().map((c) => c.manifest.id), hero: fill("today.hero", {})[0], ghe: env.GHE_HOST, forge, rules: packRefs(), agent: agentOf, actions, guest: deps.guest?.(), ...(noForge() ? { noForge: true, name: signedInName(), yourApps: packAppRows(), since: await sinceOf() } : {}) }));
   });
   /** Everything Dovre did for me, newest first (the card on Today shows the newest few). */
   app.get("/actions", async (c) => {

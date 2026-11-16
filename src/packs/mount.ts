@@ -10,6 +10,7 @@ import { logAction, repoIn } from "../actions/deploys.ts";
 import { packProposals } from "../actions/propose.ts";
 import type { App, AppEnv } from "../env.ts";
 import { packFeedOf } from "../home/feed.ts";
+import { sinceRows } from "../home/since.ts";
 import { noCodeHost } from "../onboarding.ts";
 import { dockShell, html, shell } from "../html.ts";
 import { RING_KINDS, rings } from "../notify.ts";
@@ -375,6 +376,8 @@ export function mountPacks(app: App, o: MountOpts) {
   /** The packs' kinds that are off until I switch them on. */
   const startsOff = new Set(packRings.filter((r) => r.off).map((r) => r.kind));
   const packNeeds = () => needsFrom(shown(), ctxOf, packRings, log);
+  /** Today's "Since I last looked" (#421): the feed and the needs since then, a row a shown pack, each with its page. */
+  const packSince = (since: number) => sinceRows(packFeed(), packNeeds(), shown().map((c) => ({ id: c.manifest.id, name: c.manifest.name, href: navFrom([c], ctxOf, log)[0]?.href })), since);
   const refreshes = refreshLog(() => deps.hub?.publish(["packs"]));
   // Hosted (#362): newer releases of the packs bundled here, from dovre-packs' tags on GitHub.
   // github.com goes through the forge's token; a forge on another host reads anonymously (dovre-packs is public).
@@ -620,7 +623,7 @@ export function mountPacks(app: App, o: MountOpts) {
     packs, ctxOf, packLog, shown, hidden, held, pageOn, shared, sharedList, shipsWasm,
     styles: PACK_CSS ? [PACK_CSS.path] : undefined, scripts: packScripts, packThemes,
     packNav, packFeed, packBino, packApps, packFrames, packIsolated, fill, packWhere, packWhat, packActs, packLookups, runLookup, packPages, packFinds, packRefs,
-    packCards, packAppRows, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
+    packCards, packAppRows, packSince, packRings, startsOff, packNeeds, packStats, packLinked: () => linkedFrom(shown(), ctxOf, log),
     refreshes, runPackRefresh, agentChanged, keysRead, keysAgain, packIds, packsGet, instanceRepo, opening, releases,
     setupOf, setupLeft, aiStore, aiAsk, envSeen, bindingsSeen,
     mountCallbacks, mountAssets, mountRoutes,
