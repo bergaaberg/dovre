@@ -3,7 +3,7 @@ import { html } from "hono/html";
 import type { Issue } from "../../../forge/types.ts";
 import type { AgentShare } from "../../types.ts";
 import { ago } from "../../../format.ts";
-import { Link, safeUrl } from "../../../pages/parts.ts";
+import { type Guest, guestConnect, Link, safeUrl } from "../../../pages/parts.ts";
 import { taskHref } from "./compose/work.ts";
 import { BulkBar, Confirm, Empty, Gauge, type Html, Item, List, Notice, PageHeader, Panel, Pick, Pill, Tabs } from "../../../ui/kit.ts";
 import { ACT_KINDS, type ActKindId, doneText, MAX_COMMENT } from "./act.ts";
@@ -96,7 +96,7 @@ function doneNotice(d: Done, set: SetId, acts: boolean): Html {
   return Notice({ tone: "ok", children: html`${doneText(d)}. ${undo}` });
 }
 
-export function trackerBody(o: { kept: IssuesKept | undefined; set: SetId; triage: boolean; staleDays: number; now: number; host: string; newHref?: string; acts?: Omit<RowActs, "set">; done?: Done; bulk?: BulkDone }): Html {
+export function trackerBody(o: { kept: IssuesKept | undefined; set: SetId; triage: boolean; staleDays: number; now: number; host: string; newHref?: string; acts?: Omit<RowActs, "set">; done?: Done; bulk?: BulkDone; /** Hosted: the person asking is a guest of the instance's snapshot, so these are its login's issues (`whose`), and the page says so (#544). */ guest?: Guest; whose?: string; /** The forge's name, for the guest's sign-in. */ forge?: string }): Html {
   const sets = o.kept?.sets;
   const shown = ISSUE_SETS.filter((s) => s !== "triage" || o.triage);
   const tabs = Tabs({ label: "Which issues", items: shown.map((s) => ({ href: `${HREF}?set=${s}`, label: SET_LABEL[s], n: sets ? sets[s].length : undefined, current: s === o.set })) });
@@ -114,7 +114,7 @@ export function trackerBody(o: { kept: IssuesKept | undefined; set: SetId; triag
         : Empty({ title: EMPTY[o.set] });
   return html`<div data-live id="tracker">${PageHeader({
     title: "Issues",
-    sub: o.kept?.at ? html`From ${o.host}, read ${ago(o.kept.at, o.now)}` : html`From ${o.host}`,
+    sub: html`${o.guest ? html`${o.whose || o.kept?.login || "The operator"}'s issues, from` : "From"} ${o.host}${o.kept?.at ? html`, read ${ago(o.kept.at, o.now)}` : ""}${o.guest ? html`.${guestConnect(o.guest, o.forge)}` : ""}`,
     actions: o.newHref ? html`<a class="btn" href="${o.newHref}">New issue</a>` : "",
     tabs,
   })}${o.done ? doneNotice(o.done, o.set, !!o.acts) : ""}${o.bulk ? bulkNotice(o.bulk) : ""}${problem}${body}</div>`;

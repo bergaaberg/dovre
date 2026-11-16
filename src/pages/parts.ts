@@ -46,6 +46,16 @@ export function safeUrl(url: string | undefined | null): string {
   }
 }
 
+/** Hosted: the person asking sees the instance's snapshot for want of a forge token of their own (#544, src/hosted/people.ts). */
+export type Guest = { /** Where they sign in with the forge for a snapshot of their own. */ connect?: string };
+
+/** Where a guest signs in for their own, as the end of a sentence; nothing where they can't. */
+export const guestConnect = (guest: Guest | undefined, forge = "GitHub"): Html | "" => (guest?.connect ? html` <a href="${safeUrl(guest.connect)}">Sign in with ${forge}</a> to see your own.` : "");
+
+/** One quiet line for a guest: whose work this is, and where to sign in for their own. */
+export const guestLine = (o: { guest: Guest | undefined; whose: string; forge?: string }): Html | "" =>
+  o.guest ? html`<p class="t2 sm guest">This is ${o.whose || "the operator"}'s work.${guestConnect(o.guest, o.forge)}</p>` : "";
+
 /** A link: checked by safeUrl, and in a new tab when it leaves the app. */
 export const Link = (url: string | undefined | null, children: Child, cls?: string) => {
   const href = safeUrl(url);

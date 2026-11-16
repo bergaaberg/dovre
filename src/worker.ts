@@ -6,7 +6,7 @@
  */
 import { hostedKeys } from "./hostedkeys.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { type Actor, actingAs, currentActor } from "./actor.ts";
+import { type Actor, actingAs, currentActor, NoOwnToken } from "./actor.ts";
 import { ownersIn, ownersOf, primaryOf } from "./owners.ts";
 import { type AccessVerifier, accessConfigOf, createAccessVerifier } from "./access.ts";
 import { DIAL_HEADER, dialProofOk, keyOk, LEGACY_MACHINE, machineOk } from "./bridge/wire.ts";
@@ -137,35 +137,41 @@ const hostOf = (b: WorkerBindings) => b.REPO_HOST || b.GHE_HOST || "github.com";
 const ownersOfBindings = (b: WorkerBindings, fallback: string) => ownersOf(b.REPO_OWNERS || b.GHE_ORG || b.GITHUB_USER || fallback).join(",");
 
 export type { Actor };
+export { NoOwnToken };
 
 /**
  * The instance's own way to get a GitHub token (a GitHub App's broker, say), asked before every call.
  * With `actor`, the call is that person's write (a POST they made), to be made with their own token;
  * without, it's the instance's own (pages, the background snapshot, cron).
  */
-type GithubTokenProvider = (bindings: WorkerBindings, actor?: Actor) => Promise<string>;
+type GithubTokenProvider = ((bindings: WorkerBindings, actor?: Actor) => Promise<string>) & {
+  /** A person just signed in with GitHub: what it remembered of them having no token is dropped (#544). */
+  signedIn?: (email: string) => void;
+};
 
 /**
  * The built-in provider (#523), with the built-in login, the instance's GitHub App and
  * GITHUB_TOKEN_SEAL all set: a person's write goes with their own Sign in with GitHub token, the
  * rest with the operator's, and either falls back to GITHUB_TOKEN. An actor marked `own` (a
- * person's own gather, #538) gets their own token or none.
+ * person's own gather, #538) gets their own token or none (`NoOwnToken`).
  */
 export function appTokenProvider(bindings: WorkerBindings): GithubTokenProvider | undefined {
   const app = githubAppOf(bindings);
   const secret = sealOf(bindings);
   if (!loginOn(bindings) || !app || !secret || !bindings.DB) return undefined;
   const tokens = appTokens({ db: bindings.DB, secret, app, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), operatorLogin: bindings.GITHUB_USER });
-  return async (b, actor) => {
+  const provider: GithubTokenProvider = async (b, actor) => {
     if (actor?.own) {
       const mine = await tokens.forEmail(actor.email);
-      if (!mine) throw new Error("No GitHub token of your own: sign in with GitHub.");
+      if (!mine) throw new NoOwnToken();
       return mine;
     }
     const t = (actor?.email ? await tokens.forEmail(actor.email) : undefined) ?? (await tokens.operator()) ?? b.GITHUB_TOKEN?.trim();
     if (!t) throw new Error("No GitHub token yet: sign in with GitHub once, or set GITHUB_TOKEN with `wrangler secret put GITHUB_TOKEN`.");
     return t;
   };
+  provider.signedIn = (email) => tokens.signedIn(email);
+  return provider;
 }
 
 /**
@@ -271,17 +277,33 @@ const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) 
 /**
  * A person's own GitHub (#538, src/hosted/people.ts): a client that only ever calls with their own
  * token (`own`: never the instance's in its place), who that makes them, and a gatherer on it over
- * the instance's owners. Its kept reads and kept snapshot are theirs alone. Rejects when the
- * provider has no token for them.
+ * the instance's owners. Its kept reads and kept snapshot are theirs alone. Undefined when the
+ * provider has no token for them (`NoOwnToken`); rejects when it or GitHub couldn't be asked.
  */
-export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void; /** And what's new in it rings for them (#551). */ rang?: (who: string, s: Snapshot) => void }): (email: string) => Promise<Found> {
+export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void; /** And what's new in it rings for them (#551). */ rang?: (who: string, s: Snapshot) => void }): (email: string) => Promise<Found | undefined> {
   const host = hostOf(bindings);
   const reads = bindings.DB ? d1Reads(bindings.DB) : undefined;
   const owners = ownersOfBindings(bindings, o.instanceLogin);
   return async (email) => {
     const who = email.trim().toLowerCase();
     const mine: Actor = { email: who, own: true };
-    const ghe = createGhe({ host, token: () => provider(bindings, mine), shared: reads && readsAs(reads, who) });
+    // Asked once before any call: no token of their own is an answer, not a failure.
+    let first: string | undefined;
+    try {
+      first = await provider(bindings, mine);
+    } catch (e) {
+      if (e instanceof NoOwnToken) return undefined;
+      throw e;
+    }
+    const ghe = createGhe({
+      host,
+      token: async () => {
+        const t = first;
+        first = undefined;
+        return t ?? provider(bindings, mine);
+      },
+      shared: reads && readsAs(reads, who),
+    });
     const login = (await ghe.rest<{ login?: string }>("/user"))?.login ?? "";
     return {
       login,
@@ -449,7 +471,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     };
     const access = accessConfigOf(bindings);
     // The built-in login when it's on (AUTH_MODE=passkey), else Cloudflare Access or another issuer.
-    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), github: githubAppOf(bindings), seal: sealOf(bindings) }) : undefined;
+    const builtIn = loginOn(bindings) ? createLogin({ db: bindings.DB, allowedEmails: (bindings.ALLOWED_EMAILS ?? "").split(","), github: githubAppOf(bindings), seal: sealOf(bindings), signedIn: (email) => (provider?.signedIn?.(email), people?.forget(email)) }) : undefined;
     const verify = builtIn?.verify ?? (access ? createAccessVerifier(access) : undefined);
     // The hub, when the instance binds it: live pages, and Bino answering in the object.
     const hub = bindings.HUB ? hubClient(bindings.HUB) : undefined;
@@ -479,8 +501,21 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
         make: (as) => make(() => as, as),
       });
     };
-    // My open issues from the forge (/tracker), where the forge has them: one copy, the instance's, whoever asks for a read.
-    const issues = issuesPack({ forge, owners: () => env.OWNERS ?? env.GHE_ORG, login: () => gatherer.peek()?.login, reads: instanceLogin });
+    // Someone let in who has no GitHub token of their own sees the instance's snapshot: pages say whose, and where to sign in (#544).
+    const guest = () => (people?.guest() ? { connect: builtIn && githubAppOf(bindings) ? "/_auth/github" : undefined } : undefined);
+    // My open issues from the forge (/tracker), where the forge has them: the instance's copy for the cron, needs and guests.
+    // A person whose snapshot is their own has their own copy, read as they open the page (#544); needs and the cron's read stay the instance's.
+    const issues = issuesPack({
+      forge,
+      owners: () => env.OWNERS ?? env.GHE_ORG,
+      login: () => gatherer.peek()?.login,
+      reads: instanceLogin,
+      own: () => {
+        const as = gatherer.peek()?.login;
+        return own(as) ? as : undefined;
+      },
+      guest,
+    });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
     const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => historyOf(changed) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, unread: keys.unread(), bindings, hosted: true });
     for (const o of off) console.log(`pack ${o.id}: off, ${o.why}`);
@@ -490,6 +525,7 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       machines: hub ? async () => (await hub.mac()).machines : undefined,
       events: hub ? (as) => hub.events({ who: currentViewer(), own: own(as) }) : undefined,
       live: !!hub,
+      guest,
       bino: hub ? { remote: remoteBino(hub, { route: hostedBinoRoute(bindings as HubEnv), memory, sees: "My list and what your apps share" }) } : undefined,
       gatherer,
       ghe,

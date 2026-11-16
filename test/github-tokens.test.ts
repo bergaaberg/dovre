@@ -125,6 +125,15 @@ test("the operator: GITHUB_USER's row, else ALLOWED_EMAILS in order; an email no
   await keepGrant(empty, SEAL, "a@x.dev", "ay", grant("a", t), t);
   t += MISS_MS + 1;
   assert.equal(await none.operator(), "ghu_a");
+
+  // A sign-in in this isolate doesn't wait for that: told of it, the next call reads their token (#544).
+  const { DB: late } = openDb();
+  const lazy = appTokens({ db: late, secret: SEAL, app: APP, allowedEmails: ["a@x.dev"], now: () => t });
+  assert.equal(await lazy.forEmail("a@x.dev"), undefined);
+  await keepGrant(late, SEAL, "a@x.dev", "ay", grant("a", t), t);
+  assert.equal(await lazy.forEmail("a@x.dev"), undefined, "remembered as none");
+  lazy.signedIn(" A@x.dev ");
+  assert.equal(await lazy.forEmail("a@x.dev"), "ghu_a");
 });
 
 test("the Worker's provider: a person's own token for their write, else the operator's, else GITHUB_TOKEN; off without the login, app or seal", async () => {

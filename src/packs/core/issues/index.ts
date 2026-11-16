@@ -4,6 +4,10 @@
  * pack's schedule; the page draws from memory. On only where the forge has issues (`Forge.issues`,
  * src/forge/types.ts), so a forge pack that brings `issues()` gets it too.
  *
+ * Hosted, a person whose snapshot is their own gets a copy of their own (#544), read when they open
+ * the page. Needs, the brief and the scheduled read stay the instance's: nothing gathers for a
+ * person while they're away.
+ *
  * Locally, with GitHub's issue forms, it also has New work (#392, compose/): a dev task under a
  * planned issue, or an issue through a repo's own forms, at /issues/new.
  */
@@ -14,7 +18,7 @@ import type { AppEnv } from "../../../env.ts";
 import type { IssueAct } from "../../../forge/types.ts";
 import type { Forge } from "../../../forge/types.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
-import { safeUrl } from "../../../pages/parts.ts";
+import { type Guest, safeUrl } from "../../../pages/parts.ts";
 import { CheckRows } from "../../../ui/kit.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
 import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
@@ -33,6 +37,13 @@ const ISSUES_PACK_ID = "tracker";
 const TRIAGE_KEY = "tracker.triage";
 const MAX_TRIAGE = 100;
 const REPO = /^[\w.-]{1,100}\/[\w.-]{1,100}$/;
+/** A person's own copy is read again when they look and it's this old (the instance's is read every `everyMs`). */
+const OWN_FRESH_MS = 4 * 60_000;
+/** People with a copy of their own in one isolate; the oldest goes first. */
+const OWN_MAX = 50;
+
+/** One reader's issues: the last read, when each came in, and their writes of the last few minutes. */
+type Copy = { kept?: IssuesKept; came?: Map<string, number>; recent: { act: IssueAct; at: number }[]; reading?: Promise<void> };
 
 type IssuesDeps = {
   forge: Pick<Forge, "host" | "can" | "issues" | "viewer" | "issue" | "issueAct"> & Partial<Pick<Forge, "name" | "thread" | "searchThreads">>;
@@ -46,6 +57,13 @@ type IssuesDeps = {
    * click starts the read. Without it, `login`.
    */
   reads?: () => string | undefined;
+  /**
+   * Hosted (#544): the login of the person asking, when their snapshot is their own. They get a
+   * copy of their own, read as they open the page (with the token every page reads with).
+   */
+  own?: () => string | undefined;
+  /** Hosted (#544): the person asking is a guest of the instance's snapshot; the page says whose issues it shows. */
+  guest?: () => Guest | undefined;
   /** Where "New issue" goes; none on hosted. */
   newHref?: string;
   /** Rows offer "Start a task" (the dev-task flow, local only). */
@@ -66,10 +84,24 @@ type IssuesDeps = {
 
 export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefined } {
   const now = o.now ?? Date.now;
-  let kept: IssuesKept | undefined;
-  /** When each issue came into the assigned and mentioned sets (model.ts cameIn). */
-  let came: Map<string, number> | undefined;
-  const fresh = () => freshOf(kept?.sets, came ?? new Map(), now());
+  /** The instance's copy: what the schedule reads, and what needs and the brief are made from. */
+  const shared: Copy = { recent: [] };
+  /** People's own copies, by login. */
+  const own = new Map<string, Copy>();
+  /** The copy the current request reads: the asking person's own where their snapshot is, else the instance's. */
+  const copyOf = (): Copy => {
+    const login = o.own?.()?.trim().toLowerCase();
+    if (!login) return shared;
+    const c = own.get(login) ?? { recent: [] };
+    own.delete(login);
+    own.set(login, c);
+    for (const old of own.keys()) {
+      if (own.size <= OWN_MAX) break;
+      own.delete(old);
+    }
+    return c;
+  };
+  const fresh = () => freshOf(shared.kept?.sets, shared.came ?? new Map(), now());
   /** The repos picked on its setup page (#418), kept in Dovre's settings; until then, ISSUES_TRIAGE_REPOS. */
   let picked: string[] | undefined;
   let pickedRead: Promise<void> | undefined;
@@ -82,36 +114,43 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       })
       .catch(() => {}));
   const triageOf = (ctx: PackContext) => picked ?? triageReposOf(ctx.env.ISSUES_TRIAGE_REPOS);
-  const read = async (ctx: PackContext) => {
+  /** Reads `who`'s issues into a copy (the instance's login where none is named). Writes of the last few minutes show on top: search lags behind them (model.ts withActs). */
+  const readInto = async (ctx: PackContext, copy: Copy, who?: string) => {
     const issues = o.forge.issues;
     if (!issues) return;
     await loadPicked(ctx);
     try {
-      const login = (o.reads ?? o.login)?.() || (await o.forge.viewer()).login;
+      const login = who ?? ((o.reads ?? o.login)?.() || (await o.forge.viewer()).login);
       const sets = await issues(login, o.owners(), { triage: triageOf(ctx) });
-      recent = recent.filter((r) => now() - r.at < ACT_SHOWN_MS);
-      const shown = withActs(sets, recent.map((r) => r.act));
-      came = cameIn(came, shown, now());
+      copy.recent = copy.recent.filter((r) => now() - r.at < ACT_SHOWN_MS);
+      const shown = withActs(sets, copy.recent.map((r) => r.act));
+      copy.came = cameIn(copy.came, shown, now());
       // What I did myself isn't news to me.
-      for (const r of recent) if (r.act.kind === "assign") came.set(`assigned:${keyOf(r.act)}`, 0);
-      kept = { at: now(), sets: shown, login };
+      for (const r of copy.recent) if (r.act.kind === "assign") copy.came.set(`assigned:${keyOf(r.act)}`, 0);
+      copy.kept = { at: now(), sets: shown, login };
     } catch (e) {
-      kept = { at: now(), sets: kept?.sets, error: String((e as Error)?.message ?? e).slice(0, 300) };
-      ctx.log(`issues: ${kept.error}`);
+      copy.kept = { at: now(), sets: copy.kept?.sets, error: String((e as Error)?.message ?? e).slice(0, 300) };
+      ctx.log(`issues: ${copy.kept.error}`);
     }
     ctx.publish([ISSUES_PACK_ID]);
   };
+  /** The schedule's read: the instance's copy. */
+  const read = (ctx: PackContext) => readInto(ctx, shared);
+  /** The asking person's own copy, read now; the instance's where they have none. One read of a copy at a time. */
+  const readMine = (ctx: PackContext): Promise<void> => {
+    const copy = copyOf();
+    return (copy.reading ??= readInto(ctx, copy, copy === shared ? undefined : o.own?.()?.trim()).finally(() => (copy.reading = undefined)));
+  };
   const canAct = () => !!o.forge.issue && !!o.forge.issueAct;
-  const me = () => o.login?.() || kept?.login || "";
-  /** Writes of the last few minutes: search lags behind them, so each read shows them on top (model.ts withActs). */
-  let recent: { act: IssueAct; at: number }[] = [];
+  const me = () => o.login?.() || copyOf().kept?.login || "";
   const applied = (a: IssueAct) => {
-    recent = [...recent.filter((r) => now() - r.at < ACT_SHOWN_MS), { act: a, at: now() }];
-    if (kept?.sets) kept = { ...kept, sets: withActs(kept.sets, [a]) };
-    if (a.kind === "assign") came?.set(`assigned:${keyOf(a)}`, 0);
+    const copy = copyOf();
+    copy.recent = [...copy.recent.filter((r) => now() - r.at < ACT_SHOWN_MS), { act: a, at: now() }];
+    if (copy.kept?.sets) copy.kept = { ...copy.kept, sets: withActs(copy.kept.sets, [a]) };
+    if (a.kind === "assign") copy.came?.set(`assigned:${keyOf(a)}`, 0);
   };
   return {
-    kept: () => kept,
+    kept: () => copyOf().kept,
     manifest: {
       api: PACK_API,
       id: ISSUES_PACK_ID,
@@ -190,7 +229,10 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
           ]
         : []),
     ],
-    glance: () => (kept?.sets ? [{ label: "Issues", value: kept.sets.assigned.length }] : []),
+    glance: () => {
+      const sets = copyOf().kept?.sets;
+      return sets ? [{ label: "Issues", value: sets.assigned.length }] : [];
+    },
     brief() {
       const n = new Set(fresh().map((f) => keyOf(f.issue))).size;
       return n ? [{ text: `${n} new ${n === 1 ? "issue" : "issues"} for you`, href: HREF }] : [];
@@ -207,7 +249,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         label: "Issue",
       })),
     finds(): FindItem[] {
-      const sets = kept?.sets;
+      const sets = copyOf().kept?.sets;
       if (!sets) return [];
       const seen = new Set<string>();
       return (["assigned", "mentioned", "authored"] as const).flatMap((s) =>
@@ -220,8 +262,11 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       );
     },
     lookups: () => forgeLookups({ name: o.forge.name ?? "GitHub", thread: o.forge.thread, searchThreads: o.forge.searchThreads }, o.owners),
-    bino: (ctx) => binoLine(kept?.sets, fresh(), triageOf(ctx).length > 0),
-    about: (_ctx, path) => (path.startsWith(HREF) && kept?.sets ? `My open issues page: ${kept.sets.assigned.length} assigned, ${kept.sets.mentioned.length} mentioning me` : undefined),
+    bino: (ctx) => binoLine(shared.kept?.sets, fresh(), triageOf(ctx).length > 0),
+    about(_ctx, path) {
+      const sets = copyOf().kept?.sets;
+      return path.startsWith(HREF) && sets ? `My open issues page: ${sets.assigned.length} assigned, ${sets.mentioned.length} mentioning me` : undefined;
+    },
     routes(app, ctx) {
       if (o.compose) {
         const c = o.compose;
@@ -251,11 +296,24 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         const res = await ctx.page(c, { title, current: HREF, body });
         return new Response(res.body, { status, headers: res.headers });
       };
+      /** Hosted, a read started in a request outlives its answer only if the Worker is told of it. */
+      const later = (c: Context<AppEnv>, job: Promise<void>) => {
+        try {
+          c.executionCtx.waitUntil(job.catch(() => undefined));
+        } catch {}
+      };
+      /**
+       * Whose request this is, settled before anything asks: hosted, an isolate that hasn't met the
+       * person yet learns who they are with their first snapshot, and until then would take them
+       * for the instance (its copy, and its login as "me").
+       */
+      const met = () => ctx.gathered().catch(() => undefined);
       const formOf = async (c: Context<AppEnv>) => (await c.req.parseBody()) as Record<string, unknown>;
       const setIn = (f: Record<string, unknown>) => setOf(typeof f.set === "string" ? f.set : undefined);
 
       // The comment's confirm step: checked like the write, then shown as it will be posted.
       app.post(COMMENT, async (c) => {
+        await met();
         const f = await formOf(c);
         const set = setIn(f);
         if (!canAct()) return c.notFound();
@@ -291,6 +349,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       };
 
       app.post(ACT, async (c) => {
+        await met();
         const f = await formOf(c);
         const set = setIn(f);
         if (!canAct()) return c.notFound();
@@ -300,7 +359,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         const r = await write(a);
         if (!r.ok) return with_(c, r.status, "Not done", refusedBody({ title: "Not done", why: r.why, set, ...(r.status === 502 ? { tone: "bad" as const } : {}) }));
         ctx.publish([ISSUES_PACK_ID]);
-        void read(ctx);
+        later(c, readMine(ctx));
         const target = `${a.repo}#${a.number}`;
         const q = new URLSearchParams({ set, done: a.kind, ref: target, ...(a.kind === "close" ? { reason: a.reason } : {}) });
         return c.redirect(`${HREF}?${q}`, 303);
@@ -308,6 +367,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
 
       // Bulk (dovre#104): each ticked issue checked and written on its own, as ACT does; BULK_MAX at most.
       app.post(BULK, async (c) => {
+        await met();
         const f = (await c.req.parseBody({ all: true })) as Record<string, unknown>;
         const set = setIn({ set: Array.isArray(f.set) ? f.set[0] : f.set });
         if (!canAct()) return c.notFound();
@@ -329,7 +389,7 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         }
         if (done) {
           ctx.publish([ISSUES_PACK_ID]);
-          void read(ctx);
+          later(c, readMine(ctx));
         }
         const q = new URLSearchParams({ set, bulk: what, done: String(done), of: String(picks.length) });
         for (const w of why.slice(0, 3)) q.append("why", w.slice(0, 200));
@@ -341,14 +401,21 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         const links = o.agents ? ctx.required("agents", "agent") : undefined;
         return links && o.agents ? { links, dirOf: o.agents() } : undefined;
       };
-      app.get(HREF, (c) => {
+      app.get(HREF, async (c) => {
+        await met();
         const agent = agentActs();
+        const copy = copyOf();
+        // A person's own copy is read as they look: the page draws what's there and is told when it's in.
+        if (copy !== shared && !(copy.kept && now() - copy.kept.at < OWN_FRESH_MS)) later(c, readMine(ctx));
         return ctx.page(c, {
           title: "Issues",
           current: HREF,
           head: html`<meta name="u-topics" content="${ISSUES_PACK_ID}">`,
           body: trackerBody({
-            kept,
+            kept: copy.kept,
+            guest: o.guest?.(),
+            whose: copy.kept?.login || (o.reads ?? o.login)?.(),
+            forge: o.forge.name,
             set: setOf(c.req.query("set")),
             triage: triageOf(ctx).length > 0,
             staleDays: staleDaysOf(ctx.env.ISSUES_STALE_DAYS),

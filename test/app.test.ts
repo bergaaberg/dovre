@@ -147,6 +147,16 @@ test("the climb (#417) keeps a pack's name, description, why and setup inert, on
   }
 });
 
+test("Today tells a guest of the instance's snapshot whose work it is, and where to sign in (#544); a hostile login stays text", async () => {
+  let guest: { connect?: string } | undefined;
+  const { get } = signedIn(snapshot({ login: H }), {}, { guest: () => guest });
+  assert.doesNotMatch(await (await get("/")).text(), /class="t2 sm guest"/, "nobody's guest: nothing said");
+  guest = { connect: "/_auth/github" };
+  const out = await (await get("/")).text();
+  assertInert("Today for a guest", out);
+  assert.match(out, /<p class="t2 sm guest">This is [^<]*'s work\. <a href="\/_auth\/github">Sign in with GitHub<\/a> to see your own\.<\/p>/);
+});
+
 test("setup pages (#418) keep a pack's name, step title, body, wait and error inert", async () => {
   const { PACK_API } = await import("../src/packs/types.ts");
   const { html } = await import("hono/html");

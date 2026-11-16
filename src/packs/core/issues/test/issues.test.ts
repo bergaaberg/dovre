@@ -85,6 +85,125 @@ test("hosted (#544): the one kept copy is read for the instance's login, whoever
   assert.equal(pack.kept()?.login, "op");
 });
 
+test("hosted (#544): a person whose snapshot is their own gets their own copy, read as they open the page; needs and the schedule stay the instance's; a guest is told whose issues they see", async () => {
+  const asked: string[] = [];
+  const wrote: string[] = [];
+  /** The asking person's own login; none: the instance's snapshot is theirs. */
+  let me: string | undefined;
+  let guest: { connect?: string } | undefined;
+  let t = NOW;
+  let ops = [issue({ number: 1, title: "op's first" }), issue({ number: 2, title: "op's second" })];
+  const published: string[][] = [];
+  const pack = issuesPack({
+    forge: {
+      host: "github.com",
+      name: "GitHub",
+      can: ["issues"] as never,
+      viewer: async () => ({ login: "op", name: null }),
+      issues: async (login) => (asked.push(login), sets({ assigned: login === "<b>op" ? ops : [issue({ number: 7, title: `${login}'s own`, assignees: [] })] })),
+      issue: async () => issue({ number: 7, assignees: [] }),
+      issueAct: async (a) => void wrote.push(`${a.kind} ${a.repo}#${a.number}`),
+    },
+    owners: () => "bergaaberg",
+    login: () => me ?? "<b>op",
+    reads: () => "<b>op",
+    own: () => me,
+    guest: () => guest,
+    now: () => t,
+  });
+  const ctx = testContext({ env: {}, db: { prepare: () => ({ bind: () => ({ run: async () => ({}), first: async () => null }) }) } as never, publish: (topics) => published.push(topics), page: async (_c, p) => new Response(String(p.body)) });
+  const app = new Hono<AppEnv>();
+  pack.routes!(app, ctx);
+  // What a route hands the Worker to finish after its answer.
+  const jobs: Promise<unknown>[] = [];
+  const worker = { waitUntil: (p: Promise<unknown>) => void jobs.push(p), passThroughOnException() {}, props: {} };
+  const get = async (path: string) => (await app.request(`http://localhost${path}`, {}, {}, worker as never)).text();
+  const settle = () => Promise.all(jobs.splice(0));
+
+  await pack.refresh!(ctx);
+  assert.deepEqual(asked, ["<b>op"]);
+  assert.match(await get("/tracker"), /op&#39;s first/, "the operator, and anyone on the instance's snapshot");
+  assert.equal(jobs.length, 0, "no read of their own for them");
+
+  // A person with their own snapshot: nothing of the operator's, a read of their own behind the page.
+  me = "two";
+  assert.deepEqual(pack.glance!(ctx), [], "not the operator's count on Today");
+  const [first] = await Promise.all([get("/tracker"), get("/tracker"), get("/tracker")]);
+  assert.match(first!, /Reading your issues/);
+  assert.doesNotMatch(first!, /op&#39;s/);
+  await settle();
+  assert.deepEqual(asked, ["<b>op", "two"], "one read, however many pages asked");
+  assert.deepEqual(published.at(-1), ["tracker"], "and their page is told");
+  const mine = await get("/tracker");
+  assert.match(mine, /two&#39;s own/);
+  assert.doesNotMatch(mine, /op&#39;s/);
+  assert.equal(jobs.length, 0, "fresh: drawn from memory");
+  assert.deepEqual(pack.glance!(ctx), [{ label: "Issues", value: 1 }]);
+  assert.equal(pack.kept()?.login, "two");
+
+  // Looked at again once it's old: read again. Another person's is apart.
+  t += 5 * 60_000;
+  await get("/tracker");
+  await settle();
+  me = "three";
+  assert.match(await get("/tracker"), /Reading your issues/);
+  await settle();
+  assert.match(await get("/tracker"), /three&#39;s own/);
+  assert.deepEqual(asked, ["<b>op", "two", "two", "three"]);
+
+  // Their write shows on their own copy, which is read again; the instance's isn't touched.
+  const res = await app.request("http://localhost/tracker/act", { method: "POST", body: new URLSearchParams({ kind: "assign", repo: "bergaaberg/dovre", number: "7", set: "assigned" }) }, {}, worker as never);
+  assert.equal(res.status, 303);
+  assert.deepEqual(wrote, ["assign bergaaberg/dovre#7"]);
+  await settle();
+  assert.deepEqual(asked.slice(4), ["three"]);
+
+  // Needs and the brief are the instance's, whoever asks; the schedule reads only the instance's.
+  ops = [...ops, issue({ number: 3, title: "op's third" })];
+  t += 60_000;
+  await pack.refresh!(ctx);
+  assert.deepEqual(asked.slice(5), ["<b>op"]);
+  const theirs = pack.needs!(ctx);
+  assert.equal(theirs.length, 1);
+  assert.match(theirs[0]!.title, /op's third/);
+  me = undefined;
+  assert.deepEqual(pack.needs!(ctx), theirs);
+  assert.deepEqual(pack.glance!(ctx), [{ label: "Issues", value: 3 }]);
+
+  // An isolate that hasn't met the person yet waits for who they are before it picks a copy or names "me".
+  let known = false;
+  const late = issuesPack({
+    forge: { host: "github.com", can: ["issues"] as never, viewer: async () => ({ login: "op", name: null }), issues: async (login) => sets({ assigned: [issue({ number: 7, title: `${login}'s own`, assignees: [] })] }), issue: async () => issue({ number: 7, assignees: [] }), issueAct: async (a) => void wrote.push(`${a.kind} as ${a.kind === "assign" ? a.login : ""}`) },
+    owners: () => "bergaaberg",
+    login: () => (known ? "four" : undefined),
+    reads: () => "op",
+    own: () => (known ? "four" : undefined),
+    now: () => t,
+  });
+  const lateCtx = { ...ctx, gathered: async () => ((known = true), undefined) };
+  await late.refresh!(lateCtx);
+  const lateApp = new Hono<AppEnv>();
+  late.routes!(lateApp, lateCtx);
+  const unmet = await (await lateApp.request("http://localhost/tracker", {}, {}, worker as never)).text();
+  assert.doesNotMatch(unmet, /op&#39;s own/, "not the instance's copy");
+  known = false;
+  wrote.length = 0;
+  await lateApp.request("http://localhost/tracker/act", { method: "POST", body: new URLSearchParams({ kind: "assign", repo: "bergaaberg/dovre", number: "7", set: "assigned" }) }, {}, worker as never);
+  assert.deepEqual(wrote, ["assign as four"], "nor the instance's login as me");
+  await settle();
+
+  // A guest of the instance's snapshot: its issues, said whose, with where to sign in. Hostile text stays text.
+  assert.match(await get("/tracker"), /From github\.com, read/, "the operator isn't told whose they are");
+  guest = { connect: "/_auth/github" };
+  const borrowed = await get("/tracker");
+  assert.match(borrowed, /&lt;b&gt;op's issues, from github\.com, read [^<]*\. <a href="\/_auth\/github">Sign in with GitHub<\/a> to see your own\./);
+  assert.ok(!borrowed.includes("<b>op"));
+  guest = { connect: "javascript:alert(1)" };
+  assert.match(await get("/tracker"), /<a href="#">Sign in with GitHub<\/a>/);
+  guest = {};
+  assert.doesNotMatch(await get("/tracker"), /Sign in with/, "nowhere to sign in: only whose they are");
+});
+
 test("the page: tabs with counts, rows with labels, PR, sub-issues, stale; triage only when set", async () => {
   const s = setup({ issues: async () => sets({ mentioned: [issue({ number: 9, title: "Old one", updatedAt: "2026-10-01T00:00:00Z", prs: [], subIssues: undefined, labels: [] })] }) });
   assert.match(await s.get("/tracker"), /Reading your issues/);

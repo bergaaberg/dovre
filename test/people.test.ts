@@ -9,7 +9,7 @@ import type { Gatherer, Snapshot } from "../src/gather.ts";
 import { FIND_MS, MISS_MS, PEOPLE_MAX, perPerson, SAME_MS, STUCK_MS } from "../src/hosted/people.ts";
 import { d1SnapshotStore, personKey } from "../src/hosted/snapshot.ts";
 import { currentViewer, viewingAs } from "../src/viewer.ts";
-import { personFinder } from "../src/worker.ts";
+import { NoOwnToken, personFinder } from "../src/worker.ts";
 import { snapshot } from "./helpers.ts";
 
 /** A gatherer that answers with one snapshot and counts what it's asked. */
@@ -183,7 +183,8 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
   const provider = async (_b: unknown, actor?: { email: string; own?: true }) => {
     asked.push({ email: actor?.email, own: actor?.own });
     const t = actor?.email ? tokens[actor.email] : undefined;
-    if (!t) throw new Error("No GitHub token of your own: sign in with GitHub.");
+    if (actor?.email === "down@x.dev") throw new Error("D1 is down");
+    if (!t) throw new NoOwnToken();
     return t;
   };
   const pr = (login: string) => ({
@@ -205,10 +206,11 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
   try {
     const told: [string, boolean][] = [];
     const find = personFinder({ DB, GITHUB_USER: "op", REPO_OWNERS: "acme" } as never, provider as never, { version: "v1", instanceLogin: "op", linked: () => [], told: (who, _at, changed) => void told.push([who, changed]) });
-    await assert.rejects(find("three@x.dev"), /token of your own/, "nobody else's token stands in");
+    assert.equal(await find("three@x.dev"), undefined, "no token of their own is an answer, and nobody else's stands in (#544)");
+    await assert.rejects(find("down@x.dev"), /D1 is down/, "a failure isn't taken for having none");
     assert.ok(asked.every((a) => a.own === true), "every question names the person and asks for their own");
 
-    const two = await find(" Two@X.dev ");
+    const two = (await find(" Two@X.dev "))!;
     assert.equal(two.login, "two");
     const mine = await two.start();
     const s = await mine.gatherer.get();
@@ -217,7 +219,7 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     assert.deepEqual(s.prs.ok && s.prs.value.mine.map((p) => p.title), ["two's change"]);
     await mine.drain();
 
-    const four = await (await find("four@x.dev")).start();
+    const four = await (await find("four@x.dev"))!.start();
     assert.deepEqual(((await four.gatherer.get()) as Snapshot).prs.ok && (four.gatherer.peek()!.prs as { value: { mine: { title: string }[] } }).value.mine.map((p) => p.title), ["four's change"]);
     await four.drain();
     assert.ok(calls.every((c) => c.token === "ghu_two" || c.token === "ghu_four"));
@@ -232,14 +234,60 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     assert.ok(reads.length > 0 && reads.every((k) => k.startsWith("as:two@x.dev:") || k.startsWith("as:four@x.dev:")), reads.join("\n"));
 
     // A fresh isolate draws the kept one at once, and one kept under another login isn't shown.
-    const again = await (await find("two@x.dev")).start();
+    const again = await (await find("two@x.dev"))!.start();
     assert.equal(again.gatherer.peek()?.login, "two");
     logins.ghu_two = "renamed";
     await DB.prepare("DELETE FROM forge_reads").run();
-    const other = await find("two@x.dev");
+    const other = (await find("two@x.dev"))!;
     assert.equal(other.login, "renamed");
     assert.equal((await other.start()).gatherer.peek(), undefined);
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("per person: someone with no token of their own is the instance's guest, until they sign in (#544)", async () => {
+  const shared = fakeGatherer("op");
+  const as = <T>(email: string | undefined, fn: () => T) => viewingAs(email, fn);
+  const tokens = new Set(["two@x.dev", "op@x.dev"]);
+  let asks = 0;
+  const people = perPerson({
+    shared: shared.g,
+    login: "op",
+    viewer: currentViewer,
+    find: async (email) => {
+      asks++;
+      if (email === "down@x.dev") throw new Error("GitHub is down");
+      if (!tokens.has(email)) return undefined;
+      const login = email.split("@")[0]!;
+      return { login, start: async () => ({ gatherer: fakeGatherer(login).g, drain: async () => {} }) };
+    },
+  });
+  assert.equal(people.guest(), false, "nobody asking: nobody's guest");
+  assert.equal(as("three@x.dev", () => people.guest()), false, "not known yet");
+
+  // No token of their own: the instance's snapshot, as its guest.
+  assert.equal((await as("three@x.dev", () => people.gatherer.get())).login, "op");
+  assert.equal(as("three@x.dev", () => people.guest()), true);
+  // The operator, a person with their own, and someone who couldn't be asked about are not.
+  for (const who of ["op@x.dev", "two@x.dev", "down@x.dev"]) {
+    await as(who, () => people.gatherer.get());
+    assert.equal(as(who, () => people.guest()), false, who);
+  }
+  assert.equal(as(undefined, () => people.guest()), false);
+
+  // They sign in with GitHub: forgotten, so their very next page asks again and is their own.
+  tokens.add("three@x.dev");
+  const before = asks;
+  people.forget(" Three@X.dev ");
+  assert.equal((await as("three@x.dev", () => people.gatherer.get())).login, "three");
+  assert.equal(asks, before + 1);
+  assert.equal(as("three@x.dev", () => people.guest()), false);
+
+  // Forgetting someone with their own snapshot keeps it: no second gatherer.
+  people.forget("two@x.dev");
+  const at = asks;
+  assert.equal((await as("two@x.dev", () => people.gatherer.get())).login, "two");
+  assert.equal(asks, at);
+  assert.equal(people.size(), 2);
 });
