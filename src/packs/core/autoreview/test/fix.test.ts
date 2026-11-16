@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
 import type { AutoFixAsk, AutoFixLanded, AutoRunResult, AutoShare } from "../../agents/share.ts";
 import { fixPass, type FixDeps } from "../fix.ts";
-import { fixPrompt, repliesOf, taggedOf } from "../fixer.ts";
+import { findingsStore, postMark, postsOf } from "../findings.ts";
+import { fixPrompt, repliesOf } from "../fixer.ts";
 import { prsStore } from "../store.ts";
 import { editorsOf, iso, type Said, saidAt } from "./said.ts";
 
@@ -12,11 +13,10 @@ const PR = "https://github.com/acme/web/pull/7";
 const HEAD = "a".repeat(40);
 const NEW = "b".repeat(40);
 
-test("taggedOf: the reviewer's tag in front of a comment, and the text after it", () => {
-  assert.deepEqual(taggedOf("**Blocker:** Wrong."), { tag: "blocker", text: "Wrong." });
-  assert.deepEqual(taggedOf("**Should fix:** Check it."), { tag: "should-fix", text: "Check it." });
-  assert.deepEqual(taggedOf("nit: Name."), { tag: "nit", text: "Name." });
-  assert.deepEqual(taggedOf("Plain."), { tag: "nit", text: "Plain." });
+test("postsOf: which finding each of a review's comments posts, by the mark in its body; anything else is nobody's", () => {
+  const posts = postsOf([{ id: 11, body: `**High:** Wrong.\n\n${postMark("0123456789ab")}` }, { id: 12, body: "No mark." }, { id: 13, body: postMark("0123456789ab") }, { id: "14", body: postMark("ffffffffffff") }, null]);
+  assert.deepEqual([...posts], [["0123456789ab", 11]]);
+  assert.equal(postsOf("nothing").size, 0);
 });
 
 test("repliesOf: the last block's lines, one per known comment; others, and @mentions, go nowhere", () => {
@@ -29,10 +29,16 @@ test("repliesOf: the last block's lines, one per known comment; others, and @men
   assert.equal(repliesOf("```auto-replies\n1: " + "x".repeat(5000) + "\n```", [1])[0]!.body.length, 1000);
 });
 
-test("fixPrompt: the issue, each comment by id and tag, failing checks, and how to answer", () => {
-  const p = fixPrompt({ repo: "acme/web", number: 7, issue: { ref: "acme/web#3", title: "Fix login", body: "It breaks." }, comments: [{ id: 11, path: "src/a.ts", line: 2, tag: "blocker", text: "Wrong." }], failing: ["test"], round: 2 });
+test("fixPrompt: the issue, each finding by its comment's id with its severity, lines and suggested fix, failing checks, and how to answer", () => {
+  const comments = [
+    { id: 11, path: "src/a.ts", line: 2, severity: "critical" as const, title: "Wrong sum", text: "It adds twice.", fix: "Add once." },
+    { id: null, path: "src/b.ts", line: 9, startLine: 4, severity: "high" as const, title: "No thread", text: "Its comment isn't known.", fix: "" },
+  ];
+  const p = fixPrompt({ repo: "acme/web", number: 7, issue: { ref: "acme/web#3", title: "Fix login", body: "It breaks." }, comments, failing: ["test"], round: 2 });
   assert.match(p, /^You are fixing pull request acme\/web#7 on your own: round 2/);
-  assert.match(p, /## Comment 11 \(blocker\) on src\/a\.ts line 2\n\nWrong\./);
+  assert.match(p, /Fix every finding below, and failing CI if it's listed\./);
+  assert.match(p, /## Comment 11 \(critical\) on src\/a\.ts line 2: Wrong sum\n\nIt adds twice\.\n\nSuggested fix: Add once\./);
+  assert.match(p, /## A finding \(high\) on src\/b\.ts lines 4-9: No thread\n\nIts comment isn't known\.$/);
   assert.match(p, /Failing on the head commit: test\./);
   assert.match(p, /```auto-replies/);
   assert.match(p, /# The issue: Fix login\n\nIt breaks\./);
@@ -40,7 +46,15 @@ test("fixPrompt: the issue, each comment by id and tag, failing checks, and how 
 
 // ── One pass ──
 
-function setup(o: { ref?: string; head?: string; state?: string; said?: Said[] } = {}) {
+const HIGH = { id: "aaaaaaaaaaaa", severity: "high" as const, tags: ["security" as const], path: "src/a.ts", line: 2, side: "RIGHT" as const, title: "Token unchecked", body: "Check the token.", fix: "Verify it first." };
+const MEDIUM = { ...HIGH, id: "bbbbbbbbbbbb", severity: "medium" as const, line: 3, title: "Vague name", body: "Name.", fix: "" };
+/** The review's two line comments, as Auto review posts them. */
+const POSTED = [
+  { id: 11, body: `**High:** Token unchecked\n\nCheck the token.\n\n${postMark(HIGH.id)}\n\n<!-- dovre:autoreview -->` },
+  { id: 12, body: `**Medium:** Vague name\n\nName.\n\n${postMark(MEDIUM.id)}\n\n<!-- dovre:autoreview -->` },
+];
+
+function setup(o: { ref?: string; head?: string; state?: string; said?: Said[]; green?: boolean } = {}) {
   const { DB } = openDb();
   const gh = { head: o.head ?? HEAD, calls: [] as string[], replies: [] as { path: string; body: unknown }[] };
   const ghe = {
@@ -51,12 +65,12 @@ function setup(o: { ref?: string; head?: string; state?: string; said?: Said[] }
         return {} as T;
       }
       if (path === "/repos/acme/web/pulls/7") return { state: o.state ?? "open", merged: false, html_url: PR, head: { sha: gh.head, ref: o.ref ?? "sandbox/abcd1234" } } as T;
-      if (path.startsWith("/repos/acme/web/pulls/7/reviews/99/comments")) return [{ id: 11, path: "src/a.ts", line: 2, body: "**Should fix:** Check the token." }, { id: 12, path: "src/a.ts", line: 3, body: "nit: Name." }] as T;
-      if (path.startsWith("/repos/acme/web/pulls/7/comments")) return [{ id: 11, in_reply_to_id: null, pull_request_review_id: 99, user: { login: "me" }, body: "**Should fix:** Check the token.\n\n<!-- dovre:autoreview -->", created_at: iso(0) }, { id: 12, in_reply_to_id: null, pull_request_review_id: 99, user: { login: "me" }, body: "nit: Name.\n\n<!-- dovre:autoreview -->", created_at: iso(0) }, ...(saidAt(path, o.said ?? []) ?? [])] as T;
+      if (path.startsWith("/repos/acme/web/pulls/7/reviews/99/comments")) return POSTED.map((c) => ({ ...c, path: "src/a.ts" })) as T;
+      if (path.startsWith("/repos/acme/web/pulls/7/comments")) return [...POSTED.map((c) => ({ ...c, in_reply_to_id: null, pull_request_review_id: 99, user: { login: "me" }, created_at: iso(0) })), ...(saidAt(path, o.said ?? []) ?? [])] as T;
       const said = saidAt(path, o.said ?? []);
       if (said) return said as T;
       if (path === "/repos/acme/web/issues/3") return { title: "Fix login", body: "It breaks." } as T;
-      if (path.includes("/check-runs")) return { check_runs: [{ name: "test", status: "completed", conclusion: "failure" }] } as T;
+      if (path.includes("/check-runs")) return { check_runs: [{ name: "test", status: "completed", conclusion: o.green ? "success" : "failure" }] } as T;
       throw new Error(`unexpected ${path}`);
     },
     graphql: async <T>(q: string): Promise<T> => (gh.calls.push(`graphql ${q}`), editorsOf(q) as T),
@@ -78,27 +92,31 @@ function setup(o: { ref?: string; head?: string; state?: string; said?: Said[] }
   let clicks = new Map<string, "once" | "twice">();
   const deps: FixDeps = { db: DB, ghe, owners: "acme", login: "me", auto, clicks: async () => clicks, log: () => {} };
   const store = prsStore(DB);
-  /** A PR reviewed at HEAD (review 99, level 3), in fix round 1, written by Opus for $1. */
-  const fixing = async () => {
+  const findings = findingsStore(DB);
+  /** A PR reviewed at HEAD (review 99, level 2: a high and a medium finding), in fix round 1, written by Opus for $1. */
+  const fixing = async (found = [HIGH, MEDIUM]) => {
     await store.add({ pr: PR, issue: "acme/web#3", run: "r1" });
     await store.author(PR, "opus");
-    await store.level(PR, "reviewing", { head: HEAD, level: 3, cost: 1, review: 99 });
+    await findings.reported(PR, { round: 0, head: HEAD, review: 99 }, found);
+    await store.level(PR, "reviewing", { head: HEAD, level: 2, cost: 1, review: 99 });
     await store.move(PR, "reviewing", "fixing", { round: 1 });
   };
-  return { DB, gh, deps, store, share, asked, landed, fixing, setClicks: (c: Map<string, "once" | "twice">) => (clicks = c) };
+  return { DB, gh, deps, store, findings, share, asked, landed, fixing, setClicks: (c: Map<string, "once" | "twice">) => (clicks = c) };
 }
 
 const row = async (s: ReturnType<typeof setup>) => (await s.store.all())[0]!;
 
-test("a fix pass starts a session from the reviewed head, with the review's comments and failing CI, the author's model and what's left of the budget", async () => {
+test("a fix pass starts a session from the reviewed head, with the findings that must be fixed and failing CI, the author's model and what's left of the budget", async () => {
   const s = setup();
   await s.fixing();
   assert.equal(await fixPass(s.deps), true);
   assert.equal(s.asked.length, 1);
   const a = s.asked[0]!;
   assert.deepEqual([a.key, a.pr, a.repo, a.head, a.model, a.budget], ["acme/web#3", PR, "acme/web", HEAD, "opus", 5]);
-  assert.match(a.prompt, /## Comment 11 \(should fix\) on src\/a\.ts line 2\n\nCheck the token\./);
-  assert.match(a.prompt, /## Comment 12 \(nit\)/);
+  assert.match(a.prompt, /## Comment 11 \(high\) on src\/a\.ts line 2: Token unchecked\n\nCheck the token\.\n\nSuggested fix: Verify it first\./);
+  assert.doesNotMatch(a.prompt, /Vague name/, "a medium finding is only reported");
+  // Which comment posts the finding wasn't known: it was asked for, and is kept now.
+  assert.deepEqual((await s.findings.of(PR)).map((f) => [f.severity, f.comment]), [["high", 11], ["medium", 12]]);
   assert.match(a.prompt, /Failing on the head commit: test\./);
   const r = await row(s);
   assert.deepEqual([r.state, r.fix], ["fixing", "fix-1"]);
@@ -190,6 +208,23 @@ test("a fix pass waits within the limits, and starts nothing it shouldn't: asked
   assert.equal((await row(w)).state, "closed");
 });
 
+test("a fix pass: with no finding that must be fixed, nothing from an owner and no failing check, no session starts and the PR is handed to me", async () => {
+  const s = setup({ green: true });
+  await s.fixing([MEDIUM]);
+  assert.equal(await fixPass(s.deps), true);
+  assert.equal(s.asked.length, 0);
+  const r = await row(s);
+  assert.equal(r.state, "yours");
+  assert.match(r.why!, /^Round 1: no finding that must be fixed is open, .* nothing for a fix session to do\.$/);
+
+  // CI failing is still something to fix, without findings.
+  const t = setup();
+  await t.fixing([]);
+  await fixPass(t.deps);
+  assert.equal(t.asked.length, 1);
+  assert.match(t.asked[0]!.prompt, /\(None: fix what CI says\.\)/);
+});
+
 test("a fix pass: a PR's budget nearly spent hands it to me before a session starts", async () => {
   const s = setup();
   await s.fixing();
@@ -213,7 +248,7 @@ test("a fix pass: owners' words since the last round go in, first; the session r
   const p = s.asked[0]!.prompt;
   assert.match(p, /Do what the owner's comments ask: they come first/);
   assert.match(p, /# The owner's comments\n\n## Comment 21 from me on src\/a\.ts line 2\n\nCall it fetchUser\.\n\n## acme requested changes\n\nNot like this\./);
-  assert.ok(p.indexOf("# The owner's comments") < p.indexOf("# Review comments"));
+  assert.ok(p.indexOf("# The owner's comments") < p.indexOf("# The reviewer's findings"));
   assert.doesNotMatch(p, /delete the repo/);
   assert.equal((await row(s)).heard, later + 1);
 
