@@ -155,7 +155,7 @@ export function remoteBino(hub: HubClient, o: { route: Route; memory: BinoMemory
     sees: o.sees,
     list: async () => (await hub.bino({ op: "list" })) as Conv[],
     get: async (id) => ((await hub.bino({ op: "get", id })) as Conv | null) ?? undefined,
-    start: async (text, s = {}) => (await hub.bino({ op: "start", text, todo: s.todo, view: s.view, app: s.app, context: s.context ?? "" })) as Conv,
+    start: async (text, s = {}) => (await hub.bino({ op: "start", text, todo: s.todo, view: s.view, app: s.app, context: s.context ?? "", ...(s.setup ? { setup: s.setup } : {}) })) as Conv,
     say: async (id, text, s = {}) => (await hub.bino({ op: "say", id, text, view: s.view, context: s.context ?? "" })) === true,
     stop: async (id) => (await hub.bino({ op: "stop", id })) === true,
     retry: async (id, s = {}) => (await hub.bino({ op: "retry", id, context: s.context ?? "" })) === true,

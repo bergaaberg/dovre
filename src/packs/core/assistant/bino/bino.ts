@@ -14,13 +14,23 @@ import { type Found, foundPart, labelOf, type Lookups, lookupsPrompt, MAX_ROUNDS
 import type { Route } from "./route.ts";
 
 export type Msg = { role: "user" | "assistant"; text: string; at: number; plan?: Plan; /** The list item the plan was added as. */ added?: number; /** What Bino proposes to do (src/packs/core/assistant/bino/acts.ts). */ acts?: Act[]; /** What I was looking at when I asked from the pane (src/packs/core/assistant/bino/view.ts). */ view?: string; cost?: number; /** What Bino looked up for it ("Linear: issue ENG-12"), never what came back. */ looked?: string[] };
-export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string; /** The answer so far, while it's being written (not kept). */ draft?: string };
+export type Conv = { id: string; title: string; at: number; /** The list item it's about, when it started from one. */ todo?: number; /** The app (a pack's id) it's about, when it started on one of its pages: its memory scope. */ app?: string; /** The pack whose own setup it walks through (#420): its live step is drawn below the messages, from what's saved. */ setup?: string; msgs: Msg[]; /** Kept at the top of the list, and kept past the last few. */ pinned?: boolean; thinking: boolean; error?: string; /** I stopped the last answer before it came. */ stopped?: boolean; /** What Bino is looking up right now, while it thinks (not kept). */ looking?: string; /** The answer so far, while it's being written (not kept). */ draft?: string };
 
 /** Where the last few conversations are kept between restarts. */
 export type ConvStore = { load(): Conv[]; save(keep: Conv[]): void };
 
 type P<T> = T | Promise<T>;
-export type StartOpts = { todo?: number; view?: string; app?: string; /** What Bino knows right now, when the caller gathered it (hosted: the Worker, for the Durable Object). */ context?: string };
+export type StartOpts = {
+  todo?: number;
+  view?: string;
+  app?: string;
+  /** What Bino knows right now, when the caller gathered it (hosted: the Worker, for the Durable Object). */
+  context?: string;
+  /** A pack's setup (#420): the text is Bino's own opening line, nothing is asked, and the conversation is about that pack. */
+  setup?: { pack: string; title: string };
+};
+/** A pack's id, as a setup conversation keeps it. */
+export const SETUP_PACK = /^[a-z][a-z0-9-]{0,31}$/;
 
 export const MAX_SAY = 8000;
 const KEEP = 30;
@@ -295,6 +305,15 @@ export function createBino(o: {
     get: (id) => convs.get(id),
     start(text, opts = {}) {
       const said = clean(text);
+      if (opts.setup && SETUP_PACK.test(opts.setup.pack)) {
+        // Bino's fixed opening, no model call: the steps themselves are drawn from what the pack saved.
+        const { pack, title } = opts.setup;
+        const c: Conv = { id: randomUUID(), title: title.trim().slice(0, MAX_TITLE) || "A setup", at: now(), app: pack, setup: pack, msgs: [{ role: "assistant", text: said || "Here it is.", at: now() }], thinking: false };
+        convs.set(c.id, c);
+        trim();
+        changed(c);
+        return c;
+      }
       const c: Conv = { id: randomUUID(), title: said.split("\n")[0]!.slice(0, MAX_TITLE) || "A conversation", at: now(), todo: opts.todo, ...(opts.app ? { app: opts.app } : {}), msgs: [{ role: "user", text: said, at: now(), ...(opts.view ? { view: opts.view } : {}) }], thinking: false };
       convs.set(c.id, c);
       trim();
@@ -329,6 +348,8 @@ export function createBino(o: {
       const c = convs.get(id);
       if (!c || c.thinking) return false;
       const last = c.msgs.at(-1);
+      // An opening of Bino's own (a setup's) answers nothing: there's nothing to ask again.
+      if (last?.role === "assistant" && c.msgs.at(-2)?.role !== "user") return false;
       if (last?.role === "assistant") {
         // What was already added or sent from it stays: that answer isn't asked for again.
         if (last.added !== undefined || (last.acts ?? []).some((a) => a.done || a.sending)) return false;

@@ -20,7 +20,7 @@ import { ACT_FENCE, type Act, type PackAct as PackActOf, type SettingAct, isPack
 import { LOOKUP_FENCE } from "./lookups.ts";
 import type { PackAct } from "../../../registry.ts";
 import type { Bino, Conv, Msg } from "./bino.ts";
-import { MAX_SAY, MAX_TITLE } from "./bino.ts";
+import { MAX_SAY, MAX_TITLE, SETUP_PACK } from "./bino.ts";
 import { MAX_STEPS, PLAN_FENCE, type Plan, planOf } from "./context.ts";
 import { type ViewApp, viewOf } from "./view.ts";
 import type { AppEnv, Env } from "../../../../env.ts";
@@ -33,6 +33,8 @@ import type { ListItem, ListShare } from "../../../types.ts";
 import { Ago, harnessTag, safeUrl } from "../../../../pages/parts.ts";
 import { changeLabel, changeTo, choicesOf, type SettingRow } from "../../../../pages/settings.ts";
 import type { SettingsApi } from "../../../../routes/settings.ts";
+import type { DrawnStep, SetupApi, SetupState } from "../../../../routes/welcome.ts";
+import { strictOrigin } from "../../../../strict.ts";
 import { currentTz, dtf } from "../../../../when.ts";
 
 const LABEL: Record<string, string> = { doing: "Doing", next: "Next", waiting: "Waiting" };
@@ -58,7 +60,9 @@ ${target ? html`<fieldset class="bino-target"><legend>Where</legend><label class
 
 
 /** What a card needs from outside Bino: the org, and what packs' cards need. */
-type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>>; /** Dovre's settings as they are now, by id, when the conversation proposes one (#185). */ settings?: Map<string, SettingRow> };
+type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>>; /** Dovre's settings as they are now, by id, when the conversation proposes one (#185). */ settings?: Map<string, SettingRow>; /** A setup conversation's pack setup as it stands (#420). */ setup?: SetupShown };
+/** A pack's setup in its conversation (#420), as it stands now: the step to show, drawn by the pack, and what the last Next was refused for. */
+export type SetupShown = SetupState & { step?: DrawnStep; error?: string };
 const out = (ax?: ActCtx) => (ax?.dock ? html` target="_top"` : "");
 
 const actKey = (c: Conv, i: number, n: number) => `${c.id}:${i}:${n}`;
@@ -157,6 +161,61 @@ function actCard(c: Conv, i: number, n: number, a: Act, ax: ActCtx): Html {
   return taskCard(i, n, a, ax);
 }
 
+/** A step the pane doesn't carry yet (#420): one running a job (it draws itself again), or whose writes are forms of its own, which come back to its page. */
+const ownPage = (d: DrawnStep) => !!(d.refresh || d.go || d.carry || (!d.form && /<form[\s>]/i.test(String(d.body))));
+
+/**
+ * The bottom of a setup conversation (#420): a done line per finished step, then the step to show
+ * as a card (the pack's own body; Next saves it as the page's Next does), or "That's it". Always
+ * drawn from what the pack saved, never from the transcript, so it's the current state wherever I left it.
+ */
+function setupBlock(c: Conv, s: SetupShown, ax: ActCtx): Html {
+  const n = s.steps.length;
+  const page = (step?: string) => `/setup/${s.pack.id}${step ? `?at=${step}` : ""}`;
+  const done = s.steps.filter((x) => s.done.includes(x.id));
+  const lines = done.length ? html`<ul class="bino-done">${done.map((x) => html`<li><span aria-hidden="true">✓</span> ${x.title}</li>`)}</ul>` : "";
+  if (s.at >= n) {
+    const next = s.next
+      ? html`<form method="post" action="/bino/new">${ax.dock ? html`<input type="hidden" name="dock" value="1">` : ""}<input type="hidden" name="setup" value="${s.next.id}"><button type="submit" class="primary" data-busy="Starting">Next: ${s.next.name}</button></form>`
+      : "";
+    return html`<div class="bino-setup" id="bino-setup">${lines}<div class="bino-plan done"><p><strong>That's it.</strong> ${s.pack.name} is set up.</p><div class="buttons">${next}<a href="${page()}"${out(ax)}>Run it again on its page</a></div></div></div>`;
+  }
+  const step = s.steps[s.at]!;
+  const head = html`<p class="bino-plan-h">Setting up ${s.pack.name} · ${s.at + 1} of ${n}</p><p class="bino-step-t">${step.title}</p>`;
+  const d = s.step;
+  if (!d || ownPage(d))
+    return html`<div class="bino-setup" id="bino-setup">${lines}<div class="bino-plan">${head}<p>This one ${d?.refresh || d?.carry ? "runs for a minute" : "is done"} on its own page. I'll pick up here when it's through.</p><div class="buttons"><a class="btn primary" href="${page(step.id)}"${out(ax)}>Open it on its page</a></div></div></div>`;
+  const last = s.at === n - 1;
+  return html`<div class="bino-setup" id="bino-setup">${lines}<form method="post" action="/bino/c/${c.id}/setup${ax.dock ? "?dock=1" : ""}" class="bino-plan bino-step"><input type="hidden" name="step" value="${step.id}">
+${head}
+${s.error ? Notice({ tone: "bad", children: html`<strong>Not kept.</strong> ${s.error}` }) : ""}
+<div class="bino-step-b">${d.body}</div>
+${d.wait ? html`<p class="hint">${d.wait}</p>` : ""}
+<div class="buttons"><button type="submit" class="primary" data-busy="Saving"${d.wait ? " disabled" : ""}>${last ? "Done" : "Next"}</button><a href="${page(step.id)}"${out(ax)}>Open its page</a></div>
+</form></div>`;
+}
+
+/** What Bino is told of a setup with each message (#420): which step is shown and which are done, by name, never what was typed in them. */
+export function setupLine(s: SetupState): string {
+  const n = s.steps.length;
+  if (s.at >= n) return `the chat's setup of ${s.pack.name} is finished`;
+  const done = s.steps.filter((x) => s.done.includes(x.id)).map((x) => `"${x.title}"`);
+  return `setting up ${s.pack.name} in this chat: step ${s.at + 1} of ${n} ("${s.steps[s.at]!.title}") is shown${done.length ? `, done: ${done.join(", ")}` : ""}`;
+}
+
+/** Bino's fixed opening line for a setup (#420): how many steps, and that it's there for questions. */
+function setupOpening(s: SetupState): string {
+  const n = s.steps.length;
+  const left = n - s.done.length;
+  if (!left) return `${s.pack.name} is set up already. Its steps are on its page if you want to run one again.`;
+  const count = left === n ? `${n} step${n === 1 ? "" : "s"}` : `${left} of ${n} steps left`;
+  return `Setting up ${s.pack.name}: ${count}. Each one is below, as on its page. Ask me anything about it along the way.`;
+}
+
+/** What looks like a key or token, kept out of a setup conversation (#420): known prefixes, or a long run of letters and digits. */
+const KEYLIKE = /\b(?:sk-[\w-]{16,}|gh[pousr]_\w{20,}|github_pat_\w{20,}|xox[abprs]-[\w-]{10,}|lin_(?:api|oauth)_\w{20,}|AKIA[0-9A-Z]{16}|AIza[\w-]{30,})|\b(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{32,}\b/;
+export const looksLikeKey = (t: string) => KEYLIKE.test(t);
+
 /** A gap this long between two messages gets a line with the time. */
 const QUIET = 60 * 60_000;
 /** The same speaker within this long: one group, the name said once. */
@@ -169,7 +228,7 @@ function message(c: Conv, m: Msg, i: number, target?: Todo, ax?: ActCtx, prev?: 
   if (m.role === "user") return html`<li class="bino-msg you${grouped ? " cont" : ""}" data-stop="1" data-stop-label="${m.text.slice(0, 120)}" title="${clockOf(m.at)} UTC"><div class="bino-text">${markdown(m.text)}</div></li>`;
   const last = i === c.msgs.length - 1;
   // Asking again for an answer whose plan was added, or whose act went out, would leave those behind.
-  const redo = last && !c.thinking && m.added === undefined && !(m.acts ?? []).some((a) => a.done || a.sending);
+  const redo = last && !c.thinking && c.msgs[i - 1]?.role === "user" && m.added === undefined && !(m.acts ?? []).some((a) => a.done || a.sending);
   const tools = html`<span class="bino-tools"><button type="button" class="ghost" data-copy-msg title="Copy this answer">Copy</button>${redo ? html`<form method="post" action="/bino/c/${c.id}/retry" data-inplace>${ax?.dock ? html`<input type="hidden" name="dock" value="1">` : ""}<button type="submit" class="ghost" title="Ask for this answer again">Retry</button></form>` : ""}</span>`;
   const meta = html`<span class="bino-meta">${Ago(m.at)}${m.cost ? ` · $${m.cost.toFixed(3)}` : ""}${m.looked?.length ? ` · looked up ${m.looked.join("; ")}` : ""}</span>`;
   return html`<li class="bino-msg bino" data-stop="2"><div class="bino-text">${markdown(m.text)}</div>${m.plan ? planCard(c, i, m.plan, m, target, ax) : ""}${ax ? (m.acts ?? []).map((a, n) => actCard(c, i, n, a, ax)) : ""}<div class="bino-msg-f">${meta}${tools}</div></li>`;
@@ -339,14 +398,19 @@ const PANES = html`<button type="button" class="ghost bino-pane-b" data-bino-pan
 const workspace = (nav: Html, main: Html, side: Html) => html`<div class="bino-ws">${nav}<section class="bino-main">${main}</section>${side}</div>`;
 
 /** One conversation; the messages sit in a live region, the box to answer in outside it. */
-async function convPage(frame: Frame, b: Bino, c: Conv, ws: Ws, target?: Todo, ax?: ActCtx): Promise<Html> {
+/** Below the messages: a setup's step (#420), and a message that wasn't sent, with why. */
+const below = (c: Conv, ax?: ActCtx, refused?: Html) => html`${ax?.setup ? setupBlock(c, ax.setup, ax) : ""}${refused ? Notice({ tone: "warn", children: refused }) : ""}`;
+/** A page's topics: a setup conversation's also changes when its pack's setup does. */
+const topicsOf = (c: Conv, base: string) => (c.setup ? `${base} ${c.setup}` : base);
+
+async function convPage(frame: Frame, b: Bino, c: Conv, ws: Ws, target?: Todo, ax?: ActCtx, refused?: Html): Promise<Html> {
   const main = html`<div class="bino-thread"><div class="bino-scroll" id="bino-scroll" data-scroller><div data-live id="bino-conv">${thread(c, target, ax)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
-${answering(c, false)}</div></div>
+${answering(c, false)}${below(c, ax, refused)}</div></div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask for a breakdown", button: "Send", busy: "Sending" }) : cantAnswer(b)}</div>`;
   const body = html`${PageHeader({ title: c.title, crumbs: [{ href: "/bino", label: "Bino" }], actions: html`${PANES}${binoTag(b)}${binoFace(frame, c.thinking)}` })}
 ${workspace(binoNav({ ...ws, tz: ws.tz ?? frame.tz }, c.id), main, await binoSide(b, ws, c, target))}`;
-  return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="bino bino:${c.id}">` });
+  return shell({ title: `${c.title} · Bino`, frame, current: "/bino", body, head: html`<meta name="u-topics" content="${topicsOf(c, `bino bino:${c.id}`)}">` });
 }
 
 /** Ready-made openings: whole questions about what Bino can see. */
@@ -392,13 +456,13 @@ ${b.route.ready ? composer({ action: "/bino/new", label: "Ask Bino", placeholder
 }
 
 /** One conversation in the pane: the thread scrolls, the box stays at the bottom. */
-function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = [], assets: DockAssets = {}, look?: Frame["look"]): Html {
+function binoDockConvPage(b: Bino, c: Conv, ax: ActCtx, target?: Todo, others: Conv[] = [], assets: DockAssets = {}, look?: Frame["look"], refused?: Html): Html {
   const body = html`${dockBar(c.title, { fresh: true, full: `/bino/c/${c.id}`, others })}
 <div class="dock-b" id="dock-scroll"><div data-live id="bino-conv">${thread(c, target, ax)}
 ${c.error ? Notice({ tone: "bad", children: c.error }) : ""}
-${answering(c, true)}</div></div>
+${answering(c, true)}${below(c, ax, refused)}</div></div>
 ${b.route.ready ? composer({ action: `/bino/c/${c.id}/say`, label: "Your answer", placeholder: "Answer, or ask about this page", button: "Send", busy: "Sending", dock: true }) : cantAnswer(b)}`;
-  return dockShell({ title: `${c.title} · Bino`, body, head: html`<meta name="u-topics" content="bino:${c.id}">`, ...assets, look });
+  return dockShell({ title: `${c.title} · Bino`, body, head: html`<meta name="u-topics" content="${topicsOf(c, `bino:${c.id}`)}">`, ...assets, look });
 }
 
 const first = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v) ? (v.find((x) => typeof x === "string") ?? "") : "");
@@ -440,6 +504,8 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   list?: () => ListShare | undefined;
   /** Dovre's settings (#185): a setting card's row, and the one way to change it. */
   settings?: SettingsApi;
+  /** The packs' own setups (#420): a setup conversation's step, and its Next. */
+  setup?: SetupApi;
   /** The packs' stylesheet and scripts, which the pane loads like a pack's dock page. */
   assets?: DockAssets;
 }): Hono<AppEnv> {
@@ -450,10 +516,28 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   const list = () => deps.list?.();
   const getTodo = async (id: number) => list()?.get(id).catch(() => undefined);
   /** What the cards of `conv` need; the settings only when it proposes one. */
-  const ax = async (conv: Conv, dock = false): Promise<ActCtx> => {
+  const ax = async (conv: Conv, dock = false, setupError?: string): Promise<ActCtx> => {
     const proposes = deps.settings && conv.msgs.some((m) => m.acts?.some((a) => a.kind === "setting"));
     const settings = proposes ? new Map((await deps.settings!.rows().catch(() => [])).map((r) => [r.id, r])) : undefined;
-    return { org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms, listHref: list()?.href, settings };
+    return { org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms, listHref: list()?.href, settings, setup: await setupOf(conv, setupError) };
+  };
+  /** A setup conversation's pack setup now, with its step drawn (#420); none once that pack's setup is gone. */
+  const setupOf = async (conv: Conv, error?: string): Promise<SetupShown | undefined> => {
+    const st = conv.setup && deps.setup ? await deps.setup.state(conv.setup).catch(() => undefined) : undefined;
+    if (!st) return undefined;
+    const at = st.steps[st.at];
+    const step = at ? await deps.setup!.draw(st.pack.id, at.id).catch(() => undefined) : undefined;
+    return { ...st, ...(step ? { step } : {}), ...(error ? { error } : {}) };
+  };
+  /** A conversation's page, or its pane: what the GETs answer, and a refused post in its own answer (hosted, a redirect's GET can land on another isolate). */
+  const convAnswer = async (c: { req: { query(k: string): string | undefined }; html(h: Html | Promise<Html>, status?: 200 | 422): Response | Promise<Response> }, conv: Conv, dock: boolean, o: { status?: 200 | 422; setupError?: string; refused?: Html } = {}) => {
+    const target = conv.todo !== undefined ? await getTodo(conv.todo) : undefined;
+    const cx = await ax(conv, dock, o.setupError);
+    if (!dock) return c.html(await convPage((await deps.page()).frame, bino, conv, await wsOf(c.req.query("q")), target, cx, o.refused), o.status ?? 200);
+    const others = (await bino.list()).filter((x) => x.id !== conv.id).slice(0, 8);
+    // A conversation that proposes a setting says how Dovre looks now: its card may just have changed it, and the page around the pane takes it on.
+    const look = cx.settings ? await deps.page().then((p) => p.frame.look ?? {}, () => undefined) : undefined;
+    return c.html(binoDockConvPage(bino, conv, cx, target, others, deps.assets, look, o.refused), o.status ?? 200);
   };
   /** Where a conversation is shown: in the pane when it was asked from there. */
   const convHref = (id: string, dock: boolean) => (dock ? `/bino/dock/c/${id}` : `/bino/c/${id}`);
@@ -478,6 +562,14 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   app.get("/bino", async (c) => c.html(await binoPage((await deps.page()).frame, bino, await wsOf(c.req.query("q")))));
   app.post("/bino/new", async (c) => {
     const form = await c.req.parseBody();
+    // A pack's setup (#420): Bino's fixed opening, no model call; the steps are drawn below it.
+    const setup = first(form.setup);
+    if (setup) {
+      const st = SETUP_PACK.test(setup) && deps.setup && bino.route.ready ? await deps.setup.state(setup) : undefined;
+      if (!st) return c.redirect(first(form.dock) === "1" ? "/bino/dock" : "/bino", 303);
+      const conv = await bino.start(setupOpening(st), { setup: { pack: st.pack.id, title: `Setting up ${st.pack.name}` } });
+      return c.redirect(convHref(conv.id, first(form.dock) === "1"), 303);
+    }
     const todo = idOf(first(form.todo));
     const item = todo !== undefined ? await getTodo(todo) : undefined;
     const text = first(form.text) || first(form.q) || first(form.prompt) || (item ? `Help me group and break this down: ${item.title}${item.notes ? `\n\n${item.notes}` : ""}` : "");
@@ -488,8 +580,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   app.get("/bino/c/:id", async (c) => {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.notFound();
-    const target = conv.todo !== undefined ? await getTodo(conv.todo) : undefined;
-    return c.html(await convPage((await deps.page()).frame, bino, conv, await wsOf(c.req.query("q")), target, await ax(conv)));
+    return convAnswer(c, conv, false);
   });
   app.post("/bino/c/:id/rename", async (c) => {
     const id = c.req.param("id");
@@ -517,8 +608,17 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
     const id = c.req.param("id");
     if (!CONV.test(id) || !(await bino.get(id))) return c.notFound();
     const form = await c.req.parseBody();
-    await bino.say(id, first(form.text), { view: await viewIn(form), ...(await known()) });
-    return c.redirect(convHref(id, first(form.dock) === "1"), 303);
+    const dock = first(form.dock) === "1";
+    const conv = (await bino.get(id))!;
+    let view = await viewIn(form);
+    if (conv.setup) {
+      // A key never reaches the model, nor the conversation: it's said where keys go, and nothing is kept.
+      if (looksLikeKey(first(form.text))) return convAnswer(c, conv, dock, { status: 422, refused: html`<strong>Not sent: that looks like a key.</strong> Keys don't go in chat. Set it on <a href="/settings/packs/${conv.setup}"${dock ? html` target="_top"` : ""}>its pack's settings</a>, from your secret store.` });
+      const st = await deps.setup?.state(conv.setup).catch(() => undefined);
+      if (st) view = [view, setupLine(st)].filter(Boolean).join("; ");
+    }
+    await bino.say(id, first(form.text), { view, ...(await known()) });
+    return c.redirect(convHref(id, dock), 303);
   });
   /** Stop: the answer being written is cancelled; what I said stays, to ask again. */
   app.post("/bino/c/:id/stop", async (c) => {
@@ -547,12 +647,18 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   app.get("/bino/dock/c/:id", async (c) => {
     const conv = CONV.test(c.req.param("id")) ? await bino.get(c.req.param("id")) : undefined;
     if (!conv) return c.redirect("/bino/dock", 303);
-    const target = conv.todo !== undefined ? await getTodo(conv.todo) : undefined;
-    const others = (await bino.list()).filter((x) => x.id !== conv.id).slice(0, 8);
-    const cx = await ax(conv, true);
-    // A conversation that proposes a setting says how Dovre looks now: its card may just have changed it, and the page around the pane takes it on.
-    const look = cx.settings ? await deps.page().then((p) => p.frame.look ?? {}, () => undefined) : undefined;
-    return c.html(binoDockConvPage(bino, conv, cx, target, others, deps.assets, look));
+    return convAnswer(c, conv, true);
+  });
+  /** Next on a setup conversation's step (#420): saved as the setup page's Next saves it, then the conversation again, at its next step. */
+  app.post("/bino/c/:id/setup", strictOrigin, async (c) => {
+    const id = c.req.param("id");
+    const conv = CONV.test(id) ? await bino.get(id) : undefined;
+    if (!conv?.setup || !deps.setup) return c.notFound();
+    const dock = c.req.query("dock") === "1";
+    const form = await c.req.parseBody({ all: true });
+    const r = await deps.setup.next(conv.setup, first(form.step), form);
+    if (r.ok) return c.redirect(`${convHref(id, dock)}#bino-setup`, 303);
+    return convAnswer(c, conv, dock, { status: 422, setupError: r.error });
   });
   /** The card's "Add these to my list": exactly what its form says, once. */
   app.post("/bino/c/:id/plan/:i", async (c) => {

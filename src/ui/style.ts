@@ -1142,6 +1142,14 @@ body:has(.bino-ws) .page-head .sub { font-size: var(--fs-s); margin-top: 2px; }
 .bino-set > select, .bino-set > input { width: auto; min-width: 0; max-width: 100%; flex: 0 1 16rem; }
 .bino-plan.done > p { margin: 0; }
 .bino-plan.done > .buttons { margin-top: 8px; }
+/* A pack's setup in a conversation (#420): the finished steps as lines, the step to show as a card. */
+.bino-setup { margin: 14px 0 0; }
+.bino-setup > .bino-plan:first-child { margin-top: 0; }
+.bino-done { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--fs-s); color: var(--ink-2); }
+.bino-done span { color: var(--accent); }
+.bino-step-t { margin: 0 0 10px; font: 600 var(--fs-m)/1.35 var(--sans); }
+.bino-step-b { margin: 0 0 12px; }
+.bino-step .buttons { align-items: center; }
 .bino-steps { margin: 8px 0; padding-left: 1.4em; display: grid; gap: 6px; }
 .bino-step { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
 .bino-target { margin: 8px 0; border: 0; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; }

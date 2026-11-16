@@ -8,7 +8,7 @@ import { answersFrom, FORGES } from "../onboarding.ts";
 import { guardHtml } from "../packs/guard.ts";
 import { scanCheckouts } from "../packs/scan.ts";
 import { type Answers, INTERVIEW, markersOf, QUESTIONS, ROLES, suggest } from "../packs/suggest.ts";
-import type { Pack, Role } from "../packs/types.ts";
+import type { OnboardStep, Pack, Role } from "../packs/types.ts";
 import { manifestSettings } from "../pages/packs.ts";
 import { setupGo, setupPage, type SetupView } from "../pages/setup.ts";
 import { type ClimbField, climbPage, type ClimbView, type KitTile, startingPage } from "../pages/welcome.ts";
@@ -16,6 +16,28 @@ import { strictOrigin } from "../strict.ts";
 import { type Step, STEPS } from "../ui/climb.ts";
 import type { Html } from "../ui/kit.ts";
 import type { AppScope } from "./scope.ts";
+
+/** A step as core drew it from the pack (`drawStep`): boxed, checked, or that pack's broken step. */
+export type DrawnStep = { body: Html; form: boolean; wait?: string; refresh?: number; go?: SetupView["go"]; carry?: boolean; broke?: string };
+/** A pack's setup as it stands (#420): its steps, those done, and the step to show (the first not done; `steps.length` when all are). */
+export type SetupState = {
+  pack: { id: string; name: string };
+  steps: OnboardStep[];
+  done: string[];
+  at: number;
+  /** Once it's done: the next pack whose setup isn't, in Today's order. */
+  next?: { id: string; name: string };
+};
+/** A pack's own setup, for what walks through it elsewhere than its page (Bino's card, #420). */
+export type SetupApi = {
+  state(id: string): Promise<SetupState | undefined>;
+  draw(id: string, step: string): Promise<DrawnStep | undefined>;
+  /** Next on step `step` with its form's fields: what a form step's inputs say saved, and the step marked done; or why not. */
+  next(id: string, step: string, form: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }>;
+};
+const setupApis = new WeakMap<App, SetupApi>();
+/** A built app's pack setups, for Bino's card (#420) and tests. */
+export const setupApiOf = (app: App) => setupApis.get(app);
 
 export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "keep" | "restarting" | "setupOf" | "setupLeft">) {
   const { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft } = s;
@@ -206,7 +228,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
   /** A shown pack with a setup page, by id. */
   const setupPack = (id: string) => shown().find((c) => c.manifest.id === id && !!setupOf(c));
   /** A step as the pack draws it, in the time its pages get. One that throws, is late or breaks the rules is that pack's broken step. */
-  const drawStep = async (c: Pack, step: string): Promise<{ body: Html; form: boolean; wait?: string; refresh?: number; go?: SetupView["go"]; carry?: boolean; broke?: string }> => {
+  const drawStep = async (c: Pack, step: string): Promise<DrawnStep> => {
     const ms = packs.routeMs ?? PACK_ROUTE_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const log = packLog(c.manifest.id);
@@ -237,7 +259,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     }
   };
   /** A setup page at step `at` (`steps.length` is done), with what Next was refused for, if it was. */
-  const setupView = async (p: Pack, at: number, error?: string, drawn?: Awaited<ReturnType<typeof drawStep>>): Promise<{ view: SetupView; status: 200 | 422 | 500 }> => {
+  const setupView = async (p: Pack, at: number, error?: string, drawn?: DrawnStep): Promise<{ view: SetupView; status: 200 | 422 | 500 }> => {
     const { steps } = setupOf(p)!;
     const l = layout.get();
     const view: SetupView = { look: { theme: coreTheme(l.theme), accent: l.accent, font: l.font, motion: l.motion }, flags: shown().map((x) => ({ name: x.manifest.name, focus: x === p })), pack: { id: p.manifest.id, name: p.manifest.name }, steps, at, error };
@@ -250,6 +272,60 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     Object.assign(view, { body: d.body, form: d.form, wait: d.wait, refresh: d.refresh, go: d.go, carry: d.carry });
     return { view, status: d.broke ? 500 : error ? 422 : 200 };
   };
+  /**
+   * Next on a step: drawn again first (a write it waits on may have finished, or not), a form
+   * step's fields given to the pack to keep, then the step marked done. `again`: it still waits, or
+   * its own main button hasn't been pressed: nothing to save, the step stays.
+   */
+  const saveStep = async (p: Pack, stepId: string, form: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string; drawn: DrawnStep } | { again: true; drawn: DrawnStep }> => {
+    const id = p.manifest.id;
+    const d = await drawStep(p, stepId);
+    if (d.wait || d.go) return { again: true, drawn: d };
+    if (d.form && p.setup!.save) {
+      const fields: Record<string, string | string[]> = {};
+      for (const [k, v] of Object.entries(form).slice(0, 50)) {
+        if (k === "step") continue;
+        const vs = ([] as unknown[]).concat(v).filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 2000)).slice(0, 200);
+        if (vs.length) fields[k] = vs.length === 1 ? vs[0]! : vs;
+      }
+      const r = await Promise.resolve()
+        .then(() => p.setup!.save!(ctxOf(p), stepId, fields))
+        .catch((e: unknown): { ok: false; error: string } => {
+          packLog(id)(`setup ${stepId} save: ${(e as Error)?.message ?? e}`);
+          return { ok: false, error: `${p.manifest.name} couldn't keep that. Its log on Packs says why.` };
+        });
+      if (!r || r.ok !== true) return { ok: false, error: (typeof r?.error === "string" && r.error ? r.error : "Not kept.").slice(0, 300), drawn: d };
+    }
+    await onboarding.update((o) => ({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), stepId])] } }));
+    deps.hub?.publish(["snapshot", id]);
+    return { ok: true };
+  };
+  const setupApi: SetupApi = {
+    async state(id) {
+      const p = deps.session ? undefined : setupPack(id);
+      if (!p) return undefined;
+      await onboarding.ready;
+      const { steps } = setupOf(p)!;
+      const left = new Set(setupLeft(p).map((s) => s.id));
+      const done = steps.filter((s) => !left.has(s.id)).map((s) => s.id);
+      const at = steps.findIndex((s) => left.has(s.id));
+      const next = at < 0 ? shown().find((x) => x !== p && !!setupOf(x) && setupLeft(x).length > 0) : undefined;
+      return { pack: { id, name: p.manifest.name }, steps, done, at: at < 0 ? steps.length : at, ...(next ? { next: { id: next.manifest.id, name: next.manifest.name } } : {}) };
+    },
+    async draw(id, step) {
+      const p = deps.session ? undefined : setupPack(id);
+      return p && setupOf(p)!.steps.some((s) => s.id === step) ? drawStep(p, step) : undefined;
+    },
+    async next(id, step, form) {
+      const p = deps.session ? undefined : setupPack(id);
+      if (!p || !setupOf(p)!.steps.some((s) => s.id === step)) return { ok: false, error: "That setup isn't here now." };
+      await onboarding.ready;
+      const r = await saveStep(p, step, form);
+      if ("again" in r) return { ok: false, error: r.drawn.wait ?? "This step is done on its own page." };
+      return r.ok ? { ok: true } : { ok: false, error: r.error };
+    },
+  };
+  setupApis.set(app, setupApi);
   app.get("/setup/:id", async (c) => {
     if (deps.session) return c.notFound();
     const p = setupPack(c.req.param("id"));
@@ -275,30 +351,13 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     const i = steps.findIndex((s) => s.id === form.step);
     if (i < 0) return c.redirect(`/setup/${id}`, 303);
     const step = steps[i]!;
-    // Drawn again: a write it waits on may have finished, or not. Still waiting, the step says so itself.
-    const d = await drawStep(p, step.id);
-    if (d.wait || d.go) return c.redirect(`/setup/${id}?at=${step.id}`, 303);
-    if (d.form && p.setup!.save) {
-      const fields: Record<string, string | string[]> = {};
-      for (const [k, v] of Object.entries(form).slice(0, 50)) {
-        if (k === "step") continue;
-        const vs = ([] as unknown[]).concat(v).filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 2000)).slice(0, 200);
-        if (vs.length) fields[k] = vs.length === 1 ? vs[0]! : vs;
-      }
-      const r = await Promise.resolve()
-        .then(() => p.setup!.save!(ctxOf(p), step.id, fields))
-        .catch((e: unknown): { ok: false; error: string } => {
-          packLog(id)(`setup ${step.id} save: ${(e as Error)?.message ?? e}`);
-          return { ok: false, error: `${p.manifest.name} couldn't keep that. Its log on Packs says why.` };
-        });
-      // Refused: the step again, drawn in this answer. Hosted, a redirect's GET can land on another isolate (#446).
-      if (!r || r.ok !== true) {
-        const v = await setupView(p, i, (typeof r?.error === "string" && r.error ? r.error : "Not kept.").slice(0, 300), d);
-        return noStore(await c.html(setupPage(v.view), v.status));
-      }
+    const r = await saveStep(p, step.id, form);
+    if ("again" in r) return c.redirect(`/setup/${id}?at=${step.id}`, 303);
+    // Refused: the step again, drawn in this answer. Hosted, a redirect's GET can land on another isolate (#446).
+    if (!r.ok) {
+      const v = await setupView(p, i, r.error, r.drawn);
+      return noStore(await c.html(setupPage(v.view), v.status));
     }
-    await onboarding.update((o) => ({ ...o, setup: { ...o.setup, [id]: [...new Set([...(o.setup?.[id] ?? []), step.id])] } }));
-    deps.hub?.publish(["snapshot", id]);
     const next = steps[i + 1];
     return c.redirect(`/setup/${id}?at=${next ? next.id : "done"}`, 303);
   });
@@ -313,5 +372,5 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     }
     return c.redirect("/", 303);
   });
-  return { setUp };
+  return { setUp, setup: setupApi };
 }
