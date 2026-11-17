@@ -34,8 +34,14 @@ const ASK: Record<Decision, { label: string; question: string }> = {
   open: { label: "Undo", question: "It's open again, as the reviewer reported it." },
 };
 
-/** What I can say about a finding now: one that already holds the PR back needs no "Fix it". */
-const choices = (f: Finding): Decision[] => (f.status === "open" ? (gates(f) ? ["force-ignore"] : ["force-fix", "force-ignore"]) : f.status === "force-fix" || f.status === "force-ignore" ? ["open"] : []);
+/**
+ * What I can say about a finding now: one that already holds the PR back needs no "Fix it". My
+ * own line comment has no reviewer's word to go back to: it's fix it or ignore it.
+ */
+const choices = (f: Finding): Decision[] =>
+  f.asker
+    ? f.status === "force-fix" ? ["force-ignore"] : f.status === "force-ignore" ? ["force-fix"] : []
+    : f.status === "open" ? (gates(f) ? ["force-ignore"] : ["force-fix", "force-ignore"]) : f.status === "force-fix" || f.status === "force-ignore" ? ["open"] : [];
 
 /**
  * "Findings" on the PR's page: each one a review still stands by, the ones holding the PR back
@@ -49,10 +55,10 @@ export function findingsFact(list: Finding[], o: { repo: string; number: number;
   const tone = (f: Finding): Tone => (gates(f) ? "warn" : "neutral");
   const rows = standing.map((f) =>
     Item({
-      lead: f.severity,
+      lead: f.asker ? "asked" : f.severity,
       leadTone: tone(f),
       title: f.title,
-      line: `${f.path}:${f.startLine ? `${f.startLine}-` : ""}${f.line} · ${STANDS[f.status]}${gates(f) ? ", holds the PR back" : ""}${f.raised > 1 ? ` · raised by ${f.raised} reviews` : ""}`,
+      line: `${f.path}:${f.startLine ? `${f.startLine}-` : ""}${f.line} · ${f.asker ? `${f.asker}'s comment · ` : ""}${STANDS[f.status]}${gates(f) ? ", holds the PR back" : ""}${f.raised > 1 ? ` · raised by ${f.raised} reviews` : ""}`,
       quiet: f.status === "force-ignore",
       trail: o.live
         ? choices(f).map((to) => Confirm({ kind: "autoreview.decide", action: DECIDE_HREF, fields: { repo: o.repo, number: String(o.number), id: f.id, to }, label: ASK[to].label, question: ASK[to].question }))

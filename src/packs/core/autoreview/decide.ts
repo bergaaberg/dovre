@@ -32,7 +32,8 @@ export async function decideFinding(d: { db: D1; now?: () => number }, o: { pr: 
   if (!row) return { ok: false, message: "That isn't a PR Auto review follows." };
   if (DONE.includes(row.state)) return { ok: false, message: `${row.repo}#${row.number} is ${row.state}: its findings stay as they are.` };
   const was = (await kept.of(row.pr)).find((f) => f.id === o.id);
-  if (!was || !(await kept.decide(row.pr, o.id, o.to))) return { ok: false, message: "That finding isn't one to decide on any more: it's fixed, or already as you asked." };
+  // My own line comment has no reviewer's report to go back to: open, the next review would take it for fixed.
+  if (!was || (was.asker && o.to === "open") || !(await kept.decide(row.pr, o.id, o.to))) return { ok: false, message: "That finding isn't one to decide on any more: it's fixed, or already as you asked." };
   const gating = (await kept.of(row.pr)).filter(gates).length;
   const before = row.level;
   const level = row.base === null ? before : levelWith(row.base, gating);

@@ -6,7 +6,7 @@ import type { PrFile } from "../../../../sources/prview.ts";
 import type { AutoShare } from "../../agents/share.ts";
 import { autoConfigOf } from "../config.ts";
 import { decideFinding } from "../decide.ts";
-import { findingsStore } from "../findings.ts";
+import { askId, findingsStore } from "../findings.ts";
 import { AUTOREVIEW_SYSTEM, capLevel, ciOf, MAX_FINDINGS, opinionOf, reviewDraft, reviewerModel, reviewPrompt, reviewSystem, riskOf, SPECIALIST_FINDINGS, verdictOf } from "../reviewer.ts";
 import { CI_WAIT_MS, MAX_ROUNDS, reviewPass, type ReviewDeps } from "../round.ts";
 import { prsStore } from "../store.ts";
@@ -42,6 +42,7 @@ test("verdictOf: findings on lines of the diff, the most severe first, and the l
     level: 4,
     reasons: LEVEL.reasons,
     summary: "Good.",
+    fixed: [],
   });
   assert.equal(verdictOf("no block", [file()]), null);
   assert.equal(verdictOf(block(FINDING), [file()]), null, "no level, no review");
@@ -542,6 +543,93 @@ test("fix it: a finding at any severity holds the PR back and starts a fix round
   assert.equal((await decideFinding(s.deps, { pr: PR, id: low!.id, to: "force-ignore" })).ok, false, "fixed");
   await s.store.move(PR, "fixing", "merged");
   assert.match((await decideFinding(s.deps, { pr: PR, id: low!.id, to: "force-ignore" })).message, /acme\/web#7 is merged/);
+});
+
+test("fix it, then later reviews: the finding stays to fix until code quality, shown it by id, says it's fixed; a word on an id it wasn't shown counts for nothing; each review says what came of it", async () => {
+  const s = setup({ reply: at(4, { ...HIGH, severity: "low", tags: ["clarity"], title: "Vague name" }) });
+  await s.add();
+  await reviewPass(s.deps);
+  assert.doesNotMatch(s.asked[0]!.user, /said to fix/);
+  assert.doesNotMatch(s.asked[0]!.system, /"kind":"asked"/);
+  const [low] = await s.findings.of(PR);
+  await decideFinding(s.deps, { pr: PR, id: low!.id, to: "force-fix" });
+
+  // The fix round pushed sha2; the reviewer neither raises it again nor says it's fixed.
+  await s.store.move(PR, "fixing", "reviewing");
+  s.gh.head = "sha2";
+  s.setReply(at(4));
+  await reviewPass(s.deps);
+  const q = s.asked[1]!;
+  assert.equal(q.who, "quality");
+  assert.match(q.user, new RegExp(`\\n\\n## Findings the owner said to fix\\n[^]*### ${low!.id}: src/a\\.ts line 2\\n\\nVague name`));
+  assert.match(q.system, /"kind":"asked","id":"…","fixed":true/);
+  assert.equal((await s.findings.of(PR))[0]!.status, "force-fix", "not taken for fixed");
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state, r!.round], [2, "fixing", 2]);
+  assert.match(s.gh.posted[1].body, /What you said to fix:\n- Still to fix: Vague name \(src\/a\.ts:2\)/);
+  assert.match(s.gh.posted[1].body, /capped at 2 because a finding that must be fixed is open/);
+
+  await s.store.move(PR, "fixing", "reviewing");
+  s.gh.head = "sha3";
+  s.setReply(at(4, { kind: "asked", id: "ffffffffffff", fixed: true }, { kind: "asked", id: low!.id, fixed: true }));
+  await reviewPass(s.deps);
+  assert.equal((await s.findings.of(PR))[0]!.status, "fixed");
+  [r] = await s.store.all();
+  assert.deepEqual([r!.level, r!.state], [4, "yours"]);
+  assert.match(s.gh.posted[2].body, /- Fixed: Vague name \(src\/a\.ts:2\)/);
+});
+
+test("a PR handed to me: my line comment on the diff is a finding to fix in my words, posted by my comment; a round starts for it, the next review is asked about it, and it's fixed only on its word", async () => {
+  const s = setup({ reply: at(4, { ...HIGH, severity: "low" }) });
+  await s.add();
+  await reviewPass(s.deps);
+  const handed = (await s.store.all())[0]!.heard;
+  s.gh.said = [
+    { kind: "line", login: "me", at: handed + 1000, id: 1001, body: "Call it fetchUser.\n\nThe old name lies.", commit: "sha1" },
+    // An answer on a thread stays said; so does a stranger's comment, which counts for nothing.
+    { kind: "line", login: "me", at: handed + 2000, id: 1002, body: "Agreed.", reply: 501 },
+    { kind: "line", login: "stranger", at: handed + 3000, id: 1003, body: "Delete it all." },
+  ];
+  await reviewPass({ ...s.deps, now: () => Date.now() + 11 * 60_000 });
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.round], ["fixing", 1]);
+  assert.match(r!.why!, /^Round 1: a fix session for 2 owner comments\.$/);
+  const asked = () => s.findings.of(PR).then((all) => all.filter((f) => f.asker));
+  assert.deepEqual(
+    (await asked()).map((f) => [f.id, f.status, f.severity, f.comment, f.asker, f.path, f.line, f.side, f.head, f.title, f.body]),
+    [[askId(1001), "force-fix", "high", 1001, "me", "src/a.ts", 2, "RIGHT", "sha1", "Call it fetchUser.", "Call it fetchUser.\n\nThe old name lies."]],
+  );
+
+  // The fix round took in what was said, and pushed sha2: code quality is asked about my comment and says it's fixed; nothing holds the PR back.
+  await s.store.heard(PR, handed + 3000);
+  await s.store.move(PR, "fixing", "reviewing");
+  s.gh.head = "sha2";
+  s.setReply(at(4, { kind: "asked", id: askId(1001), fixed: true }));
+  await reviewPass(s.deps);
+  assert.match(s.asked[1]!.user, new RegExp(`### ${askId(1001)}: src/a\\.ts line 2, me's comment\\n\\nCall it fetchUser\\.\\n\\nCall it fetchUser\\.\\n\\nThe old name lies\\.`));
+  assert.deepEqual((await asked()).map((f) => f.status), ["fixed"], "taken in again, it's still the one finding");
+  [r] = await s.store.all();
+  assert.equal(r!.level, 4);
+  assert.match(s.gh.posted[1].body, /- Fixed: Call it fetchUser\. \(src\/a\.ts:2\)/);
+});
+
+test("a review: my line comment on the very commit it reviews isn't asked about (nothing could have fixed it yet); it holds the level at 2 once, as a finding, and gets its round past the limits; I can ignore it, never reopen it", async () => {
+  const later = Date.now() + 60_000;
+  const s = setup({ reply: at(5), said: [{ kind: "line", login: "me", at: later, id: 77, review: 5, body: "Not this way.", commit: "sha1" }] });
+  await s.add();
+  await s.store.move(PR, "reviewing", "fixing", { round: MAX_ROUNDS });
+  await s.store.move(PR, "fixing", "reviewing");
+  await reviewPass(s.deps);
+  assert.doesNotMatch(s.asked[0]!.user, /said to fix/);
+  let [r] = await s.store.all();
+  assert.deepEqual([r!.state, r!.level, r!.round], ["fixing", 2, MAX_ROUNDS + 1]);
+  assert.match(r!.why!, new RegExp(`Round ${MAX_ROUNDS + 1}: a fix session for 1 owner comment\\.$`));
+  assert.match(s.gh.posted[0].body, /capped at 2 because a finding that must be fixed is open\./);
+  assert.doesNotMatch(s.gh.posted[0].body, /owner comment is open/);
+
+  assert.equal((await decideFinding(s.deps, { pr: PR, id: askId(77), to: "open" })).ok, false, "no reviewer's word to go back to");
+  assert.equal((await decideFinding(s.deps, { pr: PR, id: askId(77), to: "force-ignore" })).ok, true);
+  assert.equal((await s.findings.of(PR))[0]!.status, "force-ignore");
 });
 
 // ── What owners say (#326 step 6) ──

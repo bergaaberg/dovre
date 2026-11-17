@@ -12,6 +12,9 @@ export type Said = {
   /** When it was edited, if it was. */
   edited?: number;
   path?: string;
+  /** A line comment's commit, and the comment it answers. */
+  commit?: string;
+  reply?: number;
 };
 
 export const iso = (t: number) => new Date(t).toISOString();
@@ -28,7 +31,7 @@ export function saidAt(path: string, said: Said[]): unknown[] | undefined {
       const id = s.id ?? (kind === "review" ? s.review : undefined) ?? next++;
       const common = { id, node_id: `N_${id}`, user: { login: s.login }, body: s.body ?? "Please rename it." };
       if (kind === "review") return { ...common, state: s.state ?? "COMMENTED", submitted_at: iso(s.at) };
-      return { ...common, created_at: iso(s.at), updated_at: iso(s.edited ?? s.at), ...(kind === "line" ? { path: s.path ?? "src/a.ts", line: 2, pull_request_review_id: s.review ?? null } : {}) };
+      return { ...common, created_at: iso(s.at), updated_at: iso(s.edited ?? s.at), ...(kind === "line" ? { path: s.path ?? "src/a.ts", line: 2, pull_request_review_id: s.review ?? null, in_reply_to_id: s.reply ?? null, ...(s.commit ? { commit_id: s.commit } : {}) } : {}) };
     });
 }
 

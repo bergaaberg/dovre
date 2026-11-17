@@ -1,7 +1,7 @@
 /**
  * One fix pass (#326 step 4): each PR in a fix round gets a fix session from the findings that
- * hold it back (findings.ts: open critical and high ones) and what owners said since the last
- * round (owner.ts), started through the agents pack's share (a sandbox run from the reviewed head
+ * hold it back (findings.ts: open critical and high ones, and ones the owner said to fix, their
+ * own line comments among them) and what owners said since the last round (owner.ts), started through the agents pack's share (a sandbox run from the reviewed head
  * commit, within auto runs' limits). Once it ends, its commits go onto the PR's branch, it replies on each
  * thread (`autoreview.reply`) and the PR goes back to review, whose next pass reads the new head.
  * Nothing committed, or anything it can't do safely: the PR is handed to me.
@@ -15,7 +15,7 @@ import type { Clicks } from "../../../writes.ts";
 import type { AutoShare } from "../agents/share.ts";
 import { findingsStore, postsOf } from "./findings.ts";
 import { fixPrompt, type OpenComment, repliesOf } from "./fixer.ts";
-import { MARK, marked, ownerSays } from "./owner.ts";
+import { MARK, marked, type OwnerSaid, ownerHeard } from "./owner.ts";
 import { CLAIM_MS, PR_ROUNDS_USD } from "./round.ts";
 import { type PrRow, prsStore } from "./store.ts";
 
@@ -88,25 +88,28 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
     if (!(await store.claim(row.pr, "fixing", CLAIM_MS))) return false;
     const at = issueOf(row.issue);
     const kept = findingsStore(d.db, d.now);
-    const [found, heard, issue, runs] = await Promise.all([
-      kept.of(row.pr),
-      ownerSays(d, row, row.heard),
+    // What owners said first: their line comments become findings, read with the rest just after.
+    const [heard, issue, runs] = await Promise.all([
+      ownerHeard(d, row),
       at ? d.ghe.rest<{ title?: string; body?: string | null }>(`/repos/${at.repo}/issues/${at.number}`) : Promise.resolve(undefined),
       d.ghe.rest<{ check_runs?: { name?: string; status?: string; conclusion?: string | null }[] }>(`/repos/${row.repo}/commits/${row.head}/check-runs?per_page=100`).catch(() => undefined),
     ]);
     if (heard.refused) return hand(heard.refused);
-    if (!row.review && !heard.said.length) return hand("its review's comments couldn't be found.");
-    const toFix = found.filter(gates);
+    const toFix = (await kept.of(row.pr)).filter(gates);
+    if (!row.review && !heard.said.length && !toFix.some((f) => f.asker)) return hand("its review's comments couldn't be found.");
     // A finding's thread is its line comment: asked for again when the review pass couldn't say which.
     if (row.review && toFix.some((f) => f.comment === null)) {
       const posts = postsOf(await d.ghe.rest<unknown>(`/repos/${row.repo}/pulls/${row.number}/reviews/${row.review}/comments?per_page=100`).catch(() => []));
       await kept.posted(row.pr, posts);
       for (const f of toFix) f.comment ??= posts.get(f.id) ?? null;
     }
-    const comments: OpenComment[] = toFix.map((f) => ({ id: f.comment, path: f.path, line: f.line, ...(f.startLine ? { startLine: f.startLine } : {}), severity: f.severity, title: f.title, text: f.body, fix: f.fix }));
+    // An owner's line comment still to fix is theirs: it goes with what they said, on its own thread.
+    const comments: OpenComment[] = toFix.filter((f) => !f.asker).map((f) => ({ id: f.comment, path: f.path, line: f.line, ...(f.startLine ? { startLine: f.startLine } : {}), severity: f.severity, title: f.title, text: f.body, fix: f.fix }));
+    const asks: OwnerSaid[] = toFix.filter((f) => f.asker && f.comment !== null).map((f) => ({ id: f.comment!, kind: "line", by: f.asker!, at: f.at, text: f.body, path: f.path, line: f.line }));
+    const owner = [...asks, ...heard.said].sort((a, b) => a.at - b.at);
     const failing = (runs?.check_runs ?? []).filter((r) => r.status === "completed" && !["success", "neutral", "skipped"].includes(r.conclusion ?? "")).map((r) => String(r.name ?? "a check").slice(0, 100));
-    if (!comments.length && !heard.said.length && !failing.length) return hand("no finding that must be fixed is open, no owner asked for anything and no check is failing: nothing for a fix session to do.");
-    const prompt = fixPrompt({ repo: row.repo, number: row.number, issue: { ref: row.issue, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" }, comments, owner: heard.said, failing, round: row.round });
+    if (!comments.length && !owner.length && !failing.length) return hand("no finding that must be fixed is open, no owner asked for anything and no check is failing: nothing for a fix session to do.");
+    const prompt = fixPrompt({ repo: row.repo, number: row.number, issue: { ref: row.issue, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" }, comments, owner, failing, round: row.round });
     const r = await d.auto.fix({ key: row.issue, pr: row.pr, repo: row.repo, head: row.head, prompt, model: row.author ?? "", budget: Math.min(limits.runUsd, left) });
     if ("error" in r) return hand(`its fix session couldn't start: ${r.error}`);
     if ("wait" in r) {
@@ -114,8 +117,9 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
       return row.why !== `Round ${row.round}: ${r.wait}`;
     }
     await store.fixing(row.pr, r.run);
-    // What owners said up to the newest comment it was given is in this round now.
-    if (heard.said.length) await store.heard(row.pr, Math.max(...heard.said.map((s) => s.at)));
+    // What owners said up to the newest comment it was given is in this round now; a line comment of theirs stays a finding until it's fixed.
+    const latest = Math.max(0, ...heard.said.map((s) => s.at), ...(heard.asks ?? []).map((a) => a.at));
+    if (latest) await store.heard(row.pr, latest);
     await store.release(row.pr, { why: `Round ${row.round}: a fix session is working on it.` });
     return true;
   }
@@ -147,12 +151,19 @@ async function fixOne(d: FixDeps, row: PrRow): Promise<boolean> {
   return store.move(row.pr, "fixing", "reviewing", { why: `Round ${row.round}: pushed ${landed.head.slice(0, 7)}${replied}; reviewing it.`, cost: landed.cost });
 }
 
-/** The line comments a fix session may reply on: its review's and owners' own (never Dovre's other posts, nor anyone else's). */
+/**
+ * The line comments a fix session may reply on: its review's, an earlier review's that still post
+ * a finding to fix, and owners' own (never Dovre's other posts, nor anyone else's).
+ */
 async function commentIds(d: FixDeps, row: PrRow): Promise<number[]> {
   const owners = new Set([d.login, ...ownersOf(d.owners)].map((o) => o.toLowerCase()));
-  const raw = await d.ghe.rest<RawComment[]>(`/repos/${row.repo}/pulls/${row.number}/comments?per_page=100`).catch(() => []);
+  const [raw, found] = await Promise.all([
+    d.ghe.rest<RawComment[]>(`/repos/${row.repo}/pulls/${row.number}/comments?per_page=100`).catch(() => []),
+    findingsStore(d.db, d.now).of(row.pr),
+  ]);
+  const posts = new Set(found.filter(gates).map((f) => f.comment));
   return (Array.isArray(raw) ? raw : [])
-    .filter((c) => (row.review && c.pull_request_review_id === row.review) || (owners.has(String(c.user?.login ?? "").toLowerCase()) && !String(c.body ?? "").includes(MARK)))
+    .filter((c) => (row.review && c.pull_request_review_id === row.review) || posts.has(c.id) || (owners.has(String(c.user?.login ?? "").toLowerCase()) && !String(c.body ?? "").includes(MARK)))
     .map((c) => c.id)
     .filter((id) => Number.isInteger(id));
 }

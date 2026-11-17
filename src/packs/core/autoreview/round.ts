@@ -8,7 +8,8 @@
  * decide step: critical and high findings start a fix round (fix.ts), within the limits; medium
  * and low are only reported; otherwise, or past a limit, the PR is handed to me. What an
  * owner says on the PR (owner.ts) caps the level at 2 and starts a round, even on a PR handed to
- * me: that's me asking. A PR
+ * me: that's me asking. A line comment of mine on the diff is a finding to fix, and one I said to
+ * fix stands until the code-quality reviewer says it's fixed. A PR
  * merged or closed meanwhile, or outside my owners, leaves the loop. A model call takes a while,
  * so hosted it runs from the cron, not a page's refresh.
  */
@@ -25,9 +26,9 @@ import type { Clicks } from "../../../writes.ts";
 import type { AutoShare } from "../agents/share.ts";
 import { AUTO_CONFIG, loadAutoConfig } from "./config.ts";
 import { findingsStore, newFindingId, postsOf } from "./findings.ts";
-import { type Heard, heardLine, heardOpen, ownerSays } from "./owner.ts";
+import { type Heard, heardLine, heardOpen, ownerHeard } from "./owner.ts";
 import { type PrRow, prsStore } from "./store.ts";
-import { capLevel, ciOf, findingCounts, MAX_FINDINGS, opinionOf, reviewDraft, reviewerModel, reviewPrompt, reviewSystem, type Sat, unreviewedOf, verdictOf } from "./reviewer.ts";
+import { askedSection, capLevel, ciOf, findingCounts, MAX_FINDINGS, opinionOf, reviewDraft, reviewerModel, reviewPrompt, reviewSystem, type Sat, unreviewedOf, verdictOf } from "./reviewer.ts";
 
 /** How long a reviewer may take; a panel's reviewers answer side by side. */
 const REVIEW_MS = 180_000;
@@ -109,14 +110,18 @@ async function settle(d: ReviewDeps, row: PrRow): Promise<boolean> {
   const pr = await d.ghe.rest<RawPr>(`/repos/${row.repo}/pulls/${row.number}`);
   if (pr.merged) return store.move(row.pr, "yours", "merged", { why: "Merged on GitHub." });
   if (pr.state !== "open") return store.move(row.pr, "yours", "closed", { why: "Closed on GitHub." });
-  const heard = await ownerSays(d, row, row.heard);
+  const heard = await ownerHeard(d, row);
   if (heard.refused) {
     // Said once; what's refused isn't asked about again.
     await store.heard(row.pr, (d.now ?? Date.now)());
     await store.release(row.pr, { why: heard.refused });
     return row.why !== heard.refused;
   }
-  if (heard.said.length) {
+  // A line comment of mine taken in as a finding: one that's still to fix is asked of a round.
+  const asks = heard.asks?.length ? new Set((await findingsStore(d.db, d.now).of(row.pr)).filter((f) => f.status === "force-fix").map((f) => f.id)) : new Set<string>();
+  const asked = (heard.asks ?? []).filter((a) => asks.has(a.id));
+  if (heard.said.length || asked.length) {
+    heard.asks = asked;
     if (!row.head || pr.head.sha !== row.head) return store.move(row.pr, "yours", "reviewing", { why: `${heardLine(heard)} since it was handed over, on new commits: reviewing those first.` });
     return store.move(row.pr, "yours", "fixing", { round: row.round + 1, why: ownerRound(row.round + 1, heard) });
   }
@@ -162,9 +167,13 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     loadPrFiles(d.ghe as Ghe, row.repo, row.number),
     issueAt ? d.ghe.rest<{ title?: string; body?: string | null }>(`/repos/${issueAt.repo}/issues/${issueAt.number}`) : Promise.resolve(undefined),
     loadAutoConfig(d.ghe, row.repo, pr.base?.sha ?? ""),
-    ownerSays(d, row, row.heard),
+    ownerHeard(d, row),
     d.auto.limits(row.repo).catch(() => undefined),
   ]);
+  // Taken in after the owner's line comments: what the owner said to fix on an earlier commit, for code quality to say whether it's fixed now.
+  const kept = findingsStore(d.db, d.now);
+  const earlier = await kept.of(row.pr);
+  const toConfirm = earlier.filter((f) => f.status === "force-fix" && f.head !== head);
   const user = reviewPrompt(
     { repo: issueAt?.repo ?? row.repo, number: issueAt?.number ?? 0, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" },
     { repo: row.repo, number: row.number, title: pr.title ?? "", body: pr.body ?? "" },
@@ -177,8 +186,9 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   const spent = called.length > 0 && row.cost >= cap;
   const sitting = spent ? [] : called;
   const panel = ["quality" as const, ...sitting.map((s) => s.who)];
+  const asking = askedSection(toConfirm);
   const ask = (who: (typeof panel)[number]) =>
-    d.ask!.ask({ system: reviewSystem(who, panel), user, model, signal: AbortSignal.timeout(REVIEW_MS) }).then(
+    d.ask!.ask({ system: reviewSystem(who, panel, { asked: who === "quality" && !!asking }), user: who === "quality" && asking ? `${user}\n\n${asking}` : user, model, signal: AbortSignal.timeout(REVIEW_MS) }).then(
       (r) => ({ ...r, failed: "" }),
       (e) => ({ text: "", cost: 0, failed: String((e as Error)?.message ?? e).slice(0, 200) || "no answer" }),
     );
@@ -205,24 +215,29 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     theirs.push(o.findings);
     return { ...seat, summary: o.summary };
   });
-  const open = heardOpen(heard);
-  // A problem an earlier review raised stays the finding it was, with what the owner said about it.
-  const kept = findingsStore(d.db, d.now);
+  // Owners' line comments count as the findings they are now, not as something said too.
+  const open = heardOpen({ said: heard.said, requested: heard.requested });
+  // A problem an earlier review raised stays the finding it was, with what the owner said about it. An owner's own comment stays theirs.
   const found = foldFound([v.findings, ...theirs]).slice(0, MAX_FINDINGS);
-  const again = raisedAgain(found, await kept.of(row.pr));
+  const again = raisedAgain(found, earlier.filter((f) => !f.asker));
   const all = found.map((f, i) => {
     const was = again.get(i);
     return was ? { ...f, id: was.id, status: was.status, raised: was.raised + 1 } : { ...f, id: newFindingId(), status: "open" as const, raised: 1 };
   });
   // One the owner said to ignore isn't posted again, and doesn't hold the PR back.
   const findings = all.filter((f) => f.status !== "force-ignore");
-  const gating = all.filter(gates).length;
+  // What the owner said to fix and this review neither raised again nor says is fixed: still to fix, and it holds the PR back.
+  const raised = new Set(all.map((f) => f.id));
+  const confirmed = new Set(v.fixed.filter((id) => toConfirm.some((f) => f.id === id) && !raised.has(id)));
+  const standing = earlier.filter((f) => f.status === "force-fix" && !raised.has(f.id) && !confirmed.has(f.id));
+  const gating = all.filter(gates).length + standing.length;
+  const asked = toConfirm.filter((f) => !raised.has(f.id)).map((f) => ({ title: f.title, path: f.path, line: f.line, fixed: confirmed.has(f.id) }));
   const unreviewed = unreviewedOf(sat);
   const facts = { ci, files, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}), ...(unreviewed.length ? { unreviewed } : {}) };
   const capped = capLevel(v.level, { ...facts, gating });
   // What it would be with no finding holding it back: the level once the owner says to ignore those (decide.ts).
   const base = capLevel(v.level, { ...facts, gating: 0 }).level;
-  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head, ignored: all.length - findings.length, panel: sat }), verdict: "comment", by: "auto", kind: "autoreview.review" });
+  const posted = await postReview(d.ghe as Ghe, d.db, row.repo, row.number, { reviewed: head, me: d.login, draft: reviewDraft({ ...v, findings }, capped, { model, head, ignored: all.length - findings.length, panel: sat, ...(asked.length ? { asked } : {}) }), verdict: "comment", by: "auto", kind: "autoreview.review" });
   if (!posted.ok) {
     // New commits since it read, most often: the next pass reviews the new head.
     await store.release(row.pr, { cost, why: posted.message });
@@ -230,7 +245,7 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   }
   await kept.reported(
     row.pr,
-    { round: row.round, head, ...(posted.id ? { review: posted.id } : {}) },
+    { round: row.round, head, ...(posted.id ? { review: posted.id } : {}), fixed: [...confirmed] },
     all.map(({ status, raised, ...f }) => ({ ...f, ...(raised > 1 ? { again: status === "force-ignore" ? ("left" as const) : ("posted" as const) } : {}) })),
   );
   // Which line comment posts each finding. Not known now: a fix round asks again (fix.ts).
@@ -242,7 +257,9 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   await store.level(row.pr, "reviewing", { head, level: capped.level, base, cost, ...(posted.id ? { review: posted.id } : {}) });
   const too = sat.filter((p) => !p.missing).map((p) => TOPIC[p.who]);
   const said = `Level ${capped.level} from ${model}${too.length ? ` (reviewed for ${too.join(", ")} too)` : ""}: ${findingCounts(findings).toLowerCase()}${capped.why.length ? `; capped because ${capped.why[0]}` : ""}.`;
-  await decide(d, { ...row, cost: row.cost + cost }, { level: capped.level, fixable: gating, ci, said, merge: config.merge, heard, ...(posted.id ? { review: posted.id } : {}) });
+  // A line comment of mine since the last round that's still to fix is me asking, as a comment is: it gets its round past the limits.
+  const mine = (heard.asks ?? []).filter((a) => standing.some((f) => f.id === a.id));
+  await decide(d, { ...row, cost: row.cost + cost }, { level: capped.level, fixable: gating - mine.length, ci, said, merge: config.merge, heard: { ...heard, asks: mine }, ...(posted.id ? { review: posted.id } : {}) });
   return "reviewed";
 }
 
@@ -256,7 +273,7 @@ async function decide(d: ReviewDeps, row: PrRow, r: { level: number; fixable: nu
   const store = prsStore(d.db, d.now);
   const hand = (why: string) => store.move(row.pr, "reviewing", "yours", { why: `${r.said} ${why}` });
   if (r.heard.refused) return void (await hand(r.heard.refused));
-  const mine = r.heard.said.length;
+  const mine = r.heard.said.length + (r.heard.asks?.length ?? 0);
   if (r.level >= 5) {
     if (!r.merge) return void (await hand(`Mergeable as is. Automerge is off for this repo (\`${AUTO_CONFIG}\`), so it's yours to merge.`));
     return void (await store.move(row.pr, "reviewing", "merging", { why: `${r.said} Merging it once the checks before a merge pass.` }));
