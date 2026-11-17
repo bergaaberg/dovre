@@ -1,6 +1,9 @@
 /** Stacked PRs: chains bottom first, what each waits on, what's wrong, the page, and retargeting. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Hono } from "hono";
+import type { AppEnv } from "../../../../env.ts";
+import { testContext } from "../../../testing.ts";
 import { recentActions } from "../../../../actions/deploys.ts";
 import { branchName, retarget } from "../act.ts";
 import { stacksPack } from "../index.ts";
@@ -203,4 +206,40 @@ test("a pack (#408): at /stacks, the old address redirects, the PR tabs link it;
   assert.equal((await off.post("/stacks/retarget", { repo: "ACME/a", number: "1", from: "b" })).status, 404);
   assert.doesNotMatch(await (await off.get("/prs")).text(), /href="\/stacks"/);
   assert.doesNotMatch(await (await off.get("/dependabot")).text(), /href="\/stacks"/);
+});
+
+test("hosted (#544): one person's walk and retarget line aren't shown to the next", async () => {
+  const ghe: Ghe = {
+    host: "acme.ghe.com",
+    async rest<T>() { return {} as T; },
+    async graphql<T>(query: string) {
+      if (query.includes("search(")) return { mine: { nodes: query.includes("author:ana") ? [node({ number: 1, headRefName: "h1" }), node({ number: 2, baseRefName: "h1", headRefName: "h2" })] : [] }, review: { nodes: [] } } as T;
+      const out: Record<string, unknown> = {};
+      for (const m of query.matchAll(/(\w+): repository/g)) out[m[1]!] = { pullRequests: { nodes: [] } };
+      return out as T;
+    },
+  };
+  const pack = stacksPack({ ghe, owners: () => "ACME" });
+  let login = "ana";
+  let viewer = "ana@x.dev";
+  const ctx = testContext({ snapshot: () => ({ login }) as never, gathered: async () => ({ login }) as never, viewer: () => viewer, page: async (_c, p) => new Response(String(p.body)) });
+  const slot = () => String(pack.slots!(ctx)["pr.stack"]!({ repo: "ACME/a", number: 2 } as never));
+  assert.equal(slot(), "", "not walked yet");
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(slot(), /2 of 2 in a stack/);
+  login = "bo";
+  viewer = "bo@x.dev";
+  assert.equal(slot(), "", "ana's walk isn't bo's");
+
+  const app = new Hono<AppEnv>();
+  pack.routes!(app, ctx);
+  viewer = "ana@x.dev";
+  login = "ana";
+  await app.request("http://localhost/stacks/retarget", { method: "POST", body: new URLSearchParams({ repo: "elsewhere/x", number: "2", from: "h1" }) });
+  viewer = "bo@x.dev";
+  login = "bo";
+  assert.doesNotMatch(await (await app.request("http://localhost/stacks")).text(), /isn&#39;t a PR in the org/, "not on bo's page");
+  viewer = "ana@x.dev";
+  login = "ana";
+  assert.match(await (await app.request("http://localhost/stacks")).text(), /isn&#39;t a PR in the org/, "on ana's");
 });

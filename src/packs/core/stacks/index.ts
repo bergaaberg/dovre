@@ -27,14 +27,30 @@ type StacksDeps = {
 };
 
 const HREF = "/stacks";
+/** People kept apart in one process (hosted, an isolate): far above a real team. The oldest goes first. */
+const PEOPLE_MAX = 50;
+
+/** One entry per person, the newest last; past `PEOPLE_MAX` the oldest goes. */
+const keep = <T>(m: Map<string, T>, k: string, v: T) => {
+  m.delete(k);
+  m.set(k, v);
+  for (const old of m.keys()) {
+    if (m.size <= PEOPLE_MAX) break;
+    m.delete(old);
+  }
+};
 
 export function stacksPack(deps: StacksDeps): Pack {
   let source: ReturnType<typeof createStacks> | undefined;
   const sourceOf = () => (source ??= createStacks(deps.ghe, deps.owners(), { kept: deps.kept }));
-  /** The last walk, for the viewer's line: a slot answers from memory, never waits. */
-  let last: StackPr[] | undefined;
-  const load = (login: string, o?: { fresh?: boolean }) => sourceOf().load(login, o).then((prs) => ((last = prs), prs));
-  let flash: { ok: boolean; message: string } | undefined;
+  /**
+   * The last walk by login, for the viewer's line: a slot answers from memory, never waits. Hosted,
+   * people with their own snapshot walk their own (#544), so one person's isn't shown to the next.
+   */
+  const last = new Map<string, StackPr[]>();
+  const load = (login: string, o?: { fresh?: boolean }) => sourceOf().load(login, o).then((prs) => (keep(last, login, prs), prs));
+  /** How a retarget went, for the next page of whoever pressed it (by their email; "" locally). */
+  const flash = new Map<string, { ok: boolean; message: string }>();
   return {
     manifest: {
       api: PACK_API,
@@ -51,9 +67,10 @@ export function stacksPack(deps: StacksDeps): Pack {
     slots: (ctx) => ({
       "pr.stack": (a) => {
         const login = ctx.snapshot()?.login;
+        const walked = login ? last.get(login) : undefined;
         // Not walked yet: start it, and the line shows on a later visit.
-        if (!last && login) void load(login).catch(() => undefined);
-        for (const st of last ? stacksOf(last) : []) {
+        if (!walked && login) void load(login).catch(() => undefined);
+        for (const st of walked ? stacksOf(walked) : []) {
           const node = st.nodes.find((x) => x.pr.repo === a.repo && x.pr.number === a.number);
           if (node && st.nodes.length > 1) return html`<a href="${HREF}">${node.position} of ${st.nodes.length} in a stack</a>${node.waits ? ` · ${waitText(node.waits)}` : ""}`;
         }
@@ -64,8 +81,9 @@ export function stacksPack(deps: StacksDeps): Pack {
       app.get(HREF, async (c) => {
         const s = await ctx.gathered();
         const me = s?.login ?? "";
-        const shown = flash;
-        flash = undefined;
+        const who = ctx.viewer() ?? "";
+        const shown = flash.get(who);
+        flash.delete(who);
         const base = { org: deps.owners(), me, forge: ctx.forge()?.name ?? "GitHub", tabs: prTabs("stacks", true, ctx.pageOn("/dependabot"), ctx.pageOn("/prs")) };
         // A first read walks every chain (seconds): the page says so and fills itself in.
         const got = s ? await within(settle(load(me))) : undefined;
@@ -79,7 +97,7 @@ export function stacksPack(deps: StacksDeps): Pack {
         const number = runId(form.number);
         const from = branchName(form.from);
         const r = repo && number && from ? await retarget(deps.ghe, ctx.db, repo, number, from) : { ok: false, message: "That isn't a PR in the org." };
-        flash = r;
+        keep(flash, ctx.viewer() ?? "", r);
         const login = ctx.snapshot()?.login;
         if (r.ok && login) void load(login, { fresh: true }).catch(() => undefined);
         return c.redirect(HREF, 303);
