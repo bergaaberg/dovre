@@ -24,6 +24,7 @@ Added:
 
 Changed:
 
+- **Stacks keeps people apart** (#544). The "2 of 3 in a stack" line comes from your own walk, and a retarget's "done" or "not done" line shows only on the page of whoever pressed it. Before, one walk and one line were kept for everyone, so the next person could see someone else's.
 - **Hosted Bino looks things up as whoever asked** (#544). A lookup Bino makes while answering runs in the Worker as the person whose message it's answering, so it reads their own snapshot where they have one. Before, it ran as no one and answered everyone from the instance's. The instance's `BinoLookups` entrypoint stays as it is.
 - **Hosted Issues' needs are the operator's** (#544). Where people sign in with GitHub, the needs from Issues name the person whose token reads the instance's copy, so "Assigned to you" shows and rings only for them, not on every member's Today. Its brief line and what Bino hears as new are theirs too; someone with their own snapshot hears of their own issues, and a guest of the operator's hears nothing of them as theirs. With only `GITHUB_TOKEN`, and locally, nothing changes.
 - **Agents setup** writes `.dovre/sandbox.json` the way Biome and Prettier print it, a short list on one line at the repo's own line width, so the PR passes the repo's format check (#301).
