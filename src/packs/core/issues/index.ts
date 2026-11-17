@@ -20,6 +20,7 @@ import type { Forge } from "../../../forge/types.ts";
 import { type Pack, PACK_API, type PackContext } from "../../types.ts";
 import { type Guest, safeUrl } from "../../../pages/parts.ts";
 import { CheckRows } from "../../../ui/kit.ts";
+import { sees } from "../../../viewer.ts";
 import type { FindItem, PackNeed } from "../../types.ts";
 import { ACT_SHOWN_MS, binoLine, cameIn, freshOf, type IssuesKept, keyOf, SET_LABEL, setOf, staleDaysOf, triageReposOf, withActs } from "./model.ts";
 import { actOf, doneText, refusal } from "./act.ts";
@@ -64,6 +65,12 @@ type IssuesDeps = {
   own?: () => string | undefined;
   /** Hosted (#544): the person asking is a guest of the instance's snapshot; the page says whose issues it shows. */
   guest?: () => Guest | undefined;
+  /**
+   * Hosted (#544): the email of the person whose token reads the instance's copy (the operator).
+   * Its needs name them (`PackNeed.person`), so they ring and show only for them, and its brief and
+   * Bino's "new for me" are theirs alone. Unknown or local: everyone's, as before.
+   */
+  person?: () => string | undefined;
   /** Where "New issue" goes; none on hosted. */
   newHref?: string;
   /** Rows offer "Start a task" (the dev-task flow, local only). */
@@ -102,6 +109,10 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
     return c;
   };
   const fresh = () => freshOf(shared.kept?.sets, shared.came ?? new Map(), now());
+  /** Whom the instance's copy is for, where that's known (hosted). */
+  const personOf = () => o.person?.()?.trim().toLowerCase() || undefined;
+  /** The instance's copy is the current reader's own "me": no one is named, or they're the one. */
+  const mine = (ctx: PackContext) => sees(ctx.viewer(), personOf());
   /** The repos picked on its setup page (#418), kept in Dovre's settings; until then, ISSUES_TRIAGE_REPOS. */
   let picked: string[] | undefined;
   let pickedRead: Promise<void> | undefined;
@@ -233,12 +244,14 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       const sets = copyOf().kept?.sets;
       return sets ? [{ label: "Issues", value: sets.assigned.length }] : [];
     },
-    brief() {
+    brief(ctx) {
+      if (!mine(ctx)) return [];
       const n = new Set(fresh().map((f) => keyOf(f.issue))).size;
       return n ? [{ text: `${n} new ${n === 1 ? "issue" : "issues"} for you`, href: HREF }] : [];
     },
-    needs: (): PackNeed[] =>
-      fresh().map(({ set, issue, at }) => ({
+    needs: (): PackNeed[] => {
+      const person = personOf();
+      return fresh().map(({ set, issue, at }) => ({
         key: `issues:${set}:${keyOf(issue)}`,
         title: `${set === "assigned" ? "Assigned to you" : "You're mentioned"}: ${keyOf(issue)} ${issue.title}`.slice(0, 200),
         href: safeUrl(issue.url),
@@ -247,7 +260,9 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
         at,
         ring: set,
         label: "Issue",
-      })),
+        ...(person ? { person } : {}),
+      }));
+    },
     finds(): FindItem[] {
       const sets = copyOf().kept?.sets;
       if (!sets) return [];
@@ -262,7 +277,8 @@ export function issuesPack(o: IssuesDeps): Pack & { kept(): IssuesKept | undefin
       );
     },
     lookups: () => forgeLookups({ name: o.forge.name ?? "GitHub", thread: o.forge.thread, searchThreads: o.forge.searchThreads }, o.owners),
-    bino: (ctx) => binoLine(shared.kept?.sets, fresh(), triageOf(ctx).length > 0),
+    // Someone else than whom the instance's copy is for hears of their own copy, with nothing new for them; a guest of it, nothing.
+    bino: (ctx) => (mine(ctx) ? binoLine(shared.kept?.sets, fresh(), triageOf(ctx).length > 0) : o.own?.() ? binoLine(copyOf().kept?.sets, [], triageOf(ctx).length > 0) : ""),
     about(_ctx, path) {
       const sets = copyOf().kept?.sets;
       return path.startsWith(HREF) && sets ? `My open issues page: ${sets.assigned.length} assigned, ${sets.mentioned.length} mentioning me` : undefined;

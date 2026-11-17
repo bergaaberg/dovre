@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../../../../env.ts";
 import type { IssueSets } from "../../../../forge/types.ts";
 import { testAgentLinks, testContext } from "../../../testing.ts";
+import { needsSeen } from "../../../registry.ts";
 import { issuesPack } from "../index.ts";
 import { setOf, staleDaysOf, staleFor, triageReposOf } from "../model.ts";
 import { agentHref, agentPromptOf, issueRow } from "../view.ts";
@@ -169,6 +170,27 @@ test("hosted (#544): a person whose snapshot is their own gets their own copy, r
   me = undefined;
   assert.deepEqual(pack.needs!(ctx), theirs);
   assert.deepEqual(pack.glance!(ctx), [{ label: "Issues", value: 3 }]);
+
+  // Named for the operator (#544): their needs carry their email, so a member's Today and rings
+  // leave them out (needsSeen); the brief and Bino's "new for me" are the operator's alone.
+  const named = issuesPack({ forge: { host: "github.com", can: ["issues"] as never, viewer: async () => ({ login: "op", name: null }), issues: async () => sets({ assigned: ops }) }, owners: () => "bergaaberg", reads: () => "op", own: () => me, person: () => " Op@X.dev ", now: () => t });
+  await named.refresh!(ctx);
+  ops = [...ops, issue({ number: 4, title: "op's fourth" })];
+  t += 60_000;
+  await named.refresh!(ctx);
+  const as = (viewer: string | undefined) => ({ ...ctx, viewer: () => viewer });
+  assert.deepEqual(named.needs!(ctx).map((n) => n.person), ["op@x.dev"]);
+  assert.deepEqual(needsSeen(named.needs!(ctx), "op@x.dev").length, 1);
+  assert.deepEqual(needsSeen(named.needs!(ctx), "two@x.dev"), [], "not on another person's Today");
+  assert.equal(named.brief!(as("op@x.dev")).length, 1);
+  assert.deepEqual(named.brief!(as("two@x.dev")), []);
+  assert.match(named.bino!(as("op@x.dev")), /New for me: bergaaberg\/dovre#4/);
+  assert.equal(named.bino!(as("two@x.dev")), "", "a guest of the instance's copy hears nothing of it as theirs");
+  me = "two";
+  assert.doesNotMatch(named.bino!(as("two@x.dev")), /New for me/, "someone with their own copy hears of theirs, nothing new of the operator's");
+  me = undefined;
+  // Unnamed (local, or the operator not known): everyone's, as before.
+  assert.equal(pack.needs!(ctx)[0]!.person, undefined);
 
   // An isolate that hasn't met the person yet waits for who they are before it picks a copy or names "me".
   let known = false;

@@ -148,6 +148,8 @@ export { NoOwnToken };
 type GithubTokenProvider = ((bindings: WorkerBindings, actor?: Actor) => Promise<string>) & {
   /** A person just signed in with GitHub: what it remembered of them having no token is dropped (#544). */
   signedIn?: (email: string) => void;
+  /** Whose token the instance's own reads were last made with (#544), when that's a person's. */
+  operator?: () => string | undefined;
 };
 
 /**
@@ -172,6 +174,7 @@ export function appTokenProvider(bindings: WorkerBindings): GithubTokenProvider 
     return t;
   };
   provider.signedIn = (email) => tokens.signedIn(email);
+  provider.operator = () => tokens.operatorEmail();
   return provider;
 }
 
@@ -521,6 +524,8 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
         return own(as) ? as : undefined;
       },
       guest,
+      // Its needs are the operator's: they show and ring only for them, not as "Assigned to you" on a member's Today (#544).
+      person: people ? () => provider?.operator?.() : undefined,
     });
     // Dovre's own packs first (agents, autoreview, assistant: Bino's switch, issues), then the instance's.
     const { on, off } = activePacks([agentsPack({ desk, dismissed, ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}) }), autoreviewPack({ ...(forgeId === "github" ? { github: { ghe, owners: () => ownersIn(env) } } : {}), reviewer: () => reviewRoute(bindings) }), ...(forgeId === "github" ? [historyPack({ history: (changed) => historyOf(changed) })] : []), assistantPack(), todoPack({ links: () => ({ ghe: env.GHE_HOST, org: env.GHE_ORG }) }), prsPack({ ghe, owners: () => ownersIn(env), forge, stale: () => gatherer.stale(), checker: () => { const r = hub ? hostedBinoRoute(bindings as HubEnv) : undefined; return hub && r?.ready && r.ask ? { model: r.model, start: (job, topic) => hub.reviewCheck(job, topic) } : undefined; } }), deploysPack({ ghe, owners: () => ownersIn(env), approve: forgeCan(forge, "deployApproval"), stale: () => gatherer.stale() }), ...(forgeCan(forge, "stacks") ? [stacksPack({ ghe, owners: () => ownersIn(env) })] : []), ...(forgeCan(forge, "dependabot") ? [dependabotPack({ ghe, owners: () => ownersIn(env), stale: () => gatherer.stale() })] : []), issues, ...instancePacks], { env: strings, unread: keys.unread(), bindings, hosted: true });

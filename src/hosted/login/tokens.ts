@@ -65,6 +65,8 @@ export type AppTokens = {
   forEmail(email: string): Promise<string | undefined>;
   /** The operator's (GITHUB_USER's row, else ALLOWED_EMAILS in order), or undefined. */
   operator(): Promise<string | undefined>;
+  /** Whose token `operator` last gave (#544): the person the instance's own reads are made as. Undefined until it has given one. */
+  operatorEmail(): string | undefined;
   /** This person just signed in: a "no token" remembered for them is dropped, so the next call reads theirs. */
   signedIn(email: string): void;
 };
@@ -162,8 +164,9 @@ export function appTokens(o: { db: D1; secret: string; app: GithubApp; allowedEm
     if (kept && kept.until > now()) return kept.token;
     if (operatorMissUntil > now()) return undefined;
     const found = await pickOperator();
-    if (found) operatorEmail = found.email;
-    else operatorMissUntil = now() + MISS_MS;
+    // None: the instance reads with GITHUB_TOKEN, whoever's that is.
+    operatorEmail = found?.email;
+    if (!found) operatorMissUntil = now() + MISS_MS;
     return found?.token;
   };
 
@@ -183,5 +186,5 @@ export function appTokens(o: { db: D1; secret: string; app: GithubApp; allowedEm
     return undefined;
   };
 
-  return { forEmail, operator, signedIn: (email) => void miss.delete(email.trim().toLowerCase()) };
+  return { forEmail, operator, operatorEmail: () => operatorEmail, signedIn: (email) => void miss.delete(email.trim().toLowerCase()) };
 }

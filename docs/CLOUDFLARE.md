@@ -43,7 +43,8 @@ secret. Dovre then calls GitHub with them:
   as the operator: `GITHUB_USER`'s row, else the first `ALLOWED_EMAILS` entry that has one. So
   everyone you let in reads the owners' repos as the operator does, and what packs gather in the
   background is the operator's (Issues' needs, say: nothing is gathered for a person while they're
-  away).
+  away). Issues' needs, its line on Today's brief and what Bino hears as new name the operator,
+  so they show and ring only for them, not as "Assigned to you" on someone else's Today.
 - Someone who hasn't signed in with GitHub is the operator's guest: Today and Issues say whose work
   they show, with a link to sign in with GitHub for their own. Signing in is never required.
 - When nobody has signed in with GitHub yet, it's `GITHUB_TOKEN` if the Worker has one, else GitHub
