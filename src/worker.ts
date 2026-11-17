@@ -53,6 +53,7 @@ import { createQueue } from "./agents/queue.ts";
 import { type HubEnv, hostedBinoRoute, MACHINE_HEADER, OWNER_HEADER, type PagesView } from "./hosted/hub.ts";
 import { hostedSetup, setupPage, tablesOk } from "./hosted/setup.ts";
 import { serveLookups } from "./hosted/lookups.ts";
+import type { Lookup } from "./packs/core/assistant/bino/lookups.ts";
 import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
 import { githubAppOf } from "./hosted/login/github.ts";
 import { appTokens, sealOf } from "./hosted/login/tokens.ts";
@@ -571,7 +572,9 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
   serveLookups(async (env) => {
     const h = build(env as WorkerBindings);
     await capped(h.ready);
-    return packsOf(h.app)!.lookups;
+    const lookups = packsOf(h.app)!.lookups;
+    // Each lookup as whom the answer is for (#544): their snapshot, not the instance's. The object says who; only this account's Workers reach it.
+    return { specs: () => lookups.specs(), run: (l: Lookup) => viewingAs(typeof l.who === "string" ? l.who : undefined, () => lookups.run({ kind: l.kind, args: l.args })) };
   });
 
   /** The logs' keep-for (src/prune.ts): the cron asks each tick, and it prunes once a day. */

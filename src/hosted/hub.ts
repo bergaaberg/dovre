@@ -235,16 +235,21 @@ export function sqlConvStore(sql: HubState["storage"]["sql"]): ConvStore {
 export type BinoOp =
   | { op: "list" }
   | { op: "get"; id: string }
-  | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string; setup?: { pack: string; title: string }; carry?: { title: string } }
-  | { op: "say"; id: string; text: string; view?: string; context: string; brief?: string }
+  | { op: "start"; text: string; todo?: number; view?: string; app?: string; context: string; setup?: { pack: string; title: string }; carry?: { title: string }; /** The Worker's verified viewer (#544): the answer's lookups run as them. */ who?: string }
+  | { op: "say"; id: string; text: string; view?: string; context: string; brief?: string; who?: string }
   | { op: "stop"; id: string }
-  | { op: "retry"; id: string; context: string; brief?: string }
+  | { op: "retry"; id: string; context: string; brief?: string; who?: string }
   | { op: "rename"; id: string; title: string }
   | { op: "pin"; id: string; on: boolean }
   | { op: "remove"; id: string }
   | { op: "added"; id: string; index: number; todo: number }
   | { op: "setAct"; id: string; index: number; n: number; /** null clears a key (JSON drops undefined). */ patch: { error?: string | null; done?: { at: number; text: string; href?: string } | null; was?: string | null } };
 
+/** Whom an answer is for, as the Worker said (an email, lowercased), or nothing. */
+const whoOf = (v: unknown): { who?: string } => {
+  const w = typeof v === "string" ? v.trim().toLowerCase() : "";
+  return w && w.length <= 254 ? { who: w } : {};
+};
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v ?? null), { status, headers: { "content-type": "application/json" } });
 const enc = new TextEncoder();
 /** An answer in flight keeps the object awake: an alarm a minute, while one is. */
@@ -638,19 +643,19 @@ export class DovreHub {
       case "start": {
         const setup = o.setup && typeof o.setup.pack === "string" && SETUP_PACK.test(o.setup.pack) ? { pack: o.setup.pack, title: String(o.setup.title ?? "").slice(0, 200) } : undefined;
         const carry = o.carry && typeof o.carry === "object" ? { title: String(o.carry.title ?? "").slice(0, 200) } : undefined;
-        const c = b.start(String(o.text ?? ""), { todo: o.todo, view: o.view, app: o.app, context: String(o.context ?? ""), ...(setup ? { setup } : {}), ...(carry ? { carry } : {}) });
+        const c = b.start(String(o.text ?? ""), { todo: o.todo, view: o.view, app: o.app, context: String(o.context ?? ""), ...(setup ? { setup } : {}), ...(carry ? { carry } : {}), ...whoOf(o.who) });
         await this.awake(b);
         return c;
       }
       case "say": {
-        const ok = b.say(o.id, String(o.text ?? ""), { view: o.view, context: String(o.context ?? ""), ...(typeof o.brief === "string" ? { brief: o.brief } : {}) });
+        const ok = b.say(o.id, String(o.text ?? ""), { view: o.view, context: String(o.context ?? ""), ...(typeof o.brief === "string" ? { brief: o.brief } : {}), ...whoOf(o.who) });
         await this.awake(b);
         return ok;
       }
       case "stop":
         return b.stop(String(o.id ?? ""));
       case "retry": {
-        const ok = b.retry(String(o.id ?? ""), { context: String(o.context ?? ""), ...(typeof o.brief === "string" ? { brief: o.brief } : {}) });
+        const ok = b.retry(String(o.id ?? ""), { context: String(o.context ?? ""), ...(typeof o.brief === "string" ? { brief: o.brief } : {}), ...whoOf(o.who) });
         await this.awake(b);
         return ok;
       }
