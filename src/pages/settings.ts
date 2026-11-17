@@ -8,7 +8,7 @@ import { wholeIn } from "../packs/env.ts";
 import { found } from "../tools.ts";
 import { currentTz } from "../when.ts";
 import { DEFAULT_POLICY, type Policy, RING_KINDS, type Rung } from "../notify.ts";
-import { quietLabel } from "../quiet.ts";
+import { quietLabel, spanLabel, spanNow, spanOf } from "../quiet.ts";
 import type { Layout } from "../layout.ts";
 import { DEFAULT_KEYS, KEY_GROUPS, type KeyPrefs, SCROLL_STEPS } from "../keys.ts";
 import type { Clicks, WriteKind } from "../writes.ts";
@@ -292,7 +292,8 @@ const areaOf = (id: AreaId) => AREAS.find((a) => a.id === id)!;
  * rest of that form as it is now.
  */
 export type Change = {
-  kind: "switch" | "choice" | "number";
+  /** `hours`: a span of hours, "22-7", or "" for none (quiet hours). */
+  kind: "switch" | "choice" | "number" | "hours";
   /** What it is now, as its form posts it. */
   value: string;
   /** A choice's values; a switch's are "1" and "0". */
@@ -304,7 +305,7 @@ export type Change = {
   loosens?(to: string): boolean;
 };
 const SWITCH: Choice[] = [{ value: "1", label: "On" }, { value: "0", label: "Off" }];
-export const choicesOf = (c: Change): Choice[] => (c.kind === "number" ? [] : (c.choices ?? SWITCH));
+export const choicesOf = (c: Change): Choice[] => (c.kind === "number" || c.kind === "hours" ? [] : (c.choices ?? SWITCH));
 
 /**
  * `to` as this setting takes it, or null. A choice by its value, or by its label as it's shown
@@ -313,6 +314,7 @@ export const choicesOf = (c: Change): Choice[] => (c.kind === "number" ? [] : (c
 export function changeTo(c: Change, to: string): string | null {
   const t = to.trim();
   if (c.kind === "number") return wholeIn(c, t) ? String(Number(t)) : null;
+  if (c.kind === "hours") return spanOf(t);
   const choices = choicesOf(c);
   if (choices.some((x) => x.value === to)) return to;
   const low = t.toLowerCase();
@@ -322,7 +324,7 @@ export function changeTo(c: Change, to: string): string | null {
 }
 
 /** A value of this setting as its page words it. */
-export const changeLabel = (c: Change, v: string) => (c.kind === "number" ? v : (choicesOf(c).find((x) => x.value === v)?.label ?? v));
+export const changeLabel = (c: Change, v: string) => (c.kind === "number" ? v : c.kind === "hours" ? spanLabel(v) : (choicesOf(c).find((x) => x.value === v)?.label ?? v));
 
 /**
  * One setting, to find: where it lives, what it's set to now, and whether that's other than the
@@ -354,6 +356,10 @@ type RowsState = {
   canRestart?: boolean;
   /** Where code lives (#421): the forge's name, or none. */
   codeHost?: { forge: string; none: boolean };
+  /** The packs whose events feed What's happening. */
+  feeds?: { id: string; name: string }[];
+  /** Layout's whole form as it is now, with the range or the feed's sources changed: how those are changed by themselves (#185). */
+  layoutForm?: (o: { statsWeeks?: string; feedOff?: string[] }) => [string, string][];
 };
 
 const LOOK_ALSO: Record<string, string[]> = { theme: ["dark", "light", "mode", "colour", "color"], accent: ["colour", "color"], font: ["typeface", "sans", "serif", "mono"], textSize: ["font size", "zoom", "bigger", "smaller"], lineHeight: ["spacing", "leading"], binoButton: ["assistant", "avatar", "face"], motion: ["animation", "animations", "reduced motion", "movement"] };
@@ -370,11 +376,12 @@ export function settingRows(s: RowsState): SettingRow[] {
     rows.push({ id: `look.${o.key}`, area: "look", label: o.label, href: "/settings/look", now: o.choices.find((c) => c.value === v)?.label, changed: v !== "", also: LOOK_ALSO[o.key], change: { kind: "choice", value: v, choices: o.choices, post } });
   }
   const range = statsRange(l);
+  const form = s.layoutForm;
   rows.push(
     { id: "layout.tabs", area: "layout", label: "The phone's tabs", href: "/settings/layout#tabs", changed: l.tabs !== undefined, also: ["tab bar", "mobile", "bottom"] },
     { id: "layout.cards", area: "layout", label: "Today's cards", href: "/settings/layout#cards", changed: !!l.cards && Object.keys(l.cards).length > 0, also: ["home", "columns", "order"] },
     { id: "layout.stats", area: "layout", label: "What Stats shows", href: "/settings/layout#stats", changed: !!l.stats && Object.keys(l.stats).length > 0, also: ["charts", "panels"] },
-    { id: "layout.statsRange", area: "layout", label: "Range on Stats", href: "/settings/layout#stats", now: STATS_RANGES.find((r) => r.value === range)?.label, changed: range !== "", also: ["weeks", "days"] },
+    { id: "layout.statsRange", area: "layout", label: "Range on Stats", href: "/settings/layout#stats", now: STATS_RANGES.find((r) => r.value === range)?.label, changed: range !== "", also: ["weeks", "days"], ...(form ? { change: { kind: "choice" as const, value: range, choices: STATS_RANGES, post: (to: string) => ({ action: "/settings/layout", fields: form({ statsWeeks: to }) }) } } : {}) },
     { id: "layout.feed", area: "layout", label: "What's happening: its sources", href: "/settings/layout#feed", now: l.feedOff?.length ? `${l.feedOff.length} left out` : undefined, changed: !!l.feedOff?.length, also: ["feed", "events"] },
     { id: "layout.packs", area: "layout", label: "Packs on", href: "/settings/layout#packs-shown", now: l.packsOff?.length ? `${l.packsOff.length} off` : undefined, changed: !!l.packsOff?.length, also: ["hide", "pack", "switch", "off", "Bino", "Terminal", "Docker"] },
   );
@@ -383,17 +390,24 @@ export function settingRows(s: RowsState): SettingRow[] {
     const on = !l.packsOff?.includes(k.id);
     rows.push({ id: `pack.${k.id}`, area: "layout", label: `Pack on: ${k.name}`, href: "/settings/layout#packs-shown", now: onOff(on), also: ["hide", "switch", "show", k.id], change: { kind: "switch", value: on ? "1" : "0", post: (to) => ({ action: `/packs/${encodeURIComponent(k.id)}/switch`, fields: [["on", to]] }) } });
   }
+  // Each source of What's happening: "its sources" above says what was changed.
+  for (const f of s.feeds ?? []) {
+    const off = l.feedOff ?? [];
+    const on = !off.includes(f.id);
+    rows.push({ id: `layout.feed.${f.id}`, area: "layout", label: `What's happening: ${f.name}`, href: "/settings/layout#feed", now: onOff(on), also: ["feed", "events", f.id], ...(form ? { change: { kind: "switch" as const, value: on ? "1" : "0", post: (to: string) => ({ action: "/settings/layout", fields: form({ feedOff: to === "1" ? off.filter((x) => x !== f.id) : [...off, f.id] }) }) } } : {}) });
+  }
   const p = s.policy;
   const kinds = [...RING_KINDS, ...s.rings];
   // Notifications posts every kind that rings, the bundle and the quiet hours.
-  const notifyForm = (o: { kind?: string; on?: boolean; bundleSec?: string }): [string, string][] => {
-    const hours = !!p.quiet && p.quiet.from !== p.quiet.to;
+  // `span` is quiet hours' from and to ("22-7", "" for none), `weekends` all weekend.
+  const notifyForm = (o: { kind?: string; on?: boolean; bundleSec?: string; span?: string; weekends?: boolean }): [string, string][] => {
+    const span = (o.span ?? spanNow(p.quiet)).split("-");
     return [
       ...kinds.filter((k) => (k.kind === o.kind ? !!o.on : ringOn(p, k))).map((k): [string, string] => ["kind", k.kind]),
       ["bundleSec", o.bundleSec ?? String(p.bundleSec)],
-      ["quietFrom", hours ? String(p.quiet!.from) : ""],
-      ["quietTo", hours ? String(p.quiet!.to) : ""],
-      ...(p.quiet?.weekends ? [["quietWeekends", "on"] as [string, string]] : []),
+      ["quietFrom", span[1] !== undefined ? span[0]! : ""],
+      ["quietTo", span[1] ?? ""],
+      ...((o.weekends ?? !!p.quiet?.weekends) ? [["quietWeekends", "on"] as [string, string]] : []),
     ];
   };
   for (const k of kinds) {
@@ -403,7 +417,8 @@ export function settingRows(s: RowsState): SettingRow[] {
   rows.push(
     { id: "agents.longTurn", area: "agents", label: "A long agent turn is at least", href: "/settings/agents#long-turn", now: `${p.longTurnMin} min`, changed: p.longTurnMin !== DEFAULT_POLICY.longTurnMin, also: ["agent", "minutes", "notification", "ring"], ...(s.notifier ? { change: { kind: "number" as const, value: String(p.longTurnMin), min: 0, max: 240, post: (to: string) => ({ action: "/settings/agents/long-turn", fields: [["longTurnMin", to]] }) } } : {}) },
     { id: "notify.bundle", area: "notifications", label: "Bundle what follows for", href: "/settings/notifications#bundle", now: `${p.bundleSec} s`, changed: p.bundleSec !== DEFAULT_POLICY.bundleSec, also: ["group", "seconds"], ...(s.notifier ? { change: { kind: "number" as const, value: String(p.bundleSec), min: 0, max: 600, post: (to: string) => ({ action: "/settings/notify", fields: notifyForm({ bundleSec: to }) }) } } : {}) },
-    { id: "notify.quiet", area: "notifications", label: "Quiet hours", href: "/settings/notifications#quiet-hours", now: quietLabel(p.quiet), changed: !!p.quiet, also: ["quiet hours", "work hours", "weekend", "night", "auto runs"] },
+    { id: "notify.quiet", area: "notifications", label: "Quiet hours", href: "/settings/notifications#quiet-hours", now: quietLabel(p.quiet), changed: !!p.quiet, also: ["quiet hours", "work hours", "weekend", "night", "auto runs"], ...(s.notifier ? { change: { kind: "hours" as const, value: spanNow(p.quiet), post: (to: string) => ({ action: "/settings/notify", fields: notifyForm({ span: to }) }) } } : {}) },
+    { id: "notify.quietWeekends", area: "notifications", label: "Quiet hours: all weekend", href: "/settings/notifications#quiet-hours", now: onOff(!!p.quiet?.weekends), also: ["quiet hours", "weekend", "saturday", "sunday"], ...(s.notifier ? { change: { kind: "switch" as const, value: p.quiet?.weekends ? "1" : "0", post: (to: string) => ({ action: "/settings/notify", fields: notifyForm({ weekends: to === "1" }) }) } } : {}) },
     { id: "notify.test", area: "notifications", label: "Send a test notification", href: "/settings/notifications#rang-lately", also: ["test", "rang lately"] },
   );
   const CLICKS: Choice[] = [{ value: "once", label: "One click" }, { value: "twice", label: "Asks twice" }];

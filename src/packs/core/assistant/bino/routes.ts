@@ -34,6 +34,7 @@ import { markdown } from "../../../../ui/markdown.ts";
 import type { ListItem, ListShare } from "../../../types.ts";
 import { Ago, harnessTag, safeUrl } from "../../../../pages/parts.ts";
 import { changeLabel, changeTo, choicesOf, type SettingRow } from "../../../../pages/settings.ts";
+import { spanHours } from "../../../../quiet.ts";
 import type { SettingsApi } from "../../../../routes/settings.ts";
 import type { DrawnStep, SetupApi, SetupState } from "../../../../routes/welcome.ts";
 import type { CarryApi, CarryPack } from "../../../../routes/carry.ts";
@@ -115,6 +116,13 @@ ${inputs}
 </form>`;
 }
 
+/** Quiet hours on a card: from and until, each an hour, or "—" in both for none. The press puts them together; one end alone isn't taken. */
+function hoursField(label: string, now: string, at: { from: number; to: number } | undefined): Html {
+  const pick = (name: string, said: string, v: number | undefined) =>
+    html`<select name="${name}" aria-label="${label}: ${said}"><option value=""${v === undefined ? html` selected` : ""}>—</option>${Array.from({ length: 24 }, (_, h) => html`<option value="${h}"${h === v ? html` selected` : ""}>${String(h).padStart(2, "0")}:00</option>`)}</select>`;
+  return html`<p class="bino-set"><span>${now}</span><span aria-hidden="true">→</span>${pick("from", "from", at?.from)}<span aria-hidden="true">–</span>${pick("till", "until", at?.to)}</p>`;
+}
+
 /**
  * A setting of Dovre's (#185): what it is now and what it would become, changed with the card's own
  * field first if Bino guessed wrong. Its press goes to the core, which sends the setting's own
@@ -142,6 +150,8 @@ function settingCard(c: Conv, i: number, n: number, a: SettingAct & Act, ax: Act
   const field =
     fixed
       ? html`<input type="hidden" name="to" value="${to}"><p class="bino-set"><span>${now}</span><span aria-hidden="true">→</span><strong>${changeLabel(ch, to)}</strong></p>`
+      : ch.kind === "hours"
+        ? hoursField(row.label, now, spanHours(to ?? ch.value))
       : ch.kind === "number"
         ? html`<p class="bino-set"><span>${now}</span><span aria-hidden="true">→</span><input type="number" name="to" min="${ch.min ?? ""}" max="${ch.max ?? ""}" value="${to ?? ch.value}" required aria-label="${row.label}: change to"></p>`
         : html`<p class="bino-set"><span>${now}</span><span aria-hidden="true">→</span><select name="to" aria-label="${row.label}: change to">${choicesOf(ch).map((x) => html`<option value="${x.value}"${x.value === (to ?? ch.value) ? html` selected` : ""}>${x.label}</option>`)}</select></p>`;
@@ -775,7 +785,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
       const form = await c.req.parseBody();
       const back = `${convHref(id, first(form.dock) === "1")}#act-${i}-${n}`;
       if (a.done) return c.redirect(back, 303);
-      const r = await deps.settings.change(c.req.raw, a.id, typeof form.to === "string" ? form.to.slice(0, 200) : a.to, "Bino", { twice: form.twice === "1", env: c.env, ctx: ctxOf(c) });
+      const r = await deps.settings.change(c.req.raw, a.id, typeof form.to === "string" ? form.to.slice(0, 200) : typeof form.from === "string" && typeof form.till === "string" ? (form.from || form.till ? `${form.from.slice(0, 2)}-${form.till.slice(0, 2)}` : "") : a.to, "Bino", { twice: form.twice === "1", env: c.env, ctx: ctxOf(c) });
       await bino.setAct(id, i, n, r.ok ? { error: undefined, was: r.was, done: { at: Date.now(), text: r.text, href: r.href } } : { error: r.why });
       return c.redirect(back, 303);
     }
