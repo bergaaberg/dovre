@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { openDb } from "../../../../db.ts";
 import type { AutoFixAsk, AutoFixLanded, AutoRunResult, AutoShare } from "../../agents/share.ts";
 import { fixPass, type FixDeps } from "../fix.ts";
-import { findingsStore, postMark, postsOf } from "../findings.ts";
+import { askId, findingsStore, postMark, postsOf } from "../findings.ts";
 import { fixPrompt, repliesOf } from "../fixer.ts";
 import { prsStore } from "../store.ts";
 import { editorsOf, iso, type Said, saidAt } from "./said.ts";
@@ -234,7 +234,7 @@ test("a fix pass: a PR's budget nearly spent hands it to me before a session sta
   assert.match((await row(s)).why!, /nearly the cap for one PR/);
 });
 
-test("a fix pass: owners' words since the last round go in, first; the session replies on their threads too, marked as Dovre's; the next round doesn't get them again", async () => {
+test("a fix pass: owners' words since the last round go in, first; the session replies on their threads too, marked as Dovre's; the next round gets only the line comment, until a review says it's fixed", async () => {
   const later = Date.now() + 60_000;
   const s = setup({
     said: [
@@ -262,9 +262,20 @@ test("a fix pass: owners' words since the last round go in, first; the session r
   );
   assert.ok(s.gh.replies.every((x) => String((x.body as { body: string }).body).endsWith("<!-- dovre:autoreview -->")));
 
-  // The next round, from a new review: what was taken in isn't asked again.
+  // The line comment is a finding to fix, in my words: the next round has it again until a review says it's fixed; what else was said isn't asked again.
+  assert.deepEqual((await s.findings.of(PR)).filter((f) => f.asker).map((f) => [f.id, f.status, f.comment, f.asker, f.title]), [[askId(21), "force-fix", 21, "me", "Call it fetchUser."]]);
   await s.store.level(PR, "reviewing", { head: NEW, level: 3, review: 99 });
   await s.store.move(PR, "reviewing", "fixing", { round: 2 });
   await fixPass(s.deps);
-  assert.doesNotMatch(s.asked[1]!.prompt, /fetchUser|# The owner's comments/);
+  assert.match(s.asked[1]!.prompt, /# The owner's comments\n\n## Comment 21 from me on src\/a\.ts line 2\n\nCall it fetchUser\.\n\n# The reviewer's findings/);
+  assert.doesNotMatch(s.asked[1]!.prompt, /Not like this/);
+
+  await s.findings.reported(PR, { round: 2, head: NEW, review: 99, fixed: [askId(21)] }, []);
+  await s.store.move(PR, "fixing", "reviewing");
+  await s.store.level(PR, "reviewing", { head: NEW, level: 3, review: 99 });
+  await s.store.move(PR, "reviewing", "fixing", { round: 3 });
+  s.share.start = { run: "fix-3" };
+  await fixPass(s.deps);
+  assert.equal(s.asked.length, 3);
+  assert.doesNotMatch(s.asked[2]!.prompt, /fetchUser|# The owner's comments/);
 });

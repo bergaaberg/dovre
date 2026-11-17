@@ -102,8 +102,8 @@ test("autoOf: the agents pack's own share, narrowed; anything else under that na
 });
 
 test("the PR page's findings: the ones holding the PR back first, what I can say about each, how many are fixed; no buttons once the PR has left the loop; hostile text inert", () => {
-  const f = (o: Partial<Finding>): Finding => ({ id: "0123456789ab", pr: PR, round: 0, head: "h", severity: "low", tags: ["clarity"], path: "src/a.ts", line: 2, side: "RIGHT", title: "Vague name", body: "b", fix: "", status: "open", review: 99, comment: 501, raised: 1, at: 1, updated: 1, ...o });
-  const list = [f({}), f({ id: "aaaaaaaaaaaa", severity: "high", title: H, path: H, line: 9, startLine: 4, raised: 2 }), f({ id: "bbbbbbbbbbbb", status: "force-ignore", title: "Ignored one" }), f({ id: "cccccccccccc", status: "fixed" }), f({ id: "dddddddddddd", status: "force-fix", title: "Asked for" })];
+  const f = (o: Partial<Finding>): Finding => ({ id: "0123456789ab", pr: PR, round: 0, head: "h", severity: "low", tags: ["clarity"], path: "src/a.ts", line: 2, side: "RIGHT", title: "Vague name", body: "b", fix: "", status: "open", review: 99, comment: 501, raised: 1, asker: null, at: 1, updated: 1, ...o });
+  const list = [f({}), f({ id: "aaaaaaaaaaaa", severity: "high", title: H, path: H, line: 9, startLine: 4, raised: 2 }), f({ id: "bbbbbbbbbbbb", status: "force-ignore", title: "Ignored one" }), f({ id: "cccccccccccc", status: "fixed" }), f({ id: "dddddddddddd", status: "force-fix", title: "Asked for" }), f({ id: "0000000003e9", status: "force-fix", severity: "high", title: "Call it fetchUser", asker: H }), f({ id: "0000000003ea", status: "force-ignore", severity: "high", title: "Mine, ignored", asker: "me" })];
   const [label, body] = findingsFact(list, { repo: "acme/web", number: 7, live: true, flash: { ok: true, message: H } })!;
   const out = String(body);
   assert.equal(label, "Findings");
@@ -112,8 +112,9 @@ test("the PR page's findings: the ones holding the PR back first, what I can say
   assert.match(out, /:4-9 · open, holds the PR back · raised by 2 reviews/);
   assert.match(out, /you said fix it, holds the PR back/);
   assert.match(out, /1 fixed\./);
+  assert.match(out, />asked<[^]*Call it fetchUser[^]*:2 · &lt;script&gt;[^]*&#39;s comment · you said fix it, holds the PR back/, "my own line comment says it's mine, not a severity");
   const posts = [...out.matchAll(/name="id" value="([0-9a-f]{12})"><input type="hidden" name="to" value="([a-z-]+)"/g)].map((m) => `${m[1]!.slice(0, 2)}:${m[2]}`);
-  assert.deepEqual(posts.sort(), ["01:force-fix", "01:force-ignore", "aa:force-ignore", "bb:open", "dd:open"], "a finding already holding it back needs no Fix it; a decided one can be undone; a fixed one takes nothing");
+  assert.deepEqual(posts.sort(), ["00:force-fix", "00:force-ignore", "01:force-fix", "01:force-ignore", "aa:force-ignore", "bb:open", "dd:open"], "a finding already holding it back needs no Fix it; a decided one can be undone, but my own comment only ignored or fixed; a fixed one takes nothing");
   assert.ok(out.includes(`action="${DECIDE_HREF}"`));
   assert.doesNotMatch(String(findingsFact(list, { repo: "acme/web", number: 7, live: false })![1]), /<form/);
   assert.equal(findingsFact([], { repo: "acme/web", number: 7, live: true }), undefined);

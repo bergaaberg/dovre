@@ -7,9 +7,15 @@
  * text must be as they left it. A comment edited since it was posted counts only when an owner
  * edited it; otherwise the PR is handed to me. Dovre posts as me, so its own posts carry `MARK`
  * and are never taken for mine.
+ *
+ * An owner's line comment on the diff that starts a thread is a finding to fix (#555; findings.ts
+ * `asked`), not something said once: it holds the PR back until the reviewer says it's fixed.
+ * `ownerHeard` takes those in as findings and leaves them out of what was said.
  */
+import type { D1 } from "../../../db.ts";
 import { ownersOf } from "../../../owners.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
+import { type Ask, askId, findingsStore } from "./findings.ts";
 import type { PrRow } from "./store.ts";
 
 /** In every post Auto review makes on a PR (hidden when rendered): what tells its posts from mine. */
@@ -21,9 +27,27 @@ const MAX_SAID = 30;
 const MAX_TEXT = 3000;
 
 /** One thing an owner said. `line` ones are review threads, which a fix session replies on. */
-export type OwnerSaid = { id: number; kind: "line" | "issue" | "review"; by: string; at: number; text: string; path?: string; line?: number | null; requested?: boolean };
-/** `said`: oldest first. `requested`: owners whose latest verdict since is Request changes. `refused`: why some of it can't be acted on. */
-export type Heard = { said: OwnerSaid[]; requested: string[]; refused?: string };
+export type OwnerSaid = {
+  id: number;
+  kind: "line" | "issue" | "review";
+  by: string;
+  at: number;
+  text: string;
+  path?: string;
+  line?: number | null;
+  /** A line comment's: its first line when it spans several, its side, the commit it was left on, and whether it answers a thread. */
+  startLine?: number;
+  side?: "LEFT" | "RIGHT";
+  commit?: string;
+  reply?: boolean;
+  requested?: boolean;
+};
+/**
+ * `said`: oldest first. `requested`: owners whose latest verdict since is Request changes.
+ * `refused`: why some of it can't be acted on. `asks`: line comments taken in as findings
+ * (`ownerHeard`), by their finding's id, no longer in `said`.
+ */
+export type Heard = { said: OwnerSaid[]; requested: string[]; refused?: string; asks?: { id: string; at: number }[] };
 
 type Raw = {
   id?: number;
@@ -37,6 +61,10 @@ type Raw = {
   path?: string;
   line?: number | null;
   original_line?: number | null;
+  start_line?: number | null;
+  side?: string;
+  commit_id?: string;
+  in_reply_to_id?: number | null;
   pull_request_review_id?: number | null;
 };
 
@@ -73,7 +101,21 @@ export async function ownerSays(d: { ghe: Pick<Ghe, "rest" | "graphql">; owners:
       .map((c) => ({ id: c.id!, kind: "issue" as const, by: by(c), at: Date.parse(c.created_at!), text: text(c), node: c.node_id, edited: edited(c) })),
     ...list(lines)
       .filter((c) => ok(c) && after(c.created_at) && c.pull_request_review_id !== row.review && text(c))
-      .map((c) => ({ id: c.id!, kind: "line" as const, by: by(c), at: Date.parse(c.created_at!), text: text(c), path: String(c.path ?? ""), line: c.line ?? c.original_line ?? null, node: c.node_id, edited: edited(c) })),
+      .map((c) => ({
+        id: c.id!,
+        kind: "line" as const,
+        by: by(c),
+        at: Date.parse(c.created_at!),
+        text: text(c),
+        path: String(c.path ?? ""),
+        line: c.line ?? c.original_line ?? null,
+        ...(c.line && c.start_line && c.start_line < c.line ? { startLine: c.start_line } : {}),
+        side: c.side === "LEFT" ? ("LEFT" as const) : ("RIGHT" as const),
+        ...(typeof c.commit_id === "string" && /^[\w-]{1,64}$/.test(c.commit_id) ? { commit: c.commit_id } : {}),
+        ...(c.in_reply_to_id ? { reply: true } : {}),
+        node: c.node_id,
+        edited: edited(c),
+      })),
     // A review's body; its line comments come in above. Reviews have no edit time over REST: each is asked.
     // A Request changes its owner has approved since is over.
     ...theirs
@@ -113,14 +155,43 @@ async function editedByOthers(ghe: Pick<Ghe, "graphql">, items: { kind: string; 
   return undefined;
 }
 
-/** What owners said that's open, as "acme's Request changes and 2 owner comments"; empty for nothing. */
-export function heardLine(h: Pick<Heard, "said" | "requested">): string {
-  const n = h.said.filter((s) => !s.requested).length;
+/**
+ * A line comment that starts a thread on a line of the diff (one still on it: the forge gives its
+ * line) as a finding to fix; a reply, a comment on a line that's gone, and everything else stay
+ * said.
+ */
+export function asksOf(said: OwnerSaid[]): { asks: Ask[]; said: OwnerSaid[] } {
+  const asks: Ask[] = [];
+  const rest: OwnerSaid[] = [];
+  for (const s of said) {
+    if (s.kind === "line" && !s.reply && s.path && s.line) asks.push({ comment: s.id, by: s.by, at: s.at, path: s.path, line: s.line, ...(s.startLine ? { startLine: s.startLine } : {}), side: s.side ?? "RIGHT", text: s.text, ...(s.commit ? { head: s.commit } : {}) });
+    else rest.push(s);
+  }
+  return { asks, said: rest };
+}
+
+/**
+ * What owners said since the row's `heard` (`ownerSays`), with their line comments on the diff
+ * kept as findings to fix (findings.ts `asked`) and left out of `said`, so a round and the level's
+ * cap count each once. Refused, nothing is taken in.
+ */
+export async function ownerHeard(d: { db: D1; ghe: Pick<Ghe, "rest" | "graphql">; owners: string; login: string; now?: () => number }, row: Pick<PrRow, "pr" | "repo" | "number" | "review" | "heard" | "round" | "head">): Promise<Heard> {
+  const heard = await ownerSays(d, row, row.heard);
+  if (heard.refused) return heard;
+  const { asks, said } = asksOf(heard.said);
+  if (!asks.length) return heard;
+  await findingsStore(d.db, d.now).asked(row.pr, { round: row.round, head: row.head ?? "" }, asks);
+  return { ...heard, said, asks: asks.map((a) => ({ id: askId(a.comment), at: a.at })) };
+}
+
+/** What owners said that's open, as "acme's Request changes and 2 owner comments"; empty for nothing. Line comments taken in as findings (`asks`) count as comments. */
+export function heardLine(h: Pick<Heard, "said" | "requested" | "asks">): string {
+  const n = h.said.filter((s) => !s.requested).length + (h.asks?.length ?? 0);
   return [h.requested.length ? `${h.requested.join(" and ")}'s Request changes` : "", n ? `${n} owner comment${n === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
 }
 
 /** The same as a level's cap says it: "2 owner comments are open". */
-export function heardOpen(h: Pick<Heard, "said" | "requested">): string {
+export function heardOpen(h: Pick<Heard, "said" | "requested" | "asks">): string {
   const line = heardLine(h);
-  return line ? `${line} ${h.requested.length + h.said.filter((s) => !s.requested).length > 1 ? "are" : "is"} open` : "";
+  return line ? `${line} ${h.requested.length + h.said.filter((s) => !s.requested).length + (h.asks?.length ?? 0) > 1 ? "are" : "is"} open` : "";
 }
