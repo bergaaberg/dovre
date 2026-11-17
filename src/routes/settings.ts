@@ -375,8 +375,11 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       }
       case "packs":
         return packsList(packSettings());
-      case "calls":
-        return callsPanels((await ghe.calls?.view(env.DB)) ?? { quota: [], counts: [], now: Date.now() }, forge.name);
+      case "calls": {
+        // A person on their own snapshot (#544): their own token's quota and what their gathers used.
+        const own = deps.ownCalls?.();
+        return callsPanels((await (own ?? ghe.calls)?.view(env.DB)) ?? { quota: [], counts: [], now: Date.now() }, forge.name, { own: !!own });
+      }
       case "speed":
         return speedPanels(await speed.view(env.DB));
       case "sent":

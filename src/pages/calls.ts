@@ -37,7 +37,7 @@ function sitesPanel(title: string, id: string, rows: ReturnType<typeof topSites>
   });
 }
 
-export function callsPanels(v: CallsView, forge: string): Html {
+export function callsPanels(v: CallsView, forge: string, o: { /** Hosted (#544): the viewer's own token's, not the cockpit's. */ own?: boolean } = {}): Html {
   const hour = Math.floor(v.now / HOUR) * HOUR;
   const low = v.quota.filter((q) => (q.bucket === "core" || q.bucket === "graphql") && isLow(q, v.now));
   const quota = v.quota.length
@@ -54,7 +54,10 @@ export function callsPanels(v: CallsView, forge: string): Html {
         }),
       )
     : Empty({ title: "Nothing heard yet", children: html`${forge} says what's left with each answer; none has come since the counts began.` });
-  return html`<p class="t2">Every call to ${forge}'s API, counted by where in Dovre it comes from. The quota is the token's, so the gh CLI and agents using the same account spend it too: a quota that falls faster than these counts is them.</p>${
+  const whose = o.own
+    ? html`<p class="t2">Your own ${forge} token: what gathering your own work used. Pages that read the owners' repos use the cockpit's token, counted on its own.</p>`
+    : "";
+  return html`${whose}<p class="t2">Every call to ${forge}'s API, counted by where in Dovre it comes from. The quota is the token's, so the gh CLI and agents using the same account spend it too: a quota that falls faster than these counts is them.</p>${
     low.length ? Notice({ tone: "warn", children: html`Low on ${low.map((q) => q.bucket).join(" and ")}: the snapshot is gathered at most every 10 minutes and Stats waits until it fills again.` }) : ""
   }${Panel({ title: "Left", id: "quota", children: quota })}${sitesPanel(`Since ${hourOf(hour)}`, "calls-hour", topSites(v.counts, hour))}${sitesPanel("The last 24 hours", "calls-day", topSites(v.counts, hour - 23 * HOUR))}`;
 }
