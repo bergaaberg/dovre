@@ -162,7 +162,8 @@ test("hosted, per person (#544): someone with a snapshot of their own gets their
   // Whose page this is: undefined for the cron and for anyone on the instance's snapshot.
   let asking: string | undefined;
   const make = () => {
-    const one = (who: () => string | undefined, mine?: string) => createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: who, kept: d1HistoryKept(DB, mine), now: () => now, gather, log: () => {} });
+    // A person's weeks are sealed (#544), as the Worker keeps them.
+    const one = (who: () => string | undefined, mine?: string) => createStats({ ghe: fakeGhe({}).ghe, org: () => "ACME", login: who, kept: d1HistoryKept(DB, mine, mine ? "s".repeat(40) : undefined), now: () => now, gather, log: () => {} });
     return historyPerPerson({ shared: one(() => "op"), own: () => asking, make: (as) => one(() => as, as) });
   };
   const a = make();
@@ -179,6 +180,8 @@ test("hosted, per person (#544): someone with a snapshot of their own gets their
   assert.deepEqual(gathered, ["op", "Two"], "each gathered once: looking in turn doesn't gather again");
   const keys = async () => (await DB.prepare("SELECT key FROM settings WHERE key LIKE 'history%' ORDER BY key").all<{ key: string }>()).results.map((r) => r.key);
   assert.deepEqual(await keys(), ["history", "history:two"]);
+  const theirs = (await DB.prepare("SELECT value FROM settings WHERE key = 'history:two'").first<{ value: string }>())!.value;
+  assert.ok(theirs.startsWith("v1z.") && !theirs.includes("Two"), "a person's weeks are sealed: a cockpit's export carries D1");
 
   // A fresh isolate draws each from its own row.
   const b = make();
