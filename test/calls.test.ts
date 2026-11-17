@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { autoTick } from "../src/actions/auto.ts";
 import { DEFAULT_AUTO, saveAutoSettings } from "../src/agents/auto.ts";
 import { openDb } from "../src/db.ts";
-import { createCalls, graphqlSiteOf, isLow, siteOf } from "../src/forge/calls.ts";
+import { createCalls, graphqlSiteOf, isLow, personScope, siteOf } from "../src/forge/calls.ts";
 import { githubForge } from "../src/forge/github.ts";
 import { createGatherer } from "../src/gather.ts";
 import { callsPanels, topSites } from "../src/pages/calls.ts";
@@ -284,4 +284,28 @@ test("Settings → GitHub calls: hostile sites and buckets stay text; low says w
   assert.doesNotMatch(hourPanel, /GET \/notifications/, "three hours ago isn't this hour");
   assert.match(out.slice(out.indexOf('id="calls-day"')), /GET \/notifications/);
   assert.match(String(callsPanels({ now, quota: [], counts: [] }, "GitHub")), /Nothing heard yet/);
+});
+
+test("a person's own calls (#544): counted under their scope, shown only on their page, never in the cockpit's", async () => {
+  const db = openDb();
+  const t = 10 * 24 * HOUR;
+  const instance = createCalls(() => t);
+  const two = createCalls(() => t, personScope(" Two@X.dev "));
+  instance.record("GET /user", limits(4000));
+  two.record("GET /notifications", limits(4900));
+  two.record("GET /notifications", limits(4899));
+  await instance.flush(db.DB, true);
+  await two.flush(db.DB, true);
+  const cockpit = await createCalls(() => t).view(db.DB);
+  assert.deepEqual(topSites(cockpit.counts, 0).map((r) => r.site), ["GET /user"]);
+  assert.deepEqual(cockpit.quota.map((q) => [q.bucket, q.remaining]), [["core", 4000]]);
+  const theirs = await createCalls(() => t, personScope("two@x.dev")).view(db.DB);
+  assert.deepEqual(topSites(theirs.counts, 0).map((r) => [r.bucket, r.site, r.n]), [["core", "GET /notifications", 2]], "the scope taken off");
+  assert.deepEqual(theirs.quota.map((q) => [q.bucket, q.remaining]), [["core", 4899]]);
+  assert.deepEqual((await createCalls(() => t, personScope("four@x.dev")).view(db.DB)).counts, [], "nobody else's");
+  // The page says whose they are.
+  const out = String(callsPanels(theirs, H, { own: true }));
+  assertInert("/settings/calls (own)", out);
+  assert.match(out, /Your own .* token/);
+  assert.doesNotMatch(String(callsPanels(cockpit, "GitHub")), /Your own/);
 });

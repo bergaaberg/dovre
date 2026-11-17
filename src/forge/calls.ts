@@ -75,7 +75,14 @@ export type Calls = {
   view(db?: D1): Promise<CallsView>;
 };
 
-export function createCalls(now: () => number = Date.now): Calls {
+/** A person's counts, apart from the instance's (#544): their own token's quota and call sites, under `as:<email>:` before each bucket. */
+export const personScope = (email: string) => `as:${email.trim().toLowerCase()}:`;
+
+/**
+ * `scope`: a person's own client (`personScope`), whose counts and quota are kept apart; their view
+ * reads only those. Without, the instance's: its view leaves every person's out.
+ */
+export function createCalls(now: () => number = Date.now, scope = ""): Calls {
   const quotas = new Map<string, Quota>();
   /** Counted and not yet in D1: `hour bucket site` → n. */
   let pending = new Map<string, CallCount>();
@@ -94,12 +101,12 @@ export function createCalls(now: () => number = Date.now): Calls {
     try {
       await db.batch([
         ...[...rows.values()].map((r) =>
-          db.prepare("INSERT INTO forge_calls (hour, bucket, site, n) VALUES (?, ?, ?, ?) ON CONFLICT (hour, bucket, site) DO UPDATE SET n = n + excluded.n").bind(r.hour, r.bucket, r.site, r.n),
+          db.prepare("INSERT INTO forge_calls (hour, bucket, site, n) VALUES (?, ?, ?, ?) ON CONFLICT (hour, bucket, site) DO UPDATE SET n = n + excluded.n").bind(r.hour, scope + r.bucket, r.site, r.n),
         ),
         ...qs.map((q) =>
           db
             .prepare("INSERT INTO forge_quota (bucket, remaining, lim, reset, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (bucket) DO UPDATE SET remaining = excluded.remaining, lim = excluded.lim, reset = excluded.reset, at = excluded.at WHERE excluded.at >= forge_quota.at")
-            .bind(q.bucket, q.remaining, q.limit, q.reset, q.at),
+            .bind(scope + q.bucket, q.remaining, q.limit, q.reset, q.at),
         ),
         db.prepare("DELETE FROM forge_calls WHERE hour < ?").bind(now() - KEEP_HOURS * HOUR),
       ]);
@@ -152,10 +159,20 @@ export function createCalls(now: () => number = Date.now): Calls {
       const quota = new Map<string, Quota>();
       if (db) {
         try {
+          // This scope's rows only, the scope taken off: the instance's are those of no person's.
+          const ours = (bucket: string) => (scope ? bucket.startsWith(scope) : !bucket.startsWith("as:"));
           const c = await db.prepare("SELECT hour, bucket, site, n FROM forge_calls WHERE hour >= ?").bind(t - 24 * HOUR).all<CallCount>();
-          for (const r of c.results ?? []) counts.set(`${r.hour} ${r.bucket} ${r.site}`, { hour: Number(r.hour), bucket: r.bucket, site: r.site, n: Number(r.n) });
+          for (const r of c.results ?? []) {
+            if (!ours(r.bucket)) continue;
+            const bucket = r.bucket.slice(scope.length);
+            counts.set(`${r.hour} ${bucket} ${r.site}`, { hour: Number(r.hour), bucket, site: r.site, n: Number(r.n) });
+          }
           const q = await db.prepare("SELECT bucket, remaining, lim, reset, at FROM forge_quota").all<{ bucket: string; remaining: number; lim: number; reset: number; at: number }>();
-          for (const r of q.results ?? []) quota.set(r.bucket, { bucket: r.bucket, remaining: Number(r.remaining), limit: Number(r.lim), reset: Number(r.reset), at: Number(r.at) });
+          for (const r of q.results ?? []) {
+            if (!ours(r.bucket)) continue;
+            const bucket = r.bucket.slice(scope.length);
+            quota.set(bucket, { bucket, remaining: Number(r.remaining), limit: Number(r.lim), reset: Number(r.reset), at: Number(r.at) });
+          }
         } catch {}
       }
       for (const r of pendingCounts()) {

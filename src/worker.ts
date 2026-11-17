@@ -58,6 +58,7 @@ import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
 import { githubAppOf } from "./hosted/login/github.ts";
 import { appTokens, sealOf } from "./hosted/login/tokens.ts";
 import { hashKey, sealText, unsealText } from "./seal.ts";
+import { createCalls, personScope } from "./forge/calls.ts";
 
 interface WorkerBindings {
   DB: D1;
@@ -319,8 +320,10 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
       if (e instanceof NoOwnToken) return undefined;
       throw e;
     }
+    const calls = createCalls(Date.now, personScope(who));
     const ghe = createGhe({
       host,
+      calls,
       token: async () => {
         const t = first;
         first = undefined;
@@ -353,7 +356,9 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
           g.seed?.(last);
           sync.seed(shownOf(last));
         }
-        return { gatherer: { ...g, stale: () => (sync.asked(), g.stale()) }, drain: kept?.drain ?? (() => Promise.resolve()) };
+        // What their gathers spent is counted with the snapshot's writes (#544): their own Settings → GitHub calls.
+        const drain = async () => void (await Promise.all([kept?.drain(), bindings.DB && calls.flush(bindings.DB, true)]));
+        return { gatherer: { ...g, stale: () => (sync.asked(), g.stale()) }, drain };
       },
     };
   };
@@ -558,6 +563,11 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
       events: hub ? (as) => hub.events({ who: currentViewer(), own: own(as) }) : undefined,
       live: !!hub,
       guest,
+      // Settings → GitHub calls: a person on their own snapshot sees their own token's (#544).
+      ownCalls: () => {
+        const who = currentViewer();
+        return who && own(gatherer.peek()?.login) ? createCalls(Date.now, personScope(who)) : undefined;
+      },
       bino: hub ? { remote: remoteBino(hub, { route: hostedBinoRoute(bindings as HubEnv), memory, sees: "My list and what your apps share" }) } : undefined,
       gatherer,
       ghe,

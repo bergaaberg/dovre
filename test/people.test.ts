@@ -233,6 +233,9 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     assert.equal(await d1SnapshotStore(DB, "v1").load(), undefined, "the instance's row is untouched");
     const reads = (await DB.prepare("SELECT key, value FROM forge_reads ORDER BY key").all<{ key: string; value: string }>()).results;
     assert.ok(reads.length > 0 && reads.every((r) => /^as:(two|four)@x\.dev:[0-9a-f]{64}$/.test(r.key)), reads.map((r) => r.key).join("\n"));
+    // What their gathers spent is counted under them (#544), not in the cockpit's counts.
+    const buckets = (await DB.prepare("SELECT DISTINCT bucket FROM forge_calls ORDER BY bucket").all<{ bucket: string }>()).results.map((r) => r.bucket);
+    assert.ok(buckets.length > 0 && buckets.every((b) => /^as:(two|four)@x\.dev:/.test(b)), buckets.join(", "));
     // Sealed (#544): a cockpit's export carries D1, and nothing of theirs reads in it: not the snapshot, not a read, not a read's path.
     const row = (await DB.prepare("SELECT value FROM settings WHERE key = ?").bind(personKey("two@x.dev")).first<{ value: string }>())!.value;
     assert.match(row, /^v1z\./);

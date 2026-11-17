@@ -42,6 +42,8 @@ secret. Dovre then calls GitHub with them:
   These rows, and their kept GitHub answers (`forge_reads`, under `as:<email>:` and a hash of the
   path), are sealed with `GITHUB_TOKEN_SEAL`, each bound to its row: a D1 export carries them, and
   they can name repos only that person can see. Without the seal they're kept in memory only.
+  What their gathers spend of their own token's quota is counted apart: Settings → GitHub calls
+  shows them their own, and the cockpit's counts leave it out.
 - The cron, the other pages' reads, and the snapshot of anyone who hasn't signed in with GitHub go
   as the operator: `GITHUB_USER`'s row, else the first `ALLOWED_EMAILS` entry that has one. So
   everyone you let in reads the owners' repos as the operator does, and what packs gather in the
