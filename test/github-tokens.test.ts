@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../src/db.ts";
 import { appTokens, grantOf, keepGrant, MISS_MS, REFRESH_BEFORE_MS } from "../src/hosted/login/tokens.ts";
-import { seal, unseal } from "../src/seal.ts";
+import { hashKey, seal, sealText, unseal, unsealText } from "../src/seal.ts";
 import { appTokenProvider } from "../src/worker.ts";
 
 const SEAL = "k".repeat(40);
@@ -166,4 +166,19 @@ test("the Worker's provider: a person's own token for their write, else the oper
   assert.equal(appTokenProvider({ ...b, AUTH_MODE: undefined } as never), undefined);
   assert.equal(appTokenProvider({ ...b, GITHUB_TOKEN_SEAL: "short" } as never), undefined);
   assert.equal(appTokenProvider({ ...b, GITHUB_APP_CLIENT_SECRET: undefined } as never), undefined);
+});
+
+test("sealText (#544): a large text gzipped and sealed to its row, smaller than it was; it opens only there", async () => {
+  const big = JSON.stringify(Array.from({ length: 40_000 }, (_, i) => ({ repo: "acme/secret", n: i })));
+  assert.ok(big.length > 1_000_000);
+  const s = await sealText(SEAL, "snapshot:two@x.dev", big);
+  assert.match(s, /^v1z\./);
+  assert.ok(s.length < big.length / 4, "gzipped first");
+  assert.ok(!s.includes("secret"));
+  assert.equal(await unsealText(SEAL, "snapshot:two@x.dev", s), big);
+  assert.equal(await unsealText(SEAL, "snapshot:four@x.dev", s), undefined, "another row");
+  assert.equal(await unsealText("t".repeat(40), "snapshot:two@x.dev", s), undefined, "another key");
+  assert.equal(await unsealText(SEAL, "snapshot:two@x.dev", big), undefined, "not sealed");
+  assert.equal(await unsealText(SEAL, "snapshot:two@x.dev", await seal(SEAL, "snapshot:two@x.dev", "x")), undefined, "a token's form isn't a text's");
+  assert.match(await hashKey("as:two@x.dev:/repos/acme/secret"), /^[0-9a-f]{64}$/);
 });

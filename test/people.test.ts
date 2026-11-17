@@ -205,7 +205,8 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
   }) as typeof fetch;
   try {
     const told: [string, boolean][] = [];
-    const find = personFinder({ DB, GITHUB_USER: "op", REPO_OWNERS: "acme" } as never, provider as never, { version: "v1", instanceLogin: "op", linked: () => [], told: (who, _at, changed) => void told.push([who, changed]) });
+    const SEAL = "s".repeat(40);
+    const find = personFinder({ DB, GITHUB_USER: "op", REPO_OWNERS: "acme", GITHUB_TOKEN_SEAL: SEAL } as never, provider as never, { version: "v1", instanceLogin: "op", linked: () => [], told: (who, _at, changed) => void told.push([who, changed]) });
     assert.equal(await find("three@x.dev"), undefined, "no token of their own is an answer, and nobody else's stands in (#544)");
     await assert.rejects(find("down@x.dev"), /D1 is down/, "a failure isn't taken for having none");
     assert.ok(asked.every((a) => a.own === true), "every question names the person and asks for their own");
@@ -227,11 +228,18 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     assert.deepEqual([...new Set(told.map(([who]) => who))].sort(), ["four@x.dev", "two@x.dev"], "each named for the person it was gathered as (#539)");
 
     // Kept apart in D1: each person's snapshot in their own row, each one's reads under their own keys.
-    assert.equal((await d1SnapshotStore(DB, "v1", { key: personKey("two@x.dev") }).load())?.login, "two");
-    assert.equal((await d1SnapshotStore(DB, "v1", { key: personKey("four@x.dev") }).load())?.login, "four");
+    assert.equal((await d1SnapshotStore(DB, "v1", { key: personKey("two@x.dev"), seal: SEAL }).load())?.login, "two");
+    assert.equal((await d1SnapshotStore(DB, "v1", { key: personKey("four@x.dev"), seal: SEAL }).load())?.login, "four");
     assert.equal(await d1SnapshotStore(DB, "v1").load(), undefined, "the instance's row is untouched");
-    const reads = (await DB.prepare("SELECT key FROM forge_reads ORDER BY key").all<{ key: string }>()).results.map((r) => r.key);
-    assert.ok(reads.length > 0 && reads.every((k) => k.startsWith("as:two@x.dev:") || k.startsWith("as:four@x.dev:")), reads.join("\n"));
+    const reads = (await DB.prepare("SELECT key, value FROM forge_reads ORDER BY key").all<{ key: string; value: string }>()).results;
+    assert.ok(reads.length > 0 && reads.every((r) => /^as:(two|four)@x\.dev:[0-9a-f]{64}$/.test(r.key)), reads.map((r) => r.key).join("\n"));
+    // Sealed (#544): a cockpit's export carries D1, and nothing of theirs reads in it: not the snapshot, not a read, not a read's path.
+    const row = (await DB.prepare("SELECT value FROM settings WHERE key = ?").bind(personKey("two@x.dev")).first<{ value: string }>())!.value;
+    assert.match(row, /^v1z\./);
+    assert.ok(!row.includes("change") && reads.every((r) => r.value.startsWith("v1z.") && !r.value.includes("two")), "sealed");
+    assert.equal(await d1SnapshotStore(DB, "v1", { key: personKey("two@x.dev") }).load(), undefined, "unsealed, it isn't a snapshot");
+    assert.equal(await d1SnapshotStore(DB, "v1", { key: personKey("four@x.dev"), seal: SEAL }).load().then((x) => x?.login), "four");
+    assert.equal(await d1SnapshotStore(DB, "v1", { key: personKey("two@x.dev"), seal: "t".repeat(40) }).load(), undefined, "another key opens nothing");
 
     // A fresh isolate draws the kept one at once, and one kept under another login isn't shown.
     const again = await (await find("two@x.dev"))!.start();
@@ -241,6 +249,16 @@ test("a person's own GitHub: only their token, their own kept reads, and a snaps
     const other = (await find("two@x.dev"))!;
     assert.equal(other.login, "renamed");
     assert.equal((await other.start()).gatherer.peek(), undefined);
+
+    // With no seal, a person's rows aren't kept at all: never in the clear.
+    const { DB: bare } = openDb();
+    const unsealed = personFinder({ DB: bare, GITHUB_USER: "op", REPO_OWNERS: "acme" } as never, provider as never, { version: "v1", instanceLogin: "op", linked: () => [], told: () => {} });
+    logins.ghu_two = "two";
+    const plain = await (await unsealed("two@x.dev"))!.start();
+    assert.equal((await plain.gatherer.get()).login, "two");
+    await plain.drain();
+    assert.equal((await bare.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'snapshot:%'").first<{ n: number }>())!.n, 0);
+    assert.equal((await bare.prepare("SELECT COUNT(*) AS n FROM forge_reads").first<{ n: number }>())!.n, 0);
   } finally {
     globalThis.fetch = realFetch;
   }

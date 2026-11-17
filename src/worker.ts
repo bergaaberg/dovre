@@ -57,6 +57,7 @@ import type { Lookup } from "./packs/core/assistant/bino/lookups.ts";
 import { createLogin, type Login, loginOn } from "./hosted/login/login.ts";
 import { githubAppOf } from "./hosted/login/github.ts";
 import { appTokens, sealOf } from "./hosted/login/tokens.ts";
+import { hashKey, sealText, unsealText } from "./seal.ts";
 
 interface WorkerBindings {
   DB: D1;
@@ -277,8 +278,23 @@ function createHostedGatherer(bindings: WorkerBindings, login: string, forge: Fo
   return { ...g, get: (o) => asInstance(() => g.get(o)), stale: () => asInstance(() => g.stale()) };
 }
 
-/** A person's kept reads, apart from everyone else's: the same paths answer differently for another token. */
-const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) => reads.get(`as:${who}:${key}`), put: (key, at, value) => reads.put(`as:${who}:${key}`, at, value) });
+/**
+ * A person's kept reads, apart from everyone else's: the same paths answer differently for another
+ * token. Sealed (#544): a cockpit's export carries D1, and a read may be of a repo only they can see,
+ * so the row's key is a hash of the path and its value is sealed to that path.
+ */
+const readsAs = (reads: SharedReads, who: string, secret: string): SharedReads => {
+  const at = (key: string) => `as:${who}:${key}`;
+  const row = async (key: string) => `as:${who}:${await hashKey(at(key))}`;
+  return {
+    get: async (key) => {
+      const got = await reads.get(await row(key));
+      const value = got && (await unsealText(secret, at(key), got.value));
+      return got && value !== undefined ? { at: got.at, value } : undefined;
+    },
+    put: async (key, when, value) => reads.put(await row(key), when, await sealText(secret, at(key), value)),
+  };
+};
 
 /**
  * A person's own GitHub (#538, src/hosted/people.ts): a client that only ever calls with their own
@@ -288,7 +304,9 @@ const readsAs = (reads: SharedReads, who: string): SharedReads => ({ get: (key) 
  */
 export function personFinder(bindings: WorkerBindings, provider: GithubTokenProvider, o: { version: string; instanceLogin: string; linked: () => string[]; /** A gather of `who`'s own finished: only their pages hear (#539). */ told: (who: string, at: number, changed: boolean) => void; /** No code host (#421): their gathers are empty too. */ none?: () => boolean; /** And what's new in it rings for them (#551). */ rang?: (who: string, s: Snapshot) => void }): (email: string) => Promise<Found | undefined> {
   const host = hostOf(bindings);
-  const reads = bindings.DB ? d1Reads(bindings.DB) : undefined;
+  // A person's rows are kept only sealed (#544): with no seal (a provider of the instance's own), in memory only.
+  const secret = sealOf(bindings);
+  const reads = bindings.DB && secret ? d1Reads(bindings.DB) : undefined;
   const owners = ownersOfBindings(bindings, o.instanceLogin);
   return async (email) => {
     const who = email.trim().toLowerCase();
@@ -308,13 +326,13 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
         first = undefined;
         return t ?? provider(bindings, mine);
       },
-      shared: reads && readsAs(reads, who),
+      shared: reads && secret ? readsAs(reads, who, secret) : undefined,
     });
     const login = (await ghe.rest<{ login?: string }>("/user"))?.login ?? "";
     return {
       login,
       async start() {
-        const kept = d1SnapshotStore(bindings.DB, o.version, { key: personKey(who) });
+        const kept = secret ? d1SnapshotStore(bindings.DB, o.version, { key: personKey(who), seal: secret }) : undefined;
         const sync = syncTeller((at, changed) => o.told(who, at, changed));
         const g = createGatherer({
           none: o.none,
@@ -323,19 +341,19 @@ export function personFinder(bindings: WorkerBindings, provider: GithubTokenProv
           login,
           linked: o.linked,
           maxGatherMs: STUCK_MS,
-          store: { load: () => undefined, save: (s) => kept.save(s) },
+          store: { load: () => undefined, save: (s) => kept?.save(s) },
           onGathered: (s) => {
             sync.gathered(s.at, shownOf(s));
             o.rang?.(who, s);
           },
         });
-        const last = await kept.load();
+        const last = await kept?.load();
         // One kept under another login isn't theirs to see again: they signed in to GitHub as someone else since.
         if (last && last.login === login) {
           g.seed?.(last);
           sync.seed(shownOf(last));
         }
-        return { gatherer: { ...g, stale: () => (sync.asked(), g.stale()) }, drain: kept.drain };
+        return { gatherer: { ...g, stale: () => (sync.asked(), g.stale()) }, drain: kept?.drain ?? (() => Promise.resolve()) };
       },
     };
   };
@@ -499,7 +517,9 @@ export function createWorker(opts: { packs?: Pack[]; version?: string; /** Wins 
     const instanceLogin = () => instance.peek()?.login || bindings.GITHUB_USER?.trim() || undefined;
     // Stats' weeks: the instance's, and their own for a person with a snapshot of their own (gathered when they look).
     const historyOf = (changed: () => void): HistoryStore => {
-      const make = (who: () => string | undefined, mine?: string) => createHistory({ ghe, org: () => ownersIn(env), login: who, kept: d1HistoryKept(bindings.DB, mine), onChange: changed });
+      // A person's weeks are kept only sealed (#544); with no seal, in memory only.
+      const seal = sealOf(bindings);
+      const make = (who: () => string | undefined, mine?: string) => createHistory({ ghe, org: () => ownersIn(env), login: who, kept: mine && !seal ? undefined : d1HistoryKept(bindings.DB, mine, mine ? seal : undefined), onChange: changed });
       const shared = make(instanceLogin);
       if (!people) return shared;
       return historyPerPerson({

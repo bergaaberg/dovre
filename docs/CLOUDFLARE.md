@@ -39,6 +39,9 @@ secret. Dovre then calls GitHub with them:
   The last one is kept in D1 (the `settings` row `snapshot:<email>`) for a week. Stats' weeks are
   theirs too, gathered when they look (the row `history:<login>`, kept a month). So are the
   issues on Issues: theirs, read when they open the page and kept in memory only.
+  These rows, and their kept GitHub answers (`forge_reads`, under `as:<email>:` and a hash of the
+  path), are sealed with `GITHUB_TOKEN_SEAL`, each bound to its row: a D1 export carries them, and
+  they can name repos only that person can see. Without the seal they're kept in memory only.
 - The cron, the other pages' reads, and the snapshot of anyone who hasn't signed in with GitHub go
   as the operator: `GITHUB_USER`'s row, else the first `ALLOWED_EMAILS` entry that has one. So
   everyone you let in reads the owners' repos as the operator does, and what packs gather in the

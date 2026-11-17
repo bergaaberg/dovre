@@ -7,6 +7,7 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { D1 } from "../../../db.ts";
 import type { Ghe } from "../../../sources/ghe.ts";
 import { GATHER_WEEKS, gatherHistory, type History, WEEKS } from "./history.ts";
+import { sealText, unsealText } from "../../../seal.ts";
 
 export type HistoryView = { history?: History; historyError?: string; gathering: boolean };
 
@@ -152,16 +153,19 @@ const PERSON_KEPT_MS = 30 * 86_400_000;
  * `settings` row "history"; a person's own (`login`) is "history:<login>", and each write of one
  * drops people's rows not gathered for a month.
  */
-export function d1HistoryKept(db: D1, login?: string): HistoryKept {
+export function d1HistoryKept(db: D1, login?: string, /** Seal the row with this secret (a person's weeks, #544): a cockpit's export carries it. */ secret?: string): HistoryKept {
   const ALL = "history";
   const KEY = login?.trim() ? `${ALL}:${login.trim().toLowerCase()}` : ALL;
   return {
     async load() {
       const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(KEY).first<{ value: string }>();
-      return row ? JSON.parse(row.value) : undefined;
+      if (!row) return undefined;
+      // A row that doesn't open (from before it was sealed, or another key) is none: the next gather replaces it.
+      const text = secret ? await unsealText(secret, KEY, row.value) : row.value;
+      return text ? JSON.parse(text) : undefined;
     },
     async save(h) {
-      const text = JSON.stringify(h);
+      const text = secret ? await sealText(secret, KEY, JSON.stringify(h)) : JSON.stringify(h);
       // D1 rows top out at 2 MB; one bigger isn't kept (the next isolate gathers).
       if (text.length > 1_500_000) throw new Error(`${text.length} bytes, too big to keep`);
       await db.prepare("INSERT OR REPLACE INTO settings (key, value, at) VALUES (?, ?, ?)").bind(KEY, text, new Date(h.at).toISOString()).run();
