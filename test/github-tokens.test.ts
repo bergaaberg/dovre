@@ -107,7 +107,10 @@ test("the operator: GITHUB_USER's row, else ALLOWED_EMAILS in order; an email no
   await keepGrant(DB, SEAL, "b@x.dev", "bee", grant("b"), T0);
   await keepGrant(DB, SEAL, "a@x.dev", "ay", grant("a"), T0);
   const mk = (allowedEmails: string[], operatorLogin?: string) => appTokens({ db: DB, secret: SEAL, app: APP, allowedEmails, operatorLogin, now: () => t });
-  assert.equal(await mk(["a@x.dev", "b@x.dev"], "Bee").operator(), "ghu_b");
+  const bee = mk(["a@x.dev", "b@x.dev"], "Bee");
+  assert.equal(bee.operatorEmail(), undefined, "none until it has given a token");
+  assert.equal(await bee.operator(), "ghu_b");
+  assert.equal(bee.operatorEmail(), "b@x.dev", "whose token the instance reads with (#544)");
   assert.equal(await mk(["a@x.dev", "b@x.dev"]).operator(), "ghu_a");
   assert.equal(await mk(["b@x.dev", "a@x.dev"], "nobody").operator(), "ghu_b");
   assert.equal(await mk(["a@x.dev"], "bee").operator(), "ghu_a", "bee's email isn't allowed any more");
@@ -119,6 +122,7 @@ test("the operator: GITHUB_USER's row, else ALLOWED_EMAILS in order; an email no
   const counted = { prepare: (sql: string) => (reads++, empty.prepare(sql)), batch: empty.batch.bind(empty) };
   const none = appTokens({ db: counted, secret: SEAL, app: APP, allowedEmails: ["a@x.dev"], operatorLogin: "ay", now: () => t });
   assert.equal(await none.operator(), undefined);
+  assert.equal(none.operatorEmail(), undefined);
   const after = reads;
   assert.equal(await none.operator(), undefined);
   assert.equal(reads, after, "no D1 read on every call");
@@ -146,13 +150,16 @@ test("the Worker's provider: a person's own token for their write, else the oper
   assert.equal(await p(b as never, { email: "two@x.dev" }), "ghu_two");
   assert.equal(await p(b as never, { email: "three@x.dev" }), "ghu_op", "no token of their own: the instance's, as before");
   assert.equal(await p(b as never), "ghu_op");
+  assert.equal(p.operator?.(), "op@x.dev", "the instance's reads are op's: Issues' needs name them (#544)");
   // A person's own gather (#538): their own token or none, never the operator's or GITHUB_TOKEN in its place.
   assert.equal(await p(b as never, { email: "two@x.dev", own: true }), "ghu_two");
   await assert.rejects(p(b as never, { email: "three@x.dev", own: true }), /token of your own/);
 
   const { DB: empty } = openDb();
   const e = { ...b, DB: empty };
-  assert.equal(await appTokenProvider(e as never)!(e as never), "ghp_broad");
+  const broad = appTokenProvider(e as never)!;
+  assert.equal(await broad(e as never), "ghp_broad");
+  assert.equal(broad.operator?.(), undefined, "GITHUB_TOKEN is no one's in particular");
   const bare = { ...e, GITHUB_TOKEN: undefined };
   await assert.rejects(appTokenProvider(bare as never)!(bare as never), /sign in with GitHub once/);
 
