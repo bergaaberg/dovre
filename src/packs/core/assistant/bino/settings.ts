@@ -13,7 +13,7 @@ import type { SettingsApi } from "../../../../routes/settings.ts";
 export const SETTINGS_LOOKUP: LookupSpec = {
   kind: SETTINGS_KIND,
   app: "Dovre",
-  when: "Find one of Dovre's own settings by what the user calls it (text size, theme, what rings, a pack on or off, a shortcut, whether a write asks twice): its id, what it is now, and the values it takes. Look a setting up before you propose changing it.",
+  when: "Find one of Dovre's own settings by what the user calls it (text size, theme, what rings, quiet hours, a pack on or off, a shortcut, whether a write asks twice): its id, what it is now, and the values it takes. Look a setting up before you propose changing it.",
   fields: [{ name: "q", about: "a word or two, like: text size", required: true, max: 80 }],
 };
 
@@ -27,6 +27,7 @@ function lineOf(r: SettingRow): string {
   const c = r.change;
   if (!c) return `${head} Not changed from a card: the user changes it on its page, ${r.href}. Proposed as a setting, its card is a link there.`;
   if (c.kind === "number") return `${head} Now ${c.value}. Takes a whole number from ${c.min ?? 0} to ${c.max ?? "any"}.`;
+  if (c.kind === "hours") return `${head} Now ${quoted(c.value || "none")} (${changeLabel(c, c.value)}). Takes from one hour to another, 0 to 23, like "22-7" (across midnight is fine), or "none".`;
   // A switch is said as on and off, which is how its card reads them.
   const said = (v: string) => (c.kind === "switch" ? quoted(changeLabel(c, v).toLowerCase()) : `${quoted(v)} (${changeLabel(c, v)})`);
   const loose = choicesOf(c).filter((x) => c.loosens?.(x.value));

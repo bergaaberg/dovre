@@ -14,7 +14,7 @@ import { type ActSpec, actOf, fenceOf, MAX_ACTS, splitActs } from "../bino/acts.
 import { noMemory } from "../bino/memory.ts";
 import { findSettings } from "../bino/settings.ts";
 import { DEFAULT_KEYS } from "../../../../keys.ts";
-import { DEFAULT_POLICY } from "../../../../notify.ts";
+import { DEFAULT_POLICY, type Policy } from "../../../../notify.ts";
 import { settingRows } from "../../../../pages/settings.ts";
 import { WRITES } from "../../../../writes.ts";
 import type { Route } from "../bino/route.ts";
@@ -43,14 +43,20 @@ test("acts are read strictly: junk and the wrong shape give no card, at most thr
   assert.doesNotMatch(fenceOf({ kind: "notes.post", fields: { to: "A", text: "1" }, done: { at: 1, text: "Posted in thread t-secret" } }), /t-secret/, "Bino hears its proposal, not how it went");
 });
 
+/** A notifier that keeps the policy: what rings and quiet hours can be changed from a card. */
+const notifier = () => {
+  let policy: Policy = { ...DEFAULT_POLICY };
+  return { policy: () => policy, setPolicy: async (p: Policy) => void (policy = p), log: () => [], test() {} };
+};
+
 /** `reply`: what Bino says, or what it says to each ask in turn (the last one from then on). */
-function setup(reply: string | string[]) {
+function setup(reply: string | string[], o: { notify?: ReturnType<typeof notifier> } = {}) {
   const asked: { system: string; user: string }[] = [];
   const replies = [reply].flat();
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async (p) => (asked.push(p), { text: replies[Math.min(asked.length, replies.length) - 1]!, cost: 0 }) };
   const file = join(mkdtempSync(join(tmpdir(), "bino-acts-")), "bino.json");
   const db = openDb();
-  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no"), file }, packs: withAssistant() });
+  const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, bino: { route, memory: noMemory("no"), file }, packs: withAssistant(), notify: o.notify });
   const req = (path: string, body?: Record<string, string>) =>
     app.request(`http://localhost${path}`, body === undefined ? { headers: { cookie: "u_tk=test-token" } } : { method: "POST", headers: { cookie: "u_tk=test-token", "content-type": "application/x-www-form-urlencoded", origin: "http://localhost" }, body: new URLSearchParams(body).toString() });
   const until = async (at: string, re: RegExp) => {
@@ -160,6 +166,26 @@ test("a setting card for a write: stricter is one press, to one click is asked a
   assert.doesNotMatch(await (await loose.req("/settings/writes")).text(), /value="deploy.approve" checked/);
 });
 
+test("a quiet hours card: from and until as two pickers, both or neither; Undo puts none back", async () => {
+  const notify = notifier();
+  const s = setup(`Evenings off.\n${fence({ kind: "setting", id: "notify.quiet", to: "22:00–07:00" })}`, { notify });
+  const at = (await s.req("/bino/new", { text: "no pings at night" })).headers.get("location")!;
+  const page = await s.until(at, /class="bino-plan-h">Quiet hours</);
+  const card = /<form[^>]*id="act-1-0"[^]*?<\/form>/.exec(page)![0];
+  assert.match(card, /<span>None<\/span><span aria-hidden="true">→<\/span><select name="from"[^>]*>[^]*?<option value="22" selected>22:00<\/option>[^]*?<select name="till"[^>]*>[^]*?<option value="7" selected>07:00<\/option>/);
+  assert.equal(notify.policy().quiet, null, "nothing changed before the press");
+
+  await s.req(`${at}/act/1/0`, { from: "18", till: "" });
+  assert.match(await (await s.req(at)).text(), /Not changed\.<\/strong> That isn&#39;t a value it takes\./, "one end alone isn't taken");
+  assert.equal(notify.policy().quiet, null);
+
+  await s.req(`${at}/act/1/0`, { from: "18", till: "8" });
+  assert.deepEqual(notify.policy().quiet, { from: 18, to: 8 });
+  assert.match(await (await s.req(at)).text(), /<p>Quiet hours: None → 18:00–08:00 <span class="t3">/);
+  await s.req(`${at}/act/1/0/undo`, {});
+  assert.equal(notify.policy().quiet, null, "none again");
+});
+
 test("Bino finds a setting by looking it up: its id, what it is now and what it takes; what a card can't change comes without its value", async () => {
   const rows = settingRows({
     layout: { textSize: "large" },
@@ -173,6 +199,7 @@ test("Bino finds a setting by looking it up: its id, what it is now and what it 
     canRestart: true,
   });
   const find = async (q: string) => (await findSettings({ rows: async () => rows }, { q })).text;
+  assert.match(await find("quiet hours"), /- id "notify\.quiet": Quiet hours \(Notifications\)\. Now "none" \(None\)\. Takes from one hour to another, 0 to 23, like "22-7" \(across midnight is fine\), or "none"\./);
   assert.equal(await find("text size"), `- id "look.textSize": Text size (Look). Now "large" (Large). Takes: "small" (Small), "" (Default), "large" (Large), "larger" (Larger).`);
   assert.match(await find("bigger letters"), /^- id "look\.textSize"/, "no row has every word: any of them");
   assert.match(await find("quill"), /^- id "pack\.quill": Pack on: Quill \(Layout\)\. Now "on"\. Takes: "on", "off"\./, "what a card can change comes first");

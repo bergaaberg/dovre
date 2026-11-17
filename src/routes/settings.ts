@@ -128,11 +128,31 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
         ...CORE_CARDS.filter((c) => (none ? c.id !== "prs" && c.id !== "ship" : c.id !== "apps" && c.id !== "since")).map((c) => ({ id: c.id, label: c.label, ...placed(c.id, c.col, c.order) })),
         ...packNow.map((c) => { const at = packPlace(c, { own: (packs.core ?? []).some((p) => c.id.startsWith(`${p}-`)), noForge: none }); return { id: c.id, label: packLabel(c.id), ...placed(c.id, at.col, at.order) }; }),
       ],
-      feeds: packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
+      feeds: feedPacks(),
       packs: packs.on.map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
       opener: !!openUrl,
       stats: statOffers(packStats()).map((o, i) => ({ id: o.id, label: o.label, from: o.from, show: l.stats?.[o.id]?.show ?? true, order: l.stats?.[o.id]?.order ?? (i + 1) * 10 })),
     };
+  };
+  const feedPacks = () => packs.on.filter((c) => c.feed).map((c) => ({ id: c.manifest.id, name: c.manifest.name }));
+  /**
+   * Layout's whole form (part "layout") as it is now, with `o` put in and `more`'s fields in place
+   * of its own: what a write of one of Layout's settings posts. Today's cards, Stats' panels and the
+   * phone's tabs the form leaves out keep their place, so it carries only the range, the links, the
+   * feed's sources and the packs on.
+   */
+  const layoutForm = (o: { statsWeeks?: string; feedOff?: string[] } = {}, more: [string, string][] = []): [string, string][] => {
+    const l = layout.get();
+    const feedOff = o.feedOff ?? l.feedOff ?? [];
+    const over = new Set(more.map(([k]) => k));
+    const base: [string, string][] = [
+      ["part", "layout"],
+      ["statsWeeks", o.statsWeeks ?? statsRange(l)],
+      ...(l.links ? [["links", l.links] as [string, string]] : []),
+      ...feedPacks().filter((f) => !feedOff.includes(f.id)).map((f): [string, string] => ["feed", f.id]),
+      ...packs.on.filter((c) => !l.packsOff?.includes(c.manifest.id)).map((c): [string, string] => ["pack", c.manifest.id]),
+    ];
+    return [...base.filter(([k]) => !over.has(k)), ...more];
   };
   /** Look's keys of a Layout (`look`), or the rest. */
   const partOf = (l: Layout, look: boolean) => Object.fromEntries(Object.entries(l).filter(([k]) => (LOOK_KEYS as string[]).includes(k) === look)) as Layout;
@@ -145,8 +165,12 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     // Cards not drawn and stats not offered just now (a pack hidden or slow) keep where I put them.
     const part = form.part;
     const wasOff = layout.get().packsOff ?? [];
+    // A form without the tabs (one of Layout's settings changed by itself, #185) leaves them as they are.
+    const tabsSent = ["tab1", "tab2", "tab3"].some((k) => k in form);
     await layout.update((l) => {
-      const whole = { ...next, cards: { ...l.cards, ...next.cards }, stats: { ...l.stats, ...next.stats } };
+      const { tabs, ...rest } = next;
+      const keep = tabsSent ? tabs : l.tabs;
+      const whole: Layout = { ...rest, ...(keep ? { tabs: keep } : {}), cards: { ...l.cards, ...next.cards }, stats: { ...l.stats, ...next.stats } };
       return part === "look" ? { ...partOf(l, false), ...partOf(next, true) } : part === "layout" ? { ...partOf(l, true), ...partOf(whole, false) } : whole;
     });
     await logSwitches(c, wasOff);
@@ -349,6 +373,8 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       setup: (await deps.setup?.()) ?? setupNow(frame.operator),
       canRestart: !!deps.restart,
       codeHost: codeHostNow(),
+      feeds: feedPacks(),
+      layoutForm,
     });
   };
   /** Saved, starting again, or refused: shown once, on the next Settings page. */
@@ -613,16 +639,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     if (!settingsAreas().includes("layout")) return { ok: false, why: "Layout isn't changed here." };
     const v = await layoutView((await page()).frame);
     const was = placementOf(v, to);
-    const l = v.layout;
-    const fields: [string, string][] = [
-      ["part", "layout"],
-      ...arrangementFields(withPlacement(v, to)),
-      ["statsWeeks", statsRange(l)],
-      ...(l.links ? [["links", l.links] as [string, string]] : []),
-      ...v.feeds.filter((f) => !l.feedOff?.includes(f.id)).map((f): [string, string] => ["feed", f.id]),
-      ...v.packs.filter((x) => !l.packsOff?.includes(x.id)).map((x): [string, string] => ["pack", x.id]),
-    ];
-    const { res } = await send(from, href, fields, by, o);
+    const { res } = await send(from, href, layoutForm({}, arrangementFields(withPlacement(v, to))), by, o);
     if (res.status < 300 || res.status >= 400 || !holds(await api.arrangement(), to)) return { ok: false, why: "Layout didn't take it.", href };
     const parts = [to.cards ? "Today's cards" : "", to.tabs ? "the phone's tabs" : "", to.stats ? "Stats' panels" : ""].filter(Boolean).join(", ");
     await logAction(env.DB, { kind: "settings.change", target: "layout.arrange", detail: `${parts} arranged · proposed by ${by}`.slice(0, 300), ok: true }).catch(() => {});
