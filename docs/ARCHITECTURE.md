@@ -415,6 +415,7 @@ Teams and Data moved to instance packs (2026-10-26), the avatar to dovre-packs (
    there, and the object keeps only the pack's id and Bino's opening line), and the setup chat after
    the climb (#94: the Worker sends the pack catalogue with each message as a brief the object holds
    for that one answer, never stores; each pack card posts to the Worker, whose Add is the Packs
-   page's). It does get packs' `bino` lines through the page context, and it
+   page's, and its layout card, "Today, arranged", posts there too, which sends `/settings/layout`
+   its whole form with the cards, tabs and stats it names put in, `src/arrange.ts`). It does get packs' `bino` lines through the page context, and it
    looks up through the Worker: the instance exports a `BinoLookups` entrypoint and binds it to
    itself as `BINO_LOOKUPS` (`src/hosted/lookups.ts`).

@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { html } from "hono/html";
+import { settingsOf } from "../../../../routes/settings.ts";
+import { actionsOf } from "../../../../actions/deploys.ts";
+import { Card } from "../../../../ui/kit.ts";
 import { createApp } from "../../../../app.ts";
 import { openDb } from "../../../../db.ts";
 import { type Pack, PACK_API } from "../../../types.ts";
@@ -38,7 +41,7 @@ const pack = (id: string, o: { name?: string; steps?: boolean } = {}): Pack => (
 
 const listed = (id: string, more: object = {}) => ({ id, name: id[0]!.toUpperCase() + id.slice(1), description: `${id}, from dovre-packs`, version: "1.0.0", tag: `${id}@1.0.0`, api: PACK_API, needsCore: false, execution: "any" as const, domain: "work", ...more });
 
-function setup(o: { reply?: string; cost?: number; listedName?: string; bino?: boolean } = {}) {
+function setup(o: { reply?: string; cost?: number; listedName?: string; bino?: boolean; more?: Pack[] } = {}) {
   const asked: { system: string; user: string }[] = [];
   const route: Route = { via: "claude", ready: true, model: "sonnet", reflectModel: "haiku", ask: async (p) => (asked.push(p), { text: o.reply ?? "Sure.", cost: o.cost ?? 0 }) };
   const file = join(mkdtempSync(join(tmpdir(), "bino-carry-")), "bino.json");
@@ -52,7 +55,7 @@ function setup(o: { reply?: string; cost?: number; listedName?: string; bino?: b
     add: (id: string) => (added.push(id), { ok: true as const }),
   };
   const db = openDb();
-  const packs = { ...withAssistant([pack("kit", { steps: true }), pack("chat")]), copies };
+  const packs = { ...withAssistant([pack("kit", { steps: true }), pack("chat"), ...(o.more ?? [])]), copies };
   const app = createApp({ ...ENV, DB: db.DB }, { gatherer: fixedGatherer(snapshot()), ghe: fakeGhe({}).ghe, ...(o.bino === false ? {} : { bino: { route, memory: noMemory("no"), file } }), packs: packs as never });
   const req = (path: string, body?: Record<string, string>, headers: Record<string, string> = { origin: "http://localhost" }) =>
     body === undefined
@@ -73,7 +76,7 @@ function setup(o: { reply?: string; cost?: number; listedName?: string; bino?: b
     assert.match(at, /^\/bino\/c\/[0-9a-f-]{36}$/);
     return { at, id: at.split("/").pop()! };
   };
-  return { req, until, asked, added, start };
+  return { req, until, asked, added, start, app, db };
 }
 
 test("the setup chat opens with a fixed line from state, asks the model nothing, and lists what's left", async () => {
@@ -214,4 +217,52 @@ test("hosted: the object opens a setup chat without asking the model", async () 
   assert.deepEqual([c.carry, c.title, c.thinking, c.msgs.map((m) => [m.role, m.text])], [true, "Setting up with Bino", false, [["assistant", "You're up."]]]);
   assert.equal((await op({ op: "get", id: c.id })).carry, true, "kept");
   assert.equal(calls, 0);
+});
+
+test("Today, arranged: Bino is told what's here to arrange; its card shows the result by name, one press puts it in through Layout, logged, and Undo puts it back", async () => {
+  const withCard = (id: string, name: string, href: string): Pack => ({
+    ...pack(id, { name }),
+    nav: () => [{ href, title: name, icon: "inbox" }],
+    routes: (app, ctx) => app.get(href, (c) => ctx.page(c, { title: name, body: html`${name}` })),
+    today: () => [{ id: "now", column: "right", render: Card({ id: `${id}-card`, title: name, children: "" }) }],
+  });
+  const reply = 'Here is a layout.\n\n```bino-act\n{"kind": "layout", "left": ["shop-now", "prs", "bogus"], "right": ["blog-now"], "off": ["actions"], "phone": ["/shop", "/nope"]}\n```';
+  const s = setup({ reply, more: [withCard("shop", "Shop", "/shop"), withCard("blog", H, "/blog")] });
+  await s.req("/welcome/role", { role: "dev", forge: "github" });
+  const { at, id } = await s.start();
+  await s.req(`/bino/c/${id}/say`, { text: "arrange it" });
+  const page = await s.until(at, /Today, arranged/);
+  const sys = s.asked[0]!.system;
+  assert.match(sys, /## Layout/);
+  assert.match(sys, /- shop-now: Shop \(right\)/);
+  assert.match(sys, /- prs: Pull requests \(right\)/);
+  assert.match(sys, /- \/shop: Shop/);
+  assertInert("a layout card with a hostile pack", page);
+  assert.match(page, /<span class="t3">Left:<\/span> Shop · Pull requests · What ships<\/p>/);
+  assert.match(page, /<span class="t3">Hidden:<\/span> What Dovre did<\/p>/);
+  assert.match(page, /<span class="t3">Phone:<\/span> Today · Shop<\/p>/);
+  assert.match(page, /Use it/);
+
+  const settings = settingsOf(s.app)!;
+  const before = await settings.arrangement();
+  assert.equal((await s.req(`/bino/c/${id}/act/2/0`, {}, { origin: "http://evil.example" })).status, 403);
+  assert.deepEqual(await settings.arrangement(), before, "nothing changed from another site");
+  assert.equal((await s.req(`/bino/c/${id}/act/2/0`, {})).status, 303);
+  const after = await settings.arrangement();
+  const place = (cid: string) => after.cards.find((c) => c.id === cid);
+  assert.deepEqual([place("shop-now"), place("prs"), place("ship"), place("actions")?.col], [{ id: "shop-now", label: "Shop", col: "left", order: 10 }, { id: "prs", label: "Pull requests", col: "left", order: 20 }, { id: "ship", label: "What ships", col: "left", order: 30 }, "off"]);
+  assert.deepEqual(after.tabs, ["/shop"]);
+  assert.deepEqual(after.stats, before.stats, "Stats wasn't proposed, so it's as it was");
+  assert.equal((await s.req("/shop")).status, 200, "the packs stay on");
+  const done = await (await s.req(at)).text();
+  assert.match(done, /Today is arranged as the card said\./);
+  assert.match(done, new RegExp(`action="/bino/c/${id}/act/2/0/undo"`));
+  const logged = await actionsOf(s.db.DB, "settings.change");
+  assert.ok(logged.some((a) => a.target === "layout.arrange" && /Today's cards, the phone's tabs arranged · proposed by Bino/.test(a.detail ?? "")));
+
+  assert.equal((await s.req(`/bino/c/${id}/act/2/0/undo`, {})).status, 303);
+  const back = await settings.arrangement();
+  assert.deepEqual(back.cards.map((c) => [c.id, c.col]), before.cards.map((c) => [c.id, c.col]));
+  assert.deepEqual(back.tabs, before.tabs);
+  assert.match(await (await s.req(at)).text(), /Use it/, "the card proposes again");
 });

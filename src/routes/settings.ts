@@ -14,7 +14,7 @@ import type { Pack, PackManifest } from "../packs/types.ts";
 import { callsPanels } from "../pages/calls.ts";
 import { CORE_CARDS, packPlace } from "../pages/home.ts";
 import { keysPanel } from "../pages/keys.ts";
-import { layoutPanel, type LayoutView, LOOK_KEYS, lookPanel } from "../pages/layout.ts";
+import { layoutPanel, type LayoutView, LOOK_KEYS, lookPanel, statsRange } from "../pages/layout.ts";
 import { aiAskOf, grantOf } from "../packs/ai.ts";
 import { aiPanel, manifestPanel, manifestSettings, packsPage, settingState } from "../pages/packs.ts";
 import { wholeIn } from "../packs/env.ts";
@@ -35,6 +35,7 @@ import { writeKinds } from "../writes.ts";
 import type { Context } from "hono";
 import { addPack, hostedAdds } from "./carry.ts";
 import type { AppScope } from "./scope.ts";
+import { type Arrangement, arrangementFields, holds, type Placement, placementOf, withPlacement } from "../arrange.ts";
 
 /** What changing one setting by itself came to (#185): what it was and is, or why not (`ask`: it loosens a guard, so it's asked again). */
 export type Changed = { ok: true; label: string; was: string; now: string; /** "Theme: As the system → Ember (warm dark)". */ text: string; href: string } | { ok: false; why: string; href?: string; ask?: boolean };
@@ -43,7 +44,13 @@ export type SettingsApi = {
   rows(): Promise<SettingRow[]>;
   /** `from`: the request it was pressed in (its cookies and origin go with the post). `by`: who proposed it, for the log. `twice`: asked again already. */
   change(from: Request, id: string, to: string, by: string, o?: { twice?: boolean; env?: unknown; ctx?: unknown }): Promise<Changed>;
+  /** Today's cards, the phone's tabs and Stats' panels as Settings → Layout shows them now (#94). */
+  arrangement(): Promise<Arrangement>;
+  /** `to` put in place through /settings/layout: its whole form, the rest as it is (#94). `was`: the same parts as they were, for Undo. */
+  arrange(from: Request, to: Placement, by: string, o?: { env?: unknown; ctx?: unknown }): Promise<Arranged>;
 };
+/** What putting an arrangement in place came to (#94). */
+export type Arranged = { ok: true; was: Placement; href: string } | { ok: false; why: string; href?: string };
 const apis = new WeakMap<App, SettingsApi>();
 /** A built app's settings, for what proposes a change (Bino's card) and for tests. */
 export const settingsOf = (app: App) => apis.get(app);
@@ -570,6 +577,16 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
    * One setting changed by itself (#185), through its own route: its page's whole form with this
    * one value, sent as the page sends it, so the same checks answer. No second way to write a setting.
    */
+  /** A Settings route's form, sent as its page sends it (`from`'s cookies and origin), marked as proposed by `by`. */
+  const send = async (from: Request, action: string, fields: [string, string][], by: string, o: { env?: unknown; ctx?: unknown }) => {
+    const headers = new Headers(from.headers);
+    headers.set("content-type", "application/x-www-form-urlencoded");
+    headers.delete("content-length");
+    const req = new Request(new URL(action, from.url), { method: "POST", headers, body: new URLSearchParams(fields).toString() });
+    const mark: { by: string; logged?: boolean } = { by };
+    proposed.set(req, mark);
+    return { res: await app.fetch(req, o.env as never, o.ctx as never), mark };
+  };
   const change: SettingsApi["change"] = async (from, id, to, by, o = {}) => {
     const rowNow = async () => (await api.rows()).find((r) => r.id === id);
     const row = await rowNow();
@@ -579,18 +596,37 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     if (v === null) return { ok: false, why: "That isn't a value it takes.", href: row.href };
     if (row.change.loosens?.(v) && !o.twice) return { ok: false, ask: true, why: "That lets a write through on one click.", href: row.href };
     const { action, fields } = row.change.post(v);
-    const headers = new Headers(from.headers);
-    headers.set("content-type", "application/x-www-form-urlencoded");
-    headers.delete("content-length");
-    const req = new Request(new URL(action, from.url), { method: "POST", headers, body: new URLSearchParams(fields).toString() });
-    const mark: { by: string; logged?: boolean } = { by };
-    proposed.set(req, mark);
-    const res = await app.fetch(req, o.env as never, o.ctx as never);
+    const { res, mark } = await send(from, action, fields, by, o);
     const after = res.status >= 300 && res.status < 400 ? await rowNow() : undefined;
     if (after?.change?.value !== v) return { ok: false, why: "Its page didn't take the change.", href: row.href };
     const text = `${row.label}: ${changeLabel(row.change, row.change.value)} → ${changeLabel(after.change, v)}`;
     if (!mark.logged) await logAction(env.DB, { kind: "settings.change", target: id, detail: `${changeLabel(row.change, row.change.value)} → ${changeLabel(after.change, v)} · proposed by ${by}`.slice(0, 300), ok: true }).catch(() => {});
     return { ok: true, label: row.label, was: row.change.value, now: v, text, href: row.href };
+  };
+  /**
+   * Today, arranged (#94): Layout's whole form as it is now, with the cards, tabs and stats `to`
+   * names put in, through /settings/layout like the page's own save. The feed's sources, the packs
+   * on, the range and links go back as they are.
+   */
+  const arrange: SettingsApi["arrange"] = async (from, to, by, o = {}) => {
+    const href = "/settings/layout";
+    if (!settingsAreas().includes("layout")) return { ok: false, why: "Layout isn't changed here." };
+    const v = await layoutView((await page()).frame);
+    const was = placementOf(v, to);
+    const l = v.layout;
+    const fields: [string, string][] = [
+      ["part", "layout"],
+      ...arrangementFields(withPlacement(v, to)),
+      ["statsWeeks", statsRange(l)],
+      ...(l.links ? [["links", l.links] as [string, string]] : []),
+      ...v.feeds.filter((f) => !l.feedOff?.includes(f.id)).map((f): [string, string] => ["feed", f.id]),
+      ...v.packs.filter((x) => !l.packsOff?.includes(x.id)).map((x): [string, string] => ["pack", x.id]),
+    ];
+    const { res } = await send(from, href, fields, by, o);
+    if (res.status < 300 || res.status >= 400 || !holds(await api.arrangement(), to)) return { ok: false, why: "Layout didn't take it.", href };
+    const parts = [to.cards ? "Today's cards" : "", to.tabs ? "the phone's tabs" : "", to.stats ? "Stats' panels" : ""].filter(Boolean).join(", ");
+    await logAction(env.DB, { kind: "settings.change", target: "layout.arrange", detail: `${parts} arranged · proposed by ${by}`.slice(0, 300), ok: true }).catch(() => {});
+    return { ok: true, was, href };
   };
   // Only the areas this instance has, as Settings' own search shows them.
   const api: SettingsApi = {
@@ -599,6 +635,11 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       return (await rowsNow((await page()).frame)).filter((r) => areas.includes(r.area));
     },
     change,
+    arrangement: async () => {
+      const v = await layoutView((await page()).frame);
+      return { pages: v.pages, tabs: v.tabs, cards: v.cards, stats: v.stats };
+    },
+    arrange,
   };
   apis.set(app, api);
   return { keep, settleSettings, settingsAreas, restarting: () => restarting, settings: api };

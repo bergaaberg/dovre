@@ -17,7 +17,8 @@
 import { Hono } from "hono";
 import { html } from "hono/html";
 import { ACT_FENCE, type Act, type PackAct as PackActOf, type SettingAct, isPackAct } from "./acts.ts";
-import { CARRY_TITLE, carryBrief, carrySpent, carrySummary, packInCard } from "./carry.ts";
+import { CARRY_TITLE, carryBrief, carrySpent, carrySummary, layoutCard, packInCard } from "./carry.ts";
+import { type Arrangement, arranged, placementFrom, placementOf } from "../../../../arrange.ts";
 import { LOOKUP_FENCE } from "./lookups.ts";
 import type { PackAct } from "../../../registry.ts";
 import type { Bino, Conv, Msg } from "./bino.ts";
@@ -62,7 +63,7 @@ ${target ? html`<fieldset class="bino-target"><legend>Where</legend><label class
 
 
 /** What a card needs from outside Bino: the org, and what packs' cards need. */
-type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>>; /** Dovre's settings as they are now, by id, when the conversation proposes one (#185). */ settings?: Map<string, SettingRow>; /** A setup conversation's pack setup as it stands (#420). */ setup?: SetupShown; /** Every pack as it stands, when the conversation carries on after the climb or proposes a pack (#94). */ carry?: CarryPack[] };
+type ActCtx = { org: string; /** Where an item on My list is shown (its pack's `href`). */ listHref?: (id: number) => string; /** In the pane: forms that lead to a full page open it there. */ dock?: boolean; /** A pack's act by its kind, when that pack is on (src/packs/registry.ts actsFrom). */ packAct?: (kind: string) => PackAct | undefined; /** What I typed in a pack act's card that was refused, by card. */ keptForms?: Map<string, Record<string, string>>; /** Dovre's settings as they are now, by id, when the conversation proposes one (#185). */ settings?: Map<string, SettingRow>; /** A setup conversation's pack setup as it stands (#420). */ setup?: SetupShown; /** Every pack as it stands, when the conversation carries on after the climb or proposes a pack (#94). */ carry?: CarryPack[]; /** What Layout can arrange now, when the conversation proposes a layout (#94). */ layout?: Arrangement };
 /** A pack's setup in its conversation (#420), as it stands now: the step to show, drawn by the pack, and what the last Next was refused for. */
 export type SetupShown = SetupState & { step?: DrawnStep; error?: string };
 const out = (ax?: ActCtx) => (ax?.dock ? html` target="_top"` : "");
@@ -157,6 +158,7 @@ ${field}
 function actCard(c: Conv, i: number, n: number, a: Act, ax: ActCtx): Html {
   if (isPackAct(a)) return packCard(c, i, n, a, ax);
   if (a.kind === "setting") return settingCard(c, i, n, a, ax);
+  if (a.kind === "layout") return layoutCard(`act-${i}-${n}`, a, ax.layout, { dock: ax.dock, at: `/bino/c/${c.id}/act/${i}/${n}` });
   if (a.kind === "pack") return ax.carry ? packInCard(`act-${i}-${n}`, a, ax.carry.find((p) => p.id === a.id), { dock: ax.dock, at: `/bino/c/${c.id}/act/${i}/${n}` }) : html``;
   // One of a kind that's gone (an old conversation's Teams message, from before Teams was a pack): not drawn.
   if (a.kind === "bug") return bugCard(i, n, a, ax);
@@ -528,7 +530,9 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
     const settings = proposes ? new Map((await deps.settings!.rows().catch(() => [])).map((r) => [r.id, r])) : undefined;
     const packsToo = deps.carry && (conv.carry || conv.msgs.some((m) => m.acts?.some((a) => a.kind === "pack")));
     const carry = packsToo ? await deps.carry!.packs().catch(() => undefined) : undefined;
-    return { org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms, listHref: list()?.href, settings, setup: await setupOf(conv, setupError), ...(carry ? { carry } : {}) };
+    const arranges = deps.settings && conv.msgs.some((m) => m.acts?.some((a) => a.kind === "layout"));
+    const layout = arranges ? await deps.settings!.arrangement().catch(() => undefined) : undefined;
+    return { org: env.GHE_ORG, dock, packAct: deps.packAct, keptForms, listHref: list()?.href, settings, setup: await setupOf(conv, setupError), ...(carry ? { carry } : {}), ...(layout ? { layout } : {}) };
   };
   /** A setup conversation's pack setup now, with its step drawn (#420); none once that pack's setup is gone. */
   const setupOf = async (conv: Conv, error?: string): Promise<SetupShown | undefined> => {
@@ -560,7 +564,7 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
   };
   const known = async () => (deps.context ? { context: await deps.context() } : {});
   /** What a setup chat (#94) tells Bino with each message: how to go about it, and the packs as they stand. */
-  const briefOf = async (conv: Conv) => (conv.carry && deps.carry ? carryBrief(await deps.carry.packs().catch(() => [])) : undefined);
+  const briefOf = async (conv: Conv) => (conv.carry && deps.carry ? carryBrief(await deps.carry.packs().catch(() => []), await deps.settings?.arrangement().catch(() => undefined)) : undefined);
 
   /** What the workspace shows around a page: every conversation, my list, the apps; `q` narrows the conversations. */
   const wsOf = async (q: string | undefined): Promise<Ws> => ({ convs: await bino.list(), todos: (await list()?.items().catch(() => [])) ?? [], listHref: list()?.href, apps: deps.apps?.() ?? [], q: (q ?? "").trim().slice(0, 200) });
@@ -756,6 +760,16 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
       // Anything else (on already, can't run yet, being added): the card shows where it stands.
       return c.redirect(back, 303);
     }
+    if (conv && i !== undefined && n !== undefined && a?.kind === "layout" && deps.settings) {
+      // Today, arranged (#94): the proposal applied to what's here now, put in place through Layout's own route.
+      const form = await c.req.parseBody();
+      const back = `${convHref(id, first(form.dock) === "1")}#act-${i}-${n}`;
+      if (a.done) return c.redirect(back, 303);
+      const to = placementOf(arranged(await deps.settings.arrangement(), a), a);
+      const r = await deps.settings.arrange(c.req.raw, to, "Bino", { env: c.env, ctx: ctxOf(c) });
+      await bino.setAct(id, i, n, r.ok ? { error: undefined, was: JSON.stringify(r.was), done: { at: Date.now(), text: "Today is arranged as the card said.", href: r.href } } : { error: r.why });
+      return c.redirect(back, 303);
+    }
     if (conv && i !== undefined && n !== undefined && a?.kind === "setting" && deps.settings) {
       // A setting's: the value its card says now, through that setting's own route (the same checks answer).
       const form = await c.req.parseBody();
@@ -773,10 +787,17 @@ export function createBinoRoutes(env: Pick<Env, "DB" | "GHE_ORG">, deps: {
     const i = idOf(c.req.param("i"));
     const n = idOf(c.req.param("n"));
     const a = CONV.test(id) && i !== undefined && n !== undefined ? await bino.act(id, i, n) : undefined;
-    if (i === undefined || n === undefined || a?.kind !== "setting" || !deps.settings) return c.notFound();
+    if (i === undefined || n === undefined || (a?.kind !== "setting" && a?.kind !== "layout") || !deps.settings) return c.notFound();
     const form = await c.req.parseBody();
     const back = `${convHref(id, first(form.dock) === "1")}#act-${i}-${n}`;
     if (!a.done || a.was === undefined) return c.redirect(back, 303);
+    if (a.kind === "layout") {
+      // What it changed, put back through the same route; the card proposes again.
+      const was = placementFrom(a.was);
+      const r = was ? await deps.settings.arrange(c.req.raw, was, "Bino (undo)", { env: c.env, ctx: ctxOf(c) }) : { ok: false as const, why: "What it was isn't kept." };
+      await bino.setAct(id, i, n, r.ok ? { error: undefined, done: undefined, was: undefined } : { error: r.why });
+      return c.redirect(back, 303);
+    }
     const r = await deps.settings.change(c.req.raw, a.id, a.was, "Bino (undo)", { twice: form.twice === "1", env: c.env, ctx: ctxOf(c) });
     await bino.setAct(id, i, n, r.ok ? { error: undefined, done: undefined, was: undefined } : { error: r.why });
     return c.redirect(back, 303);
