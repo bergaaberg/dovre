@@ -9,7 +9,8 @@
  * messages or MAX_CARRY_COST dollars, whichever comes first.
  */
 import { html } from "hono/html";
-import { ACT_FENCE, type Act, type PackInAct } from "./acts.ts";
+import { ACT_FENCE, type Act, type LayoutAct, type PackInAct } from "./acts.ts";
+import { type Arrangement, arranged, columnsOf, holds, phoneOf, placementOf, statsShown } from "../../../../arrange.ts";
 import type { Conv } from "./bino.ts";
 import type { CarryPack } from "../../../../routes/carry.ts";
 import { Confirm, type Html, Notice } from "../../../../ui/kit.ts";
@@ -33,7 +34,7 @@ export function carrySpent(c: Conv): string | undefined {
 }
 
 /** What Bino is told in a setup chat, with each message: how to go about it, and every pack as one line. */
-export function carryBrief(packs: CarryPack[]): string {
+export function carryBrief(packs: CarryPack[], arr?: Arrangement): string {
   const row = (p: CarryPack) => `- ${p.id}: ${one(p.name, 40)}${p.what ? `: ${one(p.what)}` : ""}`;
   const group = (title: string, ps: CarryPack[], tail: (p: CarryPack) => string = () => "") => (ps.length ? `${title}\n${ps.map((p) => row(p) + tail(p)).join("\n")}` : "");
   const of = (st: CarryPack["state"]) => packs.filter((p) => p.state === st);
@@ -61,6 +62,28 @@ The user has just finished Dovre's first run: their role, where their code lives
     group("Here, but can't run yet:", of("off"), (p) => (p.why ? ` (${one(p.why, 100)})` : "")),
     group("Being added:", of("adding")),
     group("In dovre-packs, to add:", of("add"), runs),
+    arr ? layoutBrief(arr) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** The layout part of the brief (#94): how to propose one, and what's here to arrange, as it is now. */
+function layoutBrief(a: Arrangement): string {
+  const place = (c: Arrangement["cards"][number]) => (c.col === "off" ? "hidden" : c.col);
+  return [
+    `## Layout
+
+Once the packs are settled, or when they ask, propose one arrangement of Today, the phone's tabs and Stats, from their role and what they've told you: what they look at first goes first.
+
+\`\`\`${ACT_FENCE}
+{"kind": "layout", "left": ["card ids, top first"], "right": ["…"], "off": ["cards to hide"], "phone": ["up to three page hrefs"], "stats": ["stat ids to show first"]}
+\`\`\`
+
+Every part is optional: leave out what should stay as it is. Cards you don't name keep their column, after the ones you do. Only ids from the lists below. One layout block in a reply at most.`,
+    a.cards.length ? `Today's cards (id: name, where now):\n${a.cards.map((c) => `- ${c.id}: ${one(c.label, 60)} (${place(c)})`).join("\n")}` : "",
+    a.pages.length ? `Pages for the phone's bar (Today is always first, then up to three):\n${a.pages.map((x) => `- ${x.href}: ${one(x.title, 40)}${a.tabs.includes(x.href) ? " (a tab now)" : ""}`).join("\n")}` : "",
+    a.stats.length ? `Stats' panels (id: name, from where, shown or hidden):\n${a.stats.map((x) => `- ${x.id}: ${one(x.label, 60)}, ${one(x.from, 30)} (${x.show ? "shown" : "hidden"})`).join("\n")}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -92,6 +115,33 @@ export function packInCard(id: string, a: PackInAct & Act, p: CarryPack | undefi
   if (p.state === "off")
     return html`<div class="bino-plan" id="${id}">${head}<p>It can't run yet${p.why ? `: ${p.why}` : "."}</p><div class="buttons"><a class="btn primary" href="/settings/packs/${p.id}"${top(o.dock)}>Open its settings</a><span class="hint">A key goes there, from your secret store, never in chat.</span></div></div>`;
   return html`<div class="bino-plan done" id="${id}">${head}<p>It's on.${p.left ? ` Its own setup has ${p.left} step${p.left === 1 ? "" : "s"} left.` : ""}</p>${p.left ? html`<div class="buttons">${setupButton(p, o.dock)}</div>` : ""}</div>`;
+}
+
+const names = (xs: string[], max = 8) => (xs.length > max ? `${xs.slice(0, max).join(" · ")} and ${xs.length - max} more` : xs.join(" · "));
+
+/**
+ * Today, arranged (#94): the arrangement Bino proposes, applied to what's here now and shown by name,
+ * one press to put it in place through Layout's own route; once done, Undo puts back what it changed.
+ */
+export function layoutCard(id: string, a: LayoutAct & Act, arr: Arrangement | undefined, o: CardCtx): Html {
+  if (a.done) {
+    const undo = a.was ? html`<form method="post" action="${o.at}/undo">${dockField(o.dock)}<button type="submit" class="sm" data-busy="Undoing">Undo</button></form>` : "";
+    return html`<div class="bino-plan done" id="${id}"><p>${a.done.text} <span class="t3">· ${Ago(a.done.at)}</span></p>${a.error ? Notice({ tone: "bad", children: html`<strong>Not undone.</strong> ${a.error}` }) : ""}<div class="buttons">${undo}<a href="/settings/layout"${top(o.dock)}>Settings → Layout</a></div></div>`;
+  }
+  if (!arr) return html``;
+  const next = arranged(arr, a);
+  const same = holds(arr, placementOf(next, a));
+  const cols = columnsOf(next);
+  const row = (label: string, xs: string[]) => html`<p><span class="t3">${label}</span> ${xs.length ? names(xs) : "nothing"}</p>`;
+  const cardsToo = !!(a.left || a.right || a.off);
+  return html`<form method="post" action="${o.at}" class="bino-plan" id="${id}">${dockField(o.dock)}
+<p class="bino-plan-h">Today, arranged</p>
+${a.error ? Notice({ tone: "bad", children: html`<strong>Not changed.</strong> ${a.error}` }) : ""}
+${cardsToo ? html`${row("Left:", cols.left)}${row("Right:", cols.right)}${cols.off.length ? row("Hidden:", cols.off) : ""}` : ""}
+${a.phone ? row("Phone:", phoneOf(next)) : ""}
+${a.stats ? row("Stats, first:", statsShown(next)) : ""}
+<div class="buttons">${same ? html`<span class="hint">It's arranged like this already.</span>` : html`<button type="submit" class="primary" data-busy="Arranging">Use it</button><span class="hint">Nothing changes before you press. Settings → Layout changes it after.</span>`}</div>
+</form>`;
 }
 
 /** Below a setup chat: what's set up, and what's left with a way to each, read from state; then why it stops, once it has. */
