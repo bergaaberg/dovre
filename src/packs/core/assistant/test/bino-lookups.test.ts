@@ -120,10 +120,28 @@ test("a few rounds at most: then Bino answers with what it has, and stray blocks
   assert.equal(bino.get(c.id)!.msgs.at(-1)!.text, "Hm.");
 });
 
+test("hosted (#544): each answer's lookups carry whom it's for, that answer only; Bino's own block can't say", async () => {
+  const whom: (string | undefined)[] = [];
+  const specs = lookupsFrom([tracker()], () => ctx, () => {});
+  const bino = createBino({
+    route: scripted([`${block({ kind: "tracker-x.issue", key: "ENG-1", who: "boss@x.dev" })}`, "One.", `${block({ kind: "tracker-x.issue", key: "ENG-2" })}`, "Two."], []),
+    memory: noMemory("x"),
+    context: async () => "",
+    lookups: { specs: () => specs, run: async (l) => (whom.push(l.who), { text: "found" }) },
+  });
+  const c = bino.start("ENG-1?", { who: "two@x.dev" });
+  await bino.idle();
+  bino.say(c.id, "ENG-2?");
+  await bino.idle();
+  assert.deepEqual(whom, ["two@x.dev", undefined], "the next answer asked by no one runs as no one");
+});
+
 test("hosted: the object's lookups go through the binding, its answers checked, a failure an error", async () => {
+  const sent: unknown[] = [];
   const via = lookupsVia({
     specs: async () => [{ kind: "a.b", app: "A", when: "w", fields: [{ name: "q", about: "x", required: true, max: 5000 }] }, { nope: true }, "junk"],
     run: async (l) => {
+      sent.push(l);
       if (l.kind === "boom") throw new Error("down");
       return { text: 42, error: 0 };
     },
@@ -131,6 +149,9 @@ test("hosted: the object's lookups go through the binding, its answers checked, 
   assert.deepEqual(await via.specs(), [{ kind: "a.b", app: "A", when: "w", fields: [{ name: "q", about: "x", required: true, max: 1000 }] }]);
   assert.deepEqual(await via.run({ kind: "a.b", args: {} }), { text: "" });
   assert.equal((await via.run({ kind: "boom", args: {} })).error, true);
+  await via.run({ kind: "a.b", args: {}, who: "two@x.dev" });
+  assert.deepEqual(sent.at(-1), { kind: "a.b", args: {}, who: "two@x.dev" }, "whom it's for goes along (#544)");
+  assert.deepEqual(sent[0], { kind: "a.b", args: {} });
   assert.deepEqual(await lookupsVia({ specs: async () => ({}), run: async () => ({}) }).specs(), []);
 });
 

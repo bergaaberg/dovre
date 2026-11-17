@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openDb } from "../src/db.ts";
 import { type Pack, PACK_API } from "../src/packs/types.ts";
+import { hostedLookups } from "../src/hosted/lookups.ts";
 import { createWorker } from "../src/worker.ts";
 
 const keptAt = async (DB: ReturnType<typeof openDb>["DB"]) => (await DB.prepare("SELECT at FROM settings WHERE key = 'snapshot'").first<{ at: string }>())?.at;
@@ -80,5 +81,25 @@ test("cron: where people have their own snapshots, the cron's packs still read t
   } finally {
     globalThis.fetch = realFetch;
     w.reset();
+  }
+});
+
+test("hosted Bino's lookups run as whom the answer is for (#544), and as no one when the object names nobody", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) => (String(url).endsWith("/user") ? new Response(JSON.stringify({ login: "me" })) : new Response(JSON.stringify({ data: { mine: { nodes: [] }, review: { nodes: [] } } })))) as typeof fetch;
+  const probe: Pack = {
+    manifest: { api: PACK_API, id: "probe", name: "Probe", description: "Says whom a lookup is for", domain: "work", execution: "any" },
+    lookups: (c) => [{ kind: "who", when: "When asked.", fields: [], run: () => `viewer ${c.viewer()}` }],
+  };
+  createWorker({ packs: [probe], githubToken: async () => "t" });
+  const { DB } = openDb();
+  const bindings = { DB, IS_HOSTED: "1", AUTH_MODE: "passkey", ALLOWED_EMAILS: "me@x.dev,two@x.dev", GITHUB_USER: "me" };
+  try {
+    const l = await hostedLookups(bindings);
+    const kind = (await l.specs()).find((s) => s.kind.endsWith("who"))!.kind;
+    assert.equal((await l.run({ kind, args: {}, who: "Two@X.dev" })).text, "viewer two@x.dev");
+    assert.equal((await l.run({ kind, args: {} })).text, "viewer undefined");
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

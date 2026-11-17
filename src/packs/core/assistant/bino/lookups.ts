@@ -14,7 +14,12 @@ const MAX_FOUND = 16_000;
 
 /** A lookup as Bino is told it and its block is checked (registry lookupsFrom). */
 export type LookupSpec = { kind: string; /** The pack's name. */ app: string; when: string; fields: { name: string; about: string; required: boolean; max: number }[] };
-export type Lookup = { kind: string; args: Record<string, string> };
+export type Lookup = {
+  kind: string;
+  args: Record<string, string>;
+  /** Hosted (#544): whom the answer is for; the Worker runs the lookup as them. Never from Bino's block. */
+  who?: string;
+};
 export type Found = Lookup & { text: string; error?: boolean };
 /** Where lookups come from: the packs here, or hosted the Worker's (src/hosted/lookups.ts). */
 export type Lookups = { specs(): LookupSpec[] | Promise<LookupSpec[]>; run(l: Lookup): Promise<{ text: string; error?: boolean }> };

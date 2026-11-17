@@ -7,6 +7,7 @@ import type { Bino, Conv } from "../packs/core/assistant/bino/bino.ts";
 import type { BinoMemory } from "../packs/core/assistant/bino/memory.ts";
 import type { Route } from "../packs/core/assistant/bino/route.ts";
 import type { Hub } from "../live.ts";
+import { currentViewer } from "../viewer.ts";
 import type { Call } from "../bridge/wire.ts";
 import type { CheckJob } from "../reviews/check.ts";
 import type { Note, Rung } from "../notify.ts";
@@ -149,16 +150,21 @@ export function hubClient(ns: HubNamespace): HubClient {
 
 /** Bino as hosted pages see it: every call answered by the object. The route is the Worker's own copy, for ready and why. */
 export function remoteBino(hub: HubClient, o: { route: Route; memory: BinoMemory; sees?: string }): Bino {
+  // Whose request asks (#544): the answer's lookups run as them in the Worker, not as no one.
+  const asker = () => {
+    const who = currentViewer();
+    return who ? { who } : {};
+  };
   return {
     route: o.route,
     memory: o.memory,
     sees: o.sees,
     list: async () => (await hub.bino({ op: "list" })) as Conv[],
     get: async (id) => ((await hub.bino({ op: "get", id })) as Conv | null) ?? undefined,
-    start: async (text, s = {}) => (await hub.bino({ op: "start", text, todo: s.todo, view: s.view, app: s.app, context: s.context ?? "", ...(s.setup ? { setup: s.setup } : {}), ...(s.carry ? { carry: s.carry } : {}) })) as Conv,
-    say: async (id, text, s = {}) => (await hub.bino({ op: "say", id, text, view: s.view, context: s.context ?? "", ...(s.brief ? { brief: s.brief } : {}) })) === true,
+    start: async (text, s = {}) => (await hub.bino({ op: "start", text, todo: s.todo, view: s.view, app: s.app, context: s.context ?? "", ...(s.setup ? { setup: s.setup } : {}), ...(s.carry ? { carry: s.carry } : {}), ...asker() })) as Conv,
+    say: async (id, text, s = {}) => (await hub.bino({ op: "say", id, text, view: s.view, context: s.context ?? "", ...(s.brief ? { brief: s.brief } : {}), ...asker() })) === true,
     stop: async (id) => (await hub.bino({ op: "stop", id })) === true,
-    retry: async (id, s = {}) => (await hub.bino({ op: "retry", id, context: s.context ?? "", ...(s.brief ? { brief: s.brief } : {}) })) === true,
+    retry: async (id, s = {}) => (await hub.bino({ op: "retry", id, context: s.context ?? "", ...(s.brief ? { brief: s.brief } : {}), ...asker() })) === true,
     rename: async (id, title) => (await hub.bino({ op: "rename", id, title })) === true,
     pin: async (id, on) => (await hub.bino({ op: "pin", id, on })) === true,
     remove: async (id) => (await hub.bino({ op: "remove", id })) === true,

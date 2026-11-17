@@ -19,6 +19,7 @@ import { findSettings, SETTINGS_LOOKUP } from "../bino/settings.ts";
 import { DEFAULT_KEYS } from "../../../../keys.ts";
 import { DEFAULT_POLICY } from "../../../../notify.ts";
 import { settingRows } from "../../../../pages/settings.ts";
+import { viewingAs } from "../../../../viewer.ts";
 import { WRITES } from "../../../../writes.ts";
 import { withAssistant } from "./withAssistant.ts";
 import { assertInert, fakeGhe, fixedGatherer, H, pr, snapshot } from "../../../../../test/helpers.ts";
@@ -148,7 +149,8 @@ test("hosted, Bino proposes a setting (#185): it looks it up through the Worker,
   const { state } = fakeState();
   const rows = settingRows({ layout: {}, policy: DEFAULT_POLICY, rings: [], writes: { chosen: new Map(), kinds: WRITES }, keys: DEFAULT_KEYS, packs: [] });
   // The Worker's entrypoint, as the object's binding reaches it.
-  const BINO_LOOKUPS = { specs: async () => [SETTINGS_LOOKUP], run: async (l: { args: Record<string, string> }) => findSettings({ rows: async () => rows }, l.args) };
+  const asWhom: (string | undefined)[] = [];
+  const BINO_LOOKUPS = { specs: async () => [SETTINGS_LOOKUP], run: async (l: { args: Record<string, string>; who?: string }) => (asWhom.push(l.who), findSettings({ rows: async () => rows }, l.args)) };
   const env: HubEnv = { DB: db.DB, CF_ACCOUNT_ID: "acc-1", CF_AIG_TOKEN: "aig-tok", BINO_LOOKUPS };
   const hub = new DovreHub(state, env);
   const calls: Call[] = [];
@@ -156,8 +158,9 @@ test("hosted, Bino proposes a setting (#185): it looks it up through the Worker,
   let n = 0;
   hub.fetchFn = fakeGateway(() => replies[Math.min(n++, replies.length - 1)]!, calls);
   const bino = remoteBino(hubClient(nsOf(hub)), { route: hostedBinoRoute(env), memory: noMemory("no") });
-  const c = await bino.start("Make it dark", { context: "" });
+  const c = await viewingAs("Two@X.dev", () => bino.start("Make it dark", { context: "" }));
   await hub.idle();
+  assert.deepEqual(asWhom, ["two@x.dev"], "the lookup goes to the Worker as whom the answer is for (#544)");
 
   const talks = calls.filter((x) => x.body.model !== "claude-haiku-5-5");
   assert.equal(talks.length, 2, "one ask to look it up, one to answer");

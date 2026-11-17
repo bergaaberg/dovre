@@ -15,6 +15,9 @@
  *   }
  *
  * and binds it: `"services": [{ "binding": "BINO_LOOKUPS", "service": "<this worker>", "entrypoint": "BinoLookups" }]`.
+ *
+ * A lookup carries `who`, whom the answer is for (#544): the Worker says it with each message, the
+ * object keeps it for that answer only, and the Worker runs the lookup as them (`viewingAs`).
  */
 import type { Lookup, Lookups, LookupSpec } from "../packs/core/assistant/bino/lookups.ts";
 import { MAX_PACK_LOOKUPS } from "../packs/registry.ts";
@@ -52,7 +55,8 @@ export function lookupsVia(b: LookupsBinding): Lookups {
     },
     async run(l) {
       try {
-        const r = (await b.run({ kind: l.kind, args: { ...l.args } })) as { text?: unknown; error?: unknown } | undefined;
+        const who = str(l.who, 254);
+        const r = (await b.run({ kind: l.kind, args: { ...l.args }, ...(who ? { who } : {}) })) as { text?: unknown; error?: unknown } | undefined;
         return { text: str(r?.text, 8000), ...(r?.error ? { error: true } : {}) };
       } catch (e) {
         return { text: `The lookup didn't reach the Worker: ${String((e as Error)?.message ?? e).slice(0, 200)}`, error: true };

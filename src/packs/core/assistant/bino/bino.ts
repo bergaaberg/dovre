@@ -26,13 +26,21 @@ export type StartOpts = {
   app?: string;
   /** What Bino knows right now, when the caller gathered it (hosted: the Worker, for the Durable Object). */
   context?: string;
+  /** Hosted (#544): whom this answer is for, the Worker's verified viewer. Its lookups run as them; in memory only, for that answer. */
+  who?: string;
   /** A pack's setup (#420): the text is Bino's own opening line, nothing is asked, and the conversation is about that pack. */
   setup?: { pack: string; title: string };
   /** Carrying on after the climb (#94): the text is Bino's own opening line, nothing is asked. */
   carry?: { title: string };
 };
 /** What one answer is told besides (#94: the setup chat's prompt and the pack catalogue): in memory only, for that answer. */
-export type SayOpts = { view?: string; context?: string; brief?: string };
+export type SayOpts = {
+  view?: string;
+  context?: string;
+  brief?: string;
+  /** Hosted (#544): whom this answer is for, the Worker's verified viewer. Its lookups run as them; in memory only, for that answer. */
+  who?: string;
+};
 /** Most a brief may say. */
 export const MAX_BRIEF = 12_000;
 /** A pack's id, as a setup conversation keeps it. */
@@ -148,7 +156,11 @@ export function createBino(o: {
   const given = new Map<string, string>();
   /** What the caller told this one answer besides (a setup chat's brief): in memory only, for that answer. */
   const briefs = new Map<string, string>();
+  /** Whom each answer is for (hosted): its lookups run as them. In memory only, for that answer. */
+  const askers = new Map<string, string>();
   const takeOpts = (id: string, opts: Omit<SayOpts, "view">) => {
+    if (opts.who) askers.set(id, opts.who);
+    else askers.delete(id);
     if (opts.context !== undefined) given.set(id, opts.context);
     if (opts.brief) briefs.set(id, opts.brief.slice(0, MAX_BRIEF));
     else briefs.delete(id);
@@ -198,6 +210,8 @@ export function createBino(o: {
 
   function answer(c: Conv) {
     const ask = o.route.ask;
+    const who = askers.get(c.id);
+    askers.delete(c.id);
     if (!o.route.ready || !ask) {
       given.delete(c.id);
       c.error = o.route.why ?? "Bino can't answer here.";
@@ -267,7 +281,7 @@ export function createBino(o: {
           const results = await Promise.all(
             split.lookups.map(async (l): Promise<Found> => {
               try {
-                const r = await o.lookups!.run(l);
+                const r = await o.lookups!.run(who ? { ...l, who } : l);
                 return { ...l, text: resultOf(r.text) || "(nothing)", ...(r.error ? { error: true } : {}) };
               } catch (e) {
                 return { ...l, text: `It didn't work: ${String((e as Error)?.message ?? e).slice(0, 200)}`, error: true };
@@ -341,6 +355,7 @@ export function createBino(o: {
       convs.set(c.id, c);
       trim();
       if (opts.context !== undefined) given.set(c.id, opts.context);
+      if (opts.who) askers.set(c.id, opts.who);
       answer(c);
       return c;
     },
