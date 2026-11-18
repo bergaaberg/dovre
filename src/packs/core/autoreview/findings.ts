@@ -3,10 +3,10 @@
  * pack's own table beside its PRs. A finding's post is its line comment on the PR; the row
  * remembers which, so a fix session answers on that thread. A problem a later review raises
  * again stays the finding it was (finding.ts `raisedAgain`), with its status, and takes the new
- * report's words, lines and comment; what a later review doesn't raise again is fixed. One the
- * owner said to fix is fixed only when the code-quality reviewer, shown it, says so by its id: it
- * was never this review's to raise. An owner's own line comment on the diff becomes such a
- * finding (`asked`): its comment is its post, and it carries who asked.
+ * report's words, lines and comment. One is fixed only when the code-quality reviewer, shown it
+ * by its id on a later commit, says so: a review that doesn't raise it again isn't evidence,
+ * since each review samples afresh (#555). An owner's own line comment on the diff becomes a
+ * finding to fix (`asked`): its comment is its post, and it carries who asked.
  */
 import type { D1 } from "../../../db.ts";
 import type { Side } from "../../../reviews/draft.ts";
@@ -121,9 +121,8 @@ export function findingsStore(db: D1, now: () => number = Date.now) {
     /**
      * What a review of `head` reported, all at once. A new problem is kept as open. One raised
      * again stays its earlier row and status: posted anew, it takes this report's severity, words,
-     * lines and review, and waits for its new comment; left out, it only counts the review. What
-     * was open before and isn't raised again is fixed: the review read the whole diff again. One
-     * the owner said to fix is fixed only when it's among `fixed`: the reviewer said so of it.
+     * lines and review, and waits for its new comment; left out, it only counts the review. One
+     * open or to fix is fixed only when it's among `fixed`: the reviewer, shown it, said so.
      */
     async reported(pr: string, o: { round: number; head: string; review?: number; fixed?: string[] }, found: Reported[]): Promise<void> {
       await ensureSchema(db);
@@ -132,9 +131,7 @@ export function findingsStore(db: D1, now: () => number = Date.now) {
       const fixed = (o.fixed ?? []).filter((id) => !again.includes(id));
       const marks = (n: number) => Array.from({ length: n }, () => "?").join(", ");
       await db.batch([
-        db
-          .prepare(`UPDATE autoreview_findings SET status = 'fixed', updated = ? WHERE pr = ? AND (status = 'open'${fixed.length ? ` OR (status = 'force-fix' AND id IN (${marks(fixed.length)}))` : ""})${again.length ? ` AND id NOT IN (${marks(again.length)})` : ""}`)
-          .bind(t, pr, ...fixed, ...again),
+        ...(fixed.length ? [db.prepare(`UPDATE autoreview_findings SET status = 'fixed', updated = ? WHERE pr = ? AND status IN ('open', 'force-fix') AND id IN (${marks(fixed.length)})`).bind(t, pr, ...fixed)] : []),
         ...found.map((f) =>
           f.again === "left"
             ? db.prepare("UPDATE autoreview_findings SET raised = raised + 1, updated = ? WHERE pr = ? AND id = ?").bind(t, pr, f.id)
