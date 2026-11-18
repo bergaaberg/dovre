@@ -313,7 +313,7 @@ test("decide: a critical or high finding caps the level at 2 and starts fix roun
   assert.match(r!.why!, /findings: 1 medium, 1 low\. Nothing for a fix session to do/);
 });
 
-test("findings are records: each kept with the round, the commit and its line comment; a later review closes what it doesn't raise again", async () => {
+test("findings are records: each kept with the round, the commit and its line comment; a later review is shown what's open by id and only its yes makes one fixed", async () => {
   const s = setup({ reply: at(3, HIGH, { ...HIGH, severity: "low", line: 3, start: 2, tags: ["clarity", "tests"], title: "Vague", fix: "" }) });
   await s.add();
   await reviewPass(s.deps);
@@ -328,13 +328,30 @@ test("findings are records: each kept with the round, the commit and its line co
   assert.ok(s.gh.posted[0].comments[0].body.includes(`<!-- dovre:finding ${kept[0]!.id} -->`), "the comment says which finding it posts");
   assert.deepEqual([s.gh.posted[0].comments[1].start_line, s.gh.posted[0].comments[1].line], [2, 3]);
 
-  // The fix round pushed; the next review raises another thing, and what was open before is fixed.
+  // The fix round pushed; the next review raises another thing and says only the high is fixed. The low it doesn't mention isn't taken for fixed: it stays open.
   await s.store.move(PR, "fixing", "reviewing");
   s.gh.head = "sha2";
-  s.setReply(at(4, { ...HIGH, severity: "medium", tags: ["performance"], title: "Still loose" }));
+  const [high, low] = kept;
+  s.setReply(at(4, { ...HIGH, severity: "medium", tags: ["performance"], title: "Still loose" }, { kind: "asked", id: high!.id, fixed: true }));
   await reviewPass(s.deps);
+  const q = s.asked[1]!;
+  assert.match(q.user, new RegExp(`\\n\\n## Findings earlier reviews raised\\n[^]*### ${high!.id}: src/a\\.ts line 2\\n\\nToken unchecked[^]*### ${low!.id}: src/a\\.ts lines 2-3\\n\\nVague`));
+  assert.doesNotMatch(q.user, /said to fix/);
+  assert.match(q.system, /"kind":"asked","id":"…","fixed":true/);
   kept = await s.findings.of(PR);
-  assert.deepEqual(kept.map((f) => [f.title, f.status, f.round, f.head]), [["Token unchecked", "fixed", 0, "sha1"], ["Vague", "fixed", 0, "sha1"], ["Still loose", "open", 1, "sha2"]]);
+  assert.deepEqual(kept.map((f) => [f.title, f.status, f.round, f.head]), [["Token unchecked", "fixed", 0, "sha1"], ["Vague", "open", 0, "sha1"], ["Still loose", "open", 1, "sha2"]]);
+
+  // A high the next review neither raises again nor says is fixed still holds the PR back.
+  const u = setup({ reply: at(4, HIGH) });
+  await u.add();
+  await reviewPass(u.deps);
+  await u.store.move(PR, "fixing", "reviewing");
+  u.gh.head = "sha2";
+  u.setReply(at(4));
+  await reviewPass(u.deps);
+  assert.deepEqual((await u.findings.of(PR)).map((f) => f.status), ["open"]);
+  const [ur] = await u.store.all();
+  assert.deepEqual([ur!.level, ur!.state], [2, "fixing"]);
 
   // A review whose comments the forge won't list still keeps its findings; which comment waits for the fix round.
   const t = setup({ reply: at(3, HIGH), noComments: true });

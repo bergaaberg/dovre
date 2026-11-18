@@ -170,10 +170,11 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
     ownerHeard(d, row),
     d.auto.limits(row.repo).catch(() => undefined),
   ]);
-  // Taken in after the owner's line comments: what the owner said to fix on an earlier commit, for code quality to say whether it's fixed now.
+  // Taken in after the owner's line comments: what's still open or to fix from an earlier commit, for code quality to say whether it's fixed now. Only its yes makes one fixed (#555).
   const kept = findingsStore(d.db, d.now);
   const earlier = await kept.of(row.pr);
-  const toConfirm = earlier.filter((f) => f.status === "force-fix" && f.head !== head);
+  const toConfirm = earlier.filter((f) => (f.status === "force-fix" || f.status === "open") && f.head !== head);
+  const toldFix = toConfirm.filter((f) => f.status === "force-fix");
   const user = reviewPrompt(
     { repo: issueAt?.repo ?? row.repo, number: issueAt?.number ?? 0, title: issue?.title ?? "(the issue couldn't be read)", body: issue?.body ?? "" },
     { repo: row.repo, number: row.number, title: pr.title ?? "", body: pr.body ?? "" },
@@ -186,7 +187,7 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   const spent = called.length > 0 && row.cost >= cap;
   const sitting = spent ? [] : called;
   const panel = ["quality" as const, ...sitting.map((s) => s.who)];
-  const asking = askedSection(toConfirm);
+  const asking = askedSection(toldFix, toConfirm.filter((f) => f.status === "open"));
   const ask = (who: (typeof panel)[number]) =>
     d.ask!.ask({ system: reviewSystem(who, panel, { asked: who === "quality" && !!asking }), user: who === "quality" && asking ? `${user}\n\n${asking}` : user, model, signal: AbortSignal.timeout(REVIEW_MS) }).then(
       (r) => ({ ...r, failed: "" }),
@@ -226,12 +227,12 @@ async function reviewOne(d: ReviewDeps, row: PrRow): Promise<"reviewed" | "moved
   });
   // One the owner said to ignore isn't posted again, and doesn't hold the PR back.
   const findings = all.filter((f) => f.status !== "force-ignore");
-  // What the owner said to fix and this review neither raised again nor says is fixed: still to fix, and it holds the PR back.
+  // What an earlier review or the owner left that this review neither raised again nor says is fixed: it stands as it was, holding the PR back if it gates.
   const raised = new Set(all.map((f) => f.id));
   const confirmed = new Set(v.fixed.filter((id) => toConfirm.some((f) => f.id === id) && !raised.has(id)));
-  const standing = earlier.filter((f) => f.status === "force-fix" && !raised.has(f.id) && !confirmed.has(f.id));
+  const standing = earlier.filter((f) => gates(f) && !raised.has(f.id) && !confirmed.has(f.id));
   const gating = all.filter(gates).length + standing.length;
-  const asked = toConfirm.filter((f) => !raised.has(f.id)).map((f) => ({ title: f.title, path: f.path, line: f.line, fixed: confirmed.has(f.id) }));
+  const asked = toldFix.filter((f) => !raised.has(f.id)).map((f) => ({ title: f.title, path: f.path, line: f.line, fixed: confirmed.has(f.id) }));
   const unreviewed = unreviewedOf(sat);
   const facts = { ci, files, ...(config.sizeLimit ? { sizeLimit: config.sizeLimit } : {}), ...(open ? { owner: open } : {}), ...(unreviewed.length ? { unreviewed } : {}) };
   const capped = capLevel(v.level, { ...facts, gating });
