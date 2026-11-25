@@ -6,6 +6,7 @@ import { type App, fixedKeys } from "../env.ts";
 import { html } from "../html.ts";
 import { answersFrom, FORGES, noCodeHost } from "../onboarding.ts";
 import { guardHtml } from "../packs/guard.ts";
+import { heldOff, NO_CODE_HOST } from "../packs/registry.ts";
 import { scanCheckouts } from "../packs/scan.ts";
 import { type Answers, INTERVIEW, markersOf, QUESTIONS, ROLES, suggest } from "../packs/suggest.ts";
 import type { OnboardStep, Pack, Role } from "../packs/types.ts";
@@ -49,7 +50,15 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
   let climbBad: string[] | undefined;
   const stepsOf = (role: Role | undefined): Step[] => STEPS.filter((s) => s !== "machine" || role !== "po");
   /** Every pack the kit offers: those that run here, and those that can't, with why. */
-  const kitPacks = () => [...packs.on.map((p) => ({ m: p.manifest, off: undefined as string | undefined })), ...packs.off.filter((o) => o.manifest).map((o) => ({ m: o.manifest!, off: o.why }))];
+  const kitPacks = () => {
+    // Use the choice in the climb: a local cockpit that started without a forge may need a restart to apply it.
+    const held = noCodeHost(onboarding.get()) ? heldOff(packs.on, [], { noForge: true }) : undefined;
+    return [
+      ...packs.on.map((p) => ({ m: p.manifest, off: held?.get(p.manifest.id) === NO_CODE_HOST ? "Needs a code host" : undefined })),
+      ...packs.off.filter((o) => o.manifest).map((o) => ({ m: o.manifest!, off: o.why })),
+    ];
+  };
+  const availableKit = () => kitPacks().filter((k) => !k.off).map((k) => k.m);
   const climbDir = () => {
     return pending.CODE_DIR ?? deps.config?.stored.CODE_DIR ?? env.CODE_DIR;
   };
@@ -67,7 +76,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     const past = (s: Step) => steps.includes(s) && steps.indexOf(s) < i;
     const answers = { ...(past("q0") ? pick(o.answers, INTERVIEW[o.role!]?.[0]) : {}), ...(past("q1") ? pick(o.answers, INTERVIEW[o.role!]?.[1]) : {}) };
     return suggest(
-      kitPacks().filter((k) => !k.off).map((k) => k.m),
+      availableKit(),
       past("role") ? o.role : undefined,
       answers,
       past("machine") ? found.keys() : [],
@@ -75,7 +84,12 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
   };
   const pick = (a: Answers, qid: string | undefined): Answers => (qid && a[qid] !== undefined ? { [qid]: a[qid] } : {});
   /** The packs on at the summit: what was ticked, or else what's suggested. */
-  const pickedNow = (found: Map<string, number>) => onboarding.get().picked ?? [...suggestedAt("summit", found).keys()];
+  const pickedNow = (found: Map<string, number>) => {
+    const picked = onboarding.get().picked;
+    if (!picked) return [...suggestedAt("summit", found).keys()];
+    const available = new Set(availableKit().map((m) => m.id));
+    return picked.filter((id) => available.has(id));
+  };
   app.get("/welcome", async (c) => {
     if (deps.session) return c.notFound();
     await onboarding.ready;
@@ -202,7 +216,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     if (deps.session) return c.notFound();
     await onboarding.ready;
     const f = await c.req.parseBody({ all: true });
-    const can = new Set(packs.on.map((p) => p.manifest.id));
+    const can = new Set(availableKit().map((m) => m.id));
     const picked = [f.pack ?? []].flat().filter((x): x is string => typeof x === "string" && can.has(x));
     await onboarding.update((o) => ({ ...o, picked }));
     return c.redirect(nextOf("packs"), 303);
@@ -218,7 +232,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     // …or "Carry on with Bino" (#94): the same post goes on to start Bino's setup chat (a 307 keeps it a POST, with its carry=1).
     const go = f["carry"] === "1" && s.binoOn?.() ? (res: typeof c) => res.redirect("/bino/new", 307) : (res: typeof c) => res.redirect(then, 303);
     const on = new Set(pickedNow(scanNow().found));
-    const ids = packs.on.map((p) => p.manifest.id);
+    const ids = availableKit().map((m) => m.id);
     await layout.update((l) => ({ ...l, packsOff: [...new Set([...(l.packsOff ?? []).filter((x) => !on.has(x)), ...ids.filter((x) => !on.has(x))])] }));
     await onboarding.update((o) => ({ ...o, picked: [...on], done: true }));
     deps.hub?.publish(["snapshot", "packs"]);
