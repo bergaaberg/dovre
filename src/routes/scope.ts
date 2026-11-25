@@ -37,6 +37,8 @@ export type AppScope = {
   shown(): Pack[];
   layout: LayoutStore;
   onboarding: OnboardingStore;
+  /** Whether the cockpit is currently running without a code host. */
+  noForge(): boolean;
   /** The snapshot and frame a page is drawn with. */
   page(o?: { wait?: boolean; path?: string }): Promise<{ s: Snapshot; frame: Frame }>;
   noStore(res: Response): Response;

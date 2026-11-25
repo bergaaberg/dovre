@@ -4,7 +4,7 @@ import { bugHref, PACK_ROUTE_MS } from "../app.ts";
 import { type Config, configFromForm, saveConfig } from "../config.ts";
 import { type App, fixedKeys } from "../env.ts";
 import { html } from "../html.ts";
-import { answersFrom, FORGES } from "../onboarding.ts";
+import { answersFrom, FORGES, noCodeHost } from "../onboarding.ts";
 import { guardHtml } from "../packs/guard.ts";
 import { scanCheckouts } from "../packs/scan.ts";
 import { type Answers, INTERVIEW, markersOf, QUESTIONS, ROLES, suggest } from "../packs/suggest.ts";
@@ -43,6 +43,7 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
   const { env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, keep, restarting, setupOf, setupLeft } = s;
   // ── The first run, the climb (src/pages/welcome.ts, #417): Today sends here until it's finished or skipped ──
   const setUp = () => !!(env.SETUP_DONE || deps.config?.stored.SETUP_DONE || onboarding.get().done);
+  const codeHostChanged = () => !!deps.config?.codeHostRestart && !noCodeHost(onboarding.get());
   /** Local: the folder and owners asked for on the way up, kept at the summit (they need a restart). */
   let pending: Config = {};
   let climbBad: string[] | undefined;
@@ -141,7 +142,9 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
         return ob ? [{ id: x.m.id, name: x.m.name, steps: ob.steps.map((s) => s.title) }] : [];
       });
       const online = hosted ? (await deps.machines?.().catch(() => []))?.some((m) => m.online) : true;
-      view.summit = { on: k.map((x) => x.m.name), later, waits: hosted && !online, restarts: !!deps.restart && Object.keys(pending).length > 0, bino: s.binoOn?.() === true };
+      const changed = Object.keys(pending).length > 0 || codeHostChanged();
+      const manualRestart = changed && deps.config?.codeHostRestart === "manual";
+      view.summit = { on: k.map((x) => x.m.name), later, waits: hosted && !online, restarts: !!deps.restart && changed && !manualRestart, manualRestart, bino: s.binoOn?.() === true };
     }
     return noStore(await c.html(climbPage(view, steps, { refresh })));
   });
@@ -222,9 +225,9 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     if (!deps.config) return go(c);
     const config: Config = { ...deps.config.stored, ...pending, SETUP_DONE: "1" };
     for (const [k, v] of Object.entries(pending)) if (v === "") delete config[k];
-    const changed = Object.keys(pending).length > 0;
+    const changed = Object.keys(pending).length > 0 || codeHostChanged();
     pending = {};
-    if (changed) return (await keep(config)) ? c.redirect("/welcome?started=1", 303) : go(c);
+    if (changed && deps.config.codeHostRestart !== "manual") return (await keep(config)) ? c.redirect("/welcome?started=1", 303) : go(c);
     await saveConfig(env.DB, config);
     deps.config.stored = config;
     return go(c);
@@ -372,8 +375,10 @@ export function welcomeRoutes(app: App, s: Pick<AppScope, "env" | "deps" | "host
     await onboarding.update((o) => ({ ...o, done: true }));
     pending = {};
     if (deps.config) {
-      await saveConfig(env.DB, { ...deps.config.stored, SETUP_DONE: "1" });
-      deps.config.stored = { ...deps.config.stored, SETUP_DONE: "1" };
+      const config = { ...deps.config.stored, SETUP_DONE: "1" };
+      if (codeHostChanged() && deps.config.codeHostRestart === "automatic" && await keep(config)) return c.redirect("/welcome?started=1", 303);
+      await saveConfig(env.DB, config);
+      deps.config.stored = config;
     }
     return c.redirect("/", 303);
   });

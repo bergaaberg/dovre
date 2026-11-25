@@ -93,13 +93,14 @@ export function restartingNote(started: number, then: string, text: string) {
  * Settings → Work's "Code lives on" (#421): the instance's forge, or None. None stops the forge's
  * gather, holds the packs that go through it, and leaves its cards off Today. The climb asks it too.
  */
-export function codeHostPanel(v: { forge: string; none: boolean }) {
+export function codeHostPanel(v: { forge: string; none: boolean; restart?: "automatic" | "manual" }) {
   return Panel({
     title: "Code lives on",
     id: "code-host",
     children: html`<form method="post" action="/settings/work/code-host">
 <p class="t2">With None, Dovre doesn't ask ${v.forge} for anything: Today leaves out pull requests and releases, and the packs that work through ${v.forge} are off.</p>
 <div class="fields aligned"><label class="field"><span class="label">Code lives on</span><select name="host"><option value="forge"${v.none ? "" : html` selected`}>${v.forge}</option><option value="none"${v.none ? html` selected` : ""}>None</option></select></label></div>
+${v.restart === "manual" ? html`<p class="t2">${v.none ? `To connect ${v.forge}, select it, save, and restart Dovre.` : `Restart Dovre to set up ${v.forge}.`}</p>` : ""}
 <div class="buttons"><button type="submit" class="primary" data-busy="Saving">Save</button></div>
 </form>`,
   });

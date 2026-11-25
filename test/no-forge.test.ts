@@ -1,6 +1,12 @@
 /** No code host (#421): the forge isn't asked, its packs are held, Today draws none of it, and Settings → Work changes it. */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createGatherer } from "../src/gather.ts";
 import type { Forge } from "../src/forge/types.ts";
 import { firstNameOf } from "../src/onboarding.ts";
@@ -10,6 +16,78 @@ import type { Pack } from "../src/packs/types.ts";
 import { html } from "hono/html";
 import { homePage, packPlace } from "../src/pages/home.ts";
 import { assertInert, H, move, pr, signedIn, snapshot } from "./helpers.ts";
+
+test("local startup without GitHub reaches Today, remembers the choice, and can return to GitHub setup", { timeout: 20_000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "dovre-no-code-host-"));
+  const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+  let stop = async () => {};
+  t.after(async () => {
+    await stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const start = async () => {
+    const child = spawn(process.execPath, [entry], {
+      cwd: dir,
+      env: { PATH: dir, PORT: "0", CODE_DIR: dir, CLAUDE_DIR: dir, PACK_AGENTS: "off", BINO_VIA: "off" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const closed = once(child, "close");
+    stop = async () => {
+      child.kill();
+      await closed;
+    };
+    let output = "";
+    const port = await new Promise<string>((resolve, reject) => {
+      const read = (chunk: Buffer) => {
+        output += chunk.toString();
+        const port = /http:\/\/127\.0\.0\.1:(\d+)/.exec(output)?.[1];
+        if (port) resolve(port);
+      };
+      child.stdout.on("data", read);
+      child.stderr.on("data", read);
+      child.once("error", reject);
+      child.once("close", (code) => reject(new Error(`Dovre exited (${code}) before listening:\n${output}`)));
+    });
+    const base = `http://127.0.0.1:${port}`;
+    const tk = readFileSync(join(dir, "data", "launch-token"), "utf8").trim();
+    const login = await fetch(`${base}/login?tk=${tk}`, { redirect: "manual" });
+    const cookie = login.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(cookie);
+    const get = (path: string) => fetch(base + path, { headers: { cookie }, redirect: "manual" });
+    const post = (path: string, body?: URLSearchParams, headers = { cookie, origin: base }) =>
+      fetch(base + path, { method: "POST", body, headers, redirect: "manual" });
+    return { base, cookie, get, post };
+  };
+  const first = await start();
+  assert.match(await (await first.get("/")).text(), /Continue without a code host/);
+  const skip = "/setup/no-code-host";
+  assert.equal((await fetch(first.base + skip, { method: "POST", headers: { origin: first.base } })).status, 404);
+  assert.equal((await first.post(skip, undefined, { cookie: first.cookie, origin: "http://127.0.0.1:1" })).status, 404);
+  assert.equal((await first.post(skip)).status, 303);
+  let welcome = await first.get("/");
+  for (let tries = 0; welcome.status === 503 && tries < 100; tries++) {
+    await new Promise((r) => setTimeout(r, 50));
+    welcome = await first.get("/");
+  }
+  assert.equal(welcome.headers.get("location"), "/welcome");
+  assert.match(await (await first.get("/welcome?at=role")).text(), /name="forge" value="none" checked/);
+  assert.equal((await first.post("/welcome/skip")).status, 303);
+  const today = await first.get("/");
+  assert.equal(today.status, 200);
+  assert.match(await today.text(), /Since I last looked/);
+  assert.equal((await first.get("/prs")).status, 404);
+  await stop();
+
+  const second = await start();
+  assert.equal((await second.get("/")).status, 200, "the next boot doesn't ask for GitHub");
+  assert.equal((await second.post("/settings/work/code-host", new URLSearchParams({ host: "forge" }))).status, 303);
+  assert.match(await (await second.get("/settings/work")).text(), /Restart Dovre to set up GitHub/);
+  assert.equal((await second.get("/prs")).status, 404, "forge routes stay held until Dovre restarts");
+  await stop();
+
+  const third = await start();
+  assert.equal((await third.get("/")).status, 503, "after restart GitHub can be set up");
+});
 
 test("the gather without a code host asks the forge nothing, and is empty; with one again, it asks", async () => {
   let asked = 0;

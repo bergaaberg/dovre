@@ -13,7 +13,7 @@ import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { html } from "hono/html";
 import { secureHeaders } from "hono/secure-headers";
-import { COOKIE, isLocal, isOwnOrigin, sameSecret, secureCookie } from "./access.ts";
+import { allowed, COOKIE, isLocal, isOwnOrigin, sameSecret, secureCookie } from "./access.ts";
 import type { AppEnv } from "./env.ts";
 import { ownersOf } from "./owners.ts";
 import { forgeName } from "./pages/parts.ts";
@@ -24,6 +24,7 @@ export type SetupProblem = { kind: "org" | "login" | "unreachable"; host: string
 export type SetupState = {
   lookedAt?: number;
   ready?: boolean;
+  withoutCodeHost?: boolean;
   /** Device code & verification URL when `gh auth login --web` was started from the page. */
   deviceCode?: string;
   deviceUrl?: string;
@@ -56,7 +57,7 @@ export function removeDevVar(file: string, key: string): void {
   writeFileSync(file, next.trim() ? `${next.replace(/\s*$/, "")}\n` : "", { mode: 0o600 });
 }
 
-export function setupPage(p: SetupProblem, state: SetupState) {
+export function setupPage(p: SetupProblem, state: SetupState, canContinue = false) {
   const patUrl =
     p.host === "github.com"
       ? "https://github.com/settings/personal-access-tokens/new"
@@ -124,8 +125,11 @@ a { color: var(--accent); }
 <body><main><img src="/assets/icon-192.png" alt=""><h1>${p.kind === "org" ? "Which organisation?" : p.kind === "login" ? `Sign in to ${forgeName(p.host)} first` : `Can't reach ${forgeName(p.host)}`}</h1>
 ${state.notice ? html`<p class="ok">${state.notice}</p>` : ""}
 ${state.error ? html`<p class="bad">${state.error}</p>` : ""}
+${state.withoutCodeHost ? html`<p class="ok">Starting Dovre without a code host…</p>` : html`
 ${state.ready ? html`<p class="ok">${forgeName(p.host)} answers now. Restart Dovre (<code>dovre restart</code>) to carry on.</p>` : fix}
-<p class="t3">This page looks again every few seconds${state.lookedAt ? `; last at ${new Date(state.lookedAt).toLocaleTimeString("en-GB")}` : ""}, and goes on by itself once it works.</p>
+${canContinue ? html`<form method="post" action="/setup/no-code-host"><button type="submit" data-secondary>Continue without a code host</button></form>
+<p class="t3">You can connect a code host later from Settings → Work.</p>` : ""}
+<p class="t3">This page looks again every few seconds${state.lookedAt ? `; last at ${new Date(state.lookedAt).toLocaleTimeString("en-GB")}` : ""}, and goes on by itself once it works.</p>`}
 </main></body></html>`;
 }
 
@@ -151,6 +155,7 @@ export function setupApp(o: {
   onSaveToken?: (token: string) => Promise<void> | void;
   onStartGhLogin?: () => Promise<{ deviceCode?: string; deviceUrl?: string; status?: string }> | { deviceCode?: string; deviceUrl?: string; status?: string };
   onWake?: () => Promise<void> | void;
+  onNoCodeHost?: () => Promise<void> | void;
   /** PUBLIC_ORIGIN, checked (src/access.ts). */
   publicOrigin?: string;
 }) {
@@ -167,6 +172,11 @@ export function setupApp(o: {
   app.get("/login", (c) => {
     if (!isLocal(c.req.raw, pub) || !sameSecret(c.req.query("tk"), o.token)) return c.notFound();
     setCookie(c, COOKIE, o.token, { httpOnly: true, sameSite: "Strict", path: "/", maxAge: 400 * 86400, secure: secureCookie(c.req.raw, pub) });
+    return c.redirect("/", 303);
+  });
+  app.post("/setup/no-code-host", async (c) => {
+    if (!o.onNoCodeHost || !allowed(c.req.raw, o.token, pub) || !isOwnOrigin(c.req.raw, c.req.header("origin"), pub)) return c.notFound();
+    await o.onNoCodeHost();
     return c.redirect("/", 303);
   });
   app.post("/setup/owners", async (c) => {
@@ -243,6 +253,6 @@ export function setupApp(o: {
     }
     return c.redirect("/", 303);
   });
-  app.all("*", (c) => (isLocal(c.req.raw, pub) ? c.html(setupPage(o.problem, o.state()), 503) : c.notFound()));
+  app.all("*", (c) => (isLocal(c.req.raw, pub) ? c.html(setupPage(o.problem, o.state(), !!o.onNoCodeHost && allowed(c.req.raw, o.token, pub)), 503) : c.notFound()));
   return app;
 }

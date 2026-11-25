@@ -12,7 +12,7 @@
 
 ## Run it locally
 
-Needs Node 24+, pnpm (`corepack enable`), and `gh auth login` (or sign in on `/setup`).
+Needs Node 24+ and pnpm (`corepack enable`).
 
 ```sh
 git clone https://github.com/bergaaberg/dovre.git && cd dovre
@@ -20,7 +20,10 @@ pnpm install
 pnpm dev        # http://127.0.0.1:4848
 ```
 
-`/setup` finds your GitHub user and orgs and writes `.dev.vars`. On Windows, `pwsh scripts/install.ps1` (needs Go) also installs the `dovre` launcher, a Ctrl+Alt+D hotkey and start at login.
+Open Dovre with the launcher, or use `/login?tk=<token>` with the token from `data/launch-token`.
+For GitHub, run `gh auth login` or sign in during setup. For an apps-only cockpit, choose **Continue without a code host** during setup. You can connect GitHub later from **Settings → Work**.
+
+On Windows, `pwsh scripts/install.ps1` (needs Go) also installs the `dovre` launcher, a Ctrl+Alt+D hotkey and start at login.
 
 ## Run it hosted
 
