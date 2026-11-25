@@ -9,6 +9,7 @@ import { weekOf, weeksOf } from "../src/packs/core/history/history.ts";
 import { H, assertInert, signedIn, snapshot } from "./helpers.ts";
 
 const at = (path: string, init?: RequestInit) => new Request(`https://demo.dovre.dev${path}`, init);
+const demoOptions = /<a href="https:\/\/dovre\.dev\/pricing\/">Try Dovre Cloud<\/a> · <a href="https:\/\/dovre\.dev\/docs\/">Run your own Dovre<\/a>/;
 
 test("demo: every hosted page draws over the made-up data, with the bar saying so, and isn't indexed", async () => {
   const w = createDemoWorker();
@@ -19,6 +20,7 @@ test("demo: every hosted page draws over the made-up data, with the bar saying s
     const page = await res.text();
     assert.match(page, /This is a demo\./, path);
     assert.match(page, /<a href="https:\/\/dovre\.dev\/">← dovre\.dev<\/a>/, path);
+    assert.match(page, demoOptions, path);
   }
   const today = await (await w.fetch(at("/"))).text();
   assert.match(today, /Retry card payments once/);
@@ -93,6 +95,7 @@ test("demo: a refused button explains itself inside the demo's page, with the wa
     assert.match(page, why, path);
     assert.match(page, /This is a demo\./, path);
     assert.match(page, /<a href="\/deploys\?x=1">Back to the demo<\/a>/, path);
+    assert.equal(page.match(new RegExp(demoOptions.source, "g"))?.length, 2, path);
   }
   // Back only to a page of the demo's own.
   for (const ref of ["https://evil.example/x", "not a url", undefined]) {
