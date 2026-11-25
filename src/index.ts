@@ -111,11 +111,20 @@ let config = await loadConfig(db.DB);
 let env = loadEnv(config);
 setWhen({ tz: env.TZ_NAME, lang: env.GREETING });
 const setup = { token: launch, port, dataDir, version, supervised, publicOrigin, listenHost };
+const onboarding = onboardingStore(db.DB);
+await onboarding.ready;
+let withoutCodeHost = noCodeHost(onboarding.get());
+const localLogin = userInfo().username;
+let showCockpit: Awaited<ReturnType<typeof serveSetup>> | undefined;
+const waitForSetup = async (options: Pick<Parameters<typeof serveSetup>[0], "problem" | "check" | "onSaveOwners">) => {
+  showCockpit = await serveSetup({ ...setup, ...options, onNoCodeHost: () => onboarding.update((was) => ({ ...was, forge: "none" })) });
+  withoutCodeHost = true;
+};
 // Which forge the code lives on (FORGE): GitHub unless a pack brings another (src/forge/pick.ts).
 const forgeId = forgeIdOf(env.FORGE);
 const onGithub = forgeId === "github";
 // If no org is set yet, but a GitHub token is already available (e.g. `gh auth status`), discover the user's login and orgs.
-if (onGithub && !env.GHE_ORG && env.GHE_TOKEN) {
+if (!withoutCodeHost && onGithub && !env.GHE_ORG && env.GHE_TOKEN) {
   try {
     const g = createGhe({ host: env.GHE_HOST, token: env.GHE_TOKEN });
     const v = await viewer(g);
@@ -130,9 +139,8 @@ if (onGithub && !env.GHE_ORG && env.GHE_TOKEN) {
   } catch {}
 }
 // No org set: the setup page says to set one. No GHE login: the setup page says how, until there is one.
-if (!env.GHE_ORG)
-  await serveSetup({
-    ...setup,
+if (!withoutCodeHost && !env.GHE_ORG)
+  await waitForSetup({
     problem: { kind: "org", host: env.GHE_HOST },
     onSaveOwners: async (owners) => {
       const cur = await loadConfig(db.DB);
@@ -149,8 +157,10 @@ await keys.read();
 for (const [k, id] of Object.entries({ TERMINAL: "TERMINAL", DOCKER: "DOCKER", STATS: "HISTORY", REVIEWS: "REVIEWS" })) if (packEnv[k]) console.warn(`${k} isn't read any more: use PACK_${id}=off`);
 const loaded = await loadPacks(env.PACKS, packEnv);
 // GitHub as the forge needs a login: the setup page says how, until there is one. Another forge's pack asks for its own.
-const gheToken = !onGithub ? undefined : (env.GHE_TOKEN ?? (await serveSetup({ ...setup, problem: { kind: "login", host: env.GHE_HOST }, check: async () => !!loadEnv().GHE_TOKEN })));
-const ghe = gheToken ? createGhe({ host: env.GHE_HOST, token: gheToken }) : missingGhe(env.GHE_HOST, `GitHub isn't this instance's forge (FORGE=${forgeId}).`);
+if (!withoutCodeHost && onGithub && !env.GHE_TOKEN)
+  await waitForSetup({ problem: { kind: "login", host: env.GHE_HOST }, check: async () => !!loadEnv().GHE_TOKEN });
+const gheToken = onGithub ? env.GHE_TOKEN : undefined;
+const ghe = gheToken ? createGhe({ host: env.GHE_HOST, token: gheToken }) : missingGhe(env.GHE_HOST, onGithub ? "GitHub isn't connected." : `GitHub isn't this instance's forge (FORGE=${forgeId}).`);
 const forge = pickForge(env.FORGE, loaded.packs, () => githubForge(ghe), packEnv);
 // Who I am on GHE, kept from last time so starting doesn't wait on GHE; asked again meanwhile.
 const viewerFile = join(dataDir, "viewer.json");
@@ -162,34 +172,35 @@ const kept = ((): { login: string; name?: string | null } | undefined => {
     return undefined;
   }
 })();
-const asked = forge.viewer().then((v) => {
-  writeFileSync(viewerFile, JSON.stringify({ login: v.login, name: v.name ?? null }));
-  return v;
-});
-// Never seen who I am and GHE doesn't answer (VPN, an expired login): the setup page, until it does.
-const me =
-  kept ??
-  (await asked.catch((e) =>
-    serveSetup({
-      ...setup,
+let me: typeof kept;
+if (!withoutCodeHost) {
+  const asked = forge.viewer().then((v) => {
+    writeFileSync(viewerFile, JSON.stringify({ login: v.login, name: v.name ?? null }));
+    return v;
+  });
+  // Never seen who I am and GHE doesn't answer (VPN, an expired login): show setup.
+  me = kept ?? await asked.catch(async (e) => {
+    await waitForSetup({
       problem: { kind: "unreachable", host: forge.host || env.GHE_HOST, error: String((e as Error)?.message ?? e) },
       check: async () => {
         if (!onGithub) return !!(await forge.viewer()).login;
         const token = loadEnv().GHE_TOKEN;
         return !!token && !!(await viewer(createGhe({ host: env.GHE_HOST, token }))).login;
       },
-    }),
-  ));
-if (kept)
-  asked.then(
-    (v) => {
-      // Signed in as someone else now: start again as them.
-      if (!env.GHE_LOGIN && v.login !== kept.login) process.exit(75);
-    },
-    (e) => console.error(`${forge.name} didn't say who I am:`, (e as Error).message),
-  );
-const login = env.GHE_LOGIN ?? me.login;
-const name = me.name?.split(/\s+/)[0] || login;
+    });
+    return undefined;
+  });
+  if (kept)
+    asked.then(
+      (v) => {
+        // Signed in as someone else now: start again as them.
+        if (!env.GHE_LOGIN && v.login !== kept.login) process.exit(75);
+      },
+      (e) => console.error(`${forge.name} didn't say who I am:`, (e as Error).message),
+    );
+}
+const login = withoutCodeHost ? localLogin : (env.GHE_LOGIN ?? me?.login ?? localLogin);
+const name = me?.name?.split(/\s+/)[0] || login;
 
 // The agent CLIs this machine has: only those are offered, polled and used (src/tools.ts).
 useFoundModels(foundModels());
@@ -243,10 +254,9 @@ const packModel = sumVia === "claude" && claude ? claudeCli({ bin: claude.bin, p
 // The refresher keeps the snapshot fresh; pages only read it, and never wait for GHE when there's one to show.
 let gathered = (_s: Snapshot) => {};
 // What the climb was told: the gather reads where code lives from it (#421), the app the rest.
-const onboarding = onboardingStore(db.DB);
 const gatherer = createGatherer({
   env, forge, login, name, ttlMs: 10 * 60_000,
-  none: () => noCodeHost(onboarding.get()),
+  none: () => withoutCodeHost || noCodeHost(onboarding.get()),
   // The PRs the agents' sessions link: their state and title come with the gather.
   linked: () => packLinked(),
   store: snapshotStore(join(dataDir, "snapshot.json"), SNAPSHOT_SHAPE),
@@ -459,7 +469,7 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   // A pack's picture for the starting page (written next to it, read at the next start).
   onboarding,
   // The greeting's name without a forge (#421): this machine's user.
-  localName: firstNameOf(userInfo().username),
+  localName: firstNameOf(localLogin),
   startPicture: (svg) => writeFileSync(join(dataDir, "start-picture.svg"), svg),
   // What packs ask once I allow them (#466); through Claude Code, small is Haiku and large Sonnet.
   ...(packModel ? { ai: { complete: packModel, via: AI_ROUTE_NAMES[sumVia], ...(sumVia === "claude" ? { models: { small: "haiku", large: "sonnet" } } : {}) } } : {}),
@@ -494,7 +504,7 @@ const app = createApp({ ...env, DB: db.DB, LAUNCH_TOKEN: launch }, {
   asks,
   prewarm: true,
   panes: on,
-  config: { panes, stored: config },
+  config: { panes, stored: config, ...(withoutCodeHost ? { codeHostRestart: supervised ? "automatic" : "manual" } as const : {}) },
   // Exit code 75 tells the supervisor (`dovre supervise`, launcher/) to start it again straight away.
   restart: () => {
     refresher.stop();
@@ -525,16 +535,21 @@ process.on("exit", () => {
     unlinkSync(upFile);
   } catch {}
 });
-serve({ fetch: app.fetch, port, hostname: listenHost }, (info) => {
+const listening = (boundPort: number) => {
   try {
     writeFileSync(upFile, `window.dovreUp = ${Date.now()};
 `);
   } catch {}
-  console.log(`dovre on http://127.0.0.1:${info.port} as ${login}`);
-  console.log(`login:   ${maskedLogin(`http://127.0.0.1:${info.port}`)}`);
+  console.log(`dovre on http://127.0.0.1:${boundPort} as ${login}`);
+  console.log(`login:   ${maskedLogin(`http://127.0.0.1:${boundPort}`)}`);
   if (publicOrigin) console.log(`public:  ${publicOrigin} (PUBLIC_ORIGIN): keep a sign-in in front of it`);
-  if (listenHost !== "127.0.0.1") console.log(`listening on ${listenHost}:${info.port} (LISTEN_HOST): publish this port to loopback only`);
-});
+  if (listenHost !== "127.0.0.1") console.log(`listening on ${listenHost}:${boundPort} (LISTEN_HOST): publish this port to loopback only`);
+};
+if (showCockpit) {
+  listening(showCockpit(app.fetch));
+} else {
+  serve({ fetch: app.fetch, port, hostname: listenHost }, (info) => listening(info.port));
+}
 
 // Agent runs are this process's children: stop them with it, so nothing keeps editing a repo unseen.
 for (const signal of ["SIGINT", "SIGTERM"] as const)

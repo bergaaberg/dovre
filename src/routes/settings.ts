@@ -55,7 +55,7 @@ const apis = new WeakMap<App, SettingsApi>();
 /** A built app's settings, for what proposes a change (Bino's card) and for tests. */
 export const settingsOf = (app: App) => apis.get(app);
 
-export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet"> & { /** Bino answers here: About offers "Set up with Bino" (#94). */ binoOn?: () => boolean }) {
+export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publicOrigin" | "refreshes" | "env" | "deps" | "hosted" | "packs" | "ctxOf" | "packLog" | "shown" | "layout" | "onboarding" | "noForge" | "page" | "noStore" | "setupOf" | "setupLeft" | "speed" | "ghe" | "forge" | "clicks" | "aiStore" | "aiAsk" | "keyPrefs" | "openUrl" | "held" | "hidden" | "packIds" | "envSeen" | "bindingsSeen" | "packCards" | "packRings" | "packStats" | "runPackRefresh" | "instanceRepo" | "opening" | "releases" | "packsGet"> & { /** Bino answers here: About offers "Set up with Bino" (#94). */ binoOn?: () => boolean }) {
   const { packThemes, publicOrigin, refreshes, env, deps, hosted, packs, ctxOf, packLog, shown, layout, onboarding, page, noStore, setupOf, setupLeft, speed, ghe, forge, clicks, aiStore, aiAsk, keyPrefs, openUrl, held, hidden, packIds, envSeen, bindingsSeen, packCards, packRings, packStats, runPackRefresh, instanceRepo, opening, releases, packsGet } = s;
   // ── Settings: what's here, the panes (src/config.ts), notifications ──
   let saved = false;
@@ -88,18 +88,21 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       repos: listRepos(env.CODE_DIR).length,
       publicOrigin,
     });
-  /** Kept, then (under the supervisor) Dovre starts again with it. */
-  const keep = async (config: Config) => {
-    await saveConfig(env.DB, config);
-    deps.config!.stored = config;
+  const restartSoon = () => {
     if (!deps.restart) return false;
     restarting = startedAt;
     setTimeout(() => deps.restart?.(), 300);
     return true;
   };
+  /** Kept, then (under the supervisor) Dovre starts again with it. */
+  const keep = async (config: Config) => {
+    await saveConfig(env.DB, config);
+    deps.config!.stored = config;
+    return restartSoon();
+  };
   /** What the Work form shows: what Settings keeps, and what .dev.vars or the environment fixes. */
   /** Where code lives (#421), as Settings → Work shows it. */
-  const codeHostNow = () => ({ forge: forge.name, none: noCodeHost(onboarding.get()) });
+  const codeHostNow = () => ({ forge: forge.name, none: noCodeHost(onboarding.get()), restart: deps.config?.codeHostRestart });
   const panesView = () => {
     if (!deps.config) return undefined;
     const fixed = fixedKeys();
@@ -118,7 +121,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
       const n = packNow.filter((x) => x.id.startsWith(`${pack.manifest.id}-`)).length;
       return n > 1 ? `${pack.manifest.name} · ${id.slice(pack.manifest.id.length + 1)}` : pack.manifest.name;
     };
-    const none = codeHostNow().none;
+    const none = s.noForge();
     const placed = (id: string, col: "left" | "right", order: number) => ({ col: l.cards?.[id]?.col ?? col, order: l.cards?.[id]?.order ?? order });
     return {
       layout: l,
@@ -547,6 +550,7 @@ export function settingsRoutes(app: App, s: Pick<AppScope, "packThemes" | "publi
     await logAction(env.DB, { kind: "settings.codeHost", target: "work", detail: host === "none" ? "Code lives on: None" : `Code lives on: ${forge.name}`, ok: true }).catch(() => {});
     deps.gatherer.stale();
     saved = true;
+    if (host === "forge" && deps.config?.codeHostRestart === "automatic") restartSoon();
     return c.redirect("/settings/work#code-host", 303);
   });
   /** The Work form: kept, then Dovre starts again with it (under the supervisor). */
