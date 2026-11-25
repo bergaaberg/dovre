@@ -44,7 +44,7 @@ export type ClimbView = {
   machine?: { kind: "local"; dir?: string; checkouts: number; found: { marker: string; n: number; packs: string[] }[] } | { kind: "hosted"; handle: string; online?: string };
   question?: { q: Question; chosen: string[] };
   kit?: { suggested: KitTile[]; rest: KitTile[]; needs: { id: string; name: string; keys: string[] }[] };
-  summit?: { on: string[]; later: { id: string; name: string; steps: string[] }[]; waits: boolean; restarts: boolean; /** Bino answers here: "Carry on with Bino" (#94). */ bino?: boolean };
+  summit?: { on: string[]; later: { id: string; name: string; steps: string[] }[]; waits: boolean; restarts: boolean; manualRestart?: boolean; /** Bino answers here: "Carry on with Bino" (#94). */ bino?: boolean };
 };
 
 const arrow = html`<span aria-hidden="true">→</span>`;
@@ -145,6 +145,7 @@ function summit(v: ClimbView) {
   return html`${top(v.step)}${eyebrow(v.step)}
 <h2>You made it.</h2>
 <p class="climb-lede">${n} flag${n === 1 ? "" : "s"} on the ridge. Today's ready${s.restarts ? " once Dovre restarts, in a few seconds" : ""}.</p>
+${s.manualRestart ? html`<p class="climb-small">Open Today to save your changes, then restart Dovre to apply them.</p>` : ""}
 ${s.waits ? html`<p class="climb-small">What runs on your laptop waits for it.</p>` : ""}
 ${s.later.length ? html`<div class="climb-card"><h3>A little more, when you get there</h3><p class="climb-small">These packs have a short setup of their own. Each one ends on the next, and Today lists them until they're done.</p><ul class="climb-later">${s.later.map((l) => html`<li><a href="/setup/${l.id}"><b>${l.name}</b></a> · ${l.steps.join(", ").toLowerCase()}</li>`)}</ul></div>` : ""}
 <div class="climb-row"><form method="post" action="/welcome/done">${

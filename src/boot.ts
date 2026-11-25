@@ -34,10 +34,13 @@ export function launchToken(dataDir: string, pinned?: string): string {
 /** The login URL with the token hidden, for the log. */
 export const maskedLogin = (base: string) => `${base}/login?tk=… (run \`dovre\`, or the token in data/launch-token)`;
 
+type ShowCockpit = (fetch: (request: Request) => Response | Promise<Response>) => number;
+
 /**
  * Serves the setup page until GHE works, looking again every `everyMs`. When it does: exit 75
  * under the supervisor (it starts the real server at once), else say so on the page.
- * Never resolves: the start stops here.
+ * If the user chooses to continue without a code host, startup resumes with the listener
+ * already open. Swap in the cockpit once it's ready, so the browser can keep polling.
  */
 export async function serveSetup(o: {
   problem: SetupProblem;
@@ -49,6 +52,7 @@ export async function serveSetup(o: {
   check: () => Promise<boolean>;
   discoveredOwners?: string[];
   onSaveOwners?: (owners: string) => Promise<void> | void;
+  onNoCodeHost?: () => Promise<void>;
   everyMs?: number;
   supervised?: boolean;
   /** PUBLIC_ORIGIN, checked (src/access.ts). */
@@ -58,35 +62,55 @@ export async function serveSetup(o: {
   exit?: (code: number) => void;
   /** Stops it (tests). */
   signal?: AbortSignal;
-}): Promise<never> {
+}): Promise<ShowCockpit> {
   const state: SetupState = { discoveredOwners: o.discoveredOwners };
   const look = async () => {
+    if (state.withoutCodeHost) return;
     state.lookedAt = Date.now();
-    if (!(await o.check().catch(() => false))) return;
+    if (!(await o.check().catch(() => false)) || state.withoutCodeHost) return;
     if (o.supervised) (o.exit ?? process.exit)(75);
     else state.ready = true;
   };
+  const next = Promise.withResolvers<ShowCockpit>();
   const app = setupApp({
     problem: o.problem,
     token: o.token,
     info: { version: o.version, startedAt: Date.now() },
     state: () => state,
     onSaveOwners: o.onSaveOwners,
+    onNoCodeHost: o.onNoCodeHost && (async () => {
+      if (state.withoutCodeHost) return;
+      state.withoutCodeHost = true;
+      try {
+        await o.onNoCodeHost!();
+      } catch (e) {
+        state.withoutCodeHost = false;
+        throw e;
+      }
+      clearInterval(timer);
+      next.resolve((cockpit) => {
+        fetch = cockpit;
+        return boundPort;
+      });
+    }),
     onWake: look,
     publicOrigin: o.publicOrigin,
   });
+  let fetch: (request: Request) => Response | Promise<Response> = app.fetch;
+  let boundPort = o.port;
   const up = join(o.dataDir, `up-${o.port}.js`);
-  const server = serve({ fetch: app.fetch, port: o.port, hostname: o.listenHost ?? "127.0.0.1" }, () => {
+  const server = serve({ fetch: (request) => fetch(request), port: o.port, hostname: o.listenHost ?? "127.0.0.1" }, ({ port }) => {
+    boundPort = port;
     try {
       mkdirSync(dirname(up), { recursive: true });
       writeFileSync(up, `window.dovreUp = ${Date.now()};\n`);
     } catch {}
-    console.error(o.problem.kind === "org" ? "No GHE_ORG set: name it in .dev.vars or on http://127.0.0.1:" + o.port + ". Showing the setup page." : o.problem.kind === "login" ? `No GHE login: run \`gh auth login --hostname ${o.problem.host}\` or sign in on http://127.0.0.1:${o.port}. Showing the setup page.` : `GHE didn't answer (${o.problem.error ?? "?"}). Showing the setup page.`);
+    console.error(o.problem.kind === "org" ? "No GHE_ORG set: name it in .dev.vars or on http://127.0.0.1:" + port + ". Showing the setup page." : o.problem.kind === "login" ? `No GHE login: run \`gh auth login --hostname ${o.problem.host}\` or sign in on http://127.0.0.1:${port}. Showing the setup page.` : `GHE didn't answer (${o.problem.error ?? "?"}). Showing the setup page.`);
   });
   const timer = setInterval(() => void look(), o.everyMs ?? 10_000);
   o.signal?.addEventListener("abort", () => {
     clearInterval(timer);
     server.close();
   });
-  return new Promise<never>(() => {});
+  return next.promise;
 }

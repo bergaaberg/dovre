@@ -11,7 +11,6 @@ import { packProposals } from "../actions/propose.ts";
 import type { App, AppEnv } from "../env.ts";
 import { packFeedOf } from "../home/feed.ts";
 import { sinceRows } from "../home/since.ts";
-import { noCodeHost } from "../onboarding.ts";
 import { dockShell, html, shell } from "../html.ts";
 import { RING_KINDS, rings } from "../notify.ts";
 import { ownersIn, owns } from "../owners.ts";
@@ -58,7 +57,7 @@ function hashBytes(b: Uint8Array): string {
 }
 
 /** What createApp hands over: its state (src/routes/scope.ts), and what it makes after the packs, asked for when used. */
-export type MountOpts = Pick<AppScope, "env" | "deps" | "hosted" | "ghe" | "forge" | "asks" | "layout" | "onboarding" | "page" | "publicOrigin"> & {
+export type MountOpts = Pick<AppScope, "env" | "deps" | "hosted" | "ghe" | "forge" | "asks" | "layout" | "onboarding" | "noForge" | "page" | "publicOrigin"> & {
   /** Bino is answering somewhere (the pulse's `busy`). */
   thinking(): boolean;
   /** A pack's settings read again, and it on or off by them (src/routes/settings.ts). */
@@ -70,7 +69,7 @@ export type MountOpts = Pick<AppScope, "env" | "deps" | "hosted" | "ghe" | "forg
 };
 
 export function mountPacks(app: App, o: MountOpts) {
-  const { env, deps, hosted, ghe, forge, asks, layout, onboarding, page, publicOrigin } = o;
+  const { env, deps, hosted, ghe, forge, asks, layout, onboarding, noForge, page, publicOrigin } = o;
   const { gatherer } = deps;
   // What packs may read from the owners' repos (#139): checked and kept a few minutes, shared by every pack.
   const reads = packReads(forge, () => ownersIn(env), { shared: d1Reads(env.DB) });
@@ -280,7 +279,7 @@ export function mountPacks(app: App, o: MountOpts) {
   // What requires a pack that just went off goes off with it (#326).
   settleRequires(packs);
   /** Switched off on the Packs page, needs a code host there isn't (#421), or requires a pack that is (#326). */
-  const held = () => heldOff(packs.on, layout.get().packsOff ?? [], { noForge: noCodeHost(onboarding.get()) });
+  const held = () => heldOff(packs.on, layout.get().packsOff ?? [], { noForge: noForge() });
   const hidden = (id: string) => held().has(id);
   const shown = () => packs.on.filter((c) => !hidden(c.manifest.id));
   /**
