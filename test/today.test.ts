@@ -75,6 +75,14 @@ test("the briefing says what needs me in sentences, the packs' between deploys a
   });
   const app = [{ text: "one agent", href: "#agents", tone: "warn" as const }, " wants your OK for ", { text: "", href: "", code: "dotnet test" }, "."];
   assert.equal(text(lede(s, [app])), "Two deploys wait for your approval. One agent wants your OK for `dotnet test`. The build is red on shop-api main. Two PRs have red builds. No reviews waiting.");
+  const compact = snapshot({
+    ...s,
+    prs: { ok: true, value: { mine: [pr({ repo: "ACME/shop-api", branch: "main", checks: "FAILURE" }), pr({ number: 2, branch: "other", checks: "ERROR" })], review: [pr()] } },
+  });
+  assert.equal(
+    text(lede(compact, [app, [], ["Support tickets are waiting."], ["A third pack has news."]], { compact: true })),
+    "Two deploys wait for your approval. One agent wants your OK for `dotnet test`. Support tickets are waiting. The build is red on shop-api main. One PR has a red build.",
+  );
   assert.equal(text(lede(snapshot(), [app])), "One agent wants your OK for `dotnet test`. No reviews waiting.", "a pack's sentence is something that needs me");
   assert.equal(text(lede(snapshot())), "Nothing needs you. No reviews waiting.");
   assert.match(text(lede(snapshot({ prs: { ok: true, value: { mine: [], review: [pr()] } } }))), /One review waits on you\./);

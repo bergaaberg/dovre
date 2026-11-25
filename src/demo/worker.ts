@@ -207,6 +207,8 @@ type DemoFixtures = {
 
 type DemoOpts = {
   version?: string;
+  /** Show a shorter briefing and up to four glance numbers on Today. */
+  compactToday?: boolean;
   /** More writes to let through, beyond asking Bino (isAllowedDemoWrite). Every other non-GET stays 403. */
   allowWrite?: (req: Request) => boolean;
   /** The fixed layout (default: tabs PRs, Agents, Deploys). */
@@ -273,6 +275,7 @@ export function createDemoWorker(opts: DemoOpts = {}) {
     app = createApp(env, {
       gatherer,
       ghe,
+      compactToday: opts.compactToday,
       // GitHub as the pages name it; packs read nothing from it (no `work`): the avatar keeps its starting shape.
       forge: { id: "github", name: "GitHub", can: FORGE_CAN, host },
       // The demo is past the first run: Today, not the climb.
