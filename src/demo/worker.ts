@@ -104,6 +104,8 @@ function describeTarget(path: string): string {
   return clean || "this link";
 }
 
+const demoLinks = html`<a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/pricing/">Try Dovre Cloud</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a>`;
+
 /** The bar on every page that says what this is, and the splash route for external links. */
 const demoPack = (): Pack => ({
   manifest: {
@@ -115,7 +117,7 @@ const demoPack = (): Pack => ({
     paths: ["elsewhere", "read-only"],
   },
   banner: () =>
-    html`<div class="notice accent"><div><p><strong>This is a demo.</strong> The repos, people and agents are made up, and nothing you click changes anything. <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a>.</p></div></div>`,
+    html`<div class="notice accent"><div><p><strong>This is a demo.</strong> The repos, people and agents are made up, and nothing you click changes anything. ${demoLinks}</p></div></div>`,
   routes(app, ctx) {
     const splash = async (c: Context<AppEnv>) => {
       const raw = c.req.path.replace(/^\/elsewhere\/?/, "");
@@ -143,7 +145,7 @@ const demoPack = (): Pack => ({
           children: html`
             <div class="empty">
               <p>On your own Dovre this opens <strong>${label}</strong> on ${site}. This is a demo, so it stops here.</p>
-              <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
+              <p><a href="${backHref}">Back to the demo</a> · ${demoLinks}</p>
             </div>
           `,
         })}
@@ -162,7 +164,7 @@ const demoPack = (): Pack => ({
           children: html`
             <div class="empty">
               <p>${whyReadOnly(c.req.query("did") ?? "")}</p>
-              <p><a href="${backHref}">Back to the demo</a> · <a href="https://dovre.dev/">← dovre.dev</a> · <a href="https://dovre.dev/docs/">Run your own Dovre</a></p>
+              <p><a href="${backHref}">Back to the demo</a> · ${demoLinks}</p>
             </div>
           `,
         })}
