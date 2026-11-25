@@ -54,21 +54,25 @@ export function isoWeek(at: number, tz: string = currentTz()): number {
  * What needs me, as sentences made of bits: deploys waiting, then what the packs say (`briefs`,
  * one sentence each), then red builds. Empty days say so.
  */
-export function lede(s: Snapshot, briefs: Bit[][] = [], o: { /** The closing line on reviews; false without a code host (#421). */ reviews?: boolean } = {}): Bit[][] {
+export function lede(s: Snapshot, briefs: Bit[][] = [], o: { /** The closing line on reviews; false without a code host (#421). */ reviews?: boolean; compact?: boolean } = {}): Bit[][] {
   const deploys = s.deploys.ok ? s.deploys.value.filter((d) => {
     const log = s.changelogs.get(d.id);
     return !(log?.ok && log.value.prodSha && !log.value.changes.length);
   }) : [];
-  const red = s.prs.ok ? s.prs.value.mine.filter((p) => p.checks === "FAILURE" || p.checks === "ERROR") : [];
+  // A branch with several failing workflows is named once.
+  const byBranch = new Map(s.red.map((r) => [`${r.repo} ${r.branch}`, r]));
+  const red = s.prs.ok ? s.prs.value.mine.filter((p) =>
+    (p.checks === "FAILURE" || p.checks === "ERROR") && (!o.compact || !byBranch.has(`${p.repo} ${p.branch}`)),
+  ) : [];
   const reviews = s.prs.ok ? s.prs.value.review.length : 0;
   const sentences: Bit[][] = [];
 
   if (deploys.length) sentences.push([{ text: `${word(deploys.length)} ${deploys.length === 1 ? "deploy" : "deploys"}`, href: "/#ship", tone: "warn" }, ` ${deploys.length === 1 ? "waits" : "wait"} for your approval.`]);
-  for (const b of briefs) if (b.length) sentences.push([...b]);
+  const packBriefs = briefs.filter((b) => b.length > 0);
+  for (const b of o.compact ? packBriefs.slice(0, 2) : packBriefs) sentences.push([...b]);
 
   const second: Bit[] = [];
-  // A branch with several failing workflows is named once.
-  const branches = [...new Map(s.red.map((r) => [`${r.repo} ${r.branch}`, r])).values()];
+  const branches = [...byBranch.values()];
   if (branches.length) {
     second.push(branches.length === 1 ? "The build is red on " : "Builds are red on ");
     branches.slice(0, 3).forEach((r, i) => second.push(i ? (i === Math.min(3, branches.length) - 1 ? " and " : ", ") : "", { text: `${r.repo.split("/").pop()} ${r.branch}`, href: r.url, tone: "bad" }));
@@ -78,7 +82,7 @@ export function lede(s: Snapshot, briefs: Bit[][] = [], o: { /** The closing lin
   if (second.length) sentences.push(second);
 
   if (!sentences.length) sentences.push(["Nothing needs you."]);
-  if (o.reviews !== false) sentences.push(reviews ? [{ text: `${cap(word(reviews))} ${reviews === 1 ? "review waits" : "reviews wait"}`, href: "/prs" }, " on you."] : ["No reviews waiting."]);
+  if (!o.compact && o.reviews !== false) sentences.push(reviews ? [{ text: `${cap(word(reviews))} ${reviews === 1 ? "review waits" : "reviews wait"}`, href: "/prs" }, " on you."] : ["No reviews waiting."]);
   // Each sentence starts with a capital, even when it starts with a link.
   for (const sentence of sentences) {
     const i = sentence.findIndex((b) => (typeof b === "string" ? b.length > 0 : true));
