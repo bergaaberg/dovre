@@ -120,6 +120,30 @@ test("a product owner skips the machine; a new role forgets the old answers", as
   assert.doesNotMatch(q0, /checked/);
 });
 
+test("with no code host the kit holds forge packs, excludes their old picks, and preserves their switches", async () => {
+  const { get, post, db } = signedIn(snapshot());
+  await post("/welcome/role", { role: "po", forge: "github" });
+  await post("/welcome/packs", "pack=prs&pack=todo");
+  await post("/welcome/role", { role: "po", forge: "none" });
+
+  const kit = await (await get("/welcome?at=packs")).text();
+  assert.match(kit, /value="prs" disabled><b>Pull requests<\/b><small>[^<]*<\/small><span class="climb-no">Needs a code host<\/span>/i);
+  assert.match(kit, /value="todo" checked>/);
+  assert.match(await (await get("/welcome?at=summit")).text(), /1 flag on the ridge/);
+
+  await post("/welcome/packs", "pack=prs&pack=deploys&pack=todo");
+  const saved = onboardingStore(db.DB);
+  await saved.ready;
+  assert.deepEqual(saved.get().picked, ["todo"]);
+  await post("/welcome/done", {});
+  // The code host was unavailable; saving the kit shouldn't switch its packs off permanently.
+  const off = (await layoutOf(db)).packsOff as string[];
+  assert.ok(!off.includes("prs") && !off.includes("deploys"));
+  assert.equal((await get("/prs")).status, 404);
+  await post("/settings/work/code-host", { host: "forge" });
+  assert.equal((await get("/prs")).status, 200);
+});
+
 test("a refused folder or owner isn't kept, and says so", async () => {
   const config = { panes: panesOf({}, all), stored: {} as Record<string, string> };
   const { get, post, db } = signedIn(snapshot(), {}, { config });
